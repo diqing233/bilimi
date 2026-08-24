@@ -1198,6 +1198,49 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: '移出同步 bilimi·暂存' })).toBeDisabled()
   })
 
+  it('changes the active round selection in one batch without persisting global enabled preferences', async () => {
+    const save = vi.fn()
+    const saveEnabled = vi.fn()
+    const roundSelection = vi.fn().mockResolvedValue(true)
+    render(<FavoriteLedgerOverview
+      organizationActive
+      ledgers={[
+        { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false },
+        { id: 'tech', displayName: 'bilimi·科技', keywords: [], enabled: true, priority: 20, isDefault: false }
+      ]}
+      missingLedgerIds={[]}
+      onSaveLedgers={save}
+      onSaveLedgerEnabled={saveEnabled}
+      organizationSavedLedgerEnabledById={new Map([['music', true], ['tech', true]])}
+      onOrganizationSavedLedgerSelectionChange={roundSelection}
+    />)
+
+    fireEvent.click(screen.getByTestId('favorite-ledger-cancel-all'))
+
+    expect(roundSelection).toHaveBeenCalledWith([])
+    expect(save).not.toHaveBeenCalled()
+    expect(saveEnabled).not.toHaveBeenCalled()
+  })
+
+  it('keeps a round-locked default selected when bulk cancellation excludes saved rules', () => {
+    const roundSelection = vi.fn().mockResolvedValue(true)
+    render(<FavoriteLedgerOverview
+      organizationActive
+      ledgers={[
+        { id: 'knowledge', displayName: 'bilimi·知识', keywords: [], enabled: true, priority: 10, isDefault: true },
+        { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 20, isDefault: false }
+      ]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+      organizationSavedLedgerEnabledById={new Map([['knowledge', true], ['music', true]])}
+      onOrganizationSavedLedgerSelectionChange={roundSelection}
+    />)
+
+    fireEvent.click(screen.getByTestId('favorite-ledger-cancel-all'))
+
+    expect(roundSelection).toHaveBeenCalledWith(['knowledge'])
+  })
+
   it('shows disabled and unsaved state in the ledger name while retaining a disabled plus action', () => {
     render(<FavoriteLedgerOverview
       defaultFavoriteSystemEnabled={false}

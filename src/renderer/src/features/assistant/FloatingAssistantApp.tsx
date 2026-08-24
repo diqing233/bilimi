@@ -5043,7 +5043,8 @@ export function FloatingAssistantApp({
   }
 
   async function saveFavoriteLedgerRules(
-    favoriteLedgers: AssistantPreferences['favoriteLedgers']
+    favoriteLedgers: AssistantPreferences['favoriteLedgers'],
+    options?: FavoriteLedgerSaveOptions
   ) {
     const mutationId = ++favoriteLedgerRuleMutationIdRef.current
     const accountMid = resolvedSnapshot.accountMid
@@ -5095,13 +5096,6 @@ export function FloatingAssistantApp({
       ...currentOverrides,
       [accountMid]: enabled
     }))
-    void window.bilimiDesktop?.commandOldFavoriteWorkspaceV1?.(
-      accountMid,
-      { type: 'reclassify-favorite-configuration' }
-    ).catch(() => {
-      setGlobalFeedback('默认收藏夹设置已保存，但后台重分类失败；下次打开整理旧藏时会重新计算。')
-      tellPet('error', '默认收藏夹设置已保存，但后台重分类这次没有完成。')
-    })
   }
 
   function setTranscriptionModelForCurrentAccount(transcriptionModelId: TranscriptionModelId) {

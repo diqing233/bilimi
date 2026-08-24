@@ -76,6 +76,42 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:open', 8, '100')).rejects.toThrow('untrusted')
   })
 
+  it('returns a read-only Bilibili backup preflight only for the trusted current account', async () => {
+    const ipcMain = new FakeIpcMain()
+    const preflight = {
+      accountMid: '100', workspaceId: 'workspace-1',
+      missingLedgers: [{ logicalLedgerId: 'honker233', logicalTitle: 'bilimi·honker233', reason: 'unbacked' as const }],
+      requiredPhysicalShards: [{ logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 2, requiredAssignmentCount: 2 }]
+    }
+    const coordinator = { getBilibiliExecutionPreflight: vi.fn().mockResolvedValue(preflight) }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: (id) => id === 7,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:bilibili-execution-preflight', 7, '00100')).resolves.toEqual(preflight)
+    expect(coordinator.getBilibiliExecutionPreflight).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:bilibili-execution-preflight', 7, '100', { forged: true }))
+      .rejects.toThrow('arguments are invalid')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:bilibili-execution-preflight', 8, '100')).rejects.toThrow('untrusted')
+  })
+
+  it('provisions only the current trusted preflight without accepting renderer shard targets', async () => {
+    const ipcMain = new FakeIpcMain()
+    const provision = vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', missingLedgers: [], requiredPhysicalShards: [] })
+    const coordinator = { provisionBilibiliExecutionPreflightShards: provision }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:provision-bilibili-execution-preflight-shards', 7, '100'))
+      .resolves.toMatchObject({ missingLedgers: [], requiredPhysicalShards: [] })
+    expect(provision).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:provision-bilibili-execution-preflight-shards', 7, '100', [{ shardNumber: 2 }]))
+      .rejects.toThrow('arguments are invalid')
+  })
+
   it('routes an explicit scan-pause command through the scan service', async () => {
     const ipcMain = new FakeIpcMain()
     const scanning = { ...snapshot, status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0, paused: true } }

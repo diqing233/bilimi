@@ -94,6 +94,7 @@ type Overlay = {
   currentSegmentId: string
   classifications: Classification[]
   history: History[]
+  excludedLedgerIds?: string[]
   recommendations?: {
     initialized?: boolean
     candidates?: Recommendation[]
@@ -143,7 +144,14 @@ function normalizeTagVersions(value: Record<string, number> | undefined) {
   )) as Record<string, number>
 }
 
-type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history'>
+type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history' | 'excludedLedgerIds'>
+
+function normalizeExcludedLedgerIds(value: unknown): string[] {
+  return Array.isArray(value)
+    ? [...new Set(value.filter((id): id is string => typeof id === 'string')
+      .map((id) => id.trim()).filter(Boolean))].sort()
+    : []
+}
 type Manifest = {
   version: 1
   workspaceId: string
@@ -640,11 +648,17 @@ export class OldFavoriteWorkspaceStore {
       let executionIntent: OldFavoriteWorkspaceExecutionIntent | undefined
       let overview: Overlay['overview'] | undefined
       let inventoryMetrics: OldFavoriteInventoryMetricProjection | undefined
+      let excludedLedgerIds: string[] = []
       const overlayHistory: OverlayHistory[] = []
       let planReadiness = { selectedAidCount: 0, classifiedAidCount: 0 }
       for (const line of committedJournal.split('\n').filter(Boolean)) {
         const overlay = JSON.parse(line) as Overlay
-        overlayHistory.push({ currentSegmentId: overlay.currentSegmentId, history: overlay.history.map(clone) })
+        overlayHistory.push({
+          currentSegmentId: overlay.currentSegmentId,
+          history: overlay.history.map(clone),
+          ...(overlay.excludedLedgerIds !== undefined ? { excludedLedgerIds: normalizeExcludedLedgerIds(overlay.excludedLedgerIds) } : {})
+        })
+        if (overlay.excludedLedgerIds !== undefined) excludedLedgerIds = normalizeExcludedLedgerIds(overlay.excludedLedgerIds)
         for (const item of overlay.classifications) classifications[String(item.aid)] = clone(item)
         history.push(...overlay.history.map(clone))
         if (overlay.recommendations?.candidates) {
@@ -815,6 +829,7 @@ export class OldFavoriteWorkspaceStore {
         ,executionIntent
         ,inventoryMetrics
         ,overview
+        ,excludedLedgerIds
         ,tagEnrichment, tagAdoption, tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags }))
       }
     } catch {
@@ -941,7 +956,11 @@ export class OldFavoriteWorkspaceStore {
       if (typeof overlay.currentSegmentId !== 'string' || !Array.isArray(overlay.history)) {
         throw new Error('Old favorite workspace journal is invalid.')
       }
-      return { currentSegmentId: overlay.currentSegmentId, history: overlay.history.map(clone) }
+      return {
+        currentSegmentId: overlay.currentSegmentId,
+        history: overlay.history.map(clone),
+        ...(overlay.excludedLedgerIds !== undefined ? { excludedLedgerIds: normalizeExcludedLedgerIds(overlay.excludedLedgerIds) } : {})
+      }
     })
   }
 
@@ -1027,10 +1046,12 @@ export class OldFavoriteWorkspaceStore {
     let deepSeekRunCheckpoint: Overlay['deepSeekRunCheckpoint']
     let executionIntent: Overlay['executionIntent']
     let inventoryMetrics: OldFavoriteInventoryMetricProjection | undefined
+    let excludedLedgerIds: string[] = []
 
     for (const raw of committed.split('\n').filter(Boolean)) {
       const overlay = JSON.parse(raw) as Overlay
       currentSegmentId = overlay.currentSegmentId
+      if (overlay.excludedLedgerIds !== undefined) excludedLedgerIds = normalizeExcludedLedgerIds(overlay.excludedLedgerIds)
       for (const classification of overlay.classifications) classifications.set(classification.aid, clone(classification))
       if (overlay.history.length) {
         historyOverlays.push({ currentSegmentId: overlay.currentSegmentId, classifications: [], history: overlay.history.map(clone) })
@@ -1078,6 +1099,7 @@ export class OldFavoriteWorkspaceStore {
       currentSegmentId,
       classifications: [...classifications.values()],
       history: [],
+      ...(excludedLedgerIds.length ? { excludedLedgerIds } : {}),
       ...(hasRecommendations ? { recommendations } : {}),
       ...(planReadiness ? { planReadiness } : {}),
       scanMetadata: {

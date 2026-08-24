@@ -89,6 +89,8 @@ export type DeletedFavoriteLedgerRecord = {
 
 export type FavoriteLedgerSaveOptions = {
   deleteDisabled?: boolean
+  /** Local preference persistence for a scan-indexed recommendation whose workspace command already updated classifications. */
+  recommendationOnly?: boolean
   /** Logical ledgers locked by the current explicit batch-backup click; non-targets stay local only. */
   backupTargetLedgerIds?: FavoriteLedgerId[]
   /** Only an explicit backup may rediscover remote-only drafts deleted locally. */

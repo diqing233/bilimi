@@ -731,6 +731,7 @@ export function buildSaveFavoriteLedgersScript(
   const {
     backupTargetLedgerIds: _backupTargetLedgerIds,
     rediscoverDeletedRemoteDrafts: _rediscoverDeletedRemoteDrafts,
+    recommendationOnly: _recommendationOnly,
     ...remoteSaveOptions
   } = options
   const payload = scriptPayload({

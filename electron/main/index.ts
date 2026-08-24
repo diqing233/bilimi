@@ -775,6 +775,24 @@ function notifyFloatingAssistantSnapshotChanged() {
   sendAssistantSnapshotChangedToTargets([mainWindow, assistant])
 }
 
+/** Local rule changes must refresh the actual preview workspace, never a renderer mirror. */
+async function reclassifyFavoriteWorkspaceIfPreviewing(accountMid: string) {
+  const coordinator = oldFavoriteWorkspaceCoordinator
+  if (!coordinator) return
+  const snapshot = await coordinator.getSnapshot(accountMid)
+  if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return
+  await coordinator.reclassifyForFavoriteConfiguration(accountMid)
+}
+
+/** Remote-only draft projection changes do not alter local classification rules. */
+async function refreshFavoriteWorkspaceRelationshipProjectionIfPresent(accountMid: string) {
+  const coordinator = oldFavoriteWorkspaceCoordinator
+  if (!coordinator) return
+  const snapshot = await coordinator.getSnapshot(accountMid)
+  if (!snapshot || 'recovery' in snapshot) return
+  await coordinator.refreshRelationshipProjection(accountMid)
+}
+
 function moveFloatingSealBy(deltaX: number, deltaY: number) {
   if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
     return
@@ -1287,7 +1305,9 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('assistant:write-favorite-ledger-enabled', async (event, accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) => {
     assertTrustedOldFavoriteAssistantSender(event)
     const patch = await writeFavoriteLedgerEnabled(undefined, accountMid, ledgerId, enabled)
+    await reclassifyFavoriteWorkspaceIfPreviewing(accountMid)
     sendFavoriteLedgerEnabledChanged(patch, meta)
+    notifyFloatingAssistantSnapshotChanged()
     return patch
   })
   ipcMain.handle('assistant:delete-favorite-ledger-draft', async (event, accountMid: unknown, ledgerId: unknown) => {
@@ -1324,6 +1344,7 @@ function registerAssistantPreferenceHandlers() {
       ...(draft?.bilibiliFolderIds ?? [])
     ].map((remoteFolderId) => remoteFolderId?.trim()).filter((remoteFolderId): remoteFolderId is string => Boolean(remoteFolderId)))]
     markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)
+    await refreshFavoriteWorkspaceRelationshipProjectionIfPresent(accountMid)
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     notifyFloatingAssistantSnapshotChanged()
     return { status: 'succeeded' as const, ledgerId }
@@ -1369,6 +1390,7 @@ function registerAssistantPreferenceHandlers() {
       ...(deletedRecords ? { deletedFavoriteLedgerRecords: deletedRecords } : {})
     })
     markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)
+    await reclassifyFavoriteWorkspaceIfPreviewing(accountMid)
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     notifyFloatingAssistantSnapshotChanged()
     return { status: 'succeeded' as const, ledgerIds: removedLedgers.map((ledger) => ledger.id) }
@@ -1392,6 +1414,7 @@ function registerAssistantPreferenceHandlers() {
       favoriteLedgers: [...current.favoriteLedgers, ...restored],
       deletedFavoriteLedgerRecords: records.filter((record) => !ledgerIds.includes(record.logicalLedgerId))
     })
+    await reclassifyFavoriteWorkspaceIfPreviewing(accountMid)
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     notifyFloatingAssistantSnapshotChanged()
     return { status: 'succeeded' as const, ledgerIds: restored.map((ledger) => ledger.id) }
@@ -1433,13 +1456,17 @@ function registerAssistantPreferenceHandlers() {
     notifyFloatingAssistantSnapshotChanged()
     return { status: 'succeeded' as const, ledgerIds: selectedLedgerIds, remoteFolderIds }
   })
-  ipcMain.handle('assistant:write-default-favorite-system-enabled', (event, accountMid: string, enabled: boolean) => {
+  ipcMain.handle('assistant:write-default-favorite-system-enabled', async (event, accountMid: string, enabled: boolean) => {
     assertTrustedOldFavoriteAssistantSender(event)
     const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
-    return saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
+    const saved = saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
       ...current,
       defaultFavoriteSystemEnabled: Boolean(enabled)
-    }).defaultFavoriteSystemEnabled
+    })
+    await reclassifyFavoriteWorkspaceIfPreviewing(accountMid)
+    sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    notifyFloatingAssistantSnapshotChanged()
+    return saved.defaultFavoriteSystemEnabled
   })
   ipcMain.handle('assistant:consume-favorite-ledger-remote-draft-rediscovery-pending', async (event, accountMid: unknown) => {
     assertTrustedOldFavoriteAssistantSender(event)
@@ -2285,6 +2312,23 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       return {
         remoteFolderId,
         ...(ledger.bilibiliFolderTitle?.trim() ? { remoteDisplayTitle: ledger.bilibiliFolderTitle.trim() } : {})
+      }
+    },
+    listSavedEnabledLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+      .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft')
+      .map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
+    resolveSavedLedgerRule: async (accountMid, logicalLedgerId) => {
+      const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+        .find((candidate) => candidate.id === logicalLedgerId && candidate.syncState !== 'local-draft')
+      if (!ledger) return undefined
+      const ruleType = ledger.ruleType ?? 'keyword'
+      if (ruleType === 'deepseek') return undefined
+      return {
+        id: ledger.id,
+        title: ledger.displayName.replace(/^bilimi·/, ''),
+        keywords: [...ledger.keywords],
+        ruleType,
+        enabled: ledger.enabled
       }
     },
     resolveRecoveryConfiguration: (accountMid) => {

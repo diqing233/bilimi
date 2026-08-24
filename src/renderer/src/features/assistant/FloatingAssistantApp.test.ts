@@ -127,7 +127,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(section).toContain('onCommit={persistOldFavoriteBatchSize}')
   })
 
-  it('routes a direct ledger-enabled intent through the narrow IPC without scanning the ledger array', () => {
+  it('persists a direct ledger-enabled save without scanning the ledger array', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const saveFunction = source.slice(
       source.indexOf('async function saveFavoriteLedgerEnabled'),
@@ -142,7 +142,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(saveFunction).not.toContain('applyPreferenceSnapshot')
     expect(saveFunction).not.toContain('setPreferences')
     expect(saveFunction).not.toContain('requestAssistantSnapshot')
-    expect(saveFunction).not.toContain('reclassify-favorite-configuration')
+    expect(saveFunction).not.toContain("{ type: 'reclassify-favorite-configuration' }")
   })
 
   it('passes the direct enabled callback through the isolated ledger panel', () => {
@@ -171,6 +171,23 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(favoriteLedgerReclassificationRequired(null, '100')).toBe(false)
   })
 
+  it('does not use the parent organization snapshot as the rule-directory reclassification gate', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const enabledSave = source.slice(
+      source.indexOf('async function saveFavoriteLedgerEnabled'),
+      source.indexOf('async function saveFavoriteLedgerRules')
+    )
+    const ruleSave = source.slice(
+      source.indexOf('async function saveFavoriteLedgerRules'),
+      source.indexOf('async function setDefaultFavoriteSystemEnabled')
+    )
+
+    expect(enabledSave).not.toContain('favoriteLedgerReclassificationRequired(')
+    expect(ruleSave).not.toContain('favoriteLedgerReclassificationRequired(')
+    expect(enabledSave).not.toContain("type: 'reclassify-favorite-configuration'")
+    expect(ruleSave).not.toContain("type: 'reclassify-favorite-configuration'")
+  })
+
   it('uses the merged preference patch path for ledger saves instead of flushing the full tree', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const saveFunction = source.slice(
@@ -182,7 +199,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(saveFunction).not.toContain('persistPreferences(')
   })
 
-  it('keeps ordinary ledger-rule saves local and reserves remote work for explicit sync', () => {
+  it('persists a saved rule-directory change without starting Bilibili sync', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const saveFunction = source.slice(
       source.indexOf('async function saveFavoriteLedgerRules'),
@@ -195,8 +212,19 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(saveFunction).not.toContain('saveFavoriteLedgers')
     expect(saveFunction).not.toContain('requestAssistantSnapshot')
-    expect(saveFunction).not.toContain('reclassify-favorite-configuration')
+    expect(saveFunction).not.toContain("{ type: 'reclassify-favorite-configuration' }")
     expect(syncFunction).toContain('saveFavoriteLedgers')
+  })
+
+  it('leaves rule-directory reclassification to the workspace owner for every ledger persistence', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgerRules'),
+      source.indexOf('async function setDefaultFavoriteSystemEnabled')
+    )
+
+    expect(saveFunction).not.toContain('options?.recommendationOnly !== true')
+    expect(saveFunction).not.toContain("{ type: 'reclassify-favorite-configuration' }")
   })
 
   it('lets the backup snapshot broadcast refresh the floating assistant once', () => {
@@ -248,6 +276,17 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(source).toContain('favoriteLedgerRuleMutationIdRef')
     expect(saveFunction).toContain('mutationId === favoriteLedgerRuleMutationIdRef.current')
+  })
+
+  it('does not use the parent snapshot to compensate a rule-directory change', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgerRules'),
+      source.indexOf('async function setDefaultFavoriteSystemEnabled')
+    )
+
+    expect(saveFunction).not.toContain('const rollbackPatch: Partial<AssistantPreferences>')
+    expect(saveFunction).not.toContain("收藏夹规则重分类失败")
   })
 
   it('keeps sidebar-width-only broadcasts out of the large assistant render tree', () => {

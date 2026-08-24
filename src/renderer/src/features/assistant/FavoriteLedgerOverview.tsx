@@ -47,9 +47,16 @@ type FavoriteLedgerOverviewProps = {
   onOrganizationRecommendationToggle?: (ledgerId: string, enabled: boolean) => boolean | Promise<boolean>
   /** Workspace recommendation selection projects onto candidate cards without persisting a global toggle. */
   organizationRecommendationEnabledById?: ReadonlyMap<string, boolean>
+  /** Saved rules use the current organization-round selection rather than the global preference. */
+  onOrganizationSavedLedgerToggle?: (ledgerId: string, enabled: boolean) => boolean | Promise<boolean>
+  /** Bulk saved-rule selection commits one complete active-round selection to avoid stale per-row writes. */
+  onOrganizationSavedLedgerSelectionChange?: (ledgerIds: string[]) => boolean | Promise<boolean>
+  organizationSavedLedgerEnabledById?: ReadonlyMap<string, boolean>
   onDeleteLedger?: (ledgerId: string) => boolean | void | Promise<boolean | void>
   onBeforeDeleteLedger?: (ledgerId: string) => Promise<void> | void
   onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
+  /** Called only after an explicit candidate-bind confirmation reaches a terminal result. */
+  onBackupConfirmationFinished?: (result: { ok?: boolean; message?: string; unboundCandidates?: RebindCandidateEntry[] } | undefined) => void
   draftRuleAnalysis?: {
     ledgerId: string
     status: 'running' | 'canceling'
@@ -62,7 +69,7 @@ type FavoriteLedgerOverviewProps = {
 }
 
 export type FavoriteLedgerOverviewHandle = {
-  requestBackup: () => Promise<unknown>
+  requestBackup: (options?: { targetLedgerIds?: readonly string[] }) => Promise<unknown>
 }
 
 type RebindCandidateEntry = {
@@ -275,7 +282,7 @@ export function preserveFavoriteLedgerOrder(
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], onDismissRemoteDraftReminder, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onDeleteLedger, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
+export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], onDismissRemoteDraftReminder, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
@@ -534,12 +541,15 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const organizationRecommendationSignature = organizationRecommendationEnabledById
     ? JSON.stringify([...organizationRecommendationEnabledById].sort(([left], [right]) => left.localeCompare(right)))
     : ''
+  const organizationSavedLedgerSignature = organizationSavedLedgerEnabledById
+    ? JSON.stringify([...organizationSavedLedgerEnabledById].sort(([left], [right]) => left.localeCompare(right)))
+    : ''
   useEffect(() => {
-    if (!organizationActive || !organizationRecommendationEnabledById?.size) return
+    if (!organizationActive || (!organizationRecommendationEnabledById?.size && !organizationSavedLedgerEnabledById?.size)) return
     const current = enableStore.getEnabledById()
     const next = new Map(current)
     let changed = false
-    for (const [ledgerId, enabled] of organizationRecommendationEnabledById) {
+    for (const [ledgerId, enabled] of [...(organizationRecommendationEnabledById ?? []), ...(organizationSavedLedgerEnabledById ?? [])]) {
       if (next.get(ledgerId) === enabled) continue
       next.set(ledgerId, enabled)
       changed = true
@@ -550,7 +560,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     if (enabledStateChangeSourceRef.current === 'organization-selection') {
       enabledStateChangeSourceRef.current = undefined
     }
-  }, [enableStore, organizationActive, organizationRecommendationEnabledById, organizationRecommendationSignature])
+  }, [enableStore, organizationActive, organizationRecommendationEnabledById, organizationRecommendationSignature, organizationSavedLedgerEnabledById, organizationSavedLedgerSignature])
   const active = draftLedgers.find((ledger) => ledger.id === activeLedgerId)
   const combinedStatusLabel = (ledger: FavoriteLedger) => [
     ledgerHasUnsavedChanges(ledger) ? '未保存' : '',
@@ -661,6 +671,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       void onOrganizationRecommendationToggle(id, !previousEnabled)
       return
     }
+    if (organizationSavedLedgerEnabledById?.has(id) && onOrganizationSavedLedgerToggle) {
+      void onOrganizationSavedLedgerToggle(id, !previousEnabled)
+      return
+    }
     if (!enableStore.toggle(id)) return
     const version = (toggleVersionsRef.current.get(id) ?? 0) + 1
     toggleVersionsRef.current.set(id, version)
@@ -676,6 +690,14 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     if (deletionModeActive && destructiveActionLocked) return
     if (deletionModeActive) {
       deletionStore.toggleAll()
+      return
+    }
+    if (organizationSavedLedgerEnabledById && onOrganizationSavedLedgerSelectionChange) {
+      const selectAll = ![...organizationSavedLedgerEnabledById.values()].every(Boolean)
+      const selectedLedgerIds = selectAll
+        ? [...organizationSavedLedgerEnabledById.keys()]
+        : draftLedgers.filter((ledger) => isRoundLocked(ledger) || isForcedEnabled(ledger)).map((ledger) => ledger.id)
+      void onOrganizationSavedLedgerSelectionChange(selectedLedgerIds)
       return
     }
     const previousEnabled = enableStore.getEnabledById()
@@ -822,12 +844,17 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setActiveLedgerId((current) => current === savingLedgerId ? null : current)
     setNewLedger(false)
   }
-  const requestBackup = async () => {
+  const requestBackup = async (options?: { targetLedgerIds?: readonly string[] }) => {
     if (destructiveActionLocked) return { ok: false, message: '当前收藏夹规则分析尚未完成，暂不能备册。' }
     if (backupInFlightRef.current) return backupInFlightRef.current
     const operation = (async () => {
       const currentLedgers = draftLedgersRef.current
-      const selectedLedgers = selectedBackupLedgers(currentLedgers)
+      const targetLedgerIds = options?.targetLedgerIds
+        ? new Set(options.targetLedgerIds.map((ledgerId) => ledgerId.trim()).filter(Boolean))
+        : null
+      const selectedLedgers = targetLedgerIds
+        ? currentLedgers.filter((ledger) => targetLedgerIds.has(ledger.id))
+        : selectedBackupLedgers(currentLedgers)
       const skippedLedgers = selectedLedgers.filter((ledger) =>
         ledger.syncState === 'local-draft' || ledgerHasUnsavedChangesFromSnapshots(ledger, savedLedgerSnapshotsRef.current))
       const eligibleLedgers = selectedLedgers.filter((ledger) => !skippedLedgers.includes(ledger))
@@ -1231,6 +1258,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         })))
       return
     }
+    onBackupConfirmationFinished?.(result)
     if (result?.ok !== false) {
       setRebindCandidates(null)
       setRebindSelections({})

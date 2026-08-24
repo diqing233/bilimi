@@ -69,7 +69,7 @@ export function favoriteRepositoryManagedShardTitle(logicalLedgerId: string, sha
   return favoriteRepositoryManagedShardTitleForDisplay(logicalLedgerId, shardNumber, bindingToken)
 }
 
-function favoriteRepositoryManagedShardTitleForDisplay(
+export function favoriteRepositoryManagedShardTitleForDisplay(
   logicalLedgerId: string,
   shardNumber: number,
   bindingToken: string,

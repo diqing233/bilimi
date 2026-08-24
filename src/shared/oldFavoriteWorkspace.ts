@@ -69,6 +69,37 @@ export type OldFavoriteWorkspaceClassification = {
   source: OldFavoriteWorkspaceClassificationSource
 }
 
+/**
+ * A read-only snapshot of every backup prerequisite for one explicit
+ * organizer-to-Bilibili confirmation. It is deliberately separate from the
+ * frozen execution plan: reading it neither saves the organizer draft nor
+ * creates, adopts, or mutates a remote folder.
+ */
+export type OldFavoriteWorkspaceBilibiliSyncPreflight = {
+  accountMid: string
+  workspaceId: string
+  missingLedgers: Array<{
+    logicalLedgerId: string
+    logicalTitle: string
+    reason: 'unbacked' | 'unbound' | 'pending-reconcile'
+  }>
+  requiredPhysicalShards: Array<{
+    logicalLedgerId: string
+    logicalTitle: string
+    shardNumber: number
+    requiredAssignmentCount: number
+    /**
+     * Read-only exact-ID candidates for this physical shard. They must be
+     * explicitly selected and adopted; an equal title never binds itself.
+     */
+    bindingCandidates: Array<{
+      remoteFolderId: string
+      remoteTitle: string
+      memberCount: number
+    }>
+  }>
+}
+
 export type OldFavoriteWorkspaceRecommendationCandidate = {
   id: string
   displayName: string
@@ -373,6 +404,8 @@ export type OldFavoriteWorkspaceSnapshot = {
     }>
   }
   classifications: Record<string, OldFavoriteWorkspaceClassification>
+  /** Saved-rule targets excluded only from this organization round. */
+  excludedLedgerIds?: string[]
   /** Initial automatic targets for classifications that still differ from the durable baseline. */
   originalTargetLedgerIdsByAid?: Record<string, string[]>
   recommendations: {
@@ -546,6 +579,7 @@ export type OldFavoriteWorkspaceDeepSeekRunCheckpoint = {
 export type OldFavoriteWorkspaceExecutionFailureCode =
   | 'deepseek-unresolved'
   | 'tag-cutoff-changed'
+  | 'backup-preflight-required'
   | 'remote-inventory-unavailable'
   | 'saved-binding-absent'
   | 'saved-binding-title-mismatch'

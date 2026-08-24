@@ -56,6 +56,7 @@ type WorkspaceCommand =
   | { type: 'reclassify-favorite-configuration' }
   | { type: 'refresh-relationship-projection' }
   | { type: 'set-recommended-candidates'; candidateIds: string[] }
+  | { type: 'set-round-excluded-ledger-ids'; ledgerIds: string[] }
   | { type: 'prepare-recommendation-preview'; candidateIds: string[] }
   | { type: 'cancel-recommendation-preview-preparation' }
   | { type: 'create-local-ledger-and-reclassify'; title: string }
@@ -235,6 +236,11 @@ function command(value: unknown): WorkspaceCommand {
     Object.keys(candidate).every((key) => key === 'type' || key === 'candidateIds')) {
     return { type: 'set-recommended-candidates', candidateIds: [...new Set(candidate.candidateIds.map((id) => id.trim()))].sort() }
   }
+  if (candidate.type === 'set-round-excluded-ledger-ids' && Array.isArray(candidate.ledgerIds) &&
+    candidate.ledgerIds.length <= 128 && candidate.ledgerIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
+    Object.keys(candidate).every((key) => key === 'type' || key === 'ledgerIds')) {
+    return { type: 'set-round-excluded-ledger-ids', ledgerIds: [...new Set(candidate.ledgerIds.map((id) => id.trim()))].sort() }
+  }
   if (candidate.type === 'prepare-recommendation-preview' && Array.isArray(candidate.candidateIds) &&
     candidate.candidateIds.length <= 32 && candidate.candidateIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
     Object.keys(candidate).every((key) => key === 'type' || key === 'candidateIds')) {
@@ -361,6 +367,17 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     const opened = await options.coordinator.getSnapshot(accountMid)
     return snapshot(opened)
   })
+  // This is deliberately separate from the mutable command channel. The
+  // renderer may only ask main for its current read-only backup gaps; it may
+  // never supply a claimed target set, capacity result, or remote folder id.
+  options.ipcMain.handle('old-favorite-workspace-v1:bilibili-execution-preflight', async (event, requestedAccountMid: string, ...args: unknown[]) => {
+    if (args.length !== 0) throw new Error('Old favorite workspace Bilibili backup preflight arguments are invalid.')
+    return options.coordinator.getBilibiliExecutionPreflight(await assertAccount(event, requestedAccountMid))
+  })
+  options.ipcMain.handle('old-favorite-workspace-v1:provision-bilibili-execution-preflight-shards', async (event, requestedAccountMid: string, ...args: unknown[]) => {
+    if (args.length !== 0) throw new Error('Old favorite workspace Bilibili backup provision arguments are invalid.')
+    return options.coordinator.provisionBilibiliExecutionPreflightShards(await assertAccount(event, requestedAccountMid))
+  })
   // Reading a recovery summary never resumes scanning, reconciliation, or remote writes.
   options.ipcMain.handle('old-favorite-workspace-v1:recovery-summary', async (event, requestedAccountMid: string, ...args: unknown[]) => {
     if (args.length !== 0) throw new Error('Old favorite workspace recovery summary arguments are invalid.')
@@ -452,7 +469,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       'select-source-folders', 'select-segment', 'undo-classification', 'redo-classification',
       'pause-tag-enrichment', 'resume-tag-enrichment', 'retry-failed-tag-enrichment', 'accept-current-tags',
       'move-history-cursor', 'auto-classify-current-segment', 'reclassify-favorite-configuration',
-      'set-recommended-candidates', 'prepare-recommendation-preview', 'create-local-ledger-and-reclassify',
+      'set-recommended-candidates', 'set-round-excluded-ledger-ids', 'prepare-recommendation-preview', 'create-local-ledger-and-reclassify',
       'freeze-segment', 'save-current-segment-locally', 'freeze-bilibili-execution', 'apply-classifications'
     ])
     let commandPreflightSnapshot: Awaited<ReturnType<typeof options.coordinator.getSnapshot>> | undefined
@@ -537,6 +554,10 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'reclassify-favorite-configuration') await options.coordinator.reclassifyForFavoriteConfiguration(accountMid)
     if (requested.type === 'set-recommended-candidates') {
       await options.coordinator.setRecommendedCandidates(accountMid, requested.candidateIds)
+      return options.coordinator.getSnapshot(accountMid)
+    }
+    if (requested.type === 'set-round-excluded-ledger-ids') {
+      await options.coordinator.setRoundExcludedLedgerIds(accountMid, requested.ledgerIds)
       return options.coordinator.getSnapshot(accountMid)
     }
     if (requested.type === 'prepare-recommendation-preview') {

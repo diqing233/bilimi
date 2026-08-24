@@ -25,6 +25,7 @@ import {
   type OldFavoriteRemoteRelationship,
   type OldFavoriteWorkspaceTagAdoption,
   type OldFavoriteWorkspaceScope,
+  type OldFavoriteWorkspaceBilibiliSyncPreflight,
   type OldFavoriteWorkspaceRecoveryDecision,
   type OldFavoriteWorkspaceRecoveryDecisionResult,
   type OldFavoriteWorkspaceRecoverySummary,
@@ -47,11 +48,13 @@ import {
   createRecommendedFavoriteLedgerNamesForKind,
   disambiguateRecommendedFavoriteLedgerNames
 } from '../../src/shared/favoriteLedgers'
-import type { FavoriteLedger } from '../../src/shared/types'
+import { parseFavoriteLedgerRules } from '../../src/shared/favoriteLedgerConstraints'
+import type { FavoriteLedger, FavoriteLedgerRuleType } from '../../src/shared/types'
 import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
+import { REMOTE_FAVORITE_SHARD_CAPACITY } from '../../src/shared/favoriteRepositoryPlanning'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositorySyncRun, FavoriteRepositorySyncService, ManagedFavoriteHistoricalBindingDeletionTargets } from './favoriteRepositorySyncService'
-import type { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
+import { favoriteRepositoryManagedShardTitleForDisplay, type FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { analyzeOldFavoriteLedgerRule } from './oldFavoriteLedgerRuleAnalysis'
 
@@ -186,6 +189,7 @@ type OverviewRuntime = {
 function executionIntentFailureCode(error: unknown): OldFavoriteWorkspaceExecutionFailureCode {
   const detail = error instanceof Error ? error.message : String(error ?? '')
   if (/whole-run tag enrichment is not complete/i.test(detail)) return 'tag-cutoff-changed'
+  if (/backup-preflight-required/i.test(detail)) return 'backup-preflight-required'
   if (/remote folder inventory is unavailable|page bridge is unavailable/i.test(detail)) return 'remote-inventory-unavailable'
   if (/remote shard is absent from inventory/i.test(detail)) return 'saved-binding-absent'
   if (/remote shard title is invalid/i.test(detail)) return 'saved-binding-title-mismatch'
@@ -920,6 +924,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly tagAdoptions = new Map<string, OldFavoriteWorkspaceTagAdoption>()
   private readonly inFlightTagEnrichmentAids = new Map<string, Set<number>>()
   private readonly recommendations = new Map<string, RecommendationState>()
+  private readonly roundExcludedLedgerIdsByAccount = new Map<string, string[]>()
   private readonly recommendationIndexes = new Map<string, RecommendationIndex>()
   private readonly planReadiness = new Map<string, PlanReadiness>()
   private readonly staleDeepSeekAids = new Map<string, number[]>()
@@ -945,6 +950,10 @@ export class OldFavoriteWorkspaceCoordinator {
         shardNumber: number
         memberAids: number[]
       }): Promise<unknown>
+      previewLedgerBindingCandidates?(accountMid: string, ledgers: Array<{ ledgerId: string; title: string }>): Promise<Array<{
+        ledgerId: string
+        candidates: Array<{ id: string; title: string; memberCount: number; shardNumber?: number }>
+      }>>
     }
     syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'stopAndAbandonFrozenPlan' | 'pauseFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'rebindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'deleteManagedRemoteFolders' | 'previewManagedFolderDeletion'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers?: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
@@ -978,6 +987,16 @@ export class OldFavoriteWorkspaceCoordinator {
       remoteFolderId: string
       remoteDisplayTitle?: string
     } | undefined>
+    /** Saved enabled rules only; remote-only local drafts never enter the organizer backup gate. */
+    listSavedEnabledLedgers?: (accountMid: string) => Promise<Array<{ id: string; title: string }>>
+    /** Reads the currently persisted saved rule to reject analyses made stale by a later edit or deletion. */
+    resolveSavedLedgerRule?: (accountMid: string, logicalLedgerId: string) => Promise<{
+      id: string
+      title: string
+      keywords: string[]
+      ruleType: Exclude<FavoriteLedgerRuleType, 'deepseek'>
+      enabled: boolean
+    } | undefined>
     resolveRecoveryConfiguration?: (accountMid: string) => RecoveryConfiguration | Promise<RecoveryConfiguration>
     segmentSize?: () => number
     onSegmentsReady?: (accountMid: string, segmentIds: string[]) => void | Promise<void>
@@ -1000,6 +1019,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.tagEnrichments.clear()
     this.tagAdoptions.clear()
     this.recommendations.clear()
+    this.roundExcludedLedgerIdsByAccount.clear()
     this.recommendationIndexes.clear()
     this.planReadiness.clear()
     this.staleDeepSeekAids.clear()
@@ -2299,6 +2319,26 @@ export class OldFavoriteWorkspaceCoordinator {
       if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) {
         throw new Error('Old favorite workspace draft ledger rule is invalid.')
       }
+      const matchesSavedRule = async () => {
+        if (!input.ledgerId || !this.options.resolveSavedLedgerRule) return true
+        const saved = await this.options.resolveSavedLedgerRule(workspace.accountMid, id)
+        if (!saved || saved.id !== id || saved.title.trim() !== title || saved.ruleType !== input.ruleType) return false
+        const savedKeywords = [...new Set(parseFavoriteLedgerRules({
+          keywords: saved.keywords,
+          ruleType: saved.ruleType
+        }).localKeywords.map((keyword) => keyword.trim()).filter(Boolean))]
+        return JSON.stringify(savedKeywords) === JSON.stringify(keywords) && saved.enabled === (input.adopt !== false)
+      }
+      const assertSavedRuleCurrent = async () => {
+        if (await matchesSavedRule()) return
+        this.draftLedgerRuleAnalysisIds.delete(normalizedAccount)
+        await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+          currentSegmentId: this.currentSegment(workspace),
+          classifications: [], history: [], ruleAnalysisCheckpoint: null
+        })
+        throw new Error('Old favorite ledger rule analysis is stale.')
+      }
+      await assertSavedRuleCurrent()
       const state = await this.ensureRecommendations(workspace)
       const existingCandidate = state.candidates.find((candidate) => candidate.id === id)
       if (!input.ledgerId && state.candidates.some((candidate) => candidate.id === id)) {
@@ -2316,6 +2356,7 @@ export class OldFavoriteWorkspaceCoordinator {
         workspace.segments.map((segment) => ({ id: segment.id, index: segment.index, itemCount: segment.aids.length }))
       const selectedItemCountsBySegment = new Map<string, number>()
       for (const segment of descriptors) {
+        await assertSavedRuleCurrent()
         if (shouldCancel()) throw new Error('Old favorite ledger rule analysis canceled.')
         const stored = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, segment.id)
         const selectedItemCount = (stored.items ?? []).filter((item) => !isUnavailableScanItem(item) &&
@@ -2342,6 +2383,7 @@ export class OldFavoriteWorkspaceCoordinator {
       let completedItemCount = [...completedSegmentIds].reduce((count, segmentId) =>
         count + (selectedItemCountsBySegment.get(segmentId) ?? 0), 0)
       for (const segment of descriptors) {
+        await assertSavedRuleCurrent()
         if (completedSegmentIds.has(segment.id)) continue
         const stored = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, segment.id)
         const items = (stored.items ?? [])
@@ -2382,6 +2424,7 @@ export class OldFavoriteWorkspaceCoordinator {
             matchedAidsBySegment: clone(matchedAidsBySegment)
           }
         })
+        await assertSavedRuleCurrent()
         if (shouldCancel()) throw new Error('Old favorite ledger rule analysis canceled.')
       }
       const candidate: StoredRecommendation = {
@@ -2405,6 +2448,7 @@ export class OldFavoriteWorkspaceCoordinator {
           ? [...new Set([...state.adoptedCandidateIds, id])].sort()
           : state.adoptedCandidateIds.filter((candidateId) => candidateId !== id)
       }
+      await assertSavedRuleCurrent()
       if (!shouldAdopt && !state.adoptedCandidateIds.includes(id)) {
         this.draftLedgerRuleAnalysisIds.delete(normalizedAccount)
         await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
@@ -2457,10 +2501,6 @@ export class OldFavoriteWorkspaceCoordinator {
       const classificationCandidates = [...affectedAids]
         .map((aid) => itemsByAid.get(aid))
         .filter((item): item is CurrentSegmentItem => Boolean(item))
-        .filter((item) => {
-          const existing = globalClassifications[String(item.aid)]
-          return existing?.source !== 'manual' && existing?.source !== 'deepseek'
-        })
       const recommendedLedgers = next.candidates
         .filter((item) => next.adoptedCandidateIds.includes(item.id))
         .map((item, index) => asLocalRecommendedLedger(item, index))
@@ -2481,6 +2521,11 @@ export class OldFavoriteWorkspaceCoordinator {
           ? this.options.classifyCurrentItem!(clone(item), clone(recommendedLedgers))
           : this.options.classifyCurrentItem!(clone(item))))
       if (shouldCancel()) throw new Error('Old favorite ledger rule analysis canceled.')
+      // The classifier can yield while a user deletes or materially edits the
+      // saved rule.  Re-read the persisted rule immediately before deriving
+      // any candidate, classification, or journal entry from its result so a
+      // late response cannot resurrect the old local rule.
+      await assertSavedRuleCurrent()
       if (classifications.length !== classificationCandidates.length) {
         throw new Error('Old favorite workspace automatic classification result is invalid.')
       }
@@ -2613,7 +2658,7 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       this.recommendations.set(workspace.accountMid, next)
       return this.options.classifyCurrentItem || this.options.classifyCurrentItems
-        ? this.autoClassifyAllSegmentsUnsafe(workspace, true, true)
+        ? this.autoClassifyAllSegmentsUnsafe(workspace, true, true, true)
         : clone(workspace)
     })
   }
@@ -3158,9 +3203,28 @@ export class OldFavoriteWorkspaceCoordinator {
     assignments: ApplyWorkspaceClassificationBatchOptions['assignments'],
     expected: DeepSeekClassificationBatchExpectation
   ): Promise<OldFavoriteWorkspace> {
-    const result = await this.applyDeepSeekClassificationBatchWithConflicts(accountMid, assignments, expected, true)
-    if (result.conflictAids.length) throw new Error('Old favorite workspace changed while DeepSeek was running.')
+    const result = await this.applyDeepSeekClassificationBatchWithConflicts(accountMid, assignments, expected)
     return result.snapshot
+  }
+
+  /**
+   * Stores the user's saved-rule choice for this organization round only.
+   * It intentionally does not call the preferences layer: a rule remains
+   * globally enabled for future rounds even while excluded from this one.
+   */
+  async setRoundExcludedLedgerIds(accountMid: string, ledgerIds: string[]) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for round selection.')
+      const savedLedgers = await this.options.listSavedEnabledLedgers?.(workspace.accountMid) ?? []
+      const savedLedgerIds = new Set(savedLedgers.map((ledger) => ledger.id.trim()).filter(Boolean))
+      const excludedLedgerIds = [...new Set(ledgerIds.map((id) => id.trim()).filter((id) => savedLedgerIds.has(id)))].sort()
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], excludedLedgerIds
+      })
+      this.roundExcludedLedgerIdsByAccount.set(workspace.accountMid, excludedLedgerIds)
+      return this.createSnapshot(workspace)
+    })
   }
 
   async applyDeepSeekClassificationBatchWithConflicts(
@@ -3181,10 +3245,6 @@ export class OldFavoriteWorkspaceCoordinator {
         .filter((folder) => scanSourceIsEligible(folder) && folder.selected)
         .map((folder) => folder.id)
         .sort()
-      const classifications = Object.fromEntries(Object.entries(workspace.classifications).map(([aid, classification]) => [aid, {
-        targetLedgerIds: [...classification.targetLedgerIds].sort(),
-        source: classification.source
-      }]))
       if (workspace.id !== expected.workspaceId || currentSegmentId !== expected.currentSegmentId) {
         throw new Error('Old favorite workspace changed while DeepSeek was running.')
       }
@@ -3197,15 +3257,9 @@ export class OldFavoriteWorkspaceCoordinator {
         aid: assignment.aid,
         targetLedgerIds: [...new Set(assignment.targetLedgerIds.map((id) => id.trim()).filter(Boolean))].sort()
       }]))
-      const conflictAids = [...normalizedAssignments.values()]
-        .filter((assignment) => {
-          if (sourceSelectionChanged) return true
-          const current = classifications[String(assignment.aid)]
-          const expectedClassification = expected.classifications[String(assignment.aid)]
-          return JSON.stringify(current ?? null) !== JSON.stringify(expectedClassification ?? null)
-        })
-        .map((assignment) => assignment.aid)
-        .sort((left, right) => left - right)
+      const conflictAids = sourceSelectionChanged
+        ? [...normalizedAssignments.keys()].sort((left, right) => left - right)
+        : []
       if (strict && conflictAids.length) throw new Error('Old favorite workspace changed while DeepSeek was running.')
       const applicableAssignments = [...normalizedAssignments.values()].filter((assignment) => !conflictAids.includes(assignment.aid))
       await this.assertAssignmentsUseSelectedSources(workspace, applicableAssignments)
@@ -3258,7 +3312,7 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       this.assertCurrentSegmentTagReady(workspace)
-      return this.autoClassifyCurrentSegmentUnsafe(workspace, false, true)
+      return this.autoClassifyCurrentSegmentUnsafe(workspace, false, true, true)
     })
   }
 
@@ -3365,10 +3419,9 @@ export class OldFavoriteWorkspaceCoordinator {
         throw new Error('Old favorite workspace recovery decision is not available for this workspace.')
       }
       // `merge-latest` adopts only the latest durable *facts* as the new
-      // recovery baseline. Classifications themselves remain in the workspace
-      // journal: its priority rules keep manual decisions authoritative and
-      // retain DeepSeek choices for explicit user review rather than silently
-      // replaying either source here.
+      // recovery baseline. Classifications remain in the workspace journal:
+      // a later configuration reclassification may replace affected DeepSeek
+      // choices, while manual choices remain until a later explicit operation.
       let decisionFingerprint = evidence.fingerprint
       let mergeLatestSystemAids: number[] | undefined
       let staleDeepSeekAids: number[] | undefined
@@ -3525,7 +3578,7 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'previewing') return clone(workspace)
-      const reclassified = await this.autoClassifyAllSegmentsUnsafe(workspace, true, true)
+      const reclassified = await this.autoClassifyAllSegmentsUnsafe(workspace, true, true, true)
       await this.advanceRecoveryBaselineForAcceptedFavoriteConfiguration(workspace)
       return reclassified
     })
@@ -3590,9 +3643,18 @@ export class OldFavoriteWorkspaceCoordinator {
   private async autoClassifyCurrentSegmentUnsafe(
     workspace: OldFavoriteWorkspace,
     replaceSystem: boolean,
-    replaceUserChoices = false
+    replaceDeepSeek = false,
+    replaceManual = false
   ) {
-    return this.autoClassifySegmentsUnsafe(workspace, [this.currentSegment(workspace)], replaceSystem, undefined, undefined, replaceUserChoices)
+    return this.autoClassifySegmentsUnsafe(
+      workspace,
+      [this.currentSegment(workspace)],
+      replaceSystem,
+      undefined,
+      undefined,
+      replaceDeepSeek,
+      replaceManual
+    )
   }
 
   private async applyRecommendedLedgerDeltaUnsafe(
@@ -3739,9 +3801,18 @@ export class OldFavoriteWorkspaceCoordinator {
   private async autoClassifyAllSegmentsUnsafe(
     workspace: OldFavoriteWorkspace,
     replaceSystem: boolean,
-    replaceUserChoices = false
+    replaceDeepSeek = false,
+    replaceManual = false
   ) {
-    return this.autoClassifySegmentsUnsafe(workspace, workspace.segments.map((segment) => segment.id), replaceSystem, undefined, undefined, replaceUserChoices)
+    return this.autoClassifySegmentsUnsafe(
+      workspace,
+      workspace.segments.map((segment) => segment.id),
+      replaceSystem,
+      undefined,
+      undefined,
+      replaceDeepSeek,
+      replaceManual
+    )
   }
 
   /** Makes scan-generated system results the durable state behind “恢复初始改动”. */
@@ -3765,7 +3836,8 @@ export class OldFavoriteWorkspaceCoordinator {
     replaceSystem: boolean,
     onlyAids?: ReadonlySet<number>,
     recommendationState?: RecommendationState,
-    replaceUserChoices = false
+    replaceDeepSeek = false,
+    replaceManual = false
   ) {
     const classify = this.options.classifyCurrentItem
     const classifyMany = this.options.classifyCurrentItems
@@ -3805,7 +3877,10 @@ export class OldFavoriteWorkspaceCoordinator {
           .filter((item) => !isUnavailableScanItem(item))
           .filter((item) => !hasSelectableSources || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
           .filter((item) => !onlyAids || onlyAids.has(item.aid))
-          .filter((item) => replaceUserChoices || !['manual', 'deepseek'].includes(globalClassifications[String(item.aid)]?.source ?? ''))
+          .filter((item) => {
+            const source = globalClassifications[String(item.aid)]?.source
+            return (replaceManual || source !== 'manual') && (replaceDeepSeek || source !== 'deepseek')
+          })
         const classifications = classifyMany
           ? await classifyMany(candidates.map(clone), clone(recommendedLedgers), workspace.accountMid, {
               excludedRecommendedLedgers: clone(excludedRecommendedLedgers)
@@ -4118,8 +4193,190 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /**
+   * Reads the backup prerequisites for an organizer confirmation without
+   * changing the workspace, repository, page bridge, or remote Bilibili
+   * folders. A later explicit backup action is responsible for resolving the
+   * returned gaps and must re-read this snapshot before freezing.
+   */
+  async getBilibiliExecutionPreflight(
+    accountMid: string,
+    options: { includeInbox?: boolean } = {}
+  ): Promise<OldFavoriteWorkspaceBilibiliSyncPreflight> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      this.assertDeepSeekExecutionReady(workspace)
+      this.assertWholeRunTagCutoffAccepted(workspace)
+      if (workspace.status !== 'previewing' || !workspace.baseline) {
+        throw new Error('Old favorite workspace is not ready for Bilibili backup preflight.')
+      }
+
+      const classifications = await this.loadSelectedClassificationsForFreeze(workspace, options.includeInbox === true)
+      const repositorySnapshot = await this.options.repository.getSnapshot(workspace.accountMid)
+      const assignmentAids = classifications.reduce<Record<string, number[]>>((aidsByLedger, classification) => {
+        for (const logicalLedgerId of classification.targetLedgerIds
+          .map((id) => id.trim())
+          .filter((id) => id && (options.includeInbox === true || id !== 'inbox'))) {
+          aidsByLedger[logicalLedgerId] = [...new Set([...(aidsByLedger[logicalLedgerId] ?? []), classification.aid])]
+        }
+        return aidsByLedger
+      }, {})
+      const savedLedgers = await this.options.listSavedEnabledLedgers?.(workspace.accountMid) ?? []
+      const savedLedgerTitleById = new Map(savedLedgers
+        .map((ledger) => [ledger.id.trim(), ledger.title.trim()] as const)
+        .filter(([logicalLedgerId, title]) => logicalLedgerId && title))
+      const boundTitleById = new Map(repositorySnapshot.folders
+        .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
+        .map((folder) => [folder.logicalLedgerId!, folder.title]))
+      const defaultTitleById = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
+      const titleFor = async (logicalLedgerId: string) => {
+        if (logicalLedgerId === 'inbox') return 'bilimi·暂存'
+        return savedLedgerTitleById.get(logicalLedgerId) ?? boundTitleById.get(logicalLedgerId) ??
+          await this.options.resolveLedgerTitle?.(workspace.accountMid, logicalLedgerId) ??
+          defaultTitleById.get(logicalLedgerId) ?? logicalLedgerId
+      }
+      // The backup confirmation exists to make this exact round writable. A
+      // saved rule that the user deselected from this round must not reappear
+      // as an unrelated backup obligation or regain an implicit remote side
+      // effect merely because it remains enabled for a future round.
+      const selectedLogicalLedgerIds = Object.keys(assignmentAids).sort()
+      const logicalLedgerIds = [...new Set(selectedLogicalLedgerIds)].sort()
+      const logicalTitles = new Map(await Promise.all(logicalLedgerIds.map(async (logicalLedgerId) => [
+        logicalLedgerId, await titleFor(logicalLedgerId)
+      ] as const)))
+      const missingLedgers: OldFavoriteWorkspaceBilibiliSyncPreflight['missingLedgers'] = []
+      const blockedLogicalLedgerIds = new Set<string>()
+
+      for (const logicalLedgerId of selectedLogicalLedgerIds) {
+        const physicalShards = repositorySnapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+        const formalShards = physicalShards.filter((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
+        const hasIncompleteShard = physicalShards.some((shard) => shard.bindingState !== 'bound' || !shard.remoteFolderId)
+        if (physicalShards.length === 0) {
+          missingLedgers.push({ logicalLedgerId, logicalTitle: logicalTitles.get(logicalLedgerId)!, reason: 'unbacked' })
+          blockedLogicalLedgerIds.add(logicalLedgerId)
+        } else if (hasIncompleteShard || formalShards.length === 0) {
+          missingLedgers.push({
+            logicalLedgerId,
+            logicalTitle: logicalTitles.get(logicalLedgerId)!,
+            reason: physicalShards.some((shard) => shard.bindingState === 'pending-reconcile') ? 'pending-reconcile' : 'unbound'
+          })
+          blockedLogicalLedgerIds.add(logicalLedgerId)
+        }
+      }
+
+      const requiredPhysicalShards: OldFavoriteWorkspaceBilibiliSyncPreflight['requiredPhysicalShards'] = []
+      for (const logicalLedgerId of Object.keys(assignmentAids).sort()) {
+        const physicalShards = repositorySnapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+        const formalShards = physicalShards.filter((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
+        const requiredAssignmentCount = assignmentAids[logicalLedgerId].filter((aid) => !new Set(formalShards.flatMap((shard) => repositorySnapshot.memberships[shard.folderId] ?? [])).has(aid)).length
+        // A target with no physical shard must first use the normal explicit
+        // backup flow for shard 1. Still expose every later shard now so the
+        // user sees the complete capacity requirement in the same consent
+        // window; the main process re-reads this result after shard 1 binds.
+        if (physicalShards.length === 0) {
+          const firstBackupAdditionalShardCount = Math.max(0, Math.ceil(requiredAssignmentCount / REMOTE_FAVORITE_SHARD_CAPACITY) - 1)
+          for (let offset = 0; offset < firstBackupAdditionalShardCount; offset += 1) {
+            requiredPhysicalShards.push({
+              logicalLedgerId,
+              logicalTitle: logicalTitles.get(logicalLedgerId)!,
+              shardNumber: 2 + offset,
+              requiredAssignmentCount
+            })
+          }
+          continue
+        }
+        // An incomplete physical shard must first go through its explicit
+        // binding/reconciliation flow. Its capacity remains unknown until the
+        // follow-up preflight receives a formal authoritative shard.
+        if (blockedLogicalLedgerIds.has(logicalLedgerId) || !formalShards.length) continue
+        const existingMemberAids = new Set(formalShards.flatMap((shard) => repositorySnapshot.memberships[shard.folderId] ?? []))
+        const boundRequiredAssignmentCount = assignmentAids[logicalLedgerId].filter((aid) => !existingMemberAids.has(aid)).length
+        const availableCapacity = formalShards.reduce((total, shard) => total + Math.max(
+          0,
+          REMOTE_FAVORITE_SHARD_CAPACITY - Math.max(
+            repositorySnapshot.memberships[shard.folderId]?.length ?? 0,
+            shard.remoteMemberCount ?? 0
+          )
+        ), 0)
+        const needed = Math.max(0, Math.ceil((boundRequiredAssignmentCount - availableCapacity) / REMOTE_FAVORITE_SHARD_CAPACITY))
+        const nextShardNumber = Math.max(0, ...physicalShards.map((shard) => shard.shardNumber)) + 1
+        for (let offset = 0; offset < needed; offset += 1) {
+          requiredPhysicalShards.push({
+            logicalLedgerId,
+            logicalTitle: logicalTitles.get(logicalLedgerId)!,
+            shardNumber: nextShardNumber + offset,
+            requiredAssignmentCount: boundRequiredAssignmentCount
+          })
+        }
+      }
+      const comparableShardTitle = (title: string) => title.trim()
+        .replace(/\s+/g, ' ')
+        .replace(/\s*·\s*/gu, '·')
+        .replace(/·0*(\d+)$/u, '·$1')
+      const requiredPhysicalShardsWithCandidates = await Promise.all(requiredPhysicalShards.map(async (shard) => {
+        const expectedRemoteTitle = favoriteRepositoryManagedShardTitleForDisplay(
+          shard.logicalLedgerId, shard.shardNumber, 'backup-preflight', shard.logicalTitle
+        )
+        const preview = await this.options.bindingService?.previewLedgerBindingCandidates?.(workspace.accountMid, [{
+          ledgerId: shard.logicalLedgerId,
+          title: expectedRemoteTitle
+        }]) ?? []
+        const candidates = preview.find((entry) => entry.ledgerId === shard.logicalLedgerId)?.candidates ?? []
+        return {
+          ...shard,
+          bindingCandidates: candidates
+            .filter((candidate) => comparableShardTitle(candidate.title) === comparableShardTitle(expectedRemoteTitle))
+            .map((candidate) => ({
+              remoteFolderId: candidate.id,
+              remoteTitle: candidate.title,
+              memberCount: candidate.memberCount
+            }))
+        }
+      }))
+      return {
+        accountMid: workspace.accountMid,
+        workspaceId: workspace.id,
+        missingLedgers,
+        requiredPhysicalShards: requiredPhysicalShardsWithCandidates
+      }
+    })
+  }
+
+  /**
+   * Performs only the physical-shard portion of an already user-confirmed
+   * organizer backup. Logical-rule create/rebind consent remains in the
+   * existing ledger backup UI. The request has no renderer-supplied targets:
+   * main recomputes the current preflight, refuses while rules are still
+   * unbacked, and provisions exactly the currently required shard ordinals.
+   */
+  async provisionBilibiliExecutionPreflightShards(accountMid: string): Promise<OldFavoriteWorkspaceBilibiliSyncPreflight> {
+    const preflight = await this.getBilibiliExecutionPreflight(accountMid)
+    if (preflight.missingLedgers.length) {
+      throw new Error('Old favorite workspace cannot provision shards: backup-preflight-required')
+    }
+    if (preflight.requiredPhysicalShards.some((shard) => shard.bindingCandidates.length)) {
+      throw new Error('Old favorite workspace cannot provision shards: candidate-confirmation-required')
+    }
+    if (!preflight.requiredPhysicalShards.length) return preflight
+    if (!this.options.bindingService) throw new Error('Old favorite workspace binding service is unavailable.')
+    for (const shard of preflight.requiredPhysicalShards) {
+      await this.options.bindingService.ensurePhysicalShard(preflight.accountMid, {
+        logicalLedgerId: shard.logicalLedgerId,
+        logicalTitle: shard.logicalTitle,
+        remoteDisplayTitle: shard.logicalTitle,
+        shardNumber: shard.shardNumber,
+        memberAids: []
+      })
+    }
+    return this.getBilibiliExecutionPreflight(accountMid)
+  }
+
   /** Freezes a remote plan from persisted physical shards; it never touches the page bridge. */
   async freezeForBilibiliExecution(accountMid: string, options: { includeInbox?: boolean } = {}): Promise<FavoriteRepositoryWorkspace> {
+    const preflight = await this.getBilibiliExecutionPreflight(accountMid, options)
+    if (preflight.missingLedgers.length || preflight.requiredPhysicalShards.length) {
+      throw new Error('Old favorite workspace cannot freeze: backup-preflight-required')
+    }
     await this.assertDeepSeekExecutionReadyForAccount(accountMid)
     // A recovered draft may retain adopted recommendations after a previous
     // preference write failed. Repair that local configuration before either
@@ -4141,81 +4398,17 @@ export class OldFavoriteWorkspaceCoordinator {
           throw new Error('Old favorite workspace is not ready to freeze.')
         }
         const classifications = await this.loadSelectedClassificationsForFreeze(workspace, options.includeInbox === true)
-        const recommendations = await this.ensureRecommendations(workspace)
-        const recommendationTitles = new Map(recommendations.candidates
-          .map((candidate) => [candidate.id, recommendationLogicalTitle(candidate)] as const))
         const assignmentAids = classifications.reduce<Record<string, number[]>>((aidsByLedger, classification) => {
           for (const logicalLedgerId of classification.targetLedgerIds.map((id) => id.trim()).filter((id) => id && (options.includeInbox === true || id !== 'inbox'))) {
             aidsByLedger[logicalLedgerId] = [...new Set([...(aidsByLedger[logicalLedgerId] ?? []), classification.aid])]
           }
           return aidsByLedger
         }, {})
-        const repositorySnapshot = await this.options.repository.getSnapshot(workspace.accountMid)
-        const boundTitles = new Map(repositorySnapshot.folders
-          .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
-          .map((folder) => [folder.logicalLedgerId!, folder.title]))
-        const defaultTitles = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
-        const logicalTitles = new Map(await Promise.all(Object.keys(assignmentAids).map(async (logicalLedgerId) => [
-          logicalLedgerId,
-          logicalLedgerId === 'inbox' ? 'bilimi·暂存' :
-            boundTitles.get(logicalLedgerId) ?? recommendationTitles.get(logicalLedgerId) ??
-              await this.options.resolveLedgerTitle?.(workspace.accountMid, logicalLedgerId) ?? defaultTitles.get(logicalLedgerId)
-        ] as const)))
-        const savedBindings = new Map(await Promise.all(Object.keys(assignmentAids).map(async (logicalLedgerId) => [
-          logicalLedgerId,
-          await this.options.resolveLedgerBinding?.(workspace.accountMid, logicalLedgerId)
-        ] as const)))
         return {
           accountMid: workspace.accountMid,
-          logicalTitles,
-          savedBindings,
           assignmentAids
         }
       })
-      if (this.options.bindingService) {
-        const snapshot = await this.options.repository.getSnapshot(preparation.accountMid)
-        for (const [logicalLedgerId, assignmentAids] of Object.entries(preparation.assignmentAids)
-          .sort(([left], [right]) => left.localeCompare(right))) {
-          const logicalTitle = preparation.logicalTitles.get(logicalLedgerId)
-          if (!logicalTitle) throw new Error('Old favorite workspace target title is unavailable.')
-          // Pending shards are not safe capacity evidence: the prior create may
-          // have failed locally after succeeding remotely. Re-run their ordinal
-          // through the binding service so it can claim one exact remote title.
-          const existing = snapshot.physicalShards.filter((shard) =>
-            shard.logicalLedgerId === logicalLedgerId && shard.bindingState === 'bound' && Boolean(shard.remoteFolderId)
-          )
-          const existingMemberAids = new Set(existing.flatMap((shard) => snapshot.memberships[shard.folderId] ?? []))
-          const newAssignmentCount = assignmentAids.filter((aid) => !existingMemberAids.has(aid)).length
-          const availableCapacity = existing.reduce((total, shard) => total + Math.max(
-            0,
-            1_000 - Math.max(snapshot.memberships[shard.folderId]?.length ?? 0, shard.remoteMemberCount ?? 0)
-          ), 0)
-          const shardCount = Math.max(0, Math.ceil((newAssignmentCount - availableCapacity) / 1_000))
-          const hasUnreconciledShard = snapshot.physicalShards.some((shard) =>
-            shard.logicalLedgerId === logicalLedgerId && shard.bindingState !== 'bound'
-          )
-          // A brand-new logical ledger may provision its first Bilibili shard here.
-          // If a prior attempt left an unbound/pending shard, stop instead of
-          // creating another remote folder and losing the reconciliation path.
-          if (newAssignmentCount > 0 && existing.length === 0 && hasUnreconciledShard) {
-            throw new Error(`Old favorite workspace cannot freeze: remote-target-unbound:${logicalLedgerId}`)
-          }
-          const nextShardNumber = Math.max(0, ...existing.map((shard) => shard.shardNumber)) + 1
-          const savedBinding = preparation.savedBindings.get(logicalLedgerId)
-          for (let offset = 0; offset < shardCount; offset += 1) {
-            await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
-              logicalLedgerId,
-              logicalTitle,
-              remoteDisplayTitle: savedBinding?.remoteDisplayTitle ?? logicalTitle,
-              ...(existing.length === 0 && offset === 0 && savedBinding?.remoteFolderId
-                ? { preferredRemoteFolderId: savedBinding.remoteFolderId }
-                : {}),
-              shardNumber: nextShardNumber + offset,
-              memberAids: []
-            })
-          }
-        }
-      }
       const frozen = await this.queue(async () => {
         const workspace = await this.requireWorkspace(preparation.accountMid)
         if (workspace.status !== 'previewing' || !workspace.baseline) {
@@ -5158,6 +5351,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.tagEnrichments.delete(account)
     this.deepSeekRunCheckpoints.delete(account)
     this.recommendationIndexes.delete(account)
+    this.roundExcludedLedgerIdsByAccount.delete(account)
     this.remember(workspace, '', [], new Set())
     return mode ? { ...workspace, mode } : workspace
   }
@@ -5187,6 +5381,7 @@ export class OldFavoriteWorkspaceCoordinator {
         workspaceId: marker.id
       }
     }
+    this.roundExcludedLedgerIdsByAccount.set(marker.accountMid, [...(recovered.excludedLedgerIds ?? [])])
     const recoveredDeepSeekRunCheckpoint = recovered.deepSeekRunCheckpoint?.workspaceId === marker.id
       ? clone(recovered.deepSeekRunCheckpoint)
       : null
@@ -5506,7 +5701,10 @@ export class OldFavoriteWorkspaceCoordinator {
       const changedAids = new Set(recovered.recoveryDecision.mergeLatestSystemAids)
       const segmentIds = workspace.segments.filter((segment) => segment.aids.some((aid) => changedAids.has(aid))).map((segment) => segment.id)
       if (segmentIds.length && (this.options.classifyCurrentItem || this.options.classifyCurrentItems)) {
-        const refreshed = await this.autoClassifySegmentsUnsafe(workspace, segmentIds, true, changedAids, undefined, true)
+        // A merge-latest configuration change is a later valid classification
+        // operation: it may replace stale DeepSeek output for the affected AIDs,
+        // while preserving manual choices until a later explicit operation.
+        const refreshed = await this.autoClassifySegmentsUnsafe(workspace, segmentIds, true, changedAids, undefined, true, false)
         const appliedAids = new Set(workspace.segments.flatMap((segment) => segment.aids).filter((aid) => changedAids.has(aid)))
         await this.options.workspaceStore.setRecoveryDecision(marker.accountMid, marker.id, {
           ...recovered.recoveryDecision,
@@ -5547,7 +5745,6 @@ export class OldFavoriteWorkspaceCoordinator {
         acceptedTagVersionsBySegment[descriptor.id] = enrichment.tagVersionsBySegment[descriptor.id] ?? 0
       }
     }
-
     if (acceptedSegmentIds.size === enrichment.acceptedSegmentIds.length) return enrichment
     const next = normalizeTagEnrichment({
       ...enrichment,
@@ -5691,6 +5888,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.tagAdoptions.delete(accountMid)
     this.inFlightTagEnrichmentAids.delete(accountMid)
     this.recommendations.delete(accountMid)
+    this.roundExcludedLedgerIdsByAccount.delete(accountMid)
     this.recommendationIndexes.delete(accountMid)
     this.planReadiness.delete(accountMid)
     this.staleDeepSeekAids.delete(accountMid)
@@ -5827,6 +6025,8 @@ export class OldFavoriteWorkspaceCoordinator {
   private async loadSelectedClassificationsForFreeze(workspace: OldFavoriteWorkspace, includeInbox = false) {
     const overlays = await this.options.workspaceStore.readOverlayHistory(workspace.accountMid, workspace.id)
     const classifications = replayClassificationJournal(overlays).classifications
+    const excludedLedgerIds = new Set(overlays.reduce<string[]>((current, overlay) =>
+      overlay.excludedLedgerIds === undefined ? current : overlay.excludedLedgerIds, []))
     const overview = this.scanOverviews.get(workspace.accountMid)
     if (!overview) return []
     const sourceFolders = overview.sourceFolders
@@ -5842,7 +6042,10 @@ export class OldFavoriteWorkspaceCoordinator {
         const classification = classifications.get(item.aid)
         if (!isUnavailableScanItem(item) &&
           (!hasSelectableSourceFolders || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))) {
-          if (classification?.targetLedgerIds.length) selected.push(clone(classification))
+          if (classification?.targetLedgerIds.length) {
+            const targetLedgerIds = classification.targetLedgerIds.filter((ledgerId) => !excludedLedgerIds.has(ledgerId))
+            if (targetLedgerIds.length) selected.push({ ...clone(classification), targetLedgerIds })
+          }
           else if (includeInbox) selected.push({ aid: item.aid, targetLedgerIds: ['inbox'], source: 'system-low' })
         }
       }
@@ -6826,6 +7029,9 @@ export class OldFavoriteWorkspaceCoordinator {
         }),
         adoptedCandidateIds: [...(this.recommendations.get(workspace.accountMid)?.adoptedCandidateIds ?? [])]
       },
+      ...(this.roundExcludedLedgerIdsByAccount.get(workspace.accountMid)?.length
+        ? { excludedLedgerIds: [...this.roundExcludedLedgerIdsByAccount.get(workspace.accountMid)!] }
+        : {}),
       planReadiness: (() => {
         const readiness = this.planReadiness.get(workspace.accountMid) ?? { selectedAidCount: 0, classifiedAidCount: 0 }
         return { ...readiness, unclassifiedAidCount: readiness.selectedAidCount - readiness.classifiedAidCount }

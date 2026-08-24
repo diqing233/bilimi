@@ -80,7 +80,7 @@ type FavoriteLibraryOperationSelection = number[] | {
   excludedAids: number[]
 }
 type FavoriteLibraryDocumentExportSelection = Exclude<FavoriteLibraryOperationSelection, number[]> | { kind: 'aids'; aids: number[] }
-import type { OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceBilibiliSyncPreflight, OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
@@ -94,6 +94,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   saveFavoriteLibraryUiPreferences: (accountMid: string, collapsedGroups: Record<string, boolean>) => ipcRenderer.invoke('favorite-library:save-ui-preferences', accountMid, collapsedGroups) as Promise<Record<string, boolean>>,
   openOldFavoriteWorkspaceV1: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceView>,
+  getOldFavoriteWorkspaceBilibiliExecutionPreflightV1: (accountMid: string) =>
+    ipcRenderer.invoke('old-favorite-workspace-v1:bilibili-execution-preflight', accountMid) as Promise<OldFavoriteWorkspaceBilibiliSyncPreflight>,
+  provisionOldFavoriteWorkspaceBilibiliExecutionPreflightShardsV1: (accountMid: string) =>
+    ipcRenderer.invoke('old-favorite-workspace-v1:provision-bilibili-execution-preflight-shards', accountMid) as Promise<OldFavoriteWorkspaceBilibiliSyncPreflight>,
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:command', accountMid, command) as Promise<OldFavoriteWorkspaceView>,
   prepareOldFavoriteWorkspaceRecoveryV1: (accountMid: string) =>
