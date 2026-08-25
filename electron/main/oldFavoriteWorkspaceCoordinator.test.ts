@@ -8747,6 +8747,41 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('projects round exclusions into the archive overview and local staging counts', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-23T00:00:00.000Z' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([
+        { id: 'game', title: 'bilimi·游戏专区' },
+        { id: 'genshin', title: 'bilimi·原神' }
+      ]),
+      now: () => '2026-08-23T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    const aids = Array.from({ length: 2_001 }, (_unused, index) => index + 1)
+    await coordinator.completeScan('100', { revision: 1, aids })
+    const workspaceId = requireSnapshot(await coordinator.getSnapshot('100')).workspaceId
+    for (const aid of aids) await coordinator.recordTagEnrichment('100', aid, [], workspaceId)
+    await coordinator.selectSegment('100', 'segment-2')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2_001, targetLedgerIds: ['genshin'] }]
+    })
+
+    await coordinator.setRoundExcludedLedgerIds('100', ['genshin'])
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      overview: {
+        classifiedItemCount: 0,
+        unmatchedItemCount: 1,
+        archiveTargets: [
+          { ledgerId: 'inbox', itemCount: 1, segmentCounts: [{ segmentId: 'segment-2', count: 1 }] }
+        ]
+      }
+    })
+  })
+
   it('reports capacity shards only for selected targets without mutating the workspace', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

@@ -6792,6 +6792,7 @@ export class OldFavoriteWorkspaceCoordinator {
         count + new Set(candidate.matchedAidsBySegment?.[segmentId] ?? []).size, 0)
     })).filter((candidate) => candidate.count > 0)
     const archiveCounts = new Map<string, Map<string, number>>()
+    const excludedLedgerIds = new Set(this.roundExcludedLedgerIdsByAccount.get(workspace.accountMid) ?? [])
     let processedItemCount = 0
     let classifiedItemCount = 0
     let unmatchedItemCount = 0
@@ -6804,8 +6805,9 @@ export class OldFavoriteWorkspaceCoordinator {
       let segmentClassifiedItemCount = 0
       for (const classification of classifications.values()) {
         if (selectedAids && !selectedAids.has(classification.aid)) continue
-        if (classification.targetLedgerIds.length) segmentClassifiedItemCount += 1
-        for (const ledgerId of new Set(classification.targetLedgerIds.slice(0, 3))) {
+        const targetLedgerIds = classification.targetLedgerIds.filter((ledgerId) => !excludedLedgerIds.has(ledgerId))
+        if (targetLedgerIds.length) segmentClassifiedItemCount += 1
+        for (const ledgerId of new Set(targetLedgerIds.slice(0, 3))) {
           const segmentCounts = archiveCounts.get(ledgerId) ?? new Map<string, number>()
           segmentCounts.set(segmentId, (segmentCounts.get(segmentId) ?? 0) + 1)
           archiveCounts.set(ledgerId, segmentCounts)
