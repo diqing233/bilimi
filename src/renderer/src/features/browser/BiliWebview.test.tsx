@@ -497,6 +497,23 @@ describe('BiliWebview', () => {
     expect(removeEventListener).not.toHaveBeenCalled()
   })
 
+  it('shows visible loading feedback while the active Bilibili page is navigating', () => {
+    render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+
+    expect(screen.getByRole('status')).toHaveTextContent('正在加载 B 站页面')
+
+    act(() => {
+      webview.dispatchEvent(Object.assign(new Event('did-finish-load'), { isMainFrame: true }))
+    })
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    act(() => {
+      webview.dispatchEvent(Object.assign(new Event('did-start-navigation'), { isMainFrame: true }))
+    })
+    expect(screen.getByRole('status')).toHaveTextContent('正在加载 B 站页面')
+  })
+
   it('shows a recoverable error card for ERR_PROXY_CONNECTION_FAILED', () => {
     render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
     const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag

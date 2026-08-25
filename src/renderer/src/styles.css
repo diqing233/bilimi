@@ -792,6 +792,25 @@ body[data-floating-window="true"],
   background: linear-gradient(180deg, rgba(220, 238, 255, 0.96), rgba(213, 230, 246, 0.98));
   color: var(--porcelain-text);
 }
+.browser-loading {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: rgba(220, 238, 255, 0.72);
+  color: var(--porcelain-text);
+  font: 16px "Noto Serif SC", "Songti SC", "SimSun", serif;
+}
+.browser-loading p {
+  margin: 0;
+  padding: 14px 20px;
+  border: 1px solid rgba(31, 99, 181, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 254, 253, 0.94);
+  box-shadow: 0 12px 30px rgba(7, 26, 51, 0.12);
+}
 .browser-proxy-error__card {
   width: min(520px, 100%);
   display: grid;
