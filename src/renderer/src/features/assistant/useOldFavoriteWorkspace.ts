@@ -719,7 +719,6 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const redoClassification = useCallback(() => sendCommand({ type: 'redo-classification' }), [sendCommand])
   const moveHistoryCursor = useCallback((cursor: number) => sendCommand({ type: 'move-history-cursor', cursor }), [sendCommand])
   const autoClassifyCurrentSegment = useCallback(() => sendCommand({ type: 'auto-classify-current-segment' }), [sendCommand])
-  const reclassifyFavoriteConfiguration = useCallback(() => sendCommand({ type: 'reclassify-favorite-configuration' }), [sendCommand])
   const sendTagEnrichmentCommand = useCallback(async (type: 'pause-tag-enrichment' | 'resume-tag-enrichment' | 'retry-failed-tag-enrichment' | 'accept-current-tags') => {
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
     if (!accountMid || !command) return null
@@ -810,8 +809,6 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const updateRecommendedCandidates = useCallback((update: (current: string[]) => string[]) => {
     setRecommendedCandidates(update(recommendedCandidateIdsRef.current))
   }, [setRecommendedCandidates])
-  const setRoundExcludedLedgerIds = useCallback((ledgerIds: string[]) =>
-    sendCommand({ type: 'set-round-excluded-ledger-ids', ledgerIds: normalizeCandidateIds(ledgerIds) }), [sendCommand])
   const prepareRecommendationPreview = useCallback(async () => {
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
     const workspaceId = snapshot && !('recovery' in snapshot) ? snapshot.workspaceId : null
@@ -1078,20 +1075,18 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     const hasActiveWork = snapshot && (
       ['scanning', 'executing', 'reconciling'].includes(snapshot.status) ||
       snapshot.tagEnrichment?.status === 'running' ||
-      Boolean(snapshot.deepSeekRun && ['running', 'waiting'].includes(snapshot.deepSeekRun.status)) ||
-      snapshot.configurationUpdate?.status === 'running'
+      Boolean(snapshot.deepSeekRun && ['running', 'waiting'].includes(snapshot.deepSeekRun.status))
     )
     if (!hasActiveWork) return
-    const refreshIntervalMs = snapshot.configurationUpdate?.status === 'running' ? 250 : 4_000
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refresh(true)
-    }, refreshIntervalMs)
+    }, 4_000)
     return () => window.clearInterval(timer)
-  }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.deepSeekRun?.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.configurationUpdate?.status : undefined])
+  }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.deepSeekRun?.status : undefined])
 
   return {
     snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, tagEnrichmentUpdating, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, pauseScan, prepareRecovery, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
-    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, reclassifyFavoriteConfiguration, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, setRoundExcludedLedgerIds, saveDraftLedgerRule, queueDraftLedgerRuleAnalysis, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan, pauseBilibiliSync, stopBilibiliSyncAndFinish,
+    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, updateRecommendedCandidates, saveDraftLedgerRule, queueDraftLedgerRuleAnalysis, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan, pauseBilibiliSync, stopBilibiliSyncAndFinish,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace, prepareRecommendationPreview, cancelRecommendationPreviewPreparation, waitForRecommendationQueue,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)

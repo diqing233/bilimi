@@ -1,6 +1,7 @@
 import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceExecutionFailureCode, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { useEffect, useState } from 'react'
+import { BilimiModal } from '../../components/BilimiModal'
 import { OldFavoriteModal } from './OldFavoriteModal'
 import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
 
@@ -21,8 +22,7 @@ type OldFavoriteConfirmationStepProps = {
   onAcknowledgeCompletion?: () => void
   /** @deprecated Kept until the parent preflight branch removes its obsolete prop. */
   onUseOriginalClassifications?: () => void
-  /** Opens the parent's single final confirmation; it rechecks before any remote action. */
-  onConfirmAndSync: (includeInbox?: boolean, unmatchedCount?: number) => void
+  onConfirmAndSync: (includeInbox?: boolean) => void
   onExecuteFrozenPlan: () => void
   onPauseBilibiliSync?: () => Promise<boolean> | void
   onStopSyncAndFinish?: () => Promise<boolean> | void
@@ -70,8 +70,6 @@ function blockedExecutionIntentMessage(
       return '自动执行已停止：旧版 DeepSeek 状态需重新确认本轮执行。'
     case 'tag-cutoff-changed':
       return '自动执行已停止：标签结果已有新变化，请重新采用当前标签后再保存或同步。'
-    case 'backup-preflight-required':
-      return '自动执行已停止：本轮目标仍需完成收藏夹或分册备册确认后才能同步。'
     case 'remote-inventory-unavailable':
       return '自动执行已停止：暂时无法读取 B 站收藏夹列表，请保持已登录的 B 站页面打开后重试。'
     case 'saved-binding-absent':
@@ -144,6 +142,8 @@ export function OldFavoriteConfirmationStep({
       : `上次同步已安全停止：${failureReason}`
     : null
   const [localViewScope, setLocalViewScope] = useState<OldFavoriteViewScope>('all')
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false)
+  const [includeInbox, setIncludeInbox] = useState(false)
   const [stopSyncDialogOpen, setStopSyncDialogOpen] = useState(false)
   const [pauseRequested, setPauseRequested] = useState(false)
   const [stopRequested, setStopRequested] = useState(false)
@@ -151,7 +151,6 @@ export function OldFavoriteConfirmationStep({
   const setViewScope = onViewScopeChange ?? setLocalViewScope
   const { canSaveLocally, canSyncToBilibili, unclassifiedCount } = readinessFor(snapshot)
   const readiness = snapshot.planReadiness
-  const favoriteConfigurationUpdating = snapshot.configurationUpdate?.status === 'running'
   const userPausedBilibiliSync = snapshot.executionProgress?.syncPaused === true
   const deepSeekBlocksExecution = snapshot.deepSeekRun?.status === 'running' || snapshot.deepSeekRun?.status === 'waiting'
   const requestPauseBilibiliSync = () => {
@@ -332,6 +331,19 @@ export function OldFavoriteConfirmationStep({
     : unclassifiedCount
   const wholeRunUnmatchedCount = isMultiSegment ? snapshot.overview?.unmatchedItemCount ?? 0 : unclassifiedCount
   const unmatchedCount = isMultiSegment && viewScope === 'current' ? currentSegmentUnmatchedCount : wholeRunUnmatchedCount
+  const pendingBackupTargets = (snapshot.overview?.archiveTargets ?? [])
+    .map((target) => {
+      const ledger = ledgers.find((candidate) => candidate.id === target.ledgerId)
+      const count = isMultiSegment && viewScope === 'current' && currentSegmentSummary
+        ? target.segmentCounts.find((segment) => segment.segmentId === currentSegmentSummary.id)?.count ?? 0
+        : target.itemCount
+      const explicitlyUnbound = ledger?.bindingState === 'unbound' || ledger?.bindingState === 'unbacked'
+      const alreadyBacked = Boolean(ledger && !explicitlyUnbound && (ledger.bindingState === 'bound' || ledger.bilibiliFolderId))
+      return { ledger, count, alreadyBacked }
+    })
+    .filter(({ ledger, count, alreadyBacked }) => Boolean(ledger) && ledger?.id !== 'inbox' && count > 0 && !alreadyBacked)
+    .map(({ ledger, count }) => ({ name: ledger!.displayName, count }))
+  const totalVideosToOrganize = readiness?.selectedAidCount ?? 0
   const unmatchedMessage = unmatchedCount
     ? `${isMultiSegment && viewScope === 'current' ? '本批' : '本轮'}未匹配到合适分类 ${unmatchedCount} 条，将保存到 bilimi·暂存；同步时默认不上传 B 站。`
     : !canSaveLocally
@@ -347,8 +359,6 @@ export function OldFavoriteConfirmationStep({
       ? `标签结果仍有 ${tagPendingItemCount} 条待补取或读取失败，完成补取或选择当前结果后才能保存或同步。`
       : snapshot.deepSeekRun?.status === 'running' || snapshot.deepSeekRun?.status === 'waiting'
         ? 'DeepSeek 整理仍在运行，完成或取消并收束后才能保存或同步。'
-        : favoriteConfigurationUpdating
-          ? '正在按最新收藏夹规则更新，完成后才能保存或同步。'
         : null
 
   return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
@@ -378,20 +388,38 @@ export function OldFavoriteConfirmationStep({
       {isMultiSegment && viewScope === 'current' ? <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本批操作">
         <strong>本批操作</strong>
         <div className="favorite-ledger-panel__confirm-actions">
-          <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || !currentSegmentReady || favoriteConfigurationUpdating || deepSeekBlocksExecution || loading} onClick={onSaveCurrentSegment}>{currentSegmentSaved ? '重新保存本批到收藏库' : '保存本批到收藏库'}</button>
+          <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || !currentSegmentReady || deepSeekBlocksExecution || loading} onClick={onSaveCurrentSegment}>{currentSegmentSaved ? '重新保存本批到收藏库' : '保存本批到收藏库'}</button>
           <button type="button" disabled={loading} onClick={() => setEndDialogOpen(true)}>暂不同步，结束本轮整理</button>
         </div>
       </section> : null}
       {(!isMultiSegment || viewScope === 'all') ? <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本轮操作">
         <strong>本轮操作</strong>
         <div className="favorite-ledger-panel__confirm-actions">
-          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || !wholeRunReadyForExecution || favoriteConfigurationUpdating || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{allSegmentsSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || !singleRunReadyForExecution || favoriteConfigurationUpdating || deepSeekBlocksExecution || loading} onClick={onSaveLocally}>{currentSegmentSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button>}
-          <button type="button" disabled={!canSyncToBilibili || (isMultiSegment ? !wholeRunReadyForExecution : !singleRunReadyForExecution) || favoriteConfigurationUpdating || deepSeekBlocksExecution || loading} onClick={() => onConfirmAndSync(false, unmatchedCount)}>确认并同步到 B 站</button>
+          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || !wholeRunReadyForExecution || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{allSegmentsSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || !singleRunReadyForExecution || deepSeekBlocksExecution || loading} onClick={onSaveLocally}>{currentSegmentSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button>}
+          <button type="button" disabled={!canSyncToBilibili || (isMultiSegment ? !wholeRunReadyForExecution : !singleRunReadyForExecution) || deepSeekBlocksExecution || loading} onClick={() => {
+            if (unmatchedCount > 0) setSyncDialogOpen(true)
+            else onConfirmAndSync(false)
+          }}>确认并同步到 B 站</button>
           <button type="button" disabled={loading} onClick={() => setEndDialogOpen(true)}>暂不同步，结束本轮整理</button>
         </div>
       </section> : null}
     </div>
     {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)} enabledLedgerIds={enabledLedgerIds} /> : null}
+    {syncDialogOpen ? <BilimiModal title="同步选项" className="favorite-ledger-panel__sync-dialog" onClose={() => setSyncDialogOpen(false)} actions={<>
+      <button type="button" onClick={() => { setSyncDialogOpen(false); onConfirmAndSync(includeInbox) }}>确认同步</button>
+    </>}>
+      <div className="favorite-ledger-panel__sync-summary">
+        <p>本次将整理 {totalVideosToOrganize} 条视频。</p>
+        {pendingBackupTargets.length > 0
+          ? <p>同步前将备册：{pendingBackupTargets.map(({ name, count }) => `${name}（${count} 条）`).join('、')}</p>
+          : null}
+        <p>其中 {unmatchedCount} 条未匹配到合适分类，会先保存到收藏库的 bilimi·暂存；如需一并同步到 B 站，请勾选下方选项。</p>
+      </div>
+      <label>
+        <input type="checkbox" checked={includeInbox} onChange={(event) => setIncludeInbox(event.currentTarget.checked)} />
+        同步 bilimi·暂存（{unmatchedCount} 条）
+      </label>
+    </BilimiModal> : null}
     {endDialogOpen ? <OldFavoriteModal title="结束本轮整理?" onCancel={() => setEndDialogOpen(false)} extraActions={<>
       <button type="button" onClick={() => { setEndDialogOpen(false); onCloseCurrentWorkspace() }}>关闭整理</button>
       <button type="button" onClick={() => { setEndDialogOpen(false); onAbandonCurrentWorkspace() }}>确认结束</button>

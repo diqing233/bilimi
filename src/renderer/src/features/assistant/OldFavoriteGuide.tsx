@@ -72,7 +72,7 @@ type OldFavoriteGuideProps = {
   onCloseCurrentWorkspace?: () => void
   onAbandonCurrentWorkspace?: () => void
   onAcknowledgeCompletion?: () => void
-  onConfirmAndSync: (includeInbox?: boolean, unmatchedCount?: number) => void
+  onConfirmAndSync: (includeInbox?: boolean) => void
   onExecuteFrozenPlan: () => void
   onPauseBilibiliSync?: () => Promise<boolean> | void
   onStopSyncAndFinish?: () => Promise<boolean> | void
@@ -193,19 +193,8 @@ export function OldFavoriteGuide({
   }, [])
   const guideHintTooltipRef = useRef<HTMLDivElement>(null)
   const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('current')
-  const initializedMultiBatchWorkspaceIdRef = useRef<string | null>(null)
   const [viewedSegmentId, setViewedSegmentId] = useState<string | null>(null)
   const [viewedSnapshot, setViewedSnapshot] = useState<Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }> | null>(null)
-  useEffect(() => {
-    if (!snapshot || 'recovery' in snapshot) return
-    if (snapshot.segments.length <= 1) {
-      initializedMultiBatchWorkspaceIdRef.current = snapshot.workspaceId
-      return
-    }
-    if (initializedMultiBatchWorkspaceIdRef.current === snapshot.workspaceId) return
-    initializedMultiBatchWorkspaceIdRef.current = snapshot.workspaceId
-    setViewScope('all')
-  }, [snapshot])
   useLayoutEffect(() => {
     if (!guideHintVisible) return
     const updatePosition = () => {

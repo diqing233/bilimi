@@ -142,6 +142,12 @@ function savedRecommendationLedger(candidate: OldFavoriteWorkspaceRecommendation
   }
 }
 
+function isPureLocalGeneratedRecommendation(ledger: FavoriteLedger) {
+  return ledger.bindingState === 'unbacked' &&
+    !ledger.bilibiliFolderId &&
+    !(ledger.bilibiliFolderIds ?? []).some((folderId) => folderId.trim())
+}
+
 function confirmationNeedsBackup(
   snapshot: Exclude<ReturnType<typeof useOldFavoriteWorkspace>['snapshot'], null>,
   ledgers: FavoriteLedger[],
@@ -163,21 +169,11 @@ function bilibiliBackupShardKey(shard: OldFavoriteWorkspaceBilibiliSyncPreflight
   return `${shard.logicalLedgerId}:${shard.shardNumber}`
 }
 
-function bilibiliBackupLedgerKey(ledger: OldFavoriteWorkspaceBilibiliSyncPreflight['missingLedgers'][number]) {
-  return ledger.logicalLedgerId
-}
-
 function bilibiliBindingCandidatesForShard(shard: OldFavoriteWorkspaceBilibiliSyncPreflight['requiredPhysicalShards'][number]) {
   // A renderer may briefly retain a pre-upgrade IPC result while the preload
   // updates. Treat the absent additive field as no candidate, never as a
   // reason to crash or silently bind one.
   return shard.bindingCandidates ?? []
-}
-
-function bilibiliBindingCandidatesForLedger(ledger: OldFavoriteWorkspaceBilibiliSyncPreflight['missingLedgers'][number]) {
-  // See the shard variant above: tolerate an older preload result without
-  // weakening the explicit-selection requirement for newer results.
-  return ledger.bindingCandidates ?? []
 }
 
 export function ControlledFavoriteLedgerPanel({
@@ -214,13 +210,8 @@ export function ControlledFavoriteLedgerPanel({
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' ||
       normalizeAccountMid(snapshot.accountMid) !== accountKey) return null
-    // Main persists the rule first and returns an authoritative “updating”
-    // snapshot immediately. Do not await a second full-round classification
-    // from the renderer: it duplicates work and blocks the visible control.
-    const scheduled = await workspace.reclassifyFavoriteConfiguration()
-    await workspace.refresh(true)
-    return scheduled
-  }, [accountKey, workspace.reclassifyFavoriteConfiguration, workspace.refresh, workspace.snapshot])
+    return workspace.reclassifyFavoriteConfiguration()
+  }, [accountKey, workspace.reclassifyFavoriteConfiguration, workspace.snapshot])
   const refreshSavedLedgerDirectoryWorkspace = useCallback(async () => {
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' ||
@@ -245,12 +236,17 @@ export function ControlledFavoriteLedgerPanel({
   const promotedRecommendationLedgersRef = useRef<FavoriteLedger[]>([])
   const pendingRecommendationSavesRef = useRef(new Map<string, Promise<unknown>>())
   const [promotedRecommendationAccountKey, setPromotedRecommendationAccountKey] = useState(accountKey)
+  const [dismissedGeneratedRecommendationLedgerIds, setDismissedGeneratedRecommendationLedgerIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [dismissedRecommendationAccountKey, setDismissedRecommendationAccountKey] = useState(accountKey)
   const [ledgerEnabledById, setLedgerEnabledById] = useState<ReadonlyMap<string, boolean>>(() =>
     new Map(ledgers.map((ledger) => [ledger.id, ledger.enabled])))
   const ledgerEnabledByIdRef = useRef(ledgerEnabledById)
   const visiblePromotedRecommendationLedgers = promotedRecommendationAccountKey === accountKey
     ? promotedRecommendationLedgers
     : []
+  const visibleDismissedGeneratedRecommendationLedgerIds = dismissedRecommendationAccountKey === accountKey
+    ? dismissedGeneratedRecommendationLedgerIds
+    : new Set<string>()
   const mergedEffectiveLedgers = mergePromotedRecommendationLedgers(ledgers, visiblePromotedRecommendationLedgers)
   const previewRecommendationSnapshot = workspace.snapshot && !('recovery' in workspace.snapshot) && workspace.snapshot.status === 'previewing'
     ? workspace.snapshot
@@ -263,7 +259,7 @@ export function ControlledFavoriteLedgerPanel({
           !candidateIds.has(ledger.id) || projection.candidateToLedgerId.get(ledger.id) === ledger.id)
       })()
     : mergedEffectiveLedgers
-  const effectiveLedgers = effectiveLedgersBeforeDismissal
+  const effectiveLedgers = effectiveLedgersBeforeDismissal.filter((ledger) => !visibleDismissedGeneratedRecommendationLedgerIds.has(ledger.id))
   const [enabledStateAccountKey, setEnabledStateAccountKey] = useState(accountKey)
   const updateLedgerEnabledById = useCallback((next: ReadonlyMap<string, boolean>) => {
     const normalized = new Map(next)
@@ -285,6 +281,17 @@ export function ControlledFavoriteLedgerPanel({
     setPromotedRecommendationLedgers([])
     setPromotedRecommendationAccountKey(accountKey)
   }, [accountKey, promotedRecommendationAccountKey])
+  useEffect(() => {
+    if (dismissedRecommendationAccountKey === accountKey) return
+    setDismissedGeneratedRecommendationLedgerIds(new Set())
+    setDismissedRecommendationAccountKey(accountKey)
+  }, [accountKey, dismissedRecommendationAccountKey])
+  const removePromotedRecommendationLedger = useCallback((ledgerId: string) => {
+    const nextPromoted = promotedRecommendationLedgersRef.current.filter((ledger) => ledger.id !== ledgerId)
+    if (nextPromoted.length === promotedRecommendationLedgersRef.current.length) return
+    promotedRecommendationLedgersRef.current = nextPromoted
+    setPromotedRecommendationLedgers(nextPromoted)
+  }, [])
   const promoteSelectedRecommendationLedgers = useCallback((candidateIds: readonly string[]) => {
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return
@@ -325,11 +332,35 @@ export function ControlledFavoriteLedgerPanel({
     const candidates = snapshot.recommendations.candidates
     const knownCandidateIds = new Set(candidates.map((candidate) => candidate.id))
     const nextCandidateIds = [...new Set(candidateIds.map((id) => id.trim()).filter((id) => knownCandidateIds.has(id)))].sort()
+    const previousCandidateIds = new Set(workspace.recommendedCandidateIds)
+    const currentLedgers = mergePromotedRecommendationLedgers(ledgers, promotedRecommendationLedgersRef.current)
+    const projection = createRecommendationProjection(currentLedgers, candidates)
+    const ledgerById = new Map(currentLedgers.map((ledger) => [ledger.id, ledger]))
     promoteSelectedRecommendationLedgers(nextCandidateIds)
     workspace.setRecommendedCandidates(nextCandidateIds)
     const committedCandidateIds = new Set(await workspace.waitForRecommendationQueue())
+    const dismissedLedgerIds = candidates
+      .filter((candidate) => previousCandidateIds.has(candidate.id) && !nextCandidateIds.includes(candidate.id) && !committedCandidateIds.has(candidate.id))
+      .map((candidate) => projection.candidateToLedgerId.get(candidate.id))
+      .filter((ledgerId): ledgerId is string => Boolean(ledgerId))
+      .filter((ledgerId) => {
+        const ledger = ledgerById.get(ledgerId)
+        return ledger ? isPureLocalGeneratedRecommendation(ledger) : false
+      })
+    if (dismissedLedgerIds.length) {
+      for (const ledgerId of dismissedLedgerIds) removePromotedRecommendationLedger(ledgerId)
+      setDismissedGeneratedRecommendationLedgerIds((current) => new Set([...current, ...dismissedLedgerIds]))
+    }
+    const restoredLedgerIds = candidates
+      .filter((candidate) => !previousCandidateIds.has(candidate.id) && nextCandidateIds.includes(candidate.id) && committedCandidateIds.has(candidate.id))
+      .map((candidate) => projection.candidateToLedgerId.get(candidate.id))
+      .filter((ledgerId): ledgerId is string => Boolean(ledgerId))
+    if (restoredLedgerIds.length) {
+      const restoredIds = new Set(restoredLedgerIds)
+      setDismissedGeneratedRecommendationLedgerIds((current) => new Set([...current].filter((ledgerId) => !restoredIds.has(ledgerId))))
+    }
     return [...committedCandidateIds]
-  }, [ledgers, promoteSelectedRecommendationLedgers, workspace.setRecommendedCandidates, workspace.snapshot, workspace.waitForRecommendationQueue])
+  }, [ledgers, promoteSelectedRecommendationLedgers, removePromotedRecommendationLedger, workspace.recommendedCandidateIds, workspace.setRecommendedCandidates, workspace.snapshot, workspace.waitForRecommendationQueue])
   const updateOrganizationRecommendedCandidates = useCallback((update: (current: string[]) => string[]) => {
     void setOrganizationRecommendedCandidates(update(workspace.recommendedCandidateIds))
   }, [setOrganizationRecommendedCandidates, workspace.recommendedCandidateIds])
@@ -430,10 +461,7 @@ export function ControlledFavoriteLedgerPanel({
   const [confirmationPreparationStatus, setConfirmationPreparationStatus] = useState<string | null>(null)
   const [confirmationPreparationError, setConfirmationPreparationError] = useState<string | null>(null)
   const [bilibiliBackupPreflight, setBilibiliBackupPreflight] = useState<OldFavoriteWorkspaceBilibiliSyncPreflight | null>(null)
-  const [bilibiliLedgerCandidateIds, setBilibiliLedgerCandidateIds] = useState<Record<string, string>>({})
   const [bilibiliShardCandidateIds, setBilibiliShardCandidateIds] = useState<Record<string, string>>({})
-  const [bilibiliBackupInboxCount, setBilibiliBackupInboxCount] = useState(0)
-  const [bilibiliBackupIncludeInbox, setBilibiliBackupIncludeInbox] = useState(false)
   const bilibiliBackupSyncIntentRef = useRef<{ includeInbox: boolean; workspaceId: string } | null>(null)
   const scanPresentationRequestVersion = useRef(0)
   const organizationRequestVersion = useRef(0)
@@ -484,7 +512,6 @@ export function ControlledFavoriteLedgerPanel({
     setConfirmationPreparationStatus(null)
     setConfirmationPreparationError(null)
     setBilibiliBackupPreflight(null)
-    setBilibiliLedgerCandidateIds({})
     setBilibiliShardCandidateIds({})
     bilibiliBackupSyncIntentRef.current = null
     dismissedGuideWorkspaceIdRef.current = null
@@ -768,18 +795,10 @@ export function ControlledFavoriteLedgerPanel({
   })
   const presentBilibiliBackupPreflight = (preflight: OldFavoriteWorkspaceBilibiliSyncPreflight) => {
     setBilibiliBackupPreflight(preflight)
-    // A real remote candidate can only be adopted after the user explicitly
-    // selects its exact ID in this final confirmation surface.
-    setBilibiliLedgerCandidateIds({})
-    setBilibiliShardCandidateIds({})
-  }
-  const clearBilibiliBackupPreflight = () => {
-    setBilibiliBackupPreflight(null)
-    setBilibiliLedgerCandidateIds({})
-    setBilibiliShardCandidateIds({})
-    setBilibiliBackupInboxCount(0)
-    setBilibiliBackupIncludeInbox(false)
-    bilibiliBackupSyncIntentRef.current = null
+    setBilibiliShardCandidateIds(Object.fromEntries(preflight.requiredPhysicalShards.flatMap((shard) => {
+      const candidate = bilibiliBindingCandidatesForShard(shard)[0]
+      return candidate ? [[bilibiliBackupShardKey(shard), candidate.remoteFolderId]] : []
+    })))
   }
   const continueConfirmedBilibiliBackup = async () => {
     const intent = bilibiliBackupSyncIntentRef.current
@@ -838,7 +857,9 @@ export function ControlledFavoriteLedgerPanel({
         setConfirmationPreparationError('备册尚未完成；请完成列出的收藏夹和分册确认后再同步。')
         return
       }
-      clearBilibiliBackupPreflight()
+      setBilibiliBackupPreflight(null)
+      setBilibiliShardCandidateIds({})
+      bilibiliBackupSyncIntentRef.current = null
       setConfirmationPreparationStatus('备册已核验，正在准备同步到 B 站。')
       await executeConfirmedBilibiliSync(intent.includeInbox)
     } catch (error) {
@@ -859,7 +880,9 @@ export function ControlledFavoriteLedgerPanel({
       // backup operation: re-read the authoritative projection first.
       const latestPreflight = await readBilibiliBackupPreflight()
       if (!latestPreflight || latestPreflight.workspaceId !== preflight.workspaceId) {
-        clearBilibiliBackupPreflight()
+        setBilibiliBackupPreflight(null)
+        setBilibiliShardCandidateIds({})
+        bilibiliBackupSyncIntentRef.current = null
         setConfirmationPreparationError('同步目标已更新，请重新确认同步到 B 站。')
         return
       }
@@ -870,51 +893,15 @@ export function ControlledFavoriteLedgerPanel({
       }
       const missingLedgerIds = latestPreflight.missingLedgers.map((ledger) => ledger.logicalLedgerId)
       if (missingLedgerIds.length) {
-        const ledgersWithCandidates = latestPreflight.missingLedgers.filter((ledger) => bilibiliBindingCandidatesForLedger(ledger).length)
-        const missingLedgerCandidates = ledgersWithCandidates.map((ledger) => {
-          const remoteFolderId = bilibiliLedgerCandidateIds[bilibiliBackupLedgerKey(ledger)]
-          const candidate = bilibiliBindingCandidatesForLedger(ledger).find((item) => item.remoteFolderId === remoteFolderId)
-          return { ledger, candidate }
-        })
-        if (missingLedgerCandidates.some(({ candidate }) => !candidate)) {
-          presentBilibiliBackupPreflight(latestPreflight)
-          setConfirmationPreparationError('请按具体 B 站 ID 选择每个未备册收藏夹后再继续。')
-          return
-        }
-        const rebindRemoteFolders = Object.fromEntries(missingLedgerCandidates
-          .filter((entry): entry is { ledger: typeof entry.ledger; candidate: NonNullable<typeof entry.candidate> } => Boolean(entry.candidate))
-          .map(({ ledger, candidate }) => [ledger.logicalLedgerId, [{
-            id: candidate.remoteFolderId,
-            title: candidate.remoteTitle,
-            memberCount: candidate.memberCount,
-            ...(candidate.shardNumber === undefined ? {} : { shardNumber: candidate.shardNumber })
-          }]]))
-        const rebindRemoteFolderIds = Object.fromEntries(Object.entries(rebindRemoteFolders)
-          .map(([ledgerId, folders]) => [ledgerId, folders[0]!.id]))
-        const hasCreationTarget = latestPreflight.missingLedgers.some((ledger) => !bilibiliBindingCandidatesForLedger(ledger).length)
         setConfirmationPreparationStatus('正在按确认范围备册收藏夹。')
-        const result = await favoriteLedgerOverviewRef.current?.requestBackup({
-          targetLedgerIds: missingLedgerIds,
-          suppressConfirmationDialog: true,
-          confirmedBackupOptions: {
-            ...(hasCreationTarget ? { confirmCreateAndBind: true } : {}),
-            ...(Object.keys(rebindRemoteFolderIds).length ? { rebindRemoteFolderIds } : {}),
-            ...(Object.keys(rebindRemoteFolders).length ? { rebindRemoteFolders } : {})
-          }
-        }) as {
+        const result = await favoriteLedgerOverviewRef.current?.requestBackup({ targetLedgerIds: missingLedgerIds }) as {
           ok?: boolean
           message?: string
           unboundCandidates?: unknown[]
         } | undefined
-        if (result?.unboundCandidates?.length) {
-          // A creation-time directory reread found a changed candidate set.
-          // Keep the current dialog as the sole consent surface and require a
-          // fresh preflight instead of opening the overview's own dialog.
-          const refreshed = await readBilibiliBackupPreflight()
-          if (refreshed) presentBilibiliBackupPreflight(refreshed)
-          setConfirmationPreparationError('B 站收藏夹候选已变化，请确认最新备册范围后继续。')
-          return
-        }
+        // The existing explicit candidate dialog is now open. It will invoke
+        // the callback below after the owner confirms (or leaves) that dialog.
+        if (result?.unboundCandidates?.length) return
         if (result?.ok === false) {
           setConfirmationPreparationError(result.message || '收藏夹备册失败，请重试。')
           return
@@ -928,16 +915,14 @@ export function ControlledFavoriteLedgerPanel({
       setConfirmationPreparationStatus(null)
     }
   }
-  const continueConfirmAndSync = async (includeInbox = false, unmatchedCount = 0) => {
+  const continueConfirmAndSync = async (includeInbox = false) => {
     if (!activeSnapshot) return
     setConfirmationPreparing(true)
     setConfirmationPreparationError(null)
     try {
       const preflight = await readBilibiliBackupPreflight()
-      if (preflight && (hasBilibiliBackupGaps(preflight) || unmatchedCount > 0)) {
+      if (preflight && hasBilibiliBackupGaps(preflight)) {
         bilibiliBackupSyncIntentRef.current = { includeInbox, workspaceId: preflight.workspaceId }
-        setBilibiliBackupInboxCount(unmatchedCount)
-        setBilibiliBackupIncludeInbox(includeInbox)
         presentBilibiliBackupPreflight(preflight)
         return
       }
@@ -960,9 +945,9 @@ export function ControlledFavoriteLedgerPanel({
       setConfirmationPreparationStatus(null)
     }
   }
-  const confirmAndSync = async (includeInbox = false, unmatchedCount = 0) => {
+  const confirmAndSync = async (includeInbox = false) => {
     if (!snapshot || recovery || confirmationPreparing) return
-    await continueConfirmAndSync(includeInbox, unmatchedCount)
+    await continueConfirmAndSync(includeInbox)
   }
   const reconcile = async () => {
     try {
@@ -1135,26 +1120,19 @@ export function ControlledFavoriteLedgerPanel({
           return true
         }}
       />
-      {bilibiliBackupPreflight ? <OldFavoriteModal title="同步前备册确认" confirmLabel="确认备册并继续" confirmDisabled={confirmationPreparing || bilibiliBackupPreflight.missingLedgers.some((ledger) => bilibiliBindingCandidatesForLedger(ledger).length > 0 && !bilibiliLedgerCandidateIds[bilibiliBackupLedgerKey(ledger)]) || bilibiliBackupPreflight.requiredPhysicalShards.some((shard) => bilibiliBindingCandidatesForShard(shard).length > 0 && !bilibiliShardCandidateIds[bilibiliBackupShardKey(shard)])}
+      {bilibiliBackupPreflight ? <OldFavoriteModal title="同步前备册确认" confirmLabel="确认备册并继续" confirmDisabled={confirmationPreparing || bilibiliBackupPreflight.requiredPhysicalShards.some((shard) => bilibiliBindingCandidatesForShard(shard).length > 0 && !bilibiliShardCandidateIds[bilibiliBackupShardKey(shard)])}
         onCancel={() => {
           if (confirmationPreparing) return
-          clearBilibiliBackupPreflight()
+          setBilibiliBackupPreflight(null)
+          setBilibiliShardCandidateIds({})
+          bilibiliBackupSyncIntentRef.current = null
           setConfirmationPreparationError(null)
         }}
         onConfirm={() => void confirmBilibiliBackupPreflight()}>
-        <p>本次将整理 {activeSnapshot?.planReadiness?.selectedAidCount ?? 0} 条视频。</p>
-        {bilibiliBackupInboxCount > 0 ? <label><input type="checkbox" checked={bilibiliBackupIncludeInbox}
-          onChange={(event) => {
-            const includeInbox = event.currentTarget.checked
-            setBilibiliBackupIncludeInbox(includeInbox)
-            const intent = bilibiliBackupSyncIntentRef.current
-            if (intent) bilibiliBackupSyncIntentRef.current = { ...intent, includeInbox }
-          }} />同步 bilimi·暂存（{bilibiliBackupInboxCount} 条）</label> : null}
-        {hasBilibiliBackupGaps(bilibiliBackupPreflight) ? <p>确认同步到 B 站前，需要先完成以下备册。取消或关闭不会冻结整理计划、创建/绑定收藏夹或写入视频。</p> : null}
+        <p>确认同步到 B 站前，需要先完成以下备册。取消或关闭不会冻结整理计划、创建/绑定收藏夹或写入视频。</p>
         <ul>
           {bilibiliBackupGroups.map((group) => <li key={`ledger:${group.logicalLedgerId}`}>
             收藏夹：{group.logicalTitle}{group.missingLedger ? `（${group.missingLedger.reason === 'unbacked' ? '未备册' : group.missingLedger.reason === 'unbound' ? '未绑定' : '待正式确认'}）` : ''}
-            {group.missingLedger && bilibiliBindingCandidatesForLedger(group.missingLedger).length ? <div><p>检测到实际未绑定的 B 站候选；请选择要绑定的精确 ID：</p>{bilibiliBindingCandidatesForLedger(group.missingLedger).map((candidate) => <label key={candidate.remoteFolderId}><input type="radio" name={`bilibili-backup-ledger:${bilibiliBackupLedgerKey(group.missingLedger!)}`} checked={bilibiliLedgerCandidateIds[bilibiliBackupLedgerKey(group.missingLedger)] === candidate.remoteFolderId} onChange={() => setBilibiliLedgerCandidateIds((current) => ({ ...current, [bilibiliBackupLedgerKey(group.missingLedger!)]: candidate.remoteFolderId }))} />{candidate.remoteTitle}（ID：{candidate.remoteFolderId}，{candidate.memberCount} 个视频）</label>)}</div> : null}
             {group.shards.length ? <ul>{group.shards.map((shard) => <li key={`shard:${shard.logicalLedgerId}:${shard.shardNumber}`}>新增分册：{shard.logicalTitle}{shard.shardNumber > 1 ? `·${shard.shardNumber}` : ''}（本轮需容纳 {shard.requiredAssignmentCount} 条新归属）
               {bilibiliBindingCandidatesForShard(shard).length ? <div><p>检测到实际未绑定的 B 站候选；请选择要绑定的精确 ID：</p>{bilibiliBindingCandidatesForShard(shard).map((candidate) => <label key={candidate.remoteFolderId}><input type="radio" name={`bilibili-backup-shard:${bilibiliBackupShardKey(shard)}`} checked={bilibiliShardCandidateIds[bilibiliBackupShardKey(shard)] === candidate.remoteFolderId} onChange={() => setBilibiliShardCandidateIds((current) => ({ ...current, [bilibiliBackupShardKey(shard)]: candidate.remoteFolderId }))} />{candidate.remoteTitle}（ID：{candidate.remoteFolderId}，{candidate.memberCount} 个视频）</label>)}</div> : null}
             </li>)}</ul> : null}
@@ -1267,7 +1245,7 @@ export function ControlledFavoriteLedgerPanel({
         onAbandonCurrentWorkspace={() => void abandonCurrentWorkspace()}
         onAcknowledgeCompletion={acknowledgeCompletion}
         onReadBilibiliBackupPreflight={readBilibiliBackupPreflight}
-        onConfirmAndSync={(includeInbox, unmatchedCount) => void confirmAndSync(includeInbox, unmatchedCount)}
+        onConfirmAndSync={(includeInbox) => void confirmAndSync(includeInbox)}
         onExecuteFrozenPlan={() => void workspace.executeFrozenBilibiliPlan()}
         onPauseBilibiliSync={workspace.pauseBilibiliSync}
         onStopSyncAndFinish={workspace.stopBilibiliSyncAndFinish}

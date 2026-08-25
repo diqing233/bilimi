@@ -152,36 +152,6 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     expect(screen.getByText('已汇总 2/2 批')).toBeInTheDocument()
   })
 
-  it('defaults a newly entered multi-batch workspace to the whole-run overview without resetting a manual batch choice', () => {
-    const snapshot = {
-      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
-      segmentSize: 1, hasMultipleSegments: true, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
-      sourceFolders: [], segments: [
-        { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const },
-        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const }
-      ], currentSegment: { id: 'segment-1', aids: [1], items: [] }, classifications: {},
-      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 },
-      overview: { available: true, completedSegmentCount: 2, totalSegmentCount: 2, sourceFolders: [], unavailableItemCount: 0,
-        processedItemCount: 2, classifiedItemCount: 2, unmatchedItemCount: 0, waitingItemCount: 0, recommendationCounts: [], archiveTargets: [] }
-    }
-    const common = {
-      snapshot, loading: false, reconciling: false, scanStarting: false, scanStartFailure: null,
-      onRetryScan: vi.fn(), onRetryScanDirect: vi.fn(), onRebuildWorkspace: vi.fn(), onSelectSourceFolders: vi.fn(),
-      onPauseTagEnrichment: vi.fn(), onResumeTagEnrichment: vi.fn(), onRetryFailedTagEnrichment: vi.fn(), onAcceptCurrentTags: vi.fn(),
-      onSetRecommendedCandidates: vi.fn(), ledgers: [], deepSeekAvailable: false, deepSeekFeedback: null, onSelectSegment: vi.fn(),
-      onAutoClassify: vi.fn(), onOrganizeWithDeepSeek: vi.fn(), onRetryFailedDeepSeekChunks: vi.fn(), onCancelDeepSeek: vi.fn(),
-      deepSeekCancelRequested: false, onUndoClassification: vi.fn(), onRedoClassification: vi.fn(), onMoveHistoryCursor: vi.fn(),
-      onApplyManualClassification: vi.fn(), onApplyManualClassifications: vi.fn(), onSaveLocally: vi.fn(), onConfirmAndSync: vi.fn(),
-      onExecuteFrozenPlan: vi.fn(), onReconcile: vi.fn()
-    }
-    const rendered = render(<OldFavoriteGuide {...common} step="preview" onStepChange={vi.fn()} />)
-
-    expect(screen.getByRole('combobox', { name: '整理批次' })).toHaveValue('__whole-run__')
-    fireEvent.change(screen.getByRole('combobox', { name: '整理批次' }), { target: { value: 'segment-1' } })
-    rendered.rerender(<OldFavoriteGuide {...common} snapshot={{ ...snapshot, scan: { ...snapshot.scan } }} step="preview" onStepChange={vi.fn()} />)
-    expect(screen.getByRole('combobox', { name: '整理批次' })).toHaveValue('segment-1')
-  })
-
   it('shows ready-batch recommendations in the whole-run view while another batch still enriches tags', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,

@@ -69,15 +69,7 @@ export function mergeOldFavoriteWorkspaceLedgers(
     const exactId = availableSavedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && ledger.id === recommended.id)
     if (exactId) {
       consumedSavedIds.add(exactId.id)
-      return {
-        ...recommended,
-        keywords: [...recommended.keywords],
-        syncState: exactId.syncState,
-        bindingState: exactId.bindingState,
-        bilibiliFolderId: exactId.bilibiliFolderId,
-        bilibiliFolderIds: exactId.bilibiliFolderIds ? [...exactId.bilibiliFolderIds] : undefined,
-        managedFolderDeletedByUser: exactId.managedFolderDeletedByUser
-      }
+      return { ...recommended, keywords: [...recommended.keywords] }
     }
     const saved = availableSavedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && sameLogicalRecommendation(ledger, recommended))
     if (!saved) return { ...recommended, keywords: [...recommended.keywords] }

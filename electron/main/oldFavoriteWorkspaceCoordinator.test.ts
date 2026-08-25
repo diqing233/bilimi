@@ -33,7 +33,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'resolveSavedLedgerRule' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService' | 'onManagedFolderDeletion' | 'restoreDeletedFavoriteLedgerRulesForHistory'> & { getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'resolveSavedLedgerRule' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService' | 'onManagedFolderDeletion'> & { getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -3961,72 +3961,6 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       expect.anything(),
       expect.arrayContaining([expect.objectContaining({ id: tagCandidate.id, ruleType: 'tag' })])
     )
-  })
-
-  it('reclassifies a reselected tag recommendation from the persisted adoption state', async () => {
-    const root = await createRoot()
-    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
-    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
-    const coordinator = createCoordinator(repository, workspaceStore, {
-      initializeOnOpen: false,
-      classifyCurrentItem: (item, recommendedLedgers = []) => ({
-        targetLedgerIds: recommendedLedgers.some((ledger) => ledger.ruleType === 'tag' &&
-          ledger.keywords.includes('Genshin') && item.tags?.includes('Genshin'))
-          ? ['custom-tag-genshin']
-          : ['game'],
-        confidence: 'high' as const
-      })
-    })
-    await coordinator.beginScan('100', 'full')
-    await coordinator.recordScanInventory('100', {
-      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
-    })
-    await coordinator.recordScanPage('100', {
-      folderId: 'source', page: 1,
-      items: [
-        { aid: 1, title: 'One', tags: ['Genshin'], sourceFolderIds: ['source'] },
-        { aid: 2, title: 'Two', tags: ['Genshin'], sourceFolderIds: ['source'] }
-      ]
-    })
-    await coordinator.finishScan('100')
-    const initial = requireSnapshot(await coordinator.getSnapshot('100'))
-    const tagCandidate = initial.recommendations.candidates.find((candidate) => candidate.id === 'custom-tag-genshin')
-    if (!tagCandidate) throw new Error('Genshin tag recommendation unexpectedly unavailable')
-    expect(tagCandidate.currentSegmentCount).toBe(2)
-
-    await coordinator.setRecommendedCandidates('100', [tagCandidate.id])
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ classifications: {
-      '1': { aid: 1, targetLedgerIds: [tagCandidate.id], source: 'system-high' },
-      '2': { aid: 2, targetLedgerIds: [tagCandidate.id], source: 'system-high' }
-    } })
-
-    const recovered = await workspaceStore.recover('100', initial.workspaceId)
-    if ('recovery' in recovered) throw new Error('workspace unexpectedly unavailable')
-    await workspaceStore.appendOverlay('100', initial.workspaceId, {
-      currentSegmentId: 'segment-1', classifications: [], history: [],
-      recommendations: { ...recovered.recommendations, adoptedCandidateIds: [] }
-    })
-    await coordinator.applyClassificationBatch('100', {
-      source: 'system-high',
-      assignments: [{ aid: 1, targetLedgerIds: ['game'] }, { aid: 2, targetLedgerIds: ['game'] }]
-    })
-
-    await coordinator.setRecommendedCandidates('100', [tagCandidate.id])
-
-    const reselected = requireSnapshot(await coordinator.getSnapshot('100'))
-    expect(reselected).toMatchObject({
-      recommendations: { adoptedCandidateIds: [tagCandidate.id] },
-      classifications: {
-        '1': { aid: 1, targetLedgerIds: [tagCandidate.id], source: 'system-high' },
-        '2': { aid: 2, targetLedgerIds: [tagCandidate.id], source: 'system-high' }
-      }
-    })
-    expect(Object.values(reselected.classifications).filter((classification) =>
-      classification.targetLedgerIds.includes(tagCandidate.id)
-    )).toHaveLength(2)
-    await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toMatchObject({
-      missingLedgers: [expect.objectContaining({ logicalLedgerId: tagCandidate.id })]
-    })
   })
 
   it('reports backup preflight before staging unclassified selected aids for an unbound cross-segment remote plan', async () => {
@@ -8630,7 +8564,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toEqual(expect.objectContaining({
-      missingLedgers: [{ logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', reason: 'unbacked', bindingCandidates: [] }],
+      missingLedgers: [{ logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', reason: 'unbacked' }],
       requiredPhysicalShards: [{
         logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 2,
         requiredAssignmentCount: 1_208, bindingCandidates: []
@@ -8638,40 +8572,6 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     }))
 
     expect(ensurePhysicalShard).not.toHaveBeenCalled()
-  })
-
-  it('returns an exact discovered candidate for an unbacked first shard without mutating remote state', async () => {
-    const root = await createRoot()
-    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-25T00:00:00.000Z' })
-    const ensurePhysicalShard = vi.fn()
-    const previewLedgerBindingCandidates = vi.fn().mockResolvedValue([{
-      ledgerId: 'genshin', candidates: [
-        { id: 'remote-genshin', title: 'bilimi·原神', memberCount: 352 },
-        { id: 'unrelated', title: 'bilimi·原神·2', memberCount: 1 }
-      ]
-    }])
-    const coordinator = new OldFavoriteWorkspaceCoordinator({
-      repository,
-      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
-      bindingService: { ensurePhysicalShard, previewLedgerBindingCandidates },
-      listSavedEnabledLedgers: vi.fn().mockResolvedValue([{ id: 'genshin', title: 'bilimi·原神' }]),
-      now: () => '2026-08-25T00:00:00.000Z'
-    })
-    await coordinator.beginScan('100', 'incremental')
-    await coordinator.completeScan('100', { revision: 1, aids: [1] })
-    await coordinator.applyClassificationBatch('100', {
-      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['genshin'] }]
-    })
-
-    await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toMatchObject({
-      missingLedgers: [{
-        logicalLedgerId: 'genshin', logicalTitle: 'bilimi·原神', reason: 'unbacked',
-        bindingCandidates: [{ remoteFolderId: 'remote-genshin', remoteTitle: 'bilimi·原神', memberCount: 352 }]
-      }]
-    })
-    expect(previewLedgerBindingCandidates).toHaveBeenCalledWith('100', [{ ledgerId: 'genshin', title: 'bilimi·原神' }])
-    expect(ensurePhysicalShard).not.toHaveBeenCalled()
-    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ physicalShards: [] })
   })
 
   it('persists a round ledger exclusion across local save preflight and freeze', async () => {
@@ -10278,84 +10178,6 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       classifications: { '1': { targetLedgerIds: ['music'] } },
       history: { cursor: 1, length: 2 }
-    })
-  })
-
-  it('restores only exact deleted local rules referenced by a selected history position and reenables them for this round', async () => {
-    const root = await createRoot()
-    const restoreDeletedFavoriteLedgerRulesForHistory = vi.fn().mockResolvedValue(['deleted-game'])
-    const coordinator = createCoordinator(
-      new FavoriteRepositoryService({ root, now: () => '2026-08-25T00:00:00.000Z' }),
-      new OldFavoriteWorkspaceStore({ root }),
-      {
-        initializeOnOpen: false,
-        listSavedEnabledLedgers: vi.fn().mockResolvedValue([
-          { id: 'deleted-game', title: 'bilimi·游戏专区' },
-          { id: 'same-title-live', title: 'bilimi·游戏专区' }
-        ]),
-        restoreDeletedFavoriteLedgerRulesForHistory
-      }
-    )
-    await coordinator.beginScan('100', 'incremental')
-    await coordinator.completeScan('100', { revision: 1, aids: [1] })
-    await coordinator.applyClassificationBatch('100', {
-      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['deleted-game'] }]
-    })
-    await coordinator.setRoundExcludedLedgerIds('100', ['deleted-game'])
-    await coordinator.undoClassificationChange('100')
-
-    await coordinator.moveHistoryCursor('100', 1)
-
-    expect(restoreDeletedFavoriteLedgerRulesForHistory).toHaveBeenCalledTimes(1)
-    expect(restoreDeletedFavoriteLedgerRulesForHistory).toHaveBeenCalledWith('100', ['deleted-game'])
-    const restoredSnapshot = requireSnapshot(await coordinator.getSnapshot('100'))
-    expect(restoredSnapshot).toMatchObject({
-      classifications: { '1': { targetLedgerIds: ['deleted-game'] } },
-      history: { cursor: 1, length: 1 }
-    })
-    expect(restoredSnapshot.excludedLedgerIds ?? []).toEqual([])
-  })
-
-  it('marks the latest rule configuration as updating, blocks writes, and discards an obsolete reclassification result', async () => {
-    const root = await createRoot()
-    const firstReclassificationStarted = deferred<void>()
-    const releaseFirstReclassification = deferred<void>()
-    let classificationVersion: 'initial' | 'first' | 'latest' = 'initial'
-    const coordinator = createCoordinator(
-      new FavoriteRepositoryService({ root, now: () => '2026-08-25T00:00:00.000Z' }),
-      new OldFavoriteWorkspaceStore({ root }),
-      {
-        initializeOnOpen: false,
-        classifyCurrentItems: async (items) => {
-          if (classificationVersion === 'first') {
-            firstReclassificationStarted.resolve()
-            await releaseFirstReclassification.promise
-          }
-          const targetLedgerId = classificationVersion === 'latest' ? 'latest-rule' : 'first-rule'
-          return items.map(() => ({ targetLedgerIds: [targetLedgerId], confidence: 'high' as const }))
-        }
-      }
-    )
-    await coordinator.beginScan('100', 'incremental')
-    await coordinator.completeScan('100', { revision: 1, aids: [1] })
-
-    classificationVersion = 'first'
-    const first = await coordinator.scheduleFavoriteConfigurationReclassification('100')
-    expect(first).toMatchObject({ configurationUpdate: { version: 1, status: 'running' } })
-    await firstReclassificationStarted.promise
-
-    classificationVersion = 'latest'
-    const latest = await coordinator.scheduleFavoriteConfigurationReclassification('100')
-    expect(latest).toMatchObject({ configurationUpdate: { version: 2, status: 'running' } })
-    await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow(/updating favorite rules/i)
-    await expect(coordinator.getBilibiliExecutionPreflight('100')).rejects.toThrow(/updating favorite rules/i)
-
-    releaseFirstReclassification.resolve()
-    await new Promise<void>((resolve) => setTimeout(resolve, 100))
-    const final = requireSnapshot(await coordinator.getSnapshot('100'))
-    expect(final.configurationUpdate).toBeUndefined()
-    expect(final.classifications).toEqual({
-      '1': { aid: 1, targetLedgerIds: ['latest-rule'], source: 'system-high' }
     })
   })
 

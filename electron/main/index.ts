@@ -781,7 +781,7 @@ async function reclassifyFavoriteWorkspaceIfPreviewing(accountMid: string) {
   if (!coordinator) return
   const snapshot = await coordinator.getSnapshot(accountMid)
   if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return
-  await coordinator.scheduleFavoriteConfigurationReclassification(accountMid)
+  await coordinator.reclassifyForFavoriteConfiguration(accountMid)
 }
 
 /** Remote-only draft projection changes do not alter local classification rules. */
@@ -2258,26 +2258,6 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   oldFavoriteWorkspaceCoordinator = new OldFavoriteWorkspaceCoordinator({
     repository: favoriteRepositoryService,
     segmentSize: () => loadAssistantPreferences(getDesktopStore()).oldFavoriteWorkspaceSegmentSize,
-    restoreDeletedFavoriteLedgerRulesForHistory: async (accountMid, logicalLedgerIds) => {
-      const requestedIds = [...new Set(logicalLedgerIds.map((ledgerId) => ledgerId.trim()).filter(Boolean))]
-      if (!requestedIds.length) return []
-      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
-      const records = current.deletedFavoriteLedgerRecords ?? []
-      const activeIds = new Set(current.favoriteLedgers.map((ledger) => ledger.id))
-      const restored = records
-        .filter((record) => requestedIds.includes(record.logicalLedgerId) && !activeIds.has(record.ledger.id))
-        .map((record) => record.ledger)
-      if (!restored.length) return []
-      const restoredIds = new Set(restored.map((ledger) => ledger.id))
-      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
-        ...current,
-        favoriteLedgers: [...current.favoriteLedgers, ...restored],
-        deletedFavoriteLedgerRecords: records.filter((record) => !restoredIds.has(record.logicalLedgerId))
-      })
-      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
-      notifyFloatingAssistantSnapshotChanged()
-      return [...restoredIds]
-    },
     onSegmentsReady: async (accountMid, segmentIds) => {
       if (recoveryPreparationAccounts.has(accountMid)) return
       const workspace = await oldFavoriteWorkspaceCoordinator?.getSnapshot(accountMid)

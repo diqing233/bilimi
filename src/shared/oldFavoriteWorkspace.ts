@@ -82,16 +82,6 @@ export type OldFavoriteWorkspaceBilibiliSyncPreflight = {
     logicalLedgerId: string
     logicalTitle: string
     reason: 'unbacked' | 'unbound' | 'pending-reconcile'
-    /**
-     * Read-only exact-ID candidates for the first physical shard. They must
-     * be explicitly selected and adopted; an equal title never binds itself.
-     */
-    bindingCandidates: Array<{
-      remoteFolderId: string
-      remoteTitle: string
-      memberCount: number
-      shardNumber?: number
-    }>
   }>
   requiredPhysicalShards: Array<{
     logicalLedgerId: string
@@ -426,11 +416,6 @@ export type OldFavoriteWorkspaceSnapshot = {
     selectedAidCount: number
     classifiedAidCount: number
     unclassifiedAidCount: number
-  }
-  /** A saved-rule configuration changed; the main process is rebuilding the derived full-round projection. */
-  configurationUpdate?: {
-    version: number
-    status: 'running' | 'failed'
   }
   executionProgress?: {
     completedOperationCount: number
