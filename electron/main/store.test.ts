@@ -1207,7 +1207,7 @@ describe('video note store helpers', () => {
     const store = createFakeStore()
     const checkpoint = {
       accountMid: '42', videoId: 'BV1checkpoint', transcriptHash: 'hash', promptVersion: 'faithful-v1', model: 'deepseek-chat',
-      completedBatchIds: ['segment-1'], polishedTextBySegmentId: { 'segment-1': '保留的精修片段' }, updatedAt: '2026-07-26T00:00:00.000Z'
+      completedBatchIds: ['segment-1'], polishedTextBySegmentId: { 'segment-1': '保留的精修片段' }, updatedAt: new Date().toISOString()
     }
 
     saveNoteProcessingCheckpoint(store, checkpoint)

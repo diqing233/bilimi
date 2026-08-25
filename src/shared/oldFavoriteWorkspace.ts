@@ -1,4 +1,4 @@
-import type { DeepSeekArchiveMode } from './types'
+import type { DeepSeekArchiveMode, FavoriteLedger } from './types'
 
 export const OLD_FAVORITE_WORKSPACE_VERSION = 1 as const
 export const DEFAULT_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = 2_000
@@ -11,7 +11,7 @@ export const UNLIMITED_OLD_FAVORITE_WORKSPACE_SEGMENT_SIZE = Number.MAX_SAFE_INT
 export type OldFavoriteWorkspaceStatus = 'draft' | 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
 export type OldFavoriteWorkspaceMode = 'incremental' | 'full'
 export type OldFavoriteWorkspaceScope = { kind: 'account' } | { kind: 'selection'; aids: number[] }
-export type OldFavoriteWorkspaceClassificationSource = 'manual' | 'fallback' | 'deepseek' | 'system-high' | 'system-low'
+export type OldFavoriteWorkspaceClassificationSource = 'manual' | 'fallback' | 'deepseek' | 'system-high' | 'system-low' | 'favorite-rules'
 /**
  * Relationship to a locally known Bilimi rule. This is intentionally separate
  * from how a remote Bilibili folder is displayed and whether it can be scanned.
@@ -82,6 +82,16 @@ export type OldFavoriteWorkspaceBilibiliSyncPreflight = {
     logicalLedgerId: string
     logicalTitle: string
     reason: 'unbacked' | 'unbound' | 'pending-reconcile'
+    /**
+     * Read-only exact-ID candidates for the first physical shard. They must
+     * be explicitly selected and adopted; an equal title never binds itself.
+     */
+    bindingCandidates: Array<{
+      remoteFolderId: string
+      remoteTitle: string
+      memberCount: number
+      shardNumber?: number
+    }>
   }>
   requiredPhysicalShards: Array<{
     logicalLedgerId: string
@@ -227,11 +237,28 @@ export type OldFavoriteWorkspaceDeepSeekProcessedItem = {
   changed: boolean
 }
 
+/**
+ * Local-only rule state captured alongside a history change. It intentionally
+ * contains no Bilibili command or remote observation: replaying this state can
+ * restore the local rule directory and selections, but never creates, binds,
+ * deletes, or writes a remote folder.
+ */
+export type OldFavoriteWorkspaceFavoriteRuleHistoryState = {
+  ledgers: FavoriteLedger[]
+  adoptedCandidateIds: string[]
+  excludedLedgerIds: string[]
+}
+
 export type OldFavoriteWorkspaceHistoryEntry = {
   source: OldFavoriteWorkspaceClassificationSource
   changes: OldFavoriteWorkspaceHistoryChange[]
   /** Durable detail projection, including evaluated videos whose targets did not change. */
   deepSeekProcessedItems?: OldFavoriteWorkspaceDeepSeekProcessedItem[]
+  /** Local rule and selection transition applied when this history entry is active. */
+  favoriteRuleState?: {
+    before: OldFavoriteWorkspaceFavoriteRuleHistoryState
+    after: OldFavoriteWorkspaceFavoriteRuleHistoryState
+  }
 }
 
 /** Durable outcome while an explicit tag-adoption command recomputes the draft. */

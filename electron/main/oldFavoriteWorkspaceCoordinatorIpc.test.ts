@@ -91,6 +91,8 @@ describe('old favorite workspace coordinator IPC', () => {
 
     await expect(ipcMain.invoke('old-favorite-workspace-v1:bilibili-execution-preflight', 7, '00100')).resolves.toEqual(preflight)
     expect(coordinator.getBilibiliExecutionPreflight).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:bilibili-execution-preflight', 7, '100', { includeInbox: true })).resolves.toEqual(preflight)
+    expect(coordinator.getBilibiliExecutionPreflight).toHaveBeenLastCalledWith('100', { includeInbox: true })
     await expect(ipcMain.invoke('old-favorite-workspace-v1:bilibili-execution-preflight', 7, '100', { forged: true }))
       .rejects.toThrow('arguments are invalid')
     await expect(ipcMain.invoke('old-favorite-workspace-v1:bilibili-execution-preflight', 8, '100')).rejects.toThrow('untrusted')

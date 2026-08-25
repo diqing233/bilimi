@@ -94,8 +94,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   saveFavoriteLibraryUiPreferences: (accountMid: string, collapsedGroups: Record<string, boolean>) => ipcRenderer.invoke('favorite-library:save-ui-preferences', accountMid, collapsedGroups) as Promise<Record<string, boolean>>,
   openOldFavoriteWorkspaceV1: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceView>,
-  getOldFavoriteWorkspaceBilibiliExecutionPreflightV1: (accountMid: string) =>
-    ipcRenderer.invoke('old-favorite-workspace-v1:bilibili-execution-preflight', accountMid) as Promise<OldFavoriteWorkspaceBilibiliSyncPreflight>,
+  getOldFavoriteWorkspaceBilibiliExecutionPreflightV1: (accountMid: string, options?: { includeInbox?: true }) =>
+    ipcRenderer.invoke('old-favorite-workspace-v1:bilibili-execution-preflight', accountMid, ...(options?.includeInbox ? [{ includeInbox: true }] : [])) as Promise<OldFavoriteWorkspaceBilibiliSyncPreflight>,
   provisionOldFavoriteWorkspaceBilibiliExecutionPreflightShardsV1: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:provision-bilibili-execution-preflight-shards', accountMid) as Promise<OldFavoriteWorkspaceBilibiliSyncPreflight>,
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>

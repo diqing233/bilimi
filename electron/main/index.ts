@@ -1304,8 +1304,18 @@ function registerAssistantPreferenceHandlers() {
   })
   ipcMain.handle('assistant:write-favorite-ledger-enabled', async (event, accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) => {
     assertTrustedOldFavoriteAssistantSender(event)
+    const beforeHistoryState = await oldFavoriteWorkspaceCoordinator?.getFavoriteLedgerHistoryState(accountMid)
     const patch = await writeFavoriteLedgerEnabled(undefined, accountMid, ledgerId, enabled)
     await reclassifyFavoriteWorkspaceIfPreviewing(accountMid)
+    if (beforeHistoryState && oldFavoriteWorkspaceCoordinator) {
+      const afterHistoryState = await oldFavoriteWorkspaceCoordinator.getFavoriteLedgerHistoryState(accountMid)
+      if (afterHistoryState) {
+        await oldFavoriteWorkspaceCoordinator.recordFavoriteLedgerHistoryChange(accountMid, {
+          before: beforeHistoryState,
+          after: afterHistoryState
+        })
+      }
+    }
     sendFavoriteLedgerEnabledChanged(patch, meta)
     notifyFloatingAssistantSnapshotChanged()
     return patch
@@ -2328,6 +2338,9 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     listSavedEnabledLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
       .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft')
       .map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
+    listSavedLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+      .filter((ledger) => ledger.syncState !== 'local-draft')
+      .map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
     resolveSavedLedgerRule: async (accountMid, logicalLedgerId) => {
       const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
         .find((candidate) => candidate.id === logicalLedgerId && candidate.syncState !== 'local-draft')
@@ -2387,6 +2400,23 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       sendAssistantPreferencePatchChanged({
         favoriteAccountPreferences: loadAssistantPreferences(getDesktopStore()).favoriteAccountPreferences
       })
+    },
+    loadFavoriteLedgerHistoryLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+      .filter((ledger) => !isUnsavedFavoriteLedgerDraft(ledger)),
+    restoreFavoriteLedgerHistoryState: async (accountMid, state) => {
+      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+      const remoteDrafts = current.favoriteLedgers.filter(isUnsavedFavoriteLedgerDraft)
+      const remoteDraftIds = new Set(remoteDrafts.map((ledger) => ledger.id))
+      const restoredLedgers = state.ledgers
+        .filter((ledger) => !isUnsavedFavoriteLedgerDraft(ledger) && !remoteDraftIds.has(ledger.id))
+      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
+        ...current,
+        // Remote-only drafts are observations, not a user-rule undo target.
+        // Keep their exact IDs and binding state while restoring local rules.
+        favoriteLedgers: [...restoredLedgers, ...remoteDrafts]
+      })
+      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+      notifyFloatingAssistantSnapshotChanged()
     },
     saveRecoveredLedgerDrafts: async (accountMid, ledgers) => {
       const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)

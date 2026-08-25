@@ -377,7 +377,7 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByRole('button', { name: '保存本轮到收藏库' })).toBeEnabled()
   })
 
-  it('includes bilimi staging only when explicitly checked in the one-time sync confirmation', () => {
+  it('defers bilimi staging selection to the parent unified confirmation', () => {
     const sync = vi.fn()
     render(<OldFavoriteConfirmationStep
       snapshot={{
@@ -393,10 +393,9 @@ describe('OldFavoriteConfirmationStep', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: '同步 bilimi·暂存（1 条）' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认同步' }))
 
-    expect(sync).toHaveBeenCalledWith(true)
+    expect(sync).toHaveBeenCalledWith(false)
+    expect(screen.queryByRole('dialog', { name: '同步选项' })).toBeNull()
   })
 
   it('offers one end-round dialog with the exact copy while preserving the draft and clear paths', () => {
@@ -757,6 +756,8 @@ describe('OldFavoriteConfirmationStep', () => {
       onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
 
+    expect(screen.getByRole('button', { name: '本轮总览' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
     expect(screen.getByRole('button', { name: '转移 Working item' })).toBeInTheDocument()
     fireEvent.change(screen.getByRole('combobox', { name: '整理批次' }), { target: { value: 'segment-2' } })
     await waitFor(() => expect(screen.getByRole('button', { name: '转移 Viewed item' })).toBeInTheDocument())
@@ -839,11 +840,14 @@ describe('OldFavoriteConfirmationStep', () => {
 
     const selector = screen.getByRole('combobox', { name: '整理批次' })
     expect(selector).toBeEnabled()
+    expect(screen.getByRole('button', { name: '本轮总览' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
     expect(screen.getByRole('checkbox', { name: 'Saved UP' })).toBeEnabled()
     fireEvent.change(selector, { target: { value: 'segment-2' } })
     expect(onSelectSegment).toHaveBeenCalledWith('segment-2')
 
     rerender(<SavedGuide step="preview" />)
+    fireEvent.click(screen.getByRole('button', { name: '当前批次' }))
     expect(screen.getByRole('button', { name: '开始整理' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '撤销本次改动' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeEnabled()
@@ -885,49 +889,6 @@ describe('OldFavoriteConfirmationStep', () => {
     />)
 
     expect(screen.getByRole('alert')).toHaveTextContent('无法确认当前 B 站页面')
-  })
-
-  it('uses the shared modal close control for sync options', () => {
-    render(<OldFavoriteConfirmationStep
-      snapshot={{
-        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
-        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
-        sourceFolders: [], segments: [], currentSegment: null,
-        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-        planReadiness: { selectedAidCount: 2, classifiedAidCount: 1, unclassifiedAidCount: 1 }, history: { cursor: 0, length: 0, entries: [] }
-      }}
-      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
-    />)
-
-    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
-    expect(screen.getByRole('dialog', { name: '同步选项' })).toBeInTheDocument()
-    expect(screen.queryByText('本次没有需要备册的收藏夹。')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '关闭弹窗' }))
-    expect(screen.queryByRole('dialog', { name: '同步选项' })).not.toBeInTheDocument()
-  })
-
-  it('summarizes videos and ledgers that will be backed up before syncing', () => {
-    const snapshot = {
-      version: 1 as const, accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const, mode: 'incremental' as const,
-      segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
-      sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-      planReadiness: { selectedAidCount: 4, classifiedAidCount: 3, unclassifiedAidCount: 1 }, history: { cursor: 0, length: 0, entries: [] },
-      overview: {
-        available: true, completedSegmentCount: 1, totalSegmentCount: 1, sourceFolders: [], unavailableItemCount: 0,
-        processedItemCount: 4, classifiedItemCount: 3, unmatchedItemCount: 1, waitingItemCount: 0, recommendationCounts: [],
-        archiveTargets: [{ ledgerId: 'knowledge', itemCount: 3, segmentCounts: [] }, { ledgerId: 'inbox', itemCount: 1, segmentCounts: [] }]
-      }
-    }
-    const ledgers = [{ id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], enabled: true, priority: 0, bindingState: 'unbacked' as const, isDefault: true }]
-
-    render(<OldFavoriteConfirmationStep snapshot={snapshot} ledgers={ledgers} loading={false}
-      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()} />)
-
-    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
-    const dialog = screen.getByRole('dialog', { name: '同步选项' })
-    expect(within(dialog).getByText('本次将整理 4 条视频。')).toBeInTheDocument()
-    expect(within(dialog).getByText('同步前将备册：bilimi·知识学习（3 条）')).toBeInTheDocument()
-    expect(within(dialog).getByText('其中 1 条未匹配到合适分类，会先保存到收藏库的 bilimi·暂存；如需一并同步到 B 站，请勾选下方选项。')).toBeInTheDocument()
   })
 
   it.each([

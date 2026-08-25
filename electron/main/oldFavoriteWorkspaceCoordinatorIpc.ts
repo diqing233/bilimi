@@ -371,8 +371,16 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   // renderer may only ask main for its current read-only backup gaps; it may
   // never supply a claimed target set, capacity result, or remote folder id.
   options.ipcMain.handle('old-favorite-workspace-v1:bilibili-execution-preflight', async (event, requestedAccountMid: string, ...args: unknown[]) => {
-    if (args.length !== 0) throw new Error('Old favorite workspace Bilibili backup preflight arguments are invalid.')
-    return options.coordinator.getBilibiliExecutionPreflight(await assertAccount(event, requestedAccountMid))
+    const rawOptions = args[0]
+    const includesInbox = args.length === 1 && rawOptions !== null && typeof rawOptions === 'object' && !Array.isArray(rawOptions) &&
+      Object.keys(rawOptions).length === 1 && (rawOptions as Record<string, unknown>).includeInbox === true
+    if (args.length > 1 || (args.length === 1 && !includesInbox)) {
+      throw new Error('Old favorite workspace Bilibili backup preflight arguments are invalid.')
+    }
+    const accountMid = await assertAccount(event, requestedAccountMid)
+    return includesInbox
+      ? options.coordinator.getBilibiliExecutionPreflight(accountMid, { includeInbox: true })
+      : options.coordinator.getBilibiliExecutionPreflight(accountMid)
   })
   options.ipcMain.handle('old-favorite-workspace-v1:provision-bilibili-execution-preflight-shards', async (event, requestedAccountMid: string, ...args: unknown[]) => {
     if (args.length !== 0) throw new Error('Old favorite workspace Bilibili backup provision arguments are invalid.')

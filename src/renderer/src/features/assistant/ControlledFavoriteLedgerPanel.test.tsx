@@ -39,7 +39,13 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
   it('uses one backup flow for the toolbar and the收藏夹 backup action', async () => {
     const ensure = vi.fn().mockResolvedValue({ ok: true })
-    const sync = vi.fn().mockResolvedValue({ ok: true })
+    const sync = vi.fn((_: unknown, options?: { rebindRemoteFolderIds?: Record<string, string> }) =>
+      options?.rebindRemoteFolderIds?.genshin === 'remote-genshin'
+        ? Promise.resolve({ ok: true })
+        : Promise.resolve({ ok: false, unboundCandidates: [{
+            ledgerId: 'genshin', candidates: [{ id: 'remote-genshin', title: 'bilimi·原神', memberCount: 352 }]
+          }] })
+    )
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100"
       ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]}
@@ -113,7 +119,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: /加入删除 bilimi·游戏专区/ })).toBeInTheDocument()
   })
 
-  it('cancels the real saved recommendation instead of locally deleting its mapped ledger', async () => {
+  it('keeps recommendation cancellation separate from an explicit upper-rule deletion', async () => {
     const workspace = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
@@ -143,11 +149,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
       .toHaveAttribute('data-ledger-id', 'custom-author-honker233-9.2d'))
     expect(screen.queryByTestId('favorite-ledger-chip-custom-author-honker233')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
-    await waitFor(() => expect(window.bilimiDesktop?.commandOldFavoriteWorkspaceV1).toHaveBeenCalledWith('100', {
+    await waitFor(() => expect(window.bilimiDesktop?.deleteFavoriteLedgersLocal)
+      .toHaveBeenCalledWith('100', ['custom-author-honker233-9.2d']))
+    expect(window.bilimiDesktop?.commandOldFavoriteWorkspaceV1).not.toHaveBeenCalledWith('100', {
       type: 'set-recommended-candidates', candidateIds: []
-    }))
-    expect(window.bilimiDesktop?.deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'honker233' })).not.toBeInTheDocument())
+    })
   })
 
   it('reloads the authoritative workspace after a saved local rule is deleted from the upper ledger panel', async () => {
@@ -1098,7 +1104,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).not.toHaveBeenCalled()
   })
 
-  it('updates a previewing recommendation through its round selection when its top card is disabled', async () => {
+  it('persists a matched saved top rule while removing it from the active round', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -1111,16 +1117,18 @@ describe('ControlledFavoriteLedgerPanel', () => {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
     } as unknown as typeof window.bilimiDesktop
+    const saveEnabled = vi.fn().mockResolvedValue(undefined)
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
       { id: 'custom-music', displayName: 'bilimi·音乐', keywords: ['旋律'], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
-    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={vi.fn()} />)
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
 
     await screen.findByRole('button', { name: '移出同步 bilimi·音乐' })
     fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·音乐' }))
 
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
-      type: 'set-recommended-candidates', candidateIds: []
+      type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-music']
     }))
+    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false)
   })
 
   it('keeps DeepSeek-only ledger rules on the account configuration path during an active workspace', async () => {
@@ -1186,7 +1194,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('button', { name: '音乐' })).not.toBeInTheDocument()
   })
 
-  it('uses the persisted round exclusion for a saved ledger instead of changing its global enablement', async () => {
+  it('persists a saved ledger cancellation while updating the active round projection', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -1210,10 +1218,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
       type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-music']
     }))
     await waitFor(() => expect(screen.getByRole('button', { name: '音乐' })).toHaveAttribute('aria-pressed', 'false'))
-    expect(saveEnabled).not.toHaveBeenCalled()
+    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false)
   })
 
-  it('updates every saved round selection through one exclusion command without changing global enablement', async () => {
+  it('persists every saved cancellation while committing one active-round projection', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -1237,11 +1245,50 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-music', 'custom-tech']
     }))
-    expect(command).toHaveBeenCalledTimes(1)
-    expect(saveEnabled).not.toHaveBeenCalled()
+    expect(command.mock.calls.filter(([, request]) =>
+      (request as { type?: string }).type === 'set-round-excluded-ledger-ids'
+    )).toHaveLength(1)
+    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false)
+    expect(saveEnabled).toHaveBeenCalledWith('custom-tech', false)
   })
 
-  it('does not place recommendation candidates in the saved-rule exclusion batch', async () => {
+  it('cancels every saved rule and its linked recommendation from the saved-rule bulk selection', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'completed' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [{ id: 'custom-author', displayName: 'bilimi·UP', kind: 'author' as const, keywords: ['UP'], count: 1, reason: '已保存规则' }],
+        adoptedCandidateIds: ['custom-author']
+      },
+      history: { cursor: 0, length: 0, entries: [] }
+    }
+    const command = vi.fn().mockResolvedValue({ ...preview, excludedLedgerIds: ['custom-author', 'custom-music'] })
+    const saveEnabled = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'custom-author', displayName: 'bilimi·UP', keywords: ['UP'], ruleType: 'author', enabled: true, priority: 0, isDefault: false },
+      { id: 'custom-music', displayName: 'bilimi·音乐', keywords: ['旋律'], ruleType: 'keyword', enabled: true, priority: 10, isDefault: false }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
+
+    await screen.findByRole('button', { name: '取消全选' })
+    fireEvent.click(screen.getByRole('button', { name: '取消全选' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: []
+    }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-author', 'custom-music']
+    }))
+    expect(saveEnabled).toHaveBeenCalledWith('custom-author', false)
+    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false)
+  })
+
+  it('includes a recommendation-linked saved rule in the saved-rule exclusion batch', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -1250,7 +1297,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       recommendations: { candidates: [{ id: 'custom-author', displayName: 'bilimi·UP', kind: 'author' as const, count: 1, reason: 'saved' as const }], adoptedCandidateIds: ['custom-author'] },
       history: { cursor: 0, length: 0, entries: [] }
     }
-    const command = vi.fn().mockResolvedValue({ ...preview, excludedLedgerIds: ['custom-music'] })
+    const command = vi.fn().mockResolvedValue({ ...preview, excludedLedgerIds: ['custom-author', 'custom-music'] })
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
@@ -1264,7 +1311,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '取消全选' }))
 
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
-      type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-music']
+      type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-author', 'custom-music']
+    }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: []
     }))
   })
 
@@ -3018,6 +3068,69 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(provision).not.toHaveBeenCalled()
   })
 
+  it('uses one backup confirmation dialog for an unbacked ledger with a discovered exact candidate', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 2, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', aids: [1, 2], items: [{ aid: 1, sourceFolderIds: [] }, { aid: 2, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['genshin'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 2, classifiedAidCount: 1, unclassifiedAidCount: 1 },
+      history: { cursor: 1, length: 1 }
+    }
+    const candidatePreflight = {
+      accountMid: '100', workspaceId: 'workspace-100',
+      missingLedgers: [{
+        logicalLedgerId: 'genshin', logicalTitle: 'bilimi·原神', reason: 'unbacked' as const,
+        bindingCandidates: [{ remoteFolderId: 'remote-genshin', remoteTitle: 'bilimi·原神', memberCount: 352 }]
+      }],
+      requiredPhysicalShards: []
+    }
+    const clearPreflight = { accountMid: '100', workspaceId: 'workspace-100', missingLedgers: [], requiredPhysicalShards: [] }
+    const preflight = vi.fn()
+      .mockResolvedValueOnce(candidatePreflight)
+      .mockResolvedValueOnce(candidatePreflight)
+      .mockResolvedValueOnce(clearPreflight)
+      .mockResolvedValueOnce(clearPreflight)
+    const sync = vi.fn().mockResolvedValue({ ok: true })
+    const command = vi.fn().mockResolvedValue(preview)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      getOldFavoriteWorkspaceBilibiliExecutionPreflightV1: preflight,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      ledgers={[{ id: 'genshin', displayName: 'bilimi·原神', keywords: [], enabled: true, priority: 10, isDefault: false, bindingState: 'unbacked' }]}
+      onEnsureLedgers={vi.fn()} onSyncLedgers={sync} onSaveLedgers={vi.fn()} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+
+    const confirmation = await screen.findByRole('dialog', { name: '同步前备册确认' })
+    expect(confirmation).toHaveTextContent('ID：remote-genshin')
+    expect(within(confirmation).getByRole('checkbox', { name: '同步 bilimi·暂存（1 条）' })).not.toBeChecked()
+    expect(screen.getAllByRole('dialog', { name: '同步前备册确认' })).toHaveLength(1)
+    expect(screen.queryByRole('dialog', { name: '确认创建并绑定 bilimi 收藏夹' })).not.toBeInTheDocument()
+    fireEvent.click(within(confirmation).getByRole('button', { name: '确认备册并继续' }))
+
+    await waitFor(() => expect(sync).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'genshin' })],
+      expect.objectContaining({
+        backupTargetLedgerIds: ['genshin'],
+        rebindRemoteFolderIds: { genshin: 'remote-genshin' },
+        rebindRemoteFolders: { genshin: [{ id: 'remote-genshin', title: 'bilimi·原神', memberCount: 352 }] }
+      })
+    ))
+    expect(screen.queryByRole('dialog', { name: '同步前备册确认' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '确认创建并绑定 bilimi 收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '确认绑定 bilimi 收藏夹' })).not.toBeInTheDocument()
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' }))
+  })
+
   it('shows that an unbound target is being backed up before remote execution starts', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
@@ -3728,7 +3841,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     ], { deleteDisabled: false, recommendationOnly: true }))
   })
 
-  it('waits for a promoted recommendation save before cancelling it', async () => {
+  it('waits for a promoted recommendation save before deleting its pure local draft', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -3764,7 +3877,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }))
     expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: '待保存' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('checkbox', { name: '待保存', checked: true })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '待保存', checked: false })).toBeInTheDocument()
 
     rerender(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
       ledgers={[{ id: 'unrelated', displayName: 'bilimi·其他收藏', keywords: [], enabled: true, priority: 1, isDefault: false }]}
@@ -3845,7 +3958,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByText('B站绑定：2 个收藏夹，共 7 个视频')).toBeInTheDocument()
   })
 
-  it('maps the top-card participation toggle back to a recommendation candidate with a different local id', async () => {
+  it('maps a lower recommendation toggle back to its saved top rule by stable id', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -3878,8 +3991,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }))
 
     fireEvent.click(await screen.findByRole('button', { name: '移出同步 bilimi·Alice精选' }))
-    await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', {
-      type: 'set-recommended-candidates', candidateIds: []
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-round-excluded-ledger-ids', ledgerIds: ['saved-alice']
     }))
   })
 
@@ -3972,7 +4085,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }))
   })
 
-  it('removes a saved unbacked recommendation from the local folder list when it is deselected', async () => {
+  it('removes a pure recommended local draft card when it is deselected below', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -4042,7 +4155,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(save).not.toHaveBeenCalled()
   })
 
-  it('treats the workspace recommendation selection as the top-card participation state without persisting a bound folder toggle', async () => {
+  it('keeps a saved top rule selected even when its lower recommendation starts unchecked', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -4069,7 +4182,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await openPersistedWorkspaceGuide()
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
     expect(await screen.findByRole('checkbox', { name: 'Bound' })).not.toBeChecked()
-    expect(screen.getByRole('button', { name: '加入同步 bilimi·Bound' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '移出同步 bilimi·Bound' })).toBeInTheDocument()
     expect(saveEnabled).not.toHaveBeenCalled()
     expect(command).not.toHaveBeenCalledWith('100', {
       type: 'set-recommended-candidates', candidateIds: ['author-bound']

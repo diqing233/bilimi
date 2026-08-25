@@ -20,6 +20,7 @@ import {
   type OldFavoriteWorkspaceExecutionFailureCode,
   type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   type OldFavoriteWorkspaceExecutionIntent,
+  type OldFavoriteWorkspaceFavoriteRuleHistoryState,
   type OldFavoriteWorkspaceHistoryEntry,
   type OldFavoriteWorkspaceLocalWorkspaceFolder,
   type OldFavoriteRemoteRelationship,
@@ -93,11 +94,20 @@ type ClassificationJournalEvent = {
   historyCursor: number
   segmentId?: string
 }
+/** A derived local classification snapshot that must not become a user history entry. */
+type ClassificationProjectionJournalEvent = {
+  type: 'classification-projection'
+  segments: Array<{
+    segmentId: string
+    historyCursor: number
+    classifications: Array<OldFavoriteWorkspace['classifications'][string]>
+  }>
+}
 type CursorJournalEvent = { type: 'history-cursor'; historyCursor: number }
 type HistoryBaselineJournalEvent = { type: 'history-baseline'; historyCursor: number }
 type FreezeJournalEvent = { type: 'freeze'; segmentId: string }
 type DiscoveryJournalEvent = { type: 'discover'; aids: number[] }
-type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | CursorJournalEvent |
+type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | ClassificationProjectionJournalEvent | CursorJournalEvent |
   HistoryBaselineJournalEvent | FreezeJournalEvent | DiscoveryJournalEvent
 type ScanOverview = {
   sourceFolders: Array<{
@@ -148,6 +158,7 @@ type AutomaticClassification = { targetLedgerIds: string[]; confidence: 'high' |
 function repositoryClassificationSource(source: OldFavoriteWorkspaceClassificationSource): FavoriteRepositoryClassificationSource {
   if (source === 'manual') return 'manual'
   if (source === 'deepseek') return 'deepseek'
+  if (source === 'favorite-rules') return 'manual'
   return source === 'system-low' ? 'system-low' : 'system-high'
 }
 type RecoveryConfiguration = {
@@ -280,6 +291,10 @@ function replayClassificationJournal(overlays: Array<{ currentSegmentId: string;
   const entriesBySegment = new Map<string, OldFavoriteWorkspaceHistoryEntry[]>()
   const cursorBySegment = new Map<string, number>()
   const baselineCursorBySegment = new Map<string, number>()
+  const projectionsBySegment = new Map<string, {
+    historyCursor: number
+    classifications: Map<number, OldFavoriteWorkspace['classifications'][string]>
+  }>()
   for (const overlay of overlays) {
     for (const history of overlay.history) {
       const event = decodeJournalEvent(history)
@@ -293,6 +308,16 @@ function replayClassificationJournal(overlays: Array<{ currentSegmentId: string;
         next.push(clone(event.entry))
         entriesBySegment.set(segmentId, next)
         cursorBySegment.set(segmentId, event.historyCursor)
+      } else if (event.type === 'classification-projection') {
+        for (const projection of event.segments) {
+          projectionsBySegment.set(projection.segmentId, {
+            historyCursor: projection.historyCursor,
+            classifications: new Map(projection.classifications.map((classification) => [
+              classification.aid,
+              clone(classification)
+            ]))
+          })
+        }
       } else if (event.type === 'history-cursor') {
         cursorBySegment.set(segmentId, event.historyCursor)
       } else if (event.type === 'history-baseline') {
@@ -301,14 +326,25 @@ function replayClassificationJournal(overlays: Array<{ currentSegmentId: string;
     }
   }
   const classifications = new Map<number, OldFavoriteWorkspace['classifications'][string]>()
-  for (const [segmentId, entries] of entriesBySegment) {
+  const segmentIds = new Set([...entriesBySegment.keys(), ...projectionsBySegment.keys()])
+  for (const segmentId of segmentIds) {
+    const entries = entriesBySegment.get(segmentId) ?? []
     const cursor = Math.min(cursorBySegment.get(segmentId) ?? entries.length, entries.length)
-    for (const entry of entries.slice(0, cursor)) {
+    const projection = projectionsBySegment.get(segmentId)
+    const projectionApplies = projection && cursor >= projection.historyCursor
+    const appliedEntries = projectionApplies
+      ? entries.slice(projection.historyCursor, cursor)
+      : entries.slice(0, cursor)
+    const segmentClassifications = projectionApplies
+      ? new Map([...projection.classifications].map(([aid, classification]) => [aid, clone(classification)]))
+      : new Map<number, OldFavoriteWorkspace['classifications'][string]>()
+    for (const entry of appliedEntries) {
       for (const change of entry.changes) {
-        if (change.after) classifications.set(change.aid, clone(change.after))
-        else classifications.delete(change.aid)
+        if (change.after) segmentClassifications.set(change.aid, clone(change.after))
+        else segmentClassifications.delete(change.aid)
       }
     }
+    for (const [aid, classification] of segmentClassifications) classifications.set(aid, clone(classification))
   }
   return { entriesBySegment, cursorBySegment, baselineCursorBySegment, classifications }
 }
@@ -995,6 +1031,13 @@ export class OldFavoriteWorkspaceCoordinator {
       adoptedLedgerIds?: string[]
     ) => Promise<boolean | void>
     notifyRecommendedLedgersChanged?: (accountMid: string) => void
+    /** Replays a durable local-only rule snapshot selected from the change history. */
+    restoreFavoriteLedgerHistoryState?: (
+      accountMid: string,
+      state: OldFavoriteWorkspaceFavoriteRuleHistoryState
+    ) => Promise<void>
+    /** Reads restorable local rules only; remote-only drafts stay outside undo history. */
+    loadFavoriteLedgerHistoryLedgers?: (accountMid: string) => Promise<FavoriteLedger[]>
     saveRecoveredLedgerDrafts?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>
     onManagedFolderDeletion?: (accountMid: string, deletions: Array<{
@@ -1011,6 +1054,8 @@ export class OldFavoriteWorkspaceCoordinator {
     } | undefined>
     /** Saved enabled rules only; remote-only local drafts never enter the organizer backup gate. */
     listSavedEnabledLedgers?: (accountMid: string) => Promise<Array<{ id: string; title: string }>>
+    /** All saved rules, including user-disabled rules, for restoring a round exclusion on re-enable. */
+    listSavedLedgers?: (accountMid: string) => Promise<Array<{ id: string; title: string }>>
     /** Reads the currently persisted saved rule to reject analyses made stale by a later edit or deletion. */
     resolveSavedLedgerRule?: (accountMid: string, logicalLedgerId: string) => Promise<{
       id: string
@@ -2077,7 +2122,12 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace recommendations are not ready.')
       this.assertCurrentSegmentTagReady(workspace)
-      const state = await this.ensureRecommendations(workspace)
+      const state = await this.loadAuthoritativeRecommendationStateUnsafe(workspace)
+      const beforeHistoryState = await this.captureFavoriteLedgerHistoryStateUnsafe(
+        workspace,
+        state,
+        this.roundExcludedLedgerIdsByAccount.get(workspace.accountMid) ?? []
+      )
       const knownIds = new Set(state.candidates.map((candidate) => candidate.id))
       const adoptedCandidateIds = [...new Set(candidateIds.map((id) => id.trim()).filter(Boolean))].sort()
       if (!adoptedCandidateIds.every((id) => knownIds.has(id))) {
@@ -2090,12 +2140,15 @@ export class OldFavoriteWorkspaceCoordinator {
         adoptedCandidateIds,
         next
       )
-      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
-        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
-      })
-      this.recommendations.set(workspace.accountMid, next)
       await this.persistRecommendedLedgersUnsafe(workspace, next)
-      return updated
+      const afterHistoryState = await this.captureFavoriteLedgerHistoryStateUnsafe(
+        updated,
+        next,
+        this.roundExcludedLedgerIdsByAccount.get(updated.accountMid) ?? []
+      )
+      return beforeHistoryState && afterHistoryState
+        ? this.recordFavoriteLedgerHistoryChangeUnsafe(updated, { before: beforeHistoryState, after: afterHistoryState })
+        : updated
     })
   }
 
@@ -3238,14 +3291,25 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for round selection.')
-      const savedLedgers = await this.options.listSavedEnabledLedgers?.(workspace.accountMid) ?? []
+      const recommendations = await this.ensureRecommendations(workspace)
+      const beforeHistoryState = await this.captureFavoriteLedgerHistoryStateUnsafe(
+        workspace,
+        recommendations,
+        this.roundExcludedLedgerIdsByAccount.get(workspace.accountMid) ?? []
+      )
+      const savedLedgers = await this.options.listSavedLedgers?.(workspace.accountMid) ??
+        await this.options.listSavedEnabledLedgers?.(workspace.accountMid) ?? []
       const savedLedgerIds = new Set(savedLedgers.map((ledger) => ledger.id.trim()).filter(Boolean))
       const excludedLedgerIds = [...new Set(ledgerIds.map((id) => id.trim()).filter((id) => savedLedgerIds.has(id)))].sort()
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], excludedLedgerIds
       })
       this.roundExcludedLedgerIdsByAccount.set(workspace.accountMid, excludedLedgerIds)
-      return this.createSnapshot(workspace)
+      const afterHistoryState = await this.captureFavoriteLedgerHistoryStateUnsafe(workspace, recommendations, excludedLedgerIds)
+      const updated = beforeHistoryState && afterHistoryState
+        ? await this.recordFavoriteLedgerHistoryChangeUnsafe(workspace, { before: beforeHistoryState, after: afterHistoryState })
+        : workspace
+      return this.createSnapshot(updated)
     })
   }
 
@@ -3727,7 +3791,15 @@ export class OldFavoriteWorkspaceCoordinator {
       ...beforeIds.filter((id) => !afterIds.includes(id)),
       ...afterIds.filter((id) => !beforeIds.includes(id))
     ])
-    if (!changedIds.size || (!this.options.classifyCurrentItem && !this.options.classifyCurrentItems)) {
+    if (!changedIds.size) return clone(workspace)
+    const persistRecommendationState = async () => {
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: clone(nextState)
+      })
+      this.recommendations.set(workspace.accountMid, clone(nextState))
+    }
+    if (!this.options.classifyCurrentItem && !this.options.classifyCurrentItems) {
+      await persistRecommendationState()
       return clone(workspace)
     }
     const affectedAids = new Set<number>()
@@ -3739,11 +3811,17 @@ export class OldFavoriteWorkspaceCoordinator {
         for (const aid of aids) affectedAids.add(aid)
       }
     }
-    if (!affectedAids.size) return clone(workspace)
+    if (!affectedAids.size) {
+      await persistRecommendationState()
+      return clone(workspace)
+    }
     const descriptors = (this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments
       .map(({ id, index, aids }) => ({ id, index, itemCount: aids.length })))
       .filter((segment) => affectedSegmentIds.has(segment.id))
-    if (!descriptors.length) return clone(workspace)
+    if (!descriptors.length) {
+      await persistRecommendationState()
+      return clone(workspace)
+    }
 
     const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
@@ -3817,7 +3895,10 @@ export class OldFavoriteWorkspaceCoordinator {
         segmentWorkspace = classified
       }
     }
-    if (!newEntries.length) return clone(workspace)
+    if (!newEntries.length) {
+      await persistRecommendationState()
+      return clone(workspace)
+    }
 
     const readiness = this.calculatePlanReadinessFromClassifications(workspace, globalClassifications)
     await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
@@ -3830,8 +3911,10 @@ export class OldFavoriteWorkspaceCoordinator {
       history: newEntries.map(({ segmentId, entry, historyCursor }) => encodeJournalEvent({
         type: 'classification', segmentId, entry: clone(entry), historyCursor
       })),
+      recommendations: clone(nextState),
       planReadiness: readiness
     })
+    this.recommendations.set(workspace.accountMid, clone(nextState))
     this.updateOverviewClassifications(workspace.accountMid, newEntries)
     this.planReadiness.set(workspace.accountMid, readiness)
     const visibleSegmentId = this.currentSegment(workspace)
@@ -3863,7 +3946,8 @@ export class OldFavoriteWorkspaceCoordinator {
     replaceSystem: boolean,
     replaceDeepSeek = false,
     replaceManual = false,
-    recommendationState?: RecommendationState
+    recommendationState?: RecommendationState,
+    persistAsHistoryProjection = false
   ) {
     return this.autoClassifySegmentsUnsafe(
       workspace,
@@ -3872,7 +3956,8 @@ export class OldFavoriteWorkspaceCoordinator {
       undefined,
       recommendationState,
       replaceDeepSeek,
-      replaceManual
+      replaceManual,
+      persistAsHistoryProjection
     )
   }
 
@@ -3898,7 +3983,8 @@ export class OldFavoriteWorkspaceCoordinator {
     onlyAids?: ReadonlySet<number>,
     recommendationState?: RecommendationState,
     replaceDeepSeek = false,
-    replaceManual = false
+    replaceManual = false,
+    persistAsHistoryProjection = false
   ) {
     const classify = this.options.classifyCurrentItem
     const classifyMany = this.options.classifyCurrentItems
@@ -3927,12 +4013,22 @@ export class OldFavoriteWorkspaceCoordinator {
     const visibleSegmentId = this.currentSegment(workspace)
     const visibleItems = this.currentSegmentItems.get(workspace.accountMid)
     const newEntries: Array<{ segmentId: string; entry: OldFavoriteWorkspaceHistoryEntry; historyCursor: number }> = []
+    const segmentAidsById = new Map<string, number[]>()
+    if (persistAsHistoryProjection) {
+      const visibleAids = new Set(workspace.segments.flatMap((segment) => segment.aids))
+      for (const aid of visibleAids) {
+        const classification = workspace.classifications[String(aid)]
+        if (classification) globalClassifications[String(aid)] = clone(classification)
+        else delete globalClassifications[String(aid)]
+      }
+    }
     try {
       for (const segmentId of segmentIds) {
         const segment = classificationSegments.find((candidate) => candidate.id === segmentId)
         if (!segment) throw new Error('Old favorite workspace segment is unavailable.')
         const stored = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, segment.id)
         const items = (stored.items ?? []).map((item) => ({ ...item, ...(tagUpdates.has(item.aid) ? { tags: tagUpdates.get(item.aid) } : {}) }))
+        segmentAidsById.set(segment.id, [...stored.aids])
         this.currentSegmentItems.set(workspace.accountMid, items.map(clone))
         const candidates = items
           .filter((item) => !isUnavailableScanItem(item))
@@ -3967,7 +4063,9 @@ export class OldFavoriteWorkspaceCoordinator {
           }],
           classifications: globalClassifications,
           history: clone(journalState.entriesBySegment.get(segment.id) ?? []),
-          historyCursor: journalState.cursorBySegment.get(segment.id) ?? 0
+          historyCursor: persistAsHistoryProjection && segment.id === visibleSegmentId
+            ? workspace.historyCursor
+            : journalState.cursorBySegment.get(segment.id) ?? 0
         }
         for (const source of ['system-high', 'system-low'] as const) {
           const assignments = proposed
@@ -3976,13 +4074,17 @@ export class OldFavoriteWorkspaceCoordinator {
           if (!assignments.length) continue
           const classified = applyWorkspaceClassificationBatch(segmentWorkspace, { source, assignments, replaceExistingSystem: replaceSystem })
           if (classified === segmentWorkspace) continue
-          newEntries.push({
-            segmentId: segment.id,
-            entry: clone(classified.history[classified.history.length - 1]!),
-            historyCursor: classified.historyCursor
-          })
+          if (!persistAsHistoryProjection) {
+            newEntries.push({
+              segmentId: segment.id,
+              entry: clone(classified.history[classified.history.length - 1]!),
+              historyCursor: classified.historyCursor
+            })
+          }
           globalClassifications = classified.classifications
-          segmentWorkspace = classified
+          segmentWorkspace = persistAsHistoryProjection
+            ? { ...classified, history: segmentWorkspace.history, historyCursor: segmentWorkspace.historyCursor }
+            : classified
         }
       }
     } finally {
@@ -3994,7 +4096,7 @@ export class OldFavoriteWorkspaceCoordinator {
         })))
       }
     }
-    if (!newEntries.length) {
+    if (!newEntries.length && !persistAsHistoryProjection) {
       if (!recommendationState) return clone(workspace)
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: visibleSegmentId,
@@ -4006,19 +4108,36 @@ export class OldFavoriteWorkspaceCoordinator {
       return clone(workspace)
     }
     const readiness = this.calculatePlanReadinessFromClassifications(workspace, globalClassifications)
+    const historyProjectionSegments = persistAsHistoryProjection
+      ? classificationSegments.map((segment) => ({
+          segmentId: segment.id,
+          historyCursor: segment.id === visibleSegmentId
+            ? workspace.historyCursor
+            : journalState.cursorBySegment.get(segment.id) ?? 0,
+          classifications: (segmentAidsById.get(segment.id) ?? []).flatMap((aid) => {
+            const classification = globalClassifications[String(aid)]
+            return classification ? [clone(classification)] : []
+          })
+        }))
+      : []
     await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
       currentSegmentId: visibleSegmentId,
-      classifications: newEntries.flatMap(({ entry }) => entry.changes.flatMap((change) => change.after ? [{
-        aid: change.after.aid, targetLedgerIds: [...change.after.targetLedgerIds], source: change.after.source
-      }] : [])),
-      history: newEntries.map(({ segmentId, entry, historyCursor }) => encodeJournalEvent({
-        type: 'classification', segmentId, entry: clone(entry), historyCursor
-      })),
+      classifications: persistAsHistoryProjection
+        ? Object.values(globalClassifications).map(clone)
+        : newEntries.flatMap(({ entry }) => entry.changes.flatMap((change) => change.after ? [{
+          aid: change.after.aid, targetLedgerIds: [...change.after.targetLedgerIds], source: change.after.source
+        }] : [])),
+      history: persistAsHistoryProjection
+        ? [encodeJournalEvent({ type: 'classification-projection', segments: historyProjectionSegments })]
+        : newEntries.map(({ segmentId, entry, historyCursor }) => encodeJournalEvent({
+          type: 'classification', segmentId, entry: clone(entry), historyCursor
+        })),
       ...(recommendationState ? { recommendations: clone(recommendationState) } : {}),
       planReadiness: readiness
     })
     if (recommendationState) this.recommendations.set(workspace.accountMid, clone(recommendationState))
-    this.updateOverviewClassifications(workspace.accountMid, newEntries)
+    if (persistAsHistoryProjection) this.replaceOverviewClassifications(workspace.accountMid, historyProjectionSegments)
+    else this.updateOverviewClassifications(workspace.accountMid, newEntries)
     this.planReadiness.set(workspace.accountMid, readiness)
     const visibleAidSet = new Set(workspace.segments.flatMap((segment) => segment.aids))
     const visibleEntries = newEntries.filter(({ segmentId }) => segmentId === visibleSegmentId).map(({ entry }) => ({
@@ -4033,11 +4152,11 @@ export class OldFavoriteWorkspaceCoordinator {
         : segment),
       classifications: Object.fromEntries(Object.entries(globalClassifications)
         .filter(([aid]) => visibleAidSet.has(Number(aid))).map(([aid, classification]) => [aid, clone(classification)])),
-      history: visibleHistory,
-      historyCursor: visibleHistory.length
+      history: persistAsHistoryProjection ? workspace.history : visibleHistory,
+      historyCursor: persistAsHistoryProjection ? workspace.historyCursor : visibleHistory.length
     }
     const frozenIds = new Set(this.frozenSegments.get(workspace.accountMid) ?? [])
-    for (const { segmentId } of newEntries) frozenIds.delete(segmentId)
+    if (!persistAsHistoryProjection) for (const { segmentId } of newEntries) frozenIds.delete(segmentId)
     this.remember(visibleUpdated, visibleSegmentId, this.segmentDescriptors.get(workspace.accountMid) ?? [], frozenIds)
     return clone(visibleUpdated)
   }
@@ -4317,6 +4436,25 @@ export class OldFavoriteWorkspaceCoordinator {
       const logicalTitles = new Map(await Promise.all(logicalLedgerIds.map(async (logicalLedgerId) => [
         logicalLedgerId, await titleFor(logicalLedgerId)
       ] as const)))
+      const comparableShardTitle = (title: string) => title.trim()
+        .replace(/\s+/g, ' ')
+        .replace(/\s*·\s*/gu, '·')
+        .replace(/·0*(\d+)$/u, '·$1')
+      const bindingCandidatesFor = async (logicalLedgerId: string, expectedRemoteTitle: string, shardNumber?: number) => {
+        const preview = await this.options.bindingService?.previewLedgerBindingCandidates?.(workspace.accountMid, [{
+          ledgerId: logicalLedgerId,
+          title: expectedRemoteTitle
+        }]) ?? []
+        const candidates = preview.find((entry) => entry.ledgerId === logicalLedgerId)?.candidates ?? []
+        return candidates
+          .filter((candidate) => comparableShardTitle(candidate.title) === comparableShardTitle(expectedRemoteTitle))
+          .map((candidate) => ({
+            remoteFolderId: candidate.id,
+            remoteTitle: candidate.title,
+            memberCount: candidate.memberCount,
+            ...(shardNumber === undefined ? {} : { shardNumber })
+          }))
+      }
       const missingLedgers: OldFavoriteWorkspaceBilibiliSyncPreflight['missingLedgers'] = []
       const blockedLogicalLedgerIds = new Set<string>()
 
@@ -4325,13 +4463,28 @@ export class OldFavoriteWorkspaceCoordinator {
         const formalShards = physicalShards.filter((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
         const hasIncompleteShard = physicalShards.some((shard) => shard.bindingState !== 'bound' || !shard.remoteFolderId)
         if (physicalShards.length === 0) {
-          missingLedgers.push({ logicalLedgerId, logicalTitle: logicalTitles.get(logicalLedgerId)!, reason: 'unbacked' })
-          blockedLogicalLedgerIds.add(logicalLedgerId)
-        } else if (hasIncompleteShard || formalShards.length === 0) {
+          const logicalTitle = logicalTitles.get(logicalLedgerId)!
           missingLedgers.push({
             logicalLedgerId,
-            logicalTitle: logicalTitles.get(logicalLedgerId)!,
-            reason: physicalShards.some((shard) => shard.bindingState === 'pending-reconcile') ? 'pending-reconcile' : 'unbound'
+            logicalTitle,
+            reason: 'unbacked',
+            bindingCandidates: await bindingCandidatesFor(logicalLedgerId, logicalTitle, 1)
+          })
+          blockedLogicalLedgerIds.add(logicalLedgerId)
+        } else if (hasIncompleteShard || formalShards.length === 0) {
+          const logicalTitle = logicalTitles.get(logicalLedgerId)!
+          const incompleteShardCandidates = (await Promise.all(physicalShards
+            .filter((shard) => shard.bindingState !== 'bound' || !shard.remoteFolderId)
+            .map((shard) => bindingCandidatesFor(
+              logicalLedgerId,
+              favoriteRepositoryManagedShardTitleForDisplay(logicalLedgerId, shard.shardNumber, 'backup-preflight', logicalTitle),
+              shard.shardNumber
+            )))).flat()
+          missingLedgers.push({
+            logicalLedgerId,
+            logicalTitle,
+            reason: physicalShards.some((shard) => shard.bindingState === 'pending-reconcile') ? 'pending-reconcile' : 'unbound',
+            bindingCandidates: incompleteShardCandidates
           })
           blockedLogicalLedgerIds.add(logicalLedgerId)
         }
@@ -4382,28 +4535,13 @@ export class OldFavoriteWorkspaceCoordinator {
           })
         }
       }
-      const comparableShardTitle = (title: string) => title.trim()
-        .replace(/\s+/g, ' ')
-        .replace(/\s*·\s*/gu, '·')
-        .replace(/·0*(\d+)$/u, '·$1')
       const requiredPhysicalShardsWithCandidates = await Promise.all(requiredPhysicalShards.map(async (shard) => {
         const expectedRemoteTitle = favoriteRepositoryManagedShardTitleForDisplay(
           shard.logicalLedgerId, shard.shardNumber, 'backup-preflight', shard.logicalTitle
         )
-        const preview = await this.options.bindingService?.previewLedgerBindingCandidates?.(workspace.accountMid, [{
-          ledgerId: shard.logicalLedgerId,
-          title: expectedRemoteTitle
-        }]) ?? []
-        const candidates = preview.find((entry) => entry.ledgerId === shard.logicalLedgerId)?.candidates ?? []
         return {
           ...shard,
-          bindingCandidates: candidates
-            .filter((candidate) => comparableShardTitle(candidate.title) === comparableShardTitle(expectedRemoteTitle))
-            .map((candidate) => ({
-              remoteFolderId: candidate.id,
-              remoteTitle: candidate.title,
-              memberCount: candidate.memberCount
-            }))
+          bindingCandidates: await bindingCandidatesFor(shard.logicalLedgerId, expectedRemoteTitle)
         }
       }))
       return {
@@ -5058,6 +5196,36 @@ export class OldFavoriteWorkspaceCoordinator {
       while (updated.historyCursor > targetCursor) updated = undoWorkspaceChange(updated)
       while (updated.historyCursor < targetCursor) updated = redoWorkspaceChange(updated)
       if (updated === workspace) return clone(workspace)
+      const favoriteRuleState = this.favoriteRuleHistoryStateAtCursor(updated.history, updated.historyCursor)
+      if (favoriteRuleState) {
+        await this.options.restoreFavoriteLedgerHistoryState?.(updated.accountMid, clone(favoriteRuleState))
+        const currentRecommendations = await this.ensureRecommendations(updated)
+        const restoredRecommendations: RecommendationState = {
+          ...currentRecommendations,
+          adoptedCandidateIds: [...favoriteRuleState.adoptedCandidateIds]
+        }
+        this.recommendations.set(updated.accountMid, restoredRecommendations)
+        this.roundExcludedLedgerIdsByAccount.set(updated.accountMid, [...favoriteRuleState.excludedLedgerIds])
+        // A history cursor restores durable local intent first, then rebuilds
+        // the derived archive/sync projection from that exact intent. This
+        // remains local-only: classification never creates, binds, deletes,
+        // or writes a Bilibili folder.
+        const rebuilt = this.options.classifyCurrentItem || this.options.classifyCurrentItems
+          ? await this.autoClassifyAllSegmentsUnsafe(updated, true, true, true, restoredRecommendations, true)
+          : updated
+        const readiness = await this.calculatePlanReadiness(rebuilt)
+        await this.options.workspaceStore.appendOverlay(rebuilt.accountMid, rebuilt.id, {
+          currentSegmentId: this.currentSegment(rebuilt),
+          classifications: [],
+          history: [encodeJournalEvent({ type: 'history-cursor', historyCursor: rebuilt.historyCursor })],
+          recommendations: clone(restoredRecommendations),
+          excludedLedgerIds: [...favoriteRuleState.excludedLedgerIds],
+          planReadiness: readiness
+        })
+        this.planReadiness.set(rebuilt.accountMid, readiness)
+        this.workspaces.set(rebuilt.accountMid, rebuilt)
+        return clone(rebuilt)
+      }
       const readiness = await this.calculatePlanReadiness(updated)
       await this.appendEvents(updated, this.currentSegment(workspace), [{
         type: 'history-cursor', historyCursor: updated.historyCursor
@@ -5065,6 +5233,130 @@ export class OldFavoriteWorkspaceCoordinator {
       this.planReadiness.set(updated.accountMid, readiness)
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
+    })
+  }
+
+  private normalizeFavoriteRuleHistoryState(
+    state: OldFavoriteWorkspaceFavoriteRuleHistoryState
+  ): OldFavoriteWorkspaceFavoriteRuleHistoryState {
+    const ledgerIds = new Set<string>()
+    const ledgers = state.ledgers.flatMap((ledger) => {
+      const id = ledger.id.trim()
+      if (!id || ledgerIds.has(id)) return []
+      ledgerIds.add(id)
+      return [{ ...clone(ledger), id }]
+    })
+    return {
+      ledgers,
+      adoptedCandidateIds: [...new Set(state.adoptedCandidateIds.map((id) => id.trim()).filter(Boolean))].sort(),
+      excludedLedgerIds: [...new Set(state.excludedLedgerIds.map((id) => id.trim()).filter(Boolean))].sort()
+    }
+  }
+
+  private async captureFavoriteLedgerHistoryStateUnsafe(
+    workspace: OldFavoriteWorkspace,
+    recommendations: RecommendationState,
+    excludedLedgerIds: readonly string[]
+  ): Promise<OldFavoriteWorkspaceFavoriteRuleHistoryState | undefined> {
+    if (!this.options.loadFavoriteLedgerHistoryLedgers) return undefined
+    return this.normalizeFavoriteRuleHistoryState({
+      ledgers: await this.options.loadFavoriteLedgerHistoryLedgers(workspace.accountMid),
+      adoptedCandidateIds: recommendations.adoptedCandidateIds,
+      excludedLedgerIds: [...excludedLedgerIds]
+    })
+  }
+
+  async getFavoriteLedgerHistoryState(accountMid: string): Promise<OldFavoriteWorkspaceFavoriteRuleHistoryState | undefined> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'previewing') return undefined
+      const recommendations = await this.ensureRecommendations(workspace)
+      return this.captureFavoriteLedgerHistoryStateUnsafe(
+        workspace,
+        recommendations,
+        this.roundExcludedLedgerIdsByAccount.get(workspace.accountMid) ?? []
+      )
+    })
+  }
+
+  private async recordFavoriteLedgerHistoryChangeUnsafe(
+    workspace: OldFavoriteWorkspace,
+    transition: {
+      before: OldFavoriteWorkspaceFavoriteRuleHistoryState
+      after: OldFavoriteWorkspaceFavoriteRuleHistoryState
+    }
+  ): Promise<OldFavoriteWorkspace> {
+    const before = this.normalizeFavoriteRuleHistoryState(transition.before)
+    const after = this.normalizeFavoriteRuleHistoryState(transition.after)
+    if (JSON.stringify(before) === JSON.stringify(after)) return clone(workspace)
+    const entry: OldFavoriteWorkspaceHistoryEntry = {
+      source: 'favorite-rules',
+      changes: [],
+      favoriteRuleState: { before, after }
+    }
+    const history = [...workspace.history.slice(0, workspace.historyCursor), entry]
+    const updated: OldFavoriteWorkspace = {
+      ...workspace,
+      history,
+      historyCursor: history.length
+    }
+    const recommendations = await this.ensureRecommendations(updated)
+    const nextRecommendations: RecommendationState = {
+      ...recommendations,
+      adoptedCandidateIds: [...after.adoptedCandidateIds]
+    }
+    const readiness = await this.calculatePlanReadiness(updated)
+    await this.options.workspaceStore.appendOverlay(updated.accountMid, updated.id, {
+      currentSegmentId: this.currentSegment(updated),
+      classifications: [],
+      history: [encodeJournalEvent({
+        type: 'classification',
+        entry: clone(entry),
+        historyCursor: updated.historyCursor
+      })],
+      recommendations: clone(nextRecommendations),
+      excludedLedgerIds: [...after.excludedLedgerIds],
+      planReadiness: readiness
+    })
+    this.recommendations.set(updated.accountMid, clone(nextRecommendations))
+    this.roundExcludedLedgerIdsByAccount.set(updated.accountMid, [...after.excludedLedgerIds])
+    this.planReadiness.set(updated.accountMid, readiness)
+    this.remember(updated, this.currentSegment(updated), this.segmentDescriptors.get(updated.accountMid) ?? [],
+      this.frozenSegments.get(updated.accountMid) ?? new Set())
+    return clone(updated)
+  }
+
+  private favoriteRuleHistoryStateAtCursor(
+    history: OldFavoriteWorkspaceHistoryEntry[],
+    cursor: number
+  ): OldFavoriteWorkspaceFavoriteRuleHistoryState | undefined {
+    let applied: OldFavoriteWorkspaceFavoriteRuleHistoryState | undefined
+    for (let index = 0; index < history.length; index += 1) {
+      const transition = history[index]?.favoriteRuleState
+      if (!transition) continue
+      if (index >= cursor) return clone(applied ?? transition.before)
+      applied = transition.after
+    }
+    return applied && clone(applied)
+  }
+
+  /**
+   * Adds one local-only rule/selection checkpoint to the same durable cursor
+   * used by the archive change history. Callers provide authoritative main
+   * process snapshots; this method never contacts Bilibili.
+   */
+  async recordFavoriteLedgerHistoryChange(
+    accountMid: string,
+    transition: {
+      before: OldFavoriteWorkspaceFavoriteRuleHistoryState
+      after: OldFavoriteWorkspaceFavoriteRuleHistoryState
+    }
+  ): Promise<OldFavoriteWorkspace> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      this.assertCurrentSegmentTagReady(workspace)
+      if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for rule history.')
+      return this.recordFavoriteLedgerHistoryChangeUnsafe(workspace, transition)
     })
   }
 
@@ -5641,19 +5933,20 @@ export class OldFavoriteWorkspaceCoordinator {
       ...(entry.deepSeekProcessedItems
         ? { deepSeekProcessedItems: entry.deepSeekProcessedItems.filter((detail) => activeAidSet.has(detail.aid)) }
         : {})
-    })).filter((entry) => entry.changes.length > 0 || Boolean(entry.deepSeekProcessedItems?.length))
+    })).filter((entry) => entry.changes.length > 0 || Boolean(entry.deepSeekProcessedItems?.length) || Boolean(entry.favoriteRuleState))
     const history = marker.status === 'completed' ? [] : recoveredHistory
     const historyCursor = marker.status === 'completed' ? 0 : Math.min(latestCursor, history.length)
     const historyBaselineCursor = marker.status === 'completed'
       ? 0
       : Math.min(journalState.baselineCursorBySegment.get(recovered.currentSegmentId) ?? 0, history.length)
-    const classifications: OldFavoriteWorkspace['classifications'] = {}
-    for (const entry of history.slice(0, historyCursor)) {
-      for (const change of entry.changes) {
-        if (change.after) classifications[String(change.aid)] = clone(change.after)
-        else delete classifications[String(change.aid)]
-      }
-    }
+    // The journal may contain a local-only classification projection created
+    // when a rule-history cursor is restored.  Replaying the entries alone
+    // would resurrect the stale pre-restore automatic result after restart.
+    const classifications: OldFavoriteWorkspace['classifications'] = Object.fromEntries(
+      [...journalState.classifications]
+        .filter(([aid]) => activeAidSet.has(aid))
+        .map(([aid, classification]) => [String(aid), clone(classification)])
+    )
     const baselineCompletedAids = normalizeAids(scan.baselineCompletedAids).filter((aid) => activeAidSet.has(aid))
     const protectedSet = new Set(scan.mode === 'incremental' ? baselineCompletedAids : [])
     const continuationAids = normalizeAids(events.flatMap((event) => event.type === 'discover' ? event.aids : []))
@@ -6003,6 +6296,23 @@ export class OldFavoriteWorkspaceCoordinator {
         else classifications.delete(change.aid)
       }
       overviewRuntime.classificationsBySegment.set(segmentId, classifications)
+    }
+  }
+
+  /** Replaces derived per-segment counts after a local history restore projection. */
+  private replaceOverviewClassifications(
+    accountMid: string,
+    projections: Array<{
+      segmentId: string
+      classifications: Array<OldFavoriteWorkspace['classifications'][string]>
+    }>
+  ) {
+    const overviewRuntime = this.overviewRuntimes.get(accountMid)
+    if (!overviewRuntime) return
+    for (const projection of projections) {
+      overviewRuntime.classificationsBySegment.set(projection.segmentId, new Map(
+        projection.classifications.map((classification) => [classification.aid, clone(classification)])
+      ))
     }
   }
 
@@ -6384,6 +6694,16 @@ export class OldFavoriteWorkspaceCoordinator {
     })
     this.recommendations.set(workspace.accountMid, clone(state))
     return clone(state)
+  }
+
+  /** Recommendation mutations always diff against the durable overlay, never a stale renderer-era cache. */
+  private async loadAuthoritativeRecommendationStateUnsafe(workspace: OldFavoriteWorkspace): Promise<RecommendationState> {
+    const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
+    if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
+    if (!recovered.recommendations.initialized) return this.ensureRecommendations(workspace)
+    const state = clone(recovered.recommendations)
+    this.recommendations.set(workspace.accountMid, clone(state))
+    return state
   }
 
   private async persistRecommendedLedgersUnsafe(workspace: OldFavoriteWorkspace, state: RecommendationState, notify = true) {
@@ -7129,7 +7449,8 @@ export class OldFavoriteWorkspaceCoordinator {
               fallback: '沿用原自动分类',
               deepseek: 'DeepSeek 整理',
               'system-high': '高置信度自动分类',
-              'system-low': '低置信度自动分类'
+              'system-low': '低置信度自动分类',
+              'favorite-rules': '收藏夹规则与勾选'
             }
             return {
               ...(title ? { title } : {}),
