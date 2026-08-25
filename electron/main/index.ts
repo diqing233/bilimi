@@ -117,7 +117,11 @@ import { restoreFavoriteLibraryManagedFolderProjection } from './favoriteLibrary
 import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperationsIpc'
 import { persistConfirmedManagedFolderDeletion } from './managedFavoriteLedgerDeletionPersistence'
 import { resolveFavoriteLibraryOperationSource } from './favoriteLibraryOperationSource'
-import { removeLocalFavoriteLedgers, removeUnsavedFavoriteLedgerDraft } from '../../src/shared/favoriteLedgerDraftDeletion'
+import {
+  isUnsavedFavoriteLedgerDraft,
+  removeLocalFavoriteLedgers,
+  removeUnsavedFavoriteLedgerDraft
+} from '../../src/shared/favoriteLedgerDraftDeletion'
 import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 import { fetchFavoriteVideoMetadata } from './favoriteVideoMetadata'
 import {
