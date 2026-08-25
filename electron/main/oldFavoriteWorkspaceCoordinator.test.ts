@@ -4034,6 +4034,55 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('reclassifies when an adopted recommendation is submitted again after its classification became stale', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, workspaceStore, {
+      initializeOnOpen: false,
+      classifyCurrentItem: (item, recommendedLedgers = []) => ({
+        targetLedgerIds: recommendedLedgers.some((ledger) => ledger.ruleType === 'tag' &&
+          ledger.keywords.includes('Genshin') && item.tags?.includes('Genshin'))
+          ? ['custom-tag-genshin']
+          : ['game'],
+        confidence: 'high' as const
+      })
+    })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'One', tags: ['Genshin'], sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Two', tags: ['Genshin'], sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    const initial = requireSnapshot(await coordinator.getSnapshot('100'))
+    const tagCandidate = initial.recommendations.candidates.find((candidate) => candidate.id === 'custom-tag-genshin')
+    if (!tagCandidate) throw new Error('Genshin tag recommendation unexpectedly unavailable')
+
+    await coordinator.setRecommendedCandidates('100', [tagCandidate.id])
+    await coordinator.applyClassificationBatch('100', {
+      source: 'system-high', assignments: [
+        { aid: 1, targetLedgerIds: ['game'] },
+        { aid: 2, targetLedgerIds: ['game'] }
+      ]
+    })
+
+    await coordinator.setRecommendedCandidates('100', [tagCandidate.id])
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: [tagCandidate.id] },
+      classifications: {
+        '1': { aid: 1, targetLedgerIds: [tagCandidate.id], source: 'system-high' },
+        '2': { aid: 2, targetLedgerIds: [tagCandidate.id], source: 'system-high' }
+      }
+    })
+  })
+
   it('reports backup preflight before staging unclassified selected aids for an unbound cross-segment remote plan', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

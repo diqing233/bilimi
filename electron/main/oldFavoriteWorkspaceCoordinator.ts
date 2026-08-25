@@ -3787,10 +3787,26 @@ export class OldFavoriteWorkspaceCoordinator {
     afterIds: string[],
     nextState: RecommendationState
   ) {
-    const changedIds = new Set([
+    let changedIds = new Set([
       ...beforeIds.filter((id) => !afterIds.includes(id)),
       ...afterIds.filter((id) => !beforeIds.includes(id))
     ])
+    // The renderer can submit an already-adopted set after a saved-rule
+    // refresh. If that refresh raced with the recommendation projection, the
+    // adoption set is unchanged while its matched AIDs still carry an older
+    // automatic classification. Treat those candidates as changed so the
+    // selection action repairs the durable classification projection.
+    if (!changedIds.size && (this.options.classifyCurrentItem || this.options.classifyCurrentItems)) {
+      const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
+      if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
+      const journalState = replayClassificationJournal(recovered.overlayHistory)
+      const adopted = new Set(nextState.adoptedCandidateIds)
+      changedIds = new Set(nextState.candidates
+        .filter((candidate) => adopted.has(candidate.id))
+        .filter((candidate) => Object.values(candidate.matchedAidsBySegment ?? {}).some((aids) =>
+          aids.some((aid) => !journalState.classifications.get(aid)?.targetLedgerIds.includes(candidate.id))))
+        .map((candidate) => candidate.id))
+    }
     if (!changedIds.size) return clone(workspace)
     const persistRecommendationState = async () => {
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {

@@ -3809,6 +3809,45 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(save.mock.calls[0]?.[0][0]).not.toHaveProperty('syncState')
   })
 
+  it('waits for a promoted recommendation rule to persist before applying its adoption', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 },
+      continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [{ id: 'author-race', displayName: 'bilimi·竞态作者', kind: 'author' as const, count: 2, reason: '竞态' }],
+        adoptedCandidateIds: [] as string[]
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    const save = deferred<unknown>()
+    const saveLedgers = vi.fn(() => save.promise)
+    const adoption = vi.fn().mockResolvedValue({
+      ...preview,
+      recommendations: { ...preview.recommendations, adoptedCandidateIds: ['author-race'] }
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: adoption
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={saveLedgers} />)
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '竞态作者' }))
+
+    await waitFor(() => expect(saveLedgers).toHaveBeenCalled())
+    expect(adoption).not.toHaveBeenCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: ['author-race']
+    })
+
+    await act(async () => save.resolve(undefined))
+    await waitFor(() => expect(adoption).toHaveBeenCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: ['author-race']
+    }))
+  })
+
   it('marks a promoted recommendation save as recommendation-only so it does not request a full rule reclassification', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
