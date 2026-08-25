@@ -531,6 +531,21 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.recommendationError).toBeTruthy()
   })
 
+  it('explains recommendation persistence failures with an actionable Chinese reason', async () => {
+    const command = vi.fn().mockRejectedValue(new Error('current batch tag enrichment is not complete'))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace(['author-a'])),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.recommendedCandidateIds).toEqual(['author-a']))
+
+    act(() => result.current.setRecommendedCandidates([]))
+
+    await waitFor(() => expect(result.current.recommendationError).toBe('当前批次标签还未补取完成，请等待完成后再试。'))
+    expect(result.current.recommendedCandidateIds).toEqual(['author-a'])
+  })
+
   it('opens the compact workspace snapshot for the active account', async () => {
     const open = vi.fn().mockResolvedValue(workspace('100'))
     window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop

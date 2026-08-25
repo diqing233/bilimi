@@ -421,7 +421,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: '已备册推荐' })).toBeInTheDocument()
   })
 
-  it('cancels a selected unbound recommendation in bulk without deleting the saved work folder', async () => {
+  it('confirms a selected unbound recommendation before cancelling it in bulk', async () => {
     const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-unbound'] })
     const onOrganizationRecommendationToggle = vi.fn(() => true)
     Object.defineProperty(window, 'bilimiDesktop', {
@@ -442,6 +442,12 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·未绑定推荐' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    expect(dialog).toHaveTextContent('bilimi·未绑定推荐')
+    expect(onOrganizationRecommendationToggle).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+
     await waitFor(() => expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-unbound', false))
     expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '未绑定推荐' })).toBeInTheDocument()
@@ -460,6 +466,9 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·失败推荐' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
     await waitFor(() => expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-failed', false))
     expect(screen.getByRole('button', { name: /取消删除模式/ })).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('删除未成功，请稍后重试。')
@@ -488,6 +497,11 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·未绑定推荐' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    expect(onOrganizationRecommendationToggle).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+
     await waitFor(() => expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-missing', false))
     expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-unbound-mixed', false)
     expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
@@ -509,6 +523,9 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·未备册推荐' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
     expect(screen.getByRole('button', { name: '取消删除模式' })).toBeInTheDocument()
     await act(async () => cleanup.resolve(true))
     await waitFor(() => expect(screen.getByRole('button', { name: '展开删除模式' })).toBeInTheDocument())
@@ -2030,6 +2047,10 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·科技' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
     await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['tech']))
     expect(saveEnabled).toHaveBeenCalledWith('music', true)
     expect(save).not.toHaveBeenCalled()
@@ -2098,6 +2119,9 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·科技' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
     await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['custom-tech']))
     expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
     expect(deleteManagedFavoriteFolders).not.toHaveBeenCalled()
@@ -2124,6 +2148,9 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·临时草稿' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
     await waitFor(() => expect(screen.queryByRole('button', { name: '临时草稿' })).not.toBeInTheDocument())
     expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '科技' })).toBeInTheDocument()
@@ -2363,7 +2390,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.queryByRole('button', { name: '远端草稿' })).not.toBeInTheDocument()
   })
 
-  it('deletes a saved local-only ledger through local configuration deletion', async () => {
+  it('confirms a saved local-only ledger before deleting its local configuration', async () => {
     const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['local-only'] })
     const previewFavoriteLibraryManagedFolderDelete = vi.fn()
     const deleteFavoriteLibraryManagedFoldersLocal = vi.fn()
@@ -2386,13 +2413,19 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(document.querySelector('[data-testid="favorite-ledger-chip-local-only"] .favorite-ledger-panel__chip-action')!)
     fireEvent.click(document.querySelector('[aria-label="备册收藏夹"]')!)
 
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    expect(dialog).toHaveTextContent('bilimi路鍦ㄦ湰')
+    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+
     await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['local-only']))
     expect(previewFavoriteLibraryManagedFolderDelete).not.toHaveBeenCalled()
     expect(deleteFavoriteLibraryManagedFoldersLocal).not.toHaveBeenCalled()
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument()
   })
 
-  it('deletes a remote draft and saved custom ledger together through local configuration deletion', async () => {
+  it('confirms a remote draft and saved custom ledger together before local deletion', async () => {
     const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['remote-draft', 'saved'] })
     const previewManagedFavoriteFolderDeletion = vi.fn()
     const deleteManagedFavoriteFolders = vi.fn()
@@ -2419,6 +2452,13 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(remoteDraftToggle)
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·已保存' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    expect(dialog).toHaveTextContent('bilimi·远端草稿')
+    expect(dialog).toHaveTextContent('bilimi·已保存')
+    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
 
     await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['remote-draft', 'saved']))
     expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
@@ -2453,5 +2493,44 @@ describe('FavoriteLedgerOverview', () => {
     expect(deleteManagedFavoriteFolders).not.toHaveBeenCalled()
     expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '已保存' })).not.toBeInTheDocument()
+  })
+
+  it('shows local and remote deletion candidates in one confirmation dialog', async () => {
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['local'] })
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'remote', remoteFolderId: 'remote-folder', title: 'bilimi·远端', memberCount: 4, state: 'bound', requiresUnboundAcknowledgement: false }
+    ])
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
+      status: 'succeeded', succeededRemoteFolderIds: [], failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+    })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgersLocal,
+        previewManagedFavoriteFolderDeletion,
+        deleteManagedRemoteFolders
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[
+      { id: 'remote', displayName: 'bilimi·远端', keywords: [], enabled: true, priority: 10, isDefault: false, bindingState: 'bound', bilibiliFolderId: 'remote-folder' },
+      { id: 'local', displayName: 'bilimi·本地', keywords: [], enabled: true, priority: 20, isDefault: false }
+    ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·远端' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·本地' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    expect(dialog).toHaveTextContent('bilimi·远端')
+    expect(dialog).toHaveTextContent('bilimi·本地')
+    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
+    expect(deleteManagedRemoteFolders).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['remote', 'local']))
+    expect(deleteManagedRemoteFolders).not.toHaveBeenCalled()
   })
 })

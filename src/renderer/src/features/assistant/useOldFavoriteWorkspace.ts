@@ -107,6 +107,29 @@ function draftLedgerRuleAnalysisFailureMessage(error: unknown) {
   return '收藏夹规则分析失败，请稍后重试。'
 }
 
+function recommendationFailureMessage(error: unknown) {
+  const detail = error instanceof Error ? error.message : ''
+  if (/current batch tag enrichment is not complete/i.test(detail)) {
+    return '当前批次标签还未补取完成，请等待完成后再试。'
+  }
+  if (/recommendations are not ready|recommendation.*not ready/i.test(detail)) {
+    return '推荐收藏夹尚未准备好，请等待扫描完成后重试。'
+  }
+  if (/selection is invalid|candidate.*invalid/i.test(detail)) {
+    return '推荐收藏夹已变化，请重新选择后重试。'
+  }
+  if (/selection is stale|recommendation.*stale/i.test(detail)) {
+    return '推荐收藏夹选择已变化，请重新选择后重试。'
+  }
+  if (/preferences unavailable|persist|save.*recommend/i.test(detail)) {
+    return '推荐收藏夹规则保存失败，请检查本地数据后重试。'
+  }
+  if (/classif/i.test(detail)) {
+    return '推荐收藏夹已选择，但归档预览更新失败，请稍后重试。'
+  }
+  return '推荐收藏夹保存失败，请稍后重试。'
+}
+
 function executionFailureMessage(error: unknown) {
   const detail = error instanceof Error ? error.message : ''
   if (/retry-cooldown/i.test(detail) && /invalid-response/i.test(detail)) {
@@ -763,9 +786,9 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
             setRecommendedCandidateIds(authoritativeIds)
             setSnapshot(next)
           }
-        } catch {
+        } catch (error) {
           if (accountGeneration.current !== generation) return
-          setRecommendationError('推荐收藏夹未能保存，请重试。')
+          setRecommendationError(recommendationFailureMessage(error))
           if (!recommendationDesiredRef.current) {
             recommendedCandidateIdsRef.current = recommendationCommittedRef.current
             setRecommendedCandidateIds(recommendationCommittedRef.current)

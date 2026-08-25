@@ -947,11 +947,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       .filter((ledger) => !remoteDefaultLedgerIds.includes(ledger.id))
       .map((ledger) => ledger.id)
     const plan = { remoteCustomLedgerIds, remoteDefaultLedgerIds, remoteDraftTargets, historicalBindingTargets, localCustomLedgerIds, localDefaultLedgerIds, draftLedgerIds, recommendationCancellationLedgerIds, candidates: [] }
-    if (remoteCustomLedgerIds.length || remoteDefaultLedgerIds.length || Object.keys(remoteDraftTargets).length) {
-      await requestManagedDeletion(plan)
-      return
-    }
-    await executeLocalOnlyDeletionPlan(plan)
+    await requestManagedDeletion(plan)
   }
   const deleteLocalFavoriteLedgers = async (ledgerIds: readonly string[], sourceLedgers = projectEnabled(draftLedgers)) => {
     const deletedIds = new Set(ledgerIds)
@@ -1028,7 +1024,29 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const requestManagedDeletion = async (plan: Omit<ManagedDeletionPlan, 'candidates'>) => {
     if (destructiveActionLocked) return
     const ledgerIds = [...plan.remoteCustomLedgerIds, ...plan.remoteDefaultLedgerIds]
-    if (!ledgerIds.length && !Object.keys(plan.remoteDraftTargets).length) return
+    const remoteDraftLedgerIds = new Set(Object.keys(plan.remoteDraftTargets))
+    const remotePlanLedgerIds = new Set([...ledgerIds, ...remoteDraftLedgerIds])
+    const localCandidateLedgerIds = [...plan.localCustomLedgerIds, ...plan.localDefaultLedgerIds, ...plan.draftLedgerIds, ...plan.recommendationCancellationLedgerIds]
+      .filter((ledgerId, index, ids) => !remotePlanLedgerIds.has(ledgerId) && ids.indexOf(ledgerId) === index)
+    const localCandidates = localCandidateLedgerIds.flatMap((ledgerId) => {
+      const ledger = draftLedgersRef.current.find((item) => item.id === ledgerId)
+      return ledger ? [{
+        logicalLedgerId: ledger.id,
+        title: ledger.displayName,
+        memberCount: ledger.bilibiliFolderVideoCount ?? 0,
+        state: 'local-only' as const,
+        requiresUnboundAcknowledgement: false
+      }] : []
+    })
+    if (!ledgerIds.length && !remoteDraftLedgerIds.size) {
+      if (!localCandidates.length) return
+      setDeletionPlan({ ...plan, candidates: localCandidates })
+      setDeletionScope('local-only')
+      setDeletionConfirmed(false)
+      setDeletionAcknowledgedUnbound(false)
+      setDeletionError(null)
+      return
+    }
     const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
     if (!accountMid || !window.bilimiDesktop?.previewManagedFavoriteFolderDeletion) {
       setDeletionError('删除未成功，请稍后重试。')
@@ -1041,11 +1059,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       }))
       const hasRemoteDraftTargets = Object.keys(plan.remoteDraftTargets).length > 0
       const hasHistoricalBindingTargets = Object.keys(plan.historicalBindingTargets).length > 0
-      const candidates = hasHistoricalBindingTargets
+      const remoteCandidates = hasHistoricalBindingTargets
         ? await window.bilimiDesktop.previewManagedFavoriteFolderDeletion(accountMid, ledgerIds, ledgerTitleHints, hasRemoteDraftTargets ? plan.remoteDraftTargets : undefined, plan.historicalBindingTargets)
         : hasRemoteDraftTargets
           ? await window.bilimiDesktop.previewManagedFavoriteFolderDeletion(accountMid, ledgerIds, ledgerTitleHints, plan.remoteDraftTargets)
           : await window.bilimiDesktop.previewManagedFavoriteFolderDeletion(accountMid, ledgerIds, ledgerTitleHints)
+      const candidates = [...remoteCandidates, ...localCandidates]
       if (!candidates.length) throw new Error('Managed folder deletion preview is unavailable.')
       setDeletionPlan({ ...plan, candidates })
       setDeletionScope('local-only')
@@ -1120,32 +1139,21 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setDeletionAcknowledgedUnbound(false)
     setDeletionError(null)
   }
-  const executeLocalOnlyDeletionPlan = async (plan: Omit<ManagedDeletionPlan, 'candidates'>) => {
-    const persistedIds = new Set(ledgers.map((ledger) => ledger.id))
-    const requiresAccount = [...plan.draftLedgerIds, ...plan.localCustomLedgerIds].some((ledgerId) => persistedIds.has(ledgerId))
+  const confirmManagedDeletion = async () => {
+    if (!deletionPlan || !deletionConfirmed || destructiveActionLocked || deletionExecuting) return
+    if (deletionScope === 'bilibili' && deletionPlan.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !deletionAcknowledgedUnbound) return
+    const persistedLedgerIds = new Set(ledgers.map((ledger) => ledger.id))
+    const accountRequiredLedgerIds = [
+      ...deletionPlan.remoteCustomLedgerIds,
+      ...deletionPlan.remoteDefaultLedgerIds,
+      ...deletionPlan.localCustomLedgerIds,
+      ...deletionPlan.draftLedgerIds
+    ]
+    const requiresAccount = deletionScope === 'bilibili' || accountRequiredLedgerIds.some((ledgerId) => persistedLedgerIds.has(ledgerId))
     const accountMid = requiresAccount && window.bilimiDesktop?.readBilibiliAccountMid
       ? await window.bilimiDesktop.readBilibiliAccountMid()
       : ''
     if (requiresAccount && !accountMid) {
-      setDeletionError('删除未成功，请稍后重试。')
-      return
-    }
-    setDeletionExecuting(true)
-    try {
-      await deletePersistedDraftLedgers(accountMid, plan.draftLedgerIds)
-      await deletePersistedCustomLedgers(accountMid, plan.localCustomLedgerIds)
-      await finalizeManagedDeletionPlan({ ...plan, candidates: [] }, accountMid)
-    } catch {
-      setDeletionError('删除未成功，请稍后重试。')
-    } finally {
-      setDeletionExecuting(false)
-    }
-  }
-  const confirmManagedDeletion = async () => {
-    if (!deletionPlan || !deletionConfirmed || destructiveActionLocked || deletionExecuting) return
-    if (deletionScope === 'bilibili' && deletionPlan.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !deletionAcknowledgedUnbound) return
-    const accountMid = window.bilimiDesktop?.readBilibiliAccountMid ? await window.bilimiDesktop.readBilibiliAccountMid() : ''
-    if (!accountMid) {
       setDeletionError('删除未成功，请稍后重试。')
       return
     }
