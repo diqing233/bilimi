@@ -260,6 +260,14 @@ export function OldFavoriteGuide({
     if (segment?.readiness) return segment.readiness !== 'tagging' && segment.readiness !== 'waiting'
     return !enrichmentActive
   })()
+  const recommendationMutationAvailable = !displayedSnapshot || 'recovery' in displayedSnapshot || (() => {
+    const wholeRunTagCutoffAccepted = displayedSnapshot.tagEnrichment?.wholeRunTagCutoffAccepted === true &&
+      displayedSnapshot.tagEnrichment.status !== 'running'
+    if (wholeRunTagCutoffAccepted) return true
+    const currentSegment = displayedSnapshot.segments.find((segment) => segment.id === displayedSnapshot.currentSegment?.id)
+    if (currentSegment?.readiness) return currentSegment.readiness !== 'tagging' && currentSegment.readiness !== 'waiting'
+    return segmentContentAvailable
+  })()
   const selectedScopeValue = viewScope === 'all' ? wholeRunSelectValue : selectedSegmentId
   const canOpenStep = (next: OldFavoriteGuideStep) => {
     if (next === 'scan') return true
@@ -354,6 +362,7 @@ export function OldFavoriteGuide({
       viewScope={viewScope}
       onViewScopeChange={setViewScope}
       contentAvailable={segmentContentAvailable}
+      selectionLocked={!recommendationMutationAvailable}
     /> : null}
     {!recovery && displayedSnapshot && !('recovery' in displayedSnapshot) && step === 'preview' ? <OldFavoriteArchivePreviewStep
       snapshot={displayedSnapshot}

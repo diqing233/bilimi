@@ -164,3 +164,10 @@
 - 本轮聚焦回归：`oldFavoriteWorkspaceCoordinator.test.ts` 333/333、`ControlledFavoriteLedgerPanel.test.tsx` 151/151、`OldFavoriteArchivePreviewStep.test.tsx` 34/34、`OldFavoriteConfirmationStep.test.tsx` 39/39、`OldFavoriteGuide.test.tsx` 14/14、`oldFavoriteWorkspaceCoordinatorIpc.test.ts` 50/50、`oldFavoriteWorkspaceClassification.test.ts` 12/12 通过。
 - `npm test`：238/238 测试文件、4068/4068 测试通过。为修复测试自身使用过期固定时间造成的误报，将 `electron/main/store.test.ts` 的检查点时间改为运行时有效时间；未改动笔记、转写或 DeepSeek 生产逻辑。此前仅在全量并行中出现一次的 `src/renderer/src/App.test.tsx` 时序差异，在串行和本次标准全量运行中均未复现，完整单文件复跑仍为 126/126 通过。
 - Electron 只读验收：已观察“掌库 → 收藏夹”的已保存规则、独立勾选和 `未备册` 状态；当前账号没有可只读打开的整理草稿，故 I002/I003/I004/I005/I006 的推荐联动、历史恢复、单窗口确认及长改动记录悬浮全文仍待真实数据场景验收。未执行任何 B 站创建、绑定、删除或视频写入。
+
+## 补充实施证据（2026-08-26）
+
+- 推荐收藏夹在多批“本轮总览”中区分“可查看”和“可修改”：`OldFavoriteGuide.tsx` 按当前活动批次的标签补取状态计算 `recommendationMutationAvailable`，`OldFavoriteRecommendationStep.tsx` 在当前批次仍为 `tagging`/`waiting` 时禁用候选与全选，并显示“当前批次标签补取中，完成后可修改推荐收藏夹。”；已就绪批次的汇总候选仍可只读查看，旧的泛化失败提示不会覆盖真实状态。
+- B 站网页刷新反馈：`BiliWebview.tsx` 对主框架非代理加载失败保存错误码/描述，显示“B 站页面加载失败”和“重新加载 B 站页面”；代理错误（`-130`）与子框架失败仍沿用原有边界，导航开始和成功加载会清除错误状态。
+- 自动化：新增 `OldFavoriteGuide.test.tsx` 与 `BiliWebview.test.tsx` 回归；聚焦 39/39、收藏夹组合 193/193、`App.test.tsx` 126/126、全量 `npm test` 238 文件/4071 测试通过；`npm run build` 与 `git diff --check` 通过。
+- Electron/真实副作用：本轮未启动开发版进行截图验收；未执行 B 站创建、绑定、删除、刷新后的真实远端写入或视频同步。页面错误卡和推荐锁定仍需在有对应失败/多批草稿数据的 Electron 只读场景验收。

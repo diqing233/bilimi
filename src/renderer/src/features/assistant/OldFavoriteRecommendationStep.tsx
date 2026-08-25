@@ -18,6 +18,7 @@ type OldFavoriteRecommendationStepProps = {
   viewScope?: OldFavoriteViewScope
   onViewScopeChange?: (scope: OldFavoriteViewScope) => void
   contentAvailable?: boolean
+  selectionLocked?: boolean
 }
 
 type CandidateGroup = {
@@ -71,7 +72,8 @@ export function OldFavoriteRecommendationStep({
   onUpdateRecommendedCandidates,
   viewScope: controlledViewScope,
   onViewScopeChange,
-  contentAvailable = true
+  contentAvailable = true,
+  selectionLocked = false
 }: OldFavoriteRecommendationStepProps) {
   const [authorCandidatesExpanded, setAuthorCandidatesExpanded] = useState(false)
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
@@ -150,7 +152,8 @@ export function OldFavoriteRecommendationStep({
     </div>
     {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} /> : null}
     <p className="favorite-ledger-panel__action-explanation">勾选后的推荐收藏夹可参与本轮整理；未备册不影响本轮草稿，整理结束后可再备册并同步到 B 站。</p>
-    {error ? <p role="alert" className="favorite-ledger-panel__recommendation-error">{error}</p> : null}
+    {!selectionLocked && error ? <p role="alert" className="favorite-ledger-panel__recommendation-error">{error}</p> : null}
+    {selectionLocked ? <p role="status">当前批次标签补取中，完成后可修改推荐收藏夹。</p> : null}
     {recommendationSaving ? <p className="favorite-ledger-panel__recommendation-saving" role="status">正在更新归档预览…</p> : null}
     {previewPreparationRunning ? <div className="favorite-ledger-panel__preview-preparation" role="status">
       <p>正在准备归档预览：{previewPreparationProgress?.completedItemCount ?? 0} / {previewPreparationProgress?.totalItemCount ?? 0}</p>
@@ -170,7 +173,7 @@ export function OldFavoriteRecommendationStep({
           <h5>{group.heading}</h5>
           <label>
             <input type="checkbox" aria-label={`全选 ${group.heading}`} checked={allSelected}
-              disabled={loading || group.allCandidates.length === 0}
+              disabled={loading || selectionLocked || group.allCandidates.length === 0}
               onChange={(event) => setGroupSelected(group.allCandidates, event.currentTarget.checked)} />
             <span>全选</span>
           </label>
@@ -183,7 +186,7 @@ export function OldFavoriteRecommendationStep({
             const currentBatchCount = candidate.currentSegmentCount ?? candidate.count
             return <article key={candidate.id} aria-label={candidateLabel(candidate)} title={candidateTooltip(candidate, wholeRunCount, currentBatchCount, viewScope)}>
               <label>
-                <input type="checkbox" aria-label={candidateLabel(candidate)} checked={adopted} disabled={loading}
+                <input type="checkbox" aria-label={candidateLabel(candidate)} checked={adopted} disabled={loading || selectionLocked}
                   onChange={(event) => {
                     if (onUpdateRecommendedCandidates) {
                       const selected = event.currentTarget.checked

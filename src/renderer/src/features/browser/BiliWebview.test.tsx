@@ -545,6 +545,8 @@ describe('BiliWebview', () => {
   it('does not mistake non-proxy load failures or subframes for a proxy failure', () => {
     render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
     const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    const reload = vi.fn()
+    Object.assign(webview, { reload })
 
     act(() => {
       webview.dispatchEvent(Object.assign(new Event('did-fail-load'), {
@@ -560,5 +562,9 @@ describe('BiliWebview', () => {
     })
 
     expect(screen.queryByRole('heading', { name: '系统代理连接失败' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'B 站页面加载失败' })).toBeInTheDocument()
+    expect(screen.getByText(/ERR_NAME_NOT_RESOLVED/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重新加载 B 站页面' }))
+    expect(reload).toHaveBeenCalledOnce()
   })
 })

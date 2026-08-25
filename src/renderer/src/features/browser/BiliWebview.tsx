@@ -48,6 +48,7 @@ type WebviewUrlEvent = Event & {
 
 type WebviewLoadFailureEvent = Event & {
   errorCode?: number
+  errorDescription?: string
   isMainFrame?: boolean
 }
 
@@ -169,6 +170,7 @@ export const BiliWebview = memo(function BiliWebview({
   }
   const model = useMemo(() => createBrowserSurfaceModel(initialUrl.current), [])
   const [proxyConnectionFailed, setProxyConnectionFailed] = useState(false)
+  const [loadFailure, setLoadFailure] = useState<{ errorCode?: number; errorDescription?: string } | null>(null)
   const [directRetrying, setDirectRetrying] = useState(false)
   const [directRetryError, setDirectRetryError] = useState('')
 
@@ -270,6 +272,8 @@ export const BiliWebview = memo(function BiliWebview({
       const navigation = event as WebviewNavigationEvent
       if (navigation.isMainFrame === false || navigation.detail?.isMainFrame === false) return
       navigationEpoch.current += 1
+      setProxyConnectionFailed(false)
+      setLoadFailure(null)
       reportTargetState()
     }
 
@@ -307,15 +311,21 @@ export const BiliWebview = memo(function BiliWebview({
 
     const handleLoadFailure = (event: Event) => {
       const failure = event as WebviewLoadFailureEvent
-      if (failure.isMainFrame !== false && failure.errorCode === -130) {
+      if (failure.isMainFrame === false) return
+      if (failure.errorCode === -130) {
         setProxyConnectionFailed(true)
+        setLoadFailure(null)
         setDirectRetryError('')
+        return
       }
+      setProxyConnectionFailed(false)
+      setLoadFailure({ errorCode: failure.errorCode, errorDescription: failure.errorDescription })
     }
 
     const handleLoadSuccess = () => {
       hasFinishedInitialLoad.current = true
       setProxyConnectionFailed(false)
+      setLoadFailure(null)
       setDirectRetryError('')
     }
 
@@ -447,6 +457,17 @@ export const BiliWebview = memo(function BiliWebview({
             <button type="button" disabled={directRetrying} onClick={() => void retryWithoutProxy()}>
               {directRetrying ? '正在切换…' : '本次直连重试'}
             </button>
+          </div>
+        </div>
+      </section>
+    ) : null}
+    {active && loadFailure ? (
+      <section className="browser-proxy-error" role="alert" aria-label="B 站页面加载失败">
+        <div className="browser-proxy-error__card">
+          <h2>B 站页面加载失败</h2>
+          <p>{loadFailure.errorDescription || `错误码：${loadFailure.errorCode ?? '未知'}`}</p>
+          <div className="browser-proxy-error__actions">
+            <button type="button" onClick={() => ref.current?.reload?.()}>重新加载 B 站页面</button>
           </div>
         </div>
       </section>
