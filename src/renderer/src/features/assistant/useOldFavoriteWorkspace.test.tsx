@@ -546,6 +546,86 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.recommendedCandidateIds).toEqual(['author-a'])
   })
 
+  it('clears stale recommendation errors and adopts the returned candidates after accepting tags', async () => {
+    const before = {
+      ...recommendationWorkspace(),
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1, readiness: 'tagging' as const, completedTagItemCount: 0, pendingTagItemCount: 1 }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [] },
+      tagEnrichment: { status: 'paused' as const, totalItemCount: 1, completedItemCount: 0, pendingItemCount: 1, failedItemCount: 0, wholeRunTagCutoffAccepted: false }
+    }
+    const after = {
+      ...before,
+      segments: [{ ...before.segments[0], readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 }],
+      tagEnrichment: { ...before.tagEnrichment, status: 'accepted' as const, completedItemCount: 1, pendingItemCount: 1, wholeRunTagCutoffAccepted: true },
+      recommendations: {
+        candidates: [{ id: 'tag-new', displayName: '新标签', kind: 'tag' as const, count: 1, reason: 'accepted' }],
+        adoptedCandidateIds: ['tag-new']
+      }
+    }
+    const command = vi.fn((_accountMid: string, request: { type?: string }) => {
+      if (request.type === 'accept-current-tags') return Promise.resolve(after)
+      if (request.type === 'set-recommended-candidates') return Promise.reject(new Error('current batch tag enrichment is not complete'))
+      return Promise.resolve(before)
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(before),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ tagEnrichment: { status: 'paused' } }))
+
+    act(() => result.current.setRecommendedCandidates([]))
+    await waitFor(() => expect(result.current.recommendationError).toBe('当前批次标签还未补取完成，请等待完成后再试。'))
+
+    await act(async () => { await result.current.acceptCurrentTags() })
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ tagEnrichment: { status: 'accepted' } }))
+    expect(result.current.recommendationError).toBeNull()
+    expect(result.current.recommendedCandidateIds).toEqual(['tag-new'])
+  })
+
+  it('refreshes the authoritative snapshot when tag adoption completes without a command result', async () => {
+    const before = {
+      ...recommendationWorkspace(),
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1, readiness: 'tagging' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [] },
+      tagEnrichment: { status: 'paused' as const, totalItemCount: 1, completedItemCount: 0, pendingItemCount: 1, failedItemCount: 0, wholeRunTagCutoffAccepted: false }
+    }
+    const after = {
+      ...before,
+      segments: [{ ...before.segments[0], readiness: 'ready' as const }],
+      tagEnrichment: { ...before.tagEnrichment, status: 'accepted' as const, completedItemCount: 1, pendingItemCount: 0, wholeRunTagCutoffAccepted: true },
+      recommendations: {
+        candidates: [{ id: 'tag-refreshed', displayName: '刷新后的标签', kind: 'tag' as const, count: 1, reason: 'accepted' }],
+        adoptedCandidateIds: ['tag-refreshed']
+      }
+    }
+    let openCount = 0
+    const command = vi.fn((_accountMid: string, request: { type?: string }) => {
+      if (request.type === 'accept-current-tags') return Promise.resolve(undefined)
+      if (request.type === 'set-recommended-candidates') return Promise.reject(new Error('current batch tag enrichment is not complete'))
+      return Promise.resolve(before)
+    })
+    const open = vi.fn(() => {
+      openCount += 1
+      return Promise.resolve(openCount === 1 ? before : after)
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ tagEnrichment: { status: 'paused' } }))
+
+    act(() => result.current.setRecommendedCandidates([]))
+    await waitFor(() => expect(result.current.recommendationError).toBe('当前批次标签还未补取完成，请等待完成后再试。'))
+
+    await act(async () => { await result.current.acceptCurrentTags() })
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ tagEnrichment: { status: 'accepted' } }))
+    expect(result.current.recommendationError).toBeNull()
+    expect(result.current.recommendedCandidateIds).toEqual(['tag-refreshed'])
+    expect(open).toHaveBeenCalledTimes(2)
+  })
+
   it('opens the compact workspace snapshot for the active account', async () => {
     const open = vi.fn().mockResolvedValue(workspace('100'))
     window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop

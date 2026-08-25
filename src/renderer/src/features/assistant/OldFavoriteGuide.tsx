@@ -349,7 +349,7 @@ export function OldFavoriteGuide({
     /> : null}
     {!recovery && displayedSnapshot && !('recovery' in displayedSnapshot) && step === 'generated' ? <OldFavoriteRecommendationStep
       snapshot={displayedSnapshot}
-      loading={loading || readOnlyBrowsing}
+      loading={loading || readOnlyBrowsing || tagEnrichmentUpdating}
       adoptedCandidateIds={recommendedCandidateIds}
       recommendationSaving={recommendationSaving}
       error={recommendationError}
@@ -362,7 +362,8 @@ export function OldFavoriteGuide({
       viewScope={viewScope}
       onViewScopeChange={setViewScope}
       contentAvailable={segmentContentAvailable}
-      selectionLocked={!recommendationMutationAvailable}
+      selectionLocked={!recommendationMutationAvailable || tagEnrichmentUpdating}
+      selectionUpdating={tagEnrichmentUpdating}
     /> : null}
     {!recovery && displayedSnapshot && !('recovery' in displayedSnapshot) && step === 'preview' ? <OldFavoriteArchivePreviewStep
       snapshot={displayedSnapshot}

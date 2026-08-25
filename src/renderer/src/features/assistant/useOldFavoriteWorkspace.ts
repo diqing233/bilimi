@@ -749,9 +749,21 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     const generation = accountGeneration.current
     setTagEnrichmentUpdating(true)
     try {
-      const next = await command(accountMid, { type })
+      const commandResult = await command(accountMid, { type })
+      const next = commandResult ?? (type === 'accept-current-tags' ? await refresh(true) : null)
       if (!next || accountGeneration.current !== generation || normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
       setSnapshot(next)
+      if (type === 'accept-current-tags') {
+        // Tag adoption rebuilds the candidate index and classifications. Clear
+        // any error from an earlier blocked click and align the local selection
+        // refs with the returned authoritative snapshot before the next click.
+        setRecommendationError(null)
+        const authoritativeIds = snapshotCandidateIds(next, accountMid)
+        recommendationCommittedRef.current = authoritativeIds
+        recommendedCandidateIdsRef.current = authoritativeIds
+        recommendationDesiredRef.current = null
+        setRecommendedCandidateIds(authoritativeIds)
+      }
       return next
     } catch (error) {
       setLastError(error instanceof Error ? error.message : 'Old favorite workspace tag command failed.')
@@ -759,7 +771,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     } finally {
       if (accountGeneration.current === generation) setTagEnrichmentUpdating(false)
     }
-  }, [accountMid])
+  }, [accountMid, refresh])
   const pauseTagEnrichment = useCallback(() => sendTagEnrichmentCommand('pause-tag-enrichment'), [sendTagEnrichmentCommand])
   const resumeTagEnrichment = useCallback(() => sendTagEnrichmentCommand('resume-tag-enrichment'), [sendTagEnrichmentCommand])
   const retryFailedTagEnrichment = useCallback(() => sendTagEnrichmentCommand('retry-failed-tag-enrichment'), [sendTagEnrichmentCommand])

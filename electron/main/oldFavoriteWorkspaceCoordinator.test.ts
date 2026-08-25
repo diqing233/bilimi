@@ -2093,6 +2093,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         ])
       }
     })
+
+    await coordinator.setRecommendedCandidates('100', ['custom-tag-focus'])
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: ['custom-tag-focus'] }
+    })
   })
 
   it('refreshes the round overview when a non-current batch becomes ready', async () => {
