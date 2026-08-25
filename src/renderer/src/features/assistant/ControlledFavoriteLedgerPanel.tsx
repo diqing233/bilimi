@@ -1036,11 +1036,7 @@ export function ControlledFavoriteLedgerPanel({
       .map((ledger) => [ledger.id, !(activeSnapshot.excludedLedgerIds ?? []).includes(ledger.id)]))
     : undefined
   const enabledLedgerIds = new Set(displayedLedgersWithLiveEnabled
-    .filter((ledger) => (
-      organizationSavedLedgerEnabledById?.get(ledger.id)
-      ?? organizationRecommendationEnabledById?.get(ledger.id)
-      ?? ledger.enabled
-    ))
+    .filter((ledger) => ledger.enabled)
     .map((ledger) => ledger.id))
   const hasBackupEligibleLedger = displayedLedgersWithLiveEnabled.some((ledger) =>
     ledger.enabled && ledger.syncState !== 'local-draft' &&
