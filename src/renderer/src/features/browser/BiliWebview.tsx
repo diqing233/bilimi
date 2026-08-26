@@ -169,7 +169,6 @@ export const BiliWebview = memo(function BiliWebview({
     onTitleChange
   }
   const model = useMemo(() => createBrowserSurfaceModel(initialUrl.current), [])
-  const [loading, setLoading] = useState(true)
   const [proxyConnectionFailed, setProxyConnectionFailed] = useState(false)
   const [loadFailure, setLoadFailure] = useState<{ errorCode?: number; errorDescription?: string } | null>(null)
   const [directRetrying, setDirectRetrying] = useState(false)
@@ -264,7 +263,6 @@ export const BiliWebview = memo(function BiliWebview({
       const navigation = event as WebviewNavigationEvent
       if (navigation.isMainFrame === false || navigation.detail?.isMainFrame === false) return
       navigationEpoch.current += 1
-      setLoading(true)
       setProxyConnectionFailed(false)
       setLoadFailure(null)
       reportTargetState()
@@ -305,7 +303,6 @@ export const BiliWebview = memo(function BiliWebview({
     const handleLoadFailure = (event: Event) => {
       const failure = event as WebviewLoadFailureEvent
       if (failure.isMainFrame === false) return
-      setLoading(false)
       if (failure.errorCode === -130) {
         setProxyConnectionFailed(true)
         setLoadFailure(null)
@@ -318,7 +315,6 @@ export const BiliWebview = memo(function BiliWebview({
 
     const handleLoadSuccess = () => {
       hasFinishedInitialLoad.current = true
-      setLoading(false)
       setProxyConnectionFailed(false)
       setLoadFailure(null)
       setDirectRetryError('')
@@ -469,11 +465,6 @@ export const BiliWebview = memo(function BiliWebview({
       src={model.src}
       partition={model.partition}
     />
-    {active && loading && !proxyConnectionFailed && !loadFailure ? (
-      <section className="browser-loading" role="status" aria-label="B 站页面加载中">
-        <p>正在加载 B 站页面…</p>
-      </section>
-    ) : null}
     {active && proxyConnectionFailed ? (
       <section className="browser-proxy-error" role="alert" aria-label="B 站网络连接错误">
         <div className="browser-proxy-error__card">

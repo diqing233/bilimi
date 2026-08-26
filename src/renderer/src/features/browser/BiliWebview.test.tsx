@@ -48,53 +48,6 @@ describe('BiliWebview', () => {
     }
   })
 
-  it('clears initial loading feedback when an already-ready guest missed did-finish-load', async () => {
-    Object.defineProperty(HTMLElement.prototype, 'getWebContentsId', {
-      configurable: true,
-      value: () => 101
-    })
-    Object.defineProperty(HTMLElement.prototype, 'isLoading', {
-      configurable: true,
-      value: () => false
-    })
-
-    try {
-      render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
-
-      expect(screen.getByRole('status', { name: 'B 站页面加载中' })).toBeInTheDocument()
-      await waitFor(() => expect(screen.queryByRole('status', { name: 'B 站页面加载中' })).not.toBeInTheDocument())
-    } finally {
-      delete (HTMLElement.prototype as HTMLElement & { getWebContentsId?: () => number }).getWebContentsId
-      delete (HTMLElement.prototype as HTMLElement & { isLoading?: () => boolean }).isLoading
-    }
-  })
-
-  it('clears loading feedback when the active main document becomes ready without a finish event', () => {
-    render(<BiliWebview active tabId="video" url="https://www.bilibili.com/video/BV1ready" />)
-    const webview = document.querySelector('webview') as Electron.WebviewTag
-
-    act(() => {
-      webview.dispatchEvent(Object.assign(new Event('did-start-navigation'), { isMainFrame: true }))
-    })
-    expect(screen.getByRole('status', { name: 'B 站页面加载中' })).toBeInTheDocument()
-
-    act(() => webview.dispatchEvent(new Event('dom-ready')))
-
-    expect(screen.queryByRole('status', { name: 'B 站页面加载中' })).not.toBeInTheDocument()
-  })
-
-  it('clears loading feedback when the guest stops loading after the document is visible', () => {
-    render(<BiliWebview active tabId="video-stop" url="https://www.bilibili.com/video/BV1stop" />)
-    const webview = document.querySelector('webview') as Electron.WebviewTag
-
-    act(() => {
-      webview.dispatchEvent(Object.assign(new Event('did-start-navigation'), { isMainFrame: true }))
-      webview.dispatchEvent(new Event('did-stop-loading'))
-    })
-
-    expect(screen.queryByRole('status', { name: 'B 站页面加载中' })).not.toBeInTheDocument()
-  })
-
   it('increments its navigation epoch for same-url main-frame reloads but not subframes', () => {
     const onTargetState = vi.fn()
     render(<BiliWebview active tabId="home" url="https://www.bilibili.com" onTargetState={onTargetState} />)
@@ -544,21 +497,17 @@ describe('BiliWebview', () => {
     expect(removeEventListener).not.toHaveBeenCalled()
   })
 
-  it('shows visible loading feedback while the active Bilibili page is navigating', () => {
+  it('never renders retired full-page loading feedback while the page initializes or navigates', () => {
     render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
     const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
 
-    expect(screen.getByRole('status')).toHaveTextContent('正在加载 B 站页面')
-
-    act(() => {
-      webview.dispatchEvent(Object.assign(new Event('did-finish-load'), { isMainFrame: true }))
-    })
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'B 站页面加载中' })).not.toBeInTheDocument()
 
     act(() => {
       webview.dispatchEvent(Object.assign(new Event('did-start-navigation'), { isMainFrame: true }))
     })
-    expect(screen.getByRole('status')).toHaveTextContent('正在加载 B 站页面')
+
+    expect(screen.queryByRole('status', { name: 'B 站页面加载中' })).not.toBeInTheDocument()
   })
 
   it('shows a recoverable error card for ERR_PROXY_CONNECTION_FAILED', () => {
