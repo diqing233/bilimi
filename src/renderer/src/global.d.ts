@@ -71,6 +71,7 @@ type FavoriteLibraryOperationSelection = number[] | {
   excludedAids: number[]
 }
 type FavoriteLibraryDocumentExportSelection = Exclude<FavoriteLibraryOperationSelection, number[]> | { kind: 'aids'; aids: number[] }
+type FavoriteLedgerEnabledHistoryOptions = { mergeFavoriteRuleHistory?: true }
 
 type BilimiDesktopApi = {
   version: string
@@ -318,7 +319,7 @@ type BilimiDesktopApi = {
   patchPreferences?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => Promise<AssistantPreferences>
   saveAssistantSidebarWidth?: (widthPx: number | null) => Promise<number | null>
   writePreferencePatch?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => Promise<Partial<AssistantPreferences>>
-  writeFavoriteLedgerEnabled?: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) => Promise<FavoriteLedgerEnabledPatch>
+  writeFavoriteLedgerEnabled?: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta, historyOptions?: FavoriteLedgerEnabledHistoryOptions) => Promise<FavoriteLedgerEnabledPatch>
   deleteFavoriteLedgerDraft?: (accountMid: string, ledgerId: string) => Promise<{ status: 'succeeded'; ledgerId: string }>
   deleteFavoriteLedgersLocal?: (accountMid: string, ledgerIds: string[]) => Promise<{ status: 'succeeded'; ledgerIds: string[] }>
   restoreFavoriteLedgersLocal?: (accountMid: string, ledgerIds: string[]) => Promise<{ status: 'succeeded'; ledgerIds: string[] }>

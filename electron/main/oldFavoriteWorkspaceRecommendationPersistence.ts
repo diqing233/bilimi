@@ -16,10 +16,13 @@ export function removeRecommendedLedgers(current: FavoriteLedger[], recommendati
 function matchesGeneratedRecommendation(ledger: FavoriteLedger, recommendation: FavoriteLedger) {
   const hasRemoteBinding = Boolean(ledger.bilibiliFolderId?.trim()) ||
     (ledger.bilibiliFolderIds ?? []).some((folderId) => folderId.trim())
-  // Only a persisted source may authorize cancellation as a generated draft.
-  // Shape, binding state, remote ids and names are all ambiguous legacy data.
+  // A recommendation draft without a remote folder is safe to remove when
+  // its checkbox is cleared.  The persisted binding state can be `unbound`
+  // for locally generated drafts, so remote-folder presence (rather than
+  // bindingState alone) is the authoritative guard against deleting a
+  // remotely discovered folder.
   return ledger.ruleOrigin === 'recommendation-draft' &&
-    ledger.bindingState !== 'unbound' && !hasRemoteBinding &&
+    !hasRemoteBinding &&
     ledger.displayName === recommendation.displayName &&
     (ledger.ruleType ?? 'keyword') === (recommendation.ruleType ?? 'keyword') &&
     JSON.stringify(ledger.keywords) === JSON.stringify(recommendation.keywords) &&

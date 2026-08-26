@@ -321,7 +321,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     ledger.bindingState === undefined
   const isDraftDirectlyDeletable = (ledger: FavoriteLedger) => isRemoteOnlyDraft(ledger) || isTransientNewDraft(ledger)
   const isRecommendationCancellationOnly = (ledger: FavoriteLedger) =>
-    !organizationSavedLedgerEnabledById?.has(ledger.id) &&
+    // A recommendation draft may have gained a real remote binding, but
+    // cancelling its recommendation still only changes this round's adopted
+    // state. Its saved/local or remote folder is never a deletion target here.
+    ledger.ruleOrigin === 'recommendation-draft' &&
     organizationRecommendationEnabledById?.get(ledger.id) === true &&
     Boolean(onOrganizationRecommendationToggle)
   const cancelRecommendation = async (ledgerId: string) => {
@@ -398,6 +401,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const pendingToggleSaveRef = useRef(new Map<string, { previous: boolean; enabled: boolean; version: number }>())
   const pendingBulkSaveRef = useRef<{ previousEnabled: Map<string, boolean>; enabledById: Map<string, boolean> } | null>(null)
   const toggleVersionsRef = useRef(new Map<string, number>())
+  const organizationToggleVersionsRef = useRef(new Map<string, number>())
   const toggleSaveInFlightRef = useRef(false)
   const enabledStateChangeSourceRef = useRef<'editor-unsaved' | 'organization-selection' | undefined>(undefined)
   const onEnabledStateChangeRef = useRef(onEnabledStateChange)
@@ -679,11 +683,41 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     }
     const previousEnabled = enableStore.isEnabled(id)
     if (organizationSavedLedgerEnabledById?.has(id) && onOrganizationSavedLedgerToggle) {
-      void onOrganizationSavedLedgerToggle(id, !previousEnabled)
+      const nextEnabled = !previousEnabled
+      // Publish the local projection before awaiting the main-process command so
+      // a round toggle is immediately visible and does not feel blocked by the
+      // classification/queue work behind it. A version guard prevents an older
+      // failed request from rolling back a newer click.
+      enabledStateChangeSourceRef.current = 'organization-selection'
+      if (!enableStore.setEnabled(id, nextEnabled)) return
+      const version = (organizationToggleVersionsRef.current.get(id) ?? 0) + 1
+      organizationToggleVersionsRef.current.set(id, version)
+      void Promise.resolve(onOrganizationSavedLedgerToggle(id, nextEnabled)).then((result) => {
+        if (result !== false || organizationToggleVersionsRef.current.get(id) !== version) return
+        enabledStateChangeSourceRef.current = 'organization-selection'
+        enableStore.setEnabled(id, previousEnabled)
+      }).catch(() => {
+        if (organizationToggleVersionsRef.current.get(id) !== version) return
+        enabledStateChangeSourceRef.current = 'organization-selection'
+        enableStore.setEnabled(id, previousEnabled)
+      })
       return
     }
     if (organizationRecommendationEnabledById?.has(id) && onOrganizationRecommendationToggle) {
-      void onOrganizationRecommendationToggle(id, !previousEnabled)
+      const nextEnabled = !previousEnabled
+      enabledStateChangeSourceRef.current = 'organization-selection'
+      if (!enableStore.setEnabled(id, nextEnabled)) return
+      const version = (organizationToggleVersionsRef.current.get(id) ?? 0) + 1
+      organizationToggleVersionsRef.current.set(id, version)
+      void Promise.resolve(onOrganizationRecommendationToggle(id, nextEnabled)).then((result) => {
+        if (result !== false || organizationToggleVersionsRef.current.get(id) !== version) return
+        enabledStateChangeSourceRef.current = 'organization-selection'
+        enableStore.setEnabled(id, previousEnabled)
+      }).catch(() => {
+        if (organizationToggleVersionsRef.current.get(id) !== version) return
+        enabledStateChangeSourceRef.current = 'organization-selection'
+        enableStore.setEnabled(id, previousEnabled)
+      })
       return
     }
     if (!enableStore.toggle(id)) return

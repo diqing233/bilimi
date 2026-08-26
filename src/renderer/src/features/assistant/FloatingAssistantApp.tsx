@@ -776,7 +776,8 @@ function normalizeDeepSeekConnectionStatus(value: unknown): DeepSeekConnectionSt
 }
 
 function favoriteLedgerBackupGap(ledgers: FavoriteLedger[]) {
-  const enabledLedgers = ledgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft')
+  const enabledLedgers = ledgers.filter((ledger) => ledger.enabled &&
+    (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule'))
   const enabledLedgersWithoutFolder = enabledLedgers.filter(
     (ledger) => !ledger.bilibiliFolderId?.trim()
   )
@@ -5031,14 +5032,18 @@ export function FloatingAssistantApp({
     await window.bilimiDesktop.patchPreferences({ bilibiliConnectionMode: mode })
   }
 
-  async function saveFavoriteLedgerEnabled(ledgerId: string, enabled: boolean) {
+  async function saveFavoriteLedgerEnabled(
+    ledgerId: string,
+    enabled: boolean,
+    historyOptions?: { mergeFavoriteRuleHistory?: true }
+  ) {
     const accountMid = resolvedSnapshot.accountMid
     if (!accountMid || !window.bilimiDesktop?.writeFavoriteLedgerEnabled) {
       throw new Error('当前账号无法保存收藏夹启用状态。')
     }
     const patch = { accountMid, ledgerId, enabled }
     applyIndexedFavoriteLedgerEnabledPatch(favoriteLedgerEnabledIndexRef.current, patch)
-    await window.bilimiDesktop.writeFavoriteLedgerEnabled(accountMid, ledgerId, enabled)
+    await window.bilimiDesktop.writeFavoriteLedgerEnabled(accountMid, ledgerId, enabled, undefined, historyOptions)
     return createDefaultResult('收藏夹规则已保存。')
   }
 

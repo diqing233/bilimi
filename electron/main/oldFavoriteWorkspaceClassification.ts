@@ -37,7 +37,13 @@ export function classifierLedgersForAccount(
   defaultFavoriteSystemEnabled: boolean
 ) {
   return savedLedgers
-    .filter((ledger) => ledger.syncState !== 'local-draft' || !ledger.bilibiliFolderId)
+    // `syncState` is a transport/provisioning state, not the rule's local
+    // classification identity. A saved rule can remain local-draft after its
+    // Bilibili binding is lost and must still participate in this round. Only
+    // an explicitly marked recommendation draft with a remote id is treated
+    // as a recovered remote-only draft here.
+    .filter((ledger) => ledger.syncState !== 'local-draft' ||
+      ledger.ruleOrigin === 'saved-rule' || !ledger.bilibiliFolderId)
     .filter((ledger) => defaultFavoriteSystemEnabled || !ledger.isDefault || ledger.id === 'inbox')
     .map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
 }

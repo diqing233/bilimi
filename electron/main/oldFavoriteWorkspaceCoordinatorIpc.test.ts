@@ -951,6 +951,28 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('allows the history-merge marker only for a round exclusion command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      setRoundExcludedLedgerIds: vi.fn().mockResolvedValue({}),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-author-up-alpha'], mergeFavoriteRuleHistory: true
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.setRoundExcludedLedgerIds).toHaveBeenCalledWith(
+      '100', ['custom-author-up-alpha'], { mergeWithLatestClassification: true }
+    )
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-author-up-alpha'], mergeFavoriteRuleHistory: false
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('allows a controlled Bilibili freeze command without accepting renderer operations', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

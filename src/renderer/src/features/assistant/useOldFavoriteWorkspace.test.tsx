@@ -49,6 +49,27 @@ const recommendationWorkspace = (adoptedCandidateIds: string[] = []) => ({
 })
 
 describe('useOldFavoriteWorkspace', () => {
+  it('forwards the explicit rule-history merge marker only when requested', async () => {
+    const command = vi.fn().mockResolvedValue(recommendationWorkspace())
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace()),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
+
+    await act(async () => {
+      await result.current.setRoundExcludedLedgerIds(['ledger-b', 'ledger-a'], { mergeFavoriteRuleHistory: true })
+    })
+    expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-round-excluded-ledger-ids', ledgerIds: ['ledger-a', 'ledger-b'], mergeFavoriteRuleHistory: true
+    })
+    await act(async () => { await result.current.setRoundExcludedLedgerIds(['ledger-a']) })
+    expect(command).toHaveBeenLastCalledWith('100', {
+      type: 'set-round-excluded-ledger-ids', ledgerIds: ['ledger-a']
+    })
+  })
+
   it('starts an explicit selected-video workspace without using the account scan command', async () => {
     const selected = {
       ...recommendationWorkspace(),

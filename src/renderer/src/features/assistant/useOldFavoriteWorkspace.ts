@@ -854,8 +854,14 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const updateRecommendedCandidates = useCallback((update: (current: string[]) => string[]) => {
     setRecommendedCandidates(update(recommendedCandidateIdsRef.current))
   }, [setRecommendedCandidates])
-  const setRoundExcludedLedgerIds = useCallback((ledgerIds: string[]) =>
-    sendCommand({ type: 'set-round-excluded-ledger-ids', ledgerIds: normalizeCandidateIds(ledgerIds) }), [sendCommand])
+  const setRoundExcludedLedgerIds = useCallback((
+    ledgerIds: string[],
+    options: { mergeFavoriteRuleHistory?: boolean } = {}
+  ) => sendCommand({
+    type: 'set-round-excluded-ledger-ids',
+    ledgerIds: normalizeCandidateIds(ledgerIds),
+    ...(options.mergeFavoriteRuleHistory === true ? { mergeFavoriteRuleHistory: true } : {})
+  }), [sendCommand])
   const prepareRecommendationPreview = useCallback(async () => {
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
     const workspaceId = snapshot && !('recovery' in snapshot) ? snapshot.workspaceId : null

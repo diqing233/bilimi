@@ -430,7 +430,7 @@ describe('FavoriteLedgerOverview', () => {
     })
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'recommended-bound', displayName: 'bilimi·已备册推荐', keywords: ['已备册推荐'], ruleType: 'keyword',
-      enabled: true, priority: 10, bindingState: 'bound', bilibiliFolderId: 'remote-recommended-bound', isDefault: false
+      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'bound', bilibiliFolderId: 'remote-recommended-bound', isDefault: false
     }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()}
       organizationRecommendationEnabledById={new Map([['recommended-bound', true]])}
       onOrganizationRecommendationToggle={onOrganizationRecommendationToggle} />)
@@ -455,7 +455,7 @@ describe('FavoriteLedgerOverview', () => {
     })
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'recommended-unbound', displayName: 'bilimi·未绑定推荐', keywords: ['未绑定推荐'], ruleType: 'keyword',
-      enabled: true, priority: 10, bindingState: 'unbound', isDefault: false
+      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbound', isDefault: false
     }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()}
       organizationRecommendationEnabledById={new Map([['recommended-unbound', true]])}
       onOrganizationRecommendationToggle={onOrganizationRecommendationToggle} />)
@@ -495,7 +495,7 @@ describe('FavoriteLedgerOverview', () => {
     const onOrganizationRecommendationToggle = vi.fn().mockResolvedValue(false)
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'recommended-failed', displayName: 'bilimi·失败推荐', keywords: ['失败推荐'], ruleType: 'keyword',
-      enabled: true, priority: 10, bindingState: 'bound', bilibiliFolderId: 'remote-recommended-failed', isDefault: false
+      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'bound', bilibiliFolderId: 'remote-recommended-failed', isDefault: false
     }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()}
       organizationRecommendationEnabledById={new Map([['recommended-failed', true]])}
       onOrganizationRecommendationToggle={onOrganizationRecommendationToggle} />)
@@ -524,8 +524,8 @@ describe('FavoriteLedgerOverview', () => {
       }
     })
     render(<FavoriteLedgerOverview ledgers={[
-      { id: 'recommended-missing', displayName: 'bilimi·未备册推荐', keywords: ['未备册推荐'], ruleType: 'keyword', enabled: true, priority: 10, bindingState: 'unbacked', isDefault: false },
-      { id: 'recommended-unbound-mixed', displayName: 'bilimi·未绑定推荐', keywords: ['未绑定推荐'], ruleType: 'keyword', enabled: true, priority: 20, bindingState: 'unbound', isDefault: false }
+      { id: 'recommended-missing', displayName: 'bilimi·未备册推荐', keywords: ['未备册推荐'], ruleType: 'keyword', enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false },
+      { id: 'recommended-unbound-mixed', displayName: 'bilimi·未绑定推荐', keywords: ['未绑定推荐'], ruleType: 'keyword', enabled: true, priority: 20, ruleOrigin: 'recommendation-draft', bindingState: 'unbound', isDefault: false }
     ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onDeleteLedger={onDeleteLedger}
       organizationRecommendationEnabledById={new Map([['recommended-missing', true], ['recommended-unbound-mixed', true]])}
       onOrganizationRecommendationToggle={onOrganizationRecommendationToggle} />)
@@ -552,7 +552,7 @@ describe('FavoriteLedgerOverview', () => {
     const cleanup = deferred<boolean>()
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'recommended-unbacked', displayName: 'bilimi·未备册推荐', keywords: ['未备册推荐'], ruleType: 'keyword',
-      enabled: true, priority: 10, bindingState: 'unbacked', isDefault: false
+      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
     }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()}
       organizationRecommendationEnabledById={new Map([['recommended-unbacked', true]])}
       onOrganizationRecommendationToggle={vi.fn(() => cleanup.promise)} />)
@@ -1275,6 +1275,27 @@ describe('FavoriteLedgerOverview', () => {
     expect(roundSelection).toHaveBeenCalledWith([])
     expect(save).not.toHaveBeenCalled()
     expect(saveEnabled).not.toHaveBeenCalled()
+  })
+
+  it('updates a saved round toggle immediately while the authoritative selection is pending', async () => {
+    const pending = deferred<boolean>()
+    const roundToggle = vi.fn(() => pending.promise)
+    render(<FavoriteLedgerOverview
+      organizationActive
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+      organizationSavedLedgerEnabledById={new Map([['music', true]])}
+      onOrganizationSavedLedgerToggle={roundToggle}
+    />)
+
+    const remove = screen.getByRole('button', { name: '移出同步 bilimi·音乐' })
+    fireEvent.click(remove)
+
+    expect(remove).toHaveAttribute('data-enabled', 'false')
+    expect(roundToggle).toHaveBeenCalledWith('music', false)
+    pending.resolve(true)
+    await act(async () => { await pending.promise })
   })
 
   it('keeps a round-locked default selected when bulk cancellation excludes saved rules', () => {

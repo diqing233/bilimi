@@ -2148,7 +2148,11 @@ export class OldFavoriteWorkspaceCoordinator {
         this.roundExcludedLedgerIdsByAccount.get(updated.accountMid) ?? []
       )
       return beforeHistoryState && afterHistoryState
-        ? this.recordFavoriteLedgerHistoryChangeUnsafe(updated, { before: beforeHistoryState, after: afterHistoryState })
+        ? this.recordFavoriteLedgerHistoryChangeUnsafe(updated, {
+            before: beforeHistoryState,
+            after: afterHistoryState,
+            mergeWithLatestClassification: updated.historyCursor > workspace.historyCursor
+          })
         : updated
     })
   }
@@ -3288,7 +3292,11 @@ export class OldFavoriteWorkspaceCoordinator {
    * It intentionally does not call the preferences layer: a rule remains
    * globally enabled for future rounds even while excluded from this one.
    */
-  async setRoundExcludedLedgerIds(accountMid: string, ledgerIds: string[]) {
+  async setRoundExcludedLedgerIds(
+    accountMid: string,
+    ledgerIds: string[],
+    options: { mergeWithLatestClassification?: boolean } = {}
+  ) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for round selection.')
@@ -3308,7 +3316,11 @@ export class OldFavoriteWorkspaceCoordinator {
       this.roundExcludedLedgerIdsByAccount.set(workspace.accountMid, excludedLedgerIds)
       const afterHistoryState = await this.captureFavoriteLedgerHistoryStateUnsafe(workspace, recommendations, excludedLedgerIds)
       const updated = beforeHistoryState && afterHistoryState
-        ? await this.recordFavoriteLedgerHistoryChangeUnsafe(workspace, { before: beforeHistoryState, after: afterHistoryState })
+        ? await this.recordFavoriteLedgerHistoryChangeUnsafe(workspace, {
+            before: beforeHistoryState,
+            after: afterHistoryState,
+            mergeWithLatestClassification: options.mergeWithLatestClassification === true
+          })
         : workspace
       return this.createSnapshot(updated)
     })
@@ -5309,17 +5321,35 @@ export class OldFavoriteWorkspaceCoordinator {
     transition: {
       before: OldFavoriteWorkspaceFavoriteRuleHistoryState
       after: OldFavoriteWorkspaceFavoriteRuleHistoryState
+      mergeWithLatestClassification?: boolean
     }
   ): Promise<OldFavoriteWorkspace> {
     const before = this.normalizeFavoriteRuleHistoryState(transition.before)
     const after = this.normalizeFavoriteRuleHistoryState(transition.after)
     if (JSON.stringify(before) === JSON.stringify(after)) return clone(workspace)
-    const entry: OldFavoriteWorkspaceHistoryEntry = {
-      source: 'favorite-rules',
-      changes: [],
-      favoriteRuleState: { before, after }
-    }
-    const history = [...workspace.history.slice(0, workspace.historyCursor), entry]
+    const activeHistory = workspace.history.slice(0, workspace.historyCursor)
+    const latest = activeHistory.at(-1)
+    // The renderer marks only the serial steps of one upper-rule click. A
+    // classification move and the trailing enabled/excluded state therefore
+    // share one undo record; a no-move selection keeps one rule-only record.
+    const shouldMerge = transition.mergeWithLatestClassification === true &&
+      Boolean(latest && (latest.changes.length || latest.favoriteRuleState))
+    const entry: OldFavoriteWorkspaceHistoryEntry = shouldMerge
+      ? {
+          ...clone(latest!),
+          favoriteRuleState: {
+            before: clone(latest!.favoriteRuleState?.before ?? before),
+            after
+          }
+        }
+      : {
+          source: 'favorite-rules',
+          changes: [],
+          favoriteRuleState: { before, after }
+        }
+    const history = shouldMerge
+      ? [...activeHistory.slice(0, -1), entry]
+      : [...activeHistory, entry]
     const updated: OldFavoriteWorkspace = {
       ...workspace,
       history,
@@ -5375,6 +5405,7 @@ export class OldFavoriteWorkspaceCoordinator {
     transition: {
       before: OldFavoriteWorkspaceFavoriteRuleHistoryState
       after: OldFavoriteWorkspaceFavoriteRuleHistoryState
+      mergeWithLatestClassification?: boolean
     }
   ): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
@@ -6944,6 +6975,11 @@ export class OldFavoriteWorkspaceCoordinator {
         invalidItemCount: folder.invalidItemCount ?? 0
       }))
     const recommendations = this.recommendations.get(workspace.accountMid)
+    // The archive preview is a current-round projection. A saved rule that
+    // the user unchecked remains in the durable classification journal for
+    // history/recovery, but must not continue to appear as an archive target
+    // or as a classified item in this round.
+    const excludedLedgerIds = new Set(this.roundExcludedLedgerIdsByAccount.get(workspace.accountMid) ?? [])
     const recommendationCounts = (recommendations?.candidates ?? []).map((candidate) => ({
       id: candidate.id,
       count: [...completedSegmentIds].reduce((count, segmentId) =>
@@ -6962,8 +6998,11 @@ export class OldFavoriteWorkspaceCoordinator {
       let segmentClassifiedItemCount = 0
       for (const classification of classifications.values()) {
         if (selectedAids && !selectedAids.has(classification.aid)) continue
-        if (classification.targetLedgerIds.length) segmentClassifiedItemCount += 1
-        for (const ledgerId of new Set(classification.targetLedgerIds.slice(0, 3))) {
+        const targetLedgerIds = classification.targetLedgerIds
+          .filter((ledgerId) => !excludedLedgerIds.has(ledgerId))
+          .slice(0, 3)
+        if (targetLedgerIds.length) segmentClassifiedItemCount += 1
+        for (const ledgerId of new Set(targetLedgerIds)) {
           const segmentCounts = archiveCounts.get(ledgerId) ?? new Map<string, number>()
           segmentCounts.set(segmentId, (segmentCounts.get(segmentId) ?? 0) + 1)
           archiveCounts.set(ledgerId, segmentCounts)

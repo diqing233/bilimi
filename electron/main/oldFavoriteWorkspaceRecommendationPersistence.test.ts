@@ -127,6 +127,16 @@ describe('old favorite workspace recommendation persistence', () => {
     }])
   })
 
+  it('removes a local recommendation draft marked unbound when it has no remote folder', () => {
+    const localUnboundDraft = { ...recommendation, bindingState: 'unbound' as const }
+
+    expect(reconcileRecommendedLedgers(
+      [localUnboundDraft],
+      [recommendation],
+      []
+    )).toEqual([])
+  })
+
   it('migrates unsynced adopted rules to local drafts without downgrading an existing Bilibili folder', () => {
     expect(markRecommendedLedgersLocalDraft([
       recommendation,

@@ -141,6 +141,10 @@ import {
   configureFloatingMenuWindow,
   createFloatingMenuWindowOptions
 } from './floatingMenuWindowOptions'
+
+type FavoriteLedgerEnabledHistoryOptions = {
+  mergeFavoriteRuleHistory?: true
+}
 import { keepMainWindowTitle } from './windowTitleGuard'
 import {
   createFloatingAssistantBounds,
@@ -1338,8 +1342,24 @@ function registerAssistantPreferenceHandlers() {
     sendAssistantPreferencePatchChanged(written, meta)
     return written
   })
-  ipcMain.handle('assistant:write-favorite-ledger-enabled', async (event, accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) => {
+  ipcMain.handle('assistant:write-favorite-ledger-enabled', async (
+    event,
+    accountMid: string,
+    ledgerId: string,
+    enabled: boolean,
+    meta?: AssistantPreferencePatchMeta,
+    historyOptions?: FavoriteLedgerEnabledHistoryOptions
+  ) => {
     assertTrustedOldFavoriteAssistantSender(event)
+    const mergeFavoriteRuleHistory = historyOptions !== undefined &&
+      typeof historyOptions === 'object' &&
+      historyOptions !== null &&
+      historyOptions.mergeFavoriteRuleHistory === true &&
+      Object.keys(historyOptions).length === 1 &&
+      Object.keys(historyOptions)[0] === 'mergeFavoriteRuleHistory'
+    if (historyOptions !== undefined && !mergeFavoriteRuleHistory) {
+      throw new Error('Favorite ledger history merge options are invalid.')
+    }
     const beforeHistoryState = await oldFavoriteWorkspaceCoordinator?.getFavoriteLedgerHistoryState(accountMid)
     const patch = await writeFavoriteLedgerEnabled(undefined, accountMid, ledgerId, enabled)
     // In-round participation is projected through the coordinator's
@@ -1350,7 +1370,8 @@ function registerAssistantPreferenceHandlers() {
       if (afterHistoryState) {
         await oldFavoriteWorkspaceCoordinator.recordFavoriteLedgerHistoryChange(accountMid, {
           before: beforeHistoryState,
-          after: afterHistoryState
+          after: afterHistoryState,
+          ...(mergeFavoriteRuleHistory ? { mergeWithLatestClassification: true } : {})
         })
       }
     }
@@ -2374,14 +2395,15 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       }
     },
     listSavedEnabledLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
-      .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft')
+      .filter((ledger) => ledger.enabled && (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule'))
       .map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
     listSavedLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
-      .filter((ledger) => ledger.syncState !== 'local-draft')
+      .filter((ledger) => ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule')
       .map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
     resolveSavedLedgerRule: async (accountMid, logicalLedgerId) => {
       const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
-        .find((candidate) => candidate.id === logicalLedgerId && candidate.syncState !== 'local-draft')
+        .find((candidate) => candidate.id === logicalLedgerId &&
+          (candidate.syncState !== 'local-draft' || candidate.ruleOrigin === 'saved-rule'))
       if (!ledger) return undefined
       const ruleType = ledger.ruleType ?? 'keyword'
       if (ruleType === 'deepseek') return undefined

@@ -80,6 +80,7 @@ type FavoriteLibraryOperationSelection = number[] | {
   excludedAids: number[]
 }
 type FavoriteLibraryDocumentExportSelection = Exclude<FavoriteLibraryOperationSelection, number[]> | { kind: 'aids'; aids: number[] }
+type FavoriteLedgerEnabledHistoryOptions = { mergeFavoriteRuleHistory?: true }
 import type { OldFavoriteWorkspaceBilibiliSyncPreflight, OldFavoriteWorkspaceDeepSeekProcessedItem, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
@@ -660,8 +661,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('layout:assistant-sidebar-width-save', widthPx) as Promise<number | null>,
   writePreferencePatch: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) =>
     ipcRenderer.invoke('assistant:write-preference-patch', patch, meta) as Promise<Partial<AssistantPreferences>>,
-  writeFavoriteLedgerEnabled: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta) =>
-    ipcRenderer.invoke('assistant:write-favorite-ledger-enabled', accountMid, ledgerId, enabled, meta) as Promise<FavoriteLedgerEnabledPatch>,
+  writeFavoriteLedgerEnabled: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta, historyOptions?: FavoriteLedgerEnabledHistoryOptions) =>
+    ipcRenderer.invoke('assistant:write-favorite-ledger-enabled', accountMid, ledgerId, enabled, meta, historyOptions) as Promise<FavoriteLedgerEnabledPatch>,
   deleteFavoriteLedgerDraft: (accountMid: string, ledgerId: string) =>
     ipcRenderer.invoke('assistant:delete-favorite-ledger-draft', accountMid, ledgerId) as Promise<{ status: 'succeeded'; ledgerId: string }>,
   deleteFavoriteLedgersLocal: (accountMid: string, ledgerIds: string[]) =>

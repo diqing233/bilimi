@@ -33,7 +33,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'resolveSavedLedgerRule' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService' | 'onManagedFolderDeletion' | 'restoreFavoriteLedgerHistoryState' | 'loadFavoriteLedgerHistoryLedgers'> & { getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'resolveSavedLedgerRule' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService' | 'onManagedFolderDeletion' | 'restoreFavoriteLedgerHistoryState' | 'loadFavoriteLedgerHistoryLedgers' | 'listSavedLedgers' | 'listSavedEnabledLedgers'> & { getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -5694,6 +5694,120 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan?.operations).toHaveLength(0)
   })
 
+  it('merges a saved-rule selection transition into the classification move it caused', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn((item: { author?: string }, recommendedLedgers: Array<{ id: string }> = []) => ({
+      targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha')
+        ? ['custom-author-up-alpha']
+        : [],
+      confidence: 'high' as const
+    }))
+    const restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItem,
+      restoreFavoriteLedgerHistoryState,
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([{
+        id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', enabled: true
+      }]),
+      loadFavoriteLedgerHistoryLedgers: vi.fn().mockResolvedValue([{
+        id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'], ruleType: 'author',
+        enabled: true, priority: 10, ruleOrigin: 'saved-rule', bindingState: 'unbacked', isDefault: false
+      } as FavoriteLedger])
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'One', author: 'UP Alpha', tags: ['ready'], sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Two', author: 'UP Alpha', tags: ['ready'], sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    const historyLengthBeforeSelection = requireSnapshot(await coordinator.getSnapshot('100')).history.length
+
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    const afterRecommendation = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(afterRecommendation.history.length).toBe(historyLengthBeforeSelection + 1)
+    expect(afterRecommendation.history.entries.at(-1)).toMatchObject({
+      source: 'system-high',
+      changeCount: 2,
+      targetLedgerIds: ['custom-author-up-alpha'],
+      summary: expect.objectContaining({ movedCount: 2 })
+    })
+
+    await coordinator.setRoundExcludedLedgerIds('100', ['custom-author-up-alpha'], { mergeWithLatestClassification: true })
+    const afterExclusion = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(afterExclusion.history.length).toBe(historyLengthBeforeSelection + 1)
+    expect(afterExclusion.history.entries.at(-1)).toMatchObject({
+      source: 'system-high',
+      changeCount: 2,
+      targetLedgerIds: ['custom-author-up-alpha']
+    })
+    await coordinator.moveHistoryCursor('100', historyLengthBeforeSelection)
+    await coordinator.moveHistoryCursor('100', historyLengthBeforeSelection + 1)
+    expect(restoreFavoriteLedgerHistoryState.mock.calls).toEqual(expect.arrayContaining([
+      ['100', expect.objectContaining({ adoptedCandidateIds: ['custom-author-up-alpha'], excludedLedgerIds: ['custom-author-up-alpha'] })]
+    ]))
+  })
+
+  it('merges the remaining enabled and exclusion state into one rule-only history when no video moved', async () => {
+    const root = await createRoot()
+    const restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root }),
+      {
+        loadFavoriteLedgerHistoryLedgers: vi.fn().mockResolvedValue([]),
+        restoreFavoriteLedgerHistoryState
+      }
+    )
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'One', author: 'UP Alpha', tags: ['ready'], sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    const baselineLength = requireSnapshot(await coordinator.getSnapshot('100')).history.length
+    const before = {
+      ledgers: [{ id: 'saved-honker', displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'author' as const,
+        enabled: true, priority: 10_000, ruleOrigin: 'saved-rule' as const, bindingState: 'unbacked' as const, isDefault: false }],
+      adoptedCandidateIds: [], excludedLedgerIds: []
+    }
+    const enabledOff = {
+      ...before,
+      ledgers: before.ledgers.map((ledger) => ({ ...ledger, enabled: false }))
+    }
+    const excluded = { ...enabledOff, excludedLedgerIds: ['saved-honker'] }
+
+    await coordinator.recordFavoriteLedgerHistoryChange('100', { before, after: enabledOff })
+    await coordinator.recordFavoriteLedgerHistoryChange('100', {
+      before: enabledOff,
+      after: excluded,
+      mergeWithLatestClassification: true
+    })
+
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(snapshot.history.length).toBe(baselineLength + 1)
+    expect(snapshot.history.entries.at(-1)).toMatchObject({ source: 'favorite-rules' })
+    await coordinator.moveHistoryCursor('100', baselineLength)
+    await coordinator.moveHistoryCursor('100', baselineLength + 1)
+    expect(restoreFavoriteLedgerHistoryState.mock.calls).toEqual(expect.arrayContaining([
+      ['100', before],
+      ['100', excluded]
+    ]))
+  })
+
   it('applies an indexed recommendation without preview preparation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -8813,6 +8927,66 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('updates archive preview counts when a saved ledger is excluded from the current round', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore,
+      segmentSize: () => 500,
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([
+        { id: 'game', title: 'bilimi·游戏专区' },
+        { id: 'genshin', title: 'bilimi·原神' }
+      ]),
+      now: () => '2026-08-27T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1_000, isBilimiWorkFolder: false, selected: true }]
+    })
+    for (let offset = 0; offset < 1_000; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1,
+        items: Array.from({ length: 50 }, (_unused, index) => ({
+          aid: offset + index + 1, title: `视频 ${offset + index + 1}`,
+          tags: ['ready'], sourceFolderIds: ['source']
+        }))
+      })
+    }
+    await coordinator.finishScan('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual',
+      assignments: Array.from({ length: 500 }, (_unused, index) => ({ aid: index + 1, targetLedgerIds: ['game'] }))
+    })
+    await coordinator.selectSegment('100', 'segment-2')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: Array.from({ length: 500 }, (_unused, index) => ({ aid: index + 501, targetLedgerIds: ['genshin'] }))
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      overview: expect.objectContaining({
+        classifiedItemCount: 1_000,
+        archiveTargets: expect.arrayContaining([
+          expect.objectContaining({ ledgerId: 'game', itemCount: 500 }),
+          expect.objectContaining({ ledgerId: 'genshin', itemCount: 500 })
+        ])
+      })
+    })
+
+    await expect(coordinator.setRoundExcludedLedgerIds('100', ['genshin'])).resolves.toMatchObject({
+      overview: expect.objectContaining({
+        processedItemCount: 1_000,
+        classifiedItemCount: 500,
+        unmatchedItemCount: 500,
+        archiveTargets: expect.arrayContaining([
+          expect.objectContaining({ ledgerId: 'game', itemCount: 500 }),
+          expect.objectContaining({ ledgerId: 'inbox', itemCount: 500 })
+        ])
+      })
+    })
+  })
+
   it('does not require a remote target for an aid whose only classification is excluded from this round', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-23T00:00:00.000Z' })
@@ -10726,8 +10900,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.acceptCurrentTags('100')
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     const beforeRestore = requireSnapshot(await coordinator.getSnapshot('100'))
-    const ruleEntry = beforeRestore.history.entries.find((entry) => entry.source === 'favorite-rules')
+    const ruleEntry = beforeRestore.history.entries.find((entry) =>
+      entry.source === 'system-high' && entry.targetLedgerIds.includes('custom-author-up-alpha')
+    )
     expect(ruleEntry).toBeDefined()
+    expect(ruleEntry).toMatchObject({ source: 'system-high', changeCount: 2 })
     const priorCursor = ruleEntry!.cursor - 1
     const originalLength = beforeRestore.history.length
 

@@ -111,6 +111,16 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
     ])
   })
 
+  it('keeps a saved rule with a local-draft transport state classifiable after its remote binding is lost', () => {
+    const savedUnbound = {
+      id: 'custom-genshin', displayName: 'bilimi·原神', keywords: ['原神'], enabled: true,
+      priority: 20, isDefault: false, bilibiliFolderId: '42', bindingState: 'unbound' as const,
+      syncState: 'local-draft' as const, ruleOrigin: 'saved-rule' as const
+    }
+
+    expect(classifierLedgersForAccount([savedUnbound], true)).toEqual([savedUnbound])
+  })
+
   it('adds adopted recommendations as enabled author ledgers ahead of duplicate saved rules', () => {
     expect(mergeOldFavoriteWorkspaceLedgers([
       { id: 'music', displayName: 'Music', keywords: ['music'], enabled: true, priority: 3, isDefault: false },

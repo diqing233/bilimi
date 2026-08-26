@@ -60,7 +60,7 @@ type WorkspaceCommand =
   | { type: 'reclassify-favorite-configuration' }
   | { type: 'refresh-relationship-projection' }
   | { type: 'set-recommended-candidates'; candidateIds: string[] }
-  | { type: 'set-round-excluded-ledger-ids'; ledgerIds: string[] }
+  | { type: 'set-round-excluded-ledger-ids'; ledgerIds: string[]; mergeFavoriteRuleHistory?: boolean }
   | { type: 'prepare-recommendation-preview'; candidateIds: string[] }
   | { type: 'cancel-recommendation-preview-preparation' }
   | { type: 'create-local-ledger-and-reclassify'; title: string }
@@ -242,8 +242,13 @@ function command(value: unknown): WorkspaceCommand {
   }
   if (candidate.type === 'set-round-excluded-ledger-ids' && Array.isArray(candidate.ledgerIds) &&
     candidate.ledgerIds.length <= 128 && candidate.ledgerIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
-    Object.keys(candidate).every((key) => key === 'type' || key === 'ledgerIds')) {
-    return { type: 'set-round-excluded-ledger-ids', ledgerIds: [...new Set(candidate.ledgerIds.map((id) => id.trim()))].sort() }
+    (candidate.mergeFavoriteRuleHistory === undefined || candidate.mergeFavoriteRuleHistory === true) &&
+    Object.keys(candidate).every((key) => key === 'type' || key === 'ledgerIds' || key === 'mergeFavoriteRuleHistory')) {
+    return {
+      type: 'set-round-excluded-ledger-ids',
+      ledgerIds: [...new Set(candidate.ledgerIds.map((id) => id.trim()))].sort(),
+      ...(candidate.mergeFavoriteRuleHistory === true ? { mergeFavoriteRuleHistory: true } : {})
+    }
   }
   if (candidate.type === 'prepare-recommendation-preview' && Array.isArray(candidate.candidateIds) &&
     candidate.candidateIds.length <= 32 && candidate.candidateIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
@@ -569,7 +574,11 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       return options.coordinator.getSnapshot(accountMid)
     }
     if (requested.type === 'set-round-excluded-ledger-ids') {
-      await options.coordinator.setRoundExcludedLedgerIds(accountMid, requested.ledgerIds)
+      if (requested.mergeFavoriteRuleHistory === true) {
+        await options.coordinator.setRoundExcludedLedgerIds(accountMid, requested.ledgerIds, { mergeWithLatestClassification: true })
+      } else {
+        await options.coordinator.setRoundExcludedLedgerIds(accountMid, requested.ledgerIds)
+      }
       return options.coordinator.getSnapshot(accountMid)
     }
     if (requested.type === 'prepare-recommendation-preview') {

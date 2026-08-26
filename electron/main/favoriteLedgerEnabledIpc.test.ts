@@ -21,4 +21,11 @@ describe('favorite ledger enabled narrow IPC', () => {
     expect(mainSource).toContain('await writeFavoriteLedgerEnabled(undefined, accountMid, ledgerId, enabled)')
     expect(mainSource).toContain("target.webContents.send('assistant:favorite-ledger-enabled-changed', patch, normalizedMeta)")
   })
+
+  it('accepts an explicit history-merge option without overloading preference-patch metadata', () => {
+    expect(preloadSource).toContain('historyOptions?: FavoriteLedgerEnabledHistoryOptions')
+    expect(rendererTypesSource).toContain('historyOptions?: FavoriteLedgerEnabledHistoryOptions')
+    expect(mainSource).toContain('historyOptions?: FavoriteLedgerEnabledHistoryOptions')
+    expect(mainSource).toContain('mergeWithLatestClassification: true')
+  })
 })
