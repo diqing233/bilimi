@@ -48,6 +48,27 @@ describe('BiliWebview', () => {
     }
   })
 
+  it('clears initial loading feedback when an already-ready guest missed did-finish-load', async () => {
+    Object.defineProperty(HTMLElement.prototype, 'getWebContentsId', {
+      configurable: true,
+      value: () => 101
+    })
+    Object.defineProperty(HTMLElement.prototype, 'isLoading', {
+      configurable: true,
+      value: () => false
+    })
+
+    try {
+      render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
+
+      expect(screen.getByRole('status', { name: 'B 站页面加载中' })).toBeInTheDocument()
+      await waitFor(() => expect(screen.queryByRole('status', { name: 'B 站页面加载中' })).not.toBeInTheDocument())
+    } finally {
+      delete (HTMLElement.prototype as HTMLElement & { getWebContentsId?: () => number }).getWebContentsId
+      delete (HTMLElement.prototype as HTMLElement & { isLoading?: () => boolean }).isLoading
+    }
+  })
+
   it('increments its navigation epoch for same-url main-frame reloads but not subframes', () => {
     const onTargetState = vi.fn()
     render(<BiliWebview active tabId="home" url="https://www.bilibili.com" onTargetState={onTargetState} />)

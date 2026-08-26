@@ -227,15 +227,6 @@ export const BiliWebview = memo(function BiliWebview({
         navigationEpoch: navigationEpoch.current
       })
     }
-    // A restored WebView may finish loading before React attaches event listeners.
-    // Probe on the next turn so Electron can expose its guest id without rebinding another tab.
-    const targetStateFallbackTimer = window.setTimeout(() => {
-      try {
-        reportTargetState()
-      } catch {
-        // The normal dom-ready event remains the authoritative path while the guest initializes.
-      }
-    }, 0)
     const installLinkCapture = () => {
       if (!webview.executeJavaScript) {
         return
@@ -333,6 +324,18 @@ export const BiliWebview = memo(function BiliWebview({
       setDirectRetryError('')
     }
 
+    const settleInitialLoadIfReady = () => {
+      let webContentsId: number | undefined
+      try {
+        webContentsId = webview.getWebContentsId?.()
+      } catch {
+        return
+      }
+      if (typeof webContentsId !== 'number') return
+      const guestLoading = (webview as Electron.WebviewTag & { isLoading?: () => boolean }).isLoading?.()
+      if (guestLoading === false) handleLoadSuccess()
+    }
+
     webview.addEventListener('new-window', handleNewWindow)
     webview.addEventListener('dom-ready', reportTargetState)
     webview.addEventListener('did-finish-load', reportTargetState)
@@ -350,6 +353,17 @@ export const BiliWebview = memo(function BiliWebview({
     webview.addEventListener('enter-html-full-screen', handleEnterHtmlFullscreen)
     webview.addEventListener('leave-html-full-screen', handleLeaveHtmlFullscreen)
     webview.addEventListener('page-title-updated', handleTitleChange)
+
+    // A restored WebView may finish loading before React attaches event listeners.
+    // Probe on the next turn so an already-ready guest cannot retain its loading veil.
+    const targetStateFallbackTimer = window.setTimeout(() => {
+      try {
+        reportTargetState()
+        settleInitialLoadIfReady()
+      } catch {
+        // The normal dom-ready event remains the authoritative path while the guest initializes.
+      }
+    }, 0)
 
     return () => {
       window.clearTimeout(targetStateFallbackTimer)

@@ -1128,6 +1128,12 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     return () => window.clearInterval(timer)
   }, [refresh, snapshot && !('recovery' in snapshot) ? snapshot.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.tagEnrichment?.status : undefined, snapshot && !('recovery' in snapshot) ? snapshot.deepSeekRun?.status : undefined])
 
+  useEffect(() => {
+    if (!snapshot || !('recovery' in snapshot)) return
+    const timer = window.setTimeout(() => { void refresh(true) }, 250)
+    return () => window.clearTimeout(timer)
+  }, [refresh, snapshot])
+
   return {
     snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, tagEnrichmentUpdating, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, pauseScan, prepareRecovery, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, reclassifyFavoriteConfiguration, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, stageRecommendedCandidateSelection, updateRecommendedCandidates, setRoundExcludedLedgerIds, saveDraftLedgerRule, queueDraftLedgerRuleAnalysis, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan, pauseBilibiliSync, stopBilibiliSyncAndFinish,

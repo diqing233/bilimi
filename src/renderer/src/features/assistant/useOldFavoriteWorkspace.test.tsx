@@ -739,6 +739,25 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toMatchObject({ continuationCount: 3 })
   })
 
+  it('replaces a transient recovery snapshot with the next healthy workspace read', async () => {
+    const recovery = {
+      recovery: 'rebuild-required' as const,
+      preserveCompletedLocalResults: true as const,
+      accountMid: '100', workspaceId: 'workspace-100'
+    }
+    const healthy = workspace('100')
+    const open = vi.fn()
+      .mockResolvedValueOnce(recovery)
+      .mockResolvedValueOnce(healthy)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await waitFor(() => expect(result.current.snapshot).toEqual(recovery))
+    await waitFor(() => expect(result.current.snapshot).toEqual(healthy), { timeout: 1_000 })
+
+    expect(open).toHaveBeenCalledTimes(2)
+  })
+
   it.each([
     ['returns no workspace', () => Promise.resolve(null)],
     ['rejects', () => Promise.reject(new Error('workspace unavailable'))],

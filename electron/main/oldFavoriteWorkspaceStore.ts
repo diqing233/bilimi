@@ -612,6 +612,10 @@ export class OldFavoriteWorkspaceStore {
   }
 
   async recover(accountMid: string, workspaceId: string) {
+    return this.queue(() => this.recoverUnsafe(accountMid, workspaceId))
+  }
+
+  private async recoverUnsafe(accountMid: string, workspaceId: string) {
     const account = normalizedAccountMid(accountMid)
     const directory = this.workspaceDirectory(account, workspaceId)
     const manifest = await this.readManifest(directory)

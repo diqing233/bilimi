@@ -659,6 +659,25 @@ describe('OldFavoriteWorkspaceStore', () => {
     })
   })
 
+  it('recovers only after an in-flight overlay write has committed its manifest boundary', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1, currentSegmentId: 'segment-1',
+      segments: [{ id: 'segment-1', aids: [1] }]
+    })
+
+    const writing = store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [{ aid: 1, targetLedgerIds: ['music'], source: 'manual' }], history: []
+    })
+    const recovered = store.recover('100', 'workspace-1')
+
+    await expect(recovered).resolves.toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['music'], source: 'manual' } }
+    })
+    await writing
+  })
+
   it('rejects a missing committed overlay journal instead of treating it as an empty freeze history', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })
