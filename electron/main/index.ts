@@ -1342,7 +1342,9 @@ function registerAssistantPreferenceHandlers() {
     assertTrustedOldFavoriteAssistantSender(event)
     const beforeHistoryState = await oldFavoriteWorkspaceCoordinator?.getFavoriteLedgerHistoryState(accountMid)
     const patch = await writeFavoriteLedgerEnabled(undefined, accountMid, ledgerId, enabled)
-    await reclassifyFavoriteWorkspaceIfPreviewing(accountMid)
+    // In-round participation is projected through the coordinator's
+    // recommendation/exclusion commands. Reclassifying here would queue a
+    // second full pass behind the same click and visibly stall the controls.
     if (beforeHistoryState && oldFavoriteWorkspaceCoordinator) {
       const afterHistoryState = await oldFavoriteWorkspaceCoordinator.getFavoriteLedgerHistoryState(accountMid)
       if (afterHistoryState) {

@@ -1,5 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+const { startTransitionSpy } = vi.hoisted(() => ({
+  startTransitionSpy: vi.fn((callback: () => void) => callback())
+}))
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>()
+  return { ...actual, startTransition: startTransitionSpy }
+})
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
 import { toDeepSeekFeedbackView } from './oldFavoriteDeepSeekFeedbackModel'
 
@@ -544,6 +551,22 @@ describe('useOldFavoriteWorkspace', () => {
 
     await waitFor(() => expect(result.current.recommendationError).toBe('当前批次标签还未补取完成，请等待完成后再试。'))
     expect(result.current.recommendedCandidateIds).toEqual(['author-a'])
+  })
+
+  it('publishes a returned recommendation snapshot as non-blocking React work', async () => {
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace()),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(recommendationWorkspace(['author-a']))
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
+    startTransitionSpy.mockClear()
+
+    act(() => result.current.setRecommendedCandidates(['author-a']))
+
+    await waitFor(() => expect(result.current.recommendationSaving).toBe(false))
+    expect(result.current.recommendedCandidateIds).toEqual(['author-a'])
+    expect(startTransitionSpy).toHaveBeenCalledTimes(1)
   })
 
   it('clears stale recommendation errors and adopts the returned candidates after accepting tags', async () => {

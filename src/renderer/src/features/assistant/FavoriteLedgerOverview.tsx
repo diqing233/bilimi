@@ -320,6 +320,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     ledger.bindingState === undefined
   const isDraftDirectlyDeletable = (ledger: FavoriteLedger) => isRemoteOnlyDraft(ledger) || isTransientNewDraft(ledger)
   const isRecommendationCancellationOnly = (ledger: FavoriteLedger) =>
+    !organizationSavedLedgerEnabledById?.has(ledger.id) &&
     organizationRecommendationEnabledById?.get(ledger.id) === true &&
     Boolean(onOrganizationRecommendationToggle)
   const cancelRecommendation = async (ledgerId: string) => {
@@ -350,7 +351,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const ledgerHasUnsavedChanges = (ledger: FavoriteLedger) =>
     ledgerHasUnsavedChangesFromSnapshots(ledger, savedLedgerSnapshots)
   const isOperable = (ledger: FavoriteLedger, unsavedLedgerIds = locallyUnsavedLedgerIds) => !unsavedLedgerIds.has(ledger.id) &&
-    ledger.syncState !== 'local-draft' && !isRecoveredRemoteDraft(ledger) &&
+    (ledger.syncState !== 'local-draft' || Boolean(organizationSavedLedgerEnabledById?.has(ledger.id))) && !isRecoveredRemoteDraft(ledger) &&
     !isSystemDisabled(ledger) && !isRoundLocked(ledger) && !isForcedEnabled(ledger)
   const enableEntries = (items: FavoriteLedger[], deletionMode = false, enabledOverride?: ReadonlyMap<string, boolean>, unsavedLedgerIds = locallyUnsavedLedgerIds): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
     id: ledger.id,

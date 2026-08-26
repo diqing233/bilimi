@@ -20,8 +20,8 @@ describe('favorite ledger configuration refresh IPC', () => {
     )
   })
 
-  it('reclassifies an existing preview workspace after a saved-rule enablement or default-system change', () => {
-    expect(handlerSource('assistant:write-favorite-ledger-enabled')).toContain(
+  it('does not trigger a full configuration reclassification for an in-round saved-rule participation toggle', () => {
+    expect(handlerSource('assistant:write-favorite-ledger-enabled')).not.toContain(
       'reclassifyFavoriteWorkspaceIfPreviewing(accountMid)'
     )
     expect(handlerSource('assistant:write-default-favorite-system-enabled')).toContain(

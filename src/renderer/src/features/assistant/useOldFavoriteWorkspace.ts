@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import type {
   OldFavoriteWorkspaceDeepSeekFailure,
   OldFavoriteWorkspaceDeepSeekResult,
@@ -796,7 +796,10 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
           if (!recommendationDesiredRef.current) {
             recommendedCandidateIdsRef.current = authoritativeIds
             setRecommendedCandidateIds(authoritativeIds)
-            setSnapshot(next)
+            // The local checkbox state and authoritative persistence result
+            // must become available immediately. Rendering a potentially very
+            // large returned workspace snapshot can yield to the next input.
+            startTransition(() => setSnapshot(next))
           }
         } catch (error) {
           if (accountGeneration.current !== generation) return

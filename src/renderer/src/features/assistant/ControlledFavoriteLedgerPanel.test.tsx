@@ -1150,6 +1150,105 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(saveEnabled).toHaveBeenCalledWith('custom-music', false)
   })
 
+  it('keeps a saved high-priority rule and its linked recommendation when the upper card is unchecked', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [{
+          id: 'custom-honker', displayName: 'bilimi·honker233', kind: 'author' as const,
+          count: 1, reason: '推荐 UP', keywords: ['honker233'], ruleType: 'keyword' as const
+        }],
+        adoptedCandidateIds: ['custom-honker']
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    let adoptedCandidateIds = [...preview.recommendations.adoptedCandidateIds]
+    let excludedLedgerIds: string[] = []
+    const command = vi.fn((_accountMid: string, request: { type: string; candidateIds?: string[]; ledgerIds?: string[] }) => {
+      if (request.type === 'set-recommended-candidates') adoptedCandidateIds = request.candidateIds ?? []
+      if (request.type === 'set-round-excluded-ledger-ids') excludedLedgerIds = request.ledgerIds ?? []
+      return Promise.resolve({
+        ...preview,
+        recommendations: { ...preview.recommendations, adoptedCandidateIds },
+        excludedLedgerIds
+      })
+    })
+    const saveEnabled = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{
+      id: 'custom-honker', displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'keyword', enabled: true,
+      priority: 10_000, bindingState: 'unbacked', syncState: 'local-draft', isDefault: false
+    }]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
+
+    await expect(screen.findByRole('button', { name: '移出同步 bilimi·honker233' })).resolves.toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·honker233' }))
+
+    await waitFor(() => expect(saveEnabled).toHaveBeenCalledWith('custom-honker', false))
+    expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: []
+    })
+    expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-honker']
+    })
+    expect(command).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'reclassify-favorite-configuration' }))
+    expect(screen.getByRole('button', { name: 'honker233' })).toBeInTheDocument()
+  })
+
+  it('restores a disabled saved high-priority rule when its linked lower recommendation is checked again', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, excludedLedgerIds: ['custom-honker'],
+      recommendations: {
+        candidates: [{ id: 'custom-honker', displayName: 'bilimi·honker233', keywords: ['honker233'], kind: 'author' as const, count: 1, reason: '推荐 UP' }],
+        adoptedCandidateIds: [] as string[]
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    let adoptedCandidateIds: string[] = []
+    let excludedLedgerIds = [...preview.excludedLedgerIds]
+    const command = vi.fn((_accountMid: string, request: { type: string; candidateIds?: string[]; ledgerIds?: string[] }) => {
+      if (request.type === 'set-recommended-candidates') adoptedCandidateIds = request.candidateIds ?? []
+      if (request.type === 'set-round-excluded-ledger-ids') excludedLedgerIds = request.ledgerIds ?? []
+      return Promise.resolve({
+        ...preview,
+        recommendations: { ...preview.recommendations, adoptedCandidateIds },
+        excludedLedgerIds
+      })
+    })
+    const saveEnabled = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{
+      id: 'custom-honker', displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'author', enabled: false,
+      priority: 10_000, bindingState: 'unbacked', syncState: 'local-draft', isDefault: false
+    }]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'honker233', checked: false }))
+
+    await waitFor(() => expect(saveEnabled).toHaveBeenCalledWith('custom-honker', true))
+    expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: ['custom-honker']
+    })
+    expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-round-excluded-ledger-ids', ledgerIds: []
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: '移出同步 bilimi·honker233' })).toBeInTheDocument())
+  })
+
   it('keeps DeepSeek-only ledger rules on the account configuration path during an active workspace', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
