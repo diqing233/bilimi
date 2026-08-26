@@ -4419,7 +4419,9 @@ export class OldFavoriteWorkspaceCoordinator {
         throw new Error('Old favorite workspace is not ready for Bilibili backup preflight.')
       }
 
-      const classifications = await this.loadSelectedClassificationsForFreeze(workspace, options.includeInbox === true)
+      // Backup must see an eligible inbox even when its videos are not part of
+      // this remote write. `assignmentAids` below remains the write-only set.
+      const classifications = await this.loadSelectedClassificationsForFreeze(workspace, true)
       const repositorySnapshot = await this.options.repository.getSnapshot(workspace.accountMid)
       const assignmentAids = classifications.reduce<Record<string, number[]>>((aidsByLedger, classification) => {
         for (const logicalLedgerId of classification.targetLedgerIds
@@ -4447,7 +4449,13 @@ export class OldFavoriteWorkspaceCoordinator {
       // saved rule that the user deselected from this round must not reappear
       // as an unrelated backup obligation or regain an implicit remote side
       // effect merely because it remains enabled for a future round.
-      const selectedLogicalLedgerIds = Object.keys(assignmentAids).sort()
+      const backupOnlyInbox = options.includeInbox !== true &&
+        savedLedgers.some((ledger) => ledger.id.trim() === 'inbox') &&
+        classifications.some((classification) => classification.targetLedgerIds.some((ledgerId) => ledgerId.trim() === 'inbox'))
+      const selectedLogicalLedgerIds = [...new Set([
+        ...Object.keys(assignmentAids),
+        ...(backupOnlyInbox ? ['inbox'] : [])
+      ])].sort()
       const logicalLedgerIds = [...new Set(selectedLogicalLedgerIds)].sort()
       const logicalTitles = new Map(await Promise.all(logicalLedgerIds.map(async (logicalLedgerId) => [
         logicalLedgerId, await titleFor(logicalLedgerId)
@@ -6445,7 +6453,7 @@ export class OldFavoriteWorkspaceCoordinator {
             const targetLedgerIds = classification.targetLedgerIds.filter((ledgerId) => !excludedLedgerIds.has(ledgerId))
             if (targetLedgerIds.length) selected.push({ ...clone(classification), targetLedgerIds })
           }
-          else if (includeInbox) selected.push({ aid: item.aid, targetLedgerIds: ['inbox'], source: 'system-low' })
+          else if (includeInbox && !excludedLedgerIds.has('inbox')) selected.push({ aid: item.aid, targetLedgerIds: ['inbox'], source: 'system-low' })
         }
       }
     }

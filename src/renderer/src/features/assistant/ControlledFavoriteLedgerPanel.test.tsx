@@ -3150,6 +3150,63 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' }))
   })
 
+  it('backs up an eligible inbox in the only confirmation while default video write stays off', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 2, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', aids: [1, 2], items: [{ aid: 1, sourceFolderIds: [] }, { aid: 2, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 2, classifiedAidCount: 1, unclassifiedAidCount: 1 },
+      history: { cursor: 1, length: 1 }
+    }
+    const inboxGap = {
+      accountMid: '100', workspaceId: 'workspace-100',
+      missingLedgers: [{ logicalLedgerId: 'inbox', logicalTitle: 'bilimi·暂存', reason: 'unbacked' as const, bindingCandidates: [] }],
+      requiredPhysicalShards: []
+    }
+    const clearPreflight = { accountMid: '100', workspaceId: 'workspace-100', missingLedgers: [], requiredPhysicalShards: [] }
+    const preflight = vi.fn()
+      .mockResolvedValueOnce(inboxGap)
+      .mockResolvedValueOnce(inboxGap)
+      .mockResolvedValueOnce(clearPreflight)
+      .mockResolvedValueOnce(clearPreflight)
+    const sync = vi.fn().mockResolvedValue({ ok: true })
+    const command = vi.fn().mockResolvedValue(preview)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      getOldFavoriteWorkspaceBilibiliExecutionPreflightV1: preflight,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      ledgers={[
+        { id: 'inbox', displayName: 'bilimi·暂存', keywords: [], enabled: true, priority: 10, isDefault: true, bindingState: 'unbacked' },
+        { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 20, isDefault: false, bindingState: 'bound' }
+      ]}
+      onEnsureLedgers={vi.fn()} onSyncLedgers={sync} onSaveLedgers={vi.fn()} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+
+    const confirmation = await screen.findByRole('dialog', { name: '同步前备册确认' })
+    expect(confirmation).toHaveTextContent('收藏夹：bilimi·暂存（未备册）')
+    expect(within(confirmation).getByRole('checkbox', { name: '同步 bilimi·暂存（1 条）' })).not.toBeChecked()
+    expect(screen.getAllByRole('dialog', { name: '同步前备册确认' })).toHaveLength(1)
+    fireEvent.click(within(confirmation).getByRole('button', { name: '确认备册并继续' }))
+
+    await waitFor(() => expect(sync).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'inbox' })],
+      expect.objectContaining({ backupTargetLedgerIds: ['inbox'] })
+    ))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' }))
+    expect(preflight).toHaveBeenCalledWith('100')
+    expect(preflight).not.toHaveBeenCalledWith('100', { includeInbox: true })
+  })
+
   it('shows that an unbound target is being backed up before remote execution starts', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

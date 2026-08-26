@@ -8694,6 +8694,43 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(ensurePhysicalShard).not.toHaveBeenCalled()
   })
 
+  it('requires a first backup for an eligible inbox without adding inbox videos to the default write plan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-26T00:00:00.000Z' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([{ id: 'inbox', title: 'bilimi·暂存' }]),
+      now: () => '2026-08-26T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+
+    await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toMatchObject({
+      missingLedgers: [{ logicalLedgerId: 'inbox', logicalTitle: 'bilimi·暂存', reason: 'unbacked' }],
+      requiredPhysicalShards: []
+    })
+  })
+
+  it('does not back up an inbox that was excluded from the current round', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-26T00:00:00.000Z' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([{ id: 'inbox', title: 'bilimi·暂存' }]),
+      now: () => '2026-08-26T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.setRoundExcludedLedgerIds('100', ['inbox'])
+
+    await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toMatchObject({
+      missingLedgers: [],
+      requiredPhysicalShards: []
+    })
+  })
+
   it('returns an exact discovered candidate for an unbacked first shard without mutating remote state', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-25T00:00:00.000Z' })
