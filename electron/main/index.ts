@@ -101,6 +101,7 @@ import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinat
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
+import { recordFavoriteLedgerHistoryAroundMutation } from './favoriteLedgerHistoryWiring'
 import { classifyOldFavoriteItemsCooperatively, classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 import { resolveSavedOldFavoriteWorkspaceLedgerTitle } from './oldFavoriteWorkspaceLedgerTitle'
 import { mergeRecoveredLedgerDrafts, reconcileRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
@@ -779,6 +780,21 @@ function notifyFloatingAssistantSnapshotChanged() {
   sendAssistantSnapshotChangedToTargets([mainWindow, assistant])
 }
 
+function favoriteLedgerPreferencePatchTouchesRules(patch: Partial<AssistantPreferences>) {
+  return Object.prototype.hasOwnProperty.call(patch, 'favoriteLedgers') ||
+    Object.prototype.hasOwnProperty.call(patch, 'favoriteAccountPreferences')
+}
+
+function favoriteLedgerHistoryWiring() {
+  const coordinator = oldFavoriteWorkspaceCoordinator
+  if (!coordinator) return undefined
+  return {
+    get: (accountMid: string) => coordinator.getFavoriteLedgerHistoryState(accountMid),
+    record: (accountMid: string, transition: Parameters<typeof coordinator.recordFavoriteLedgerHistoryChange>[1]) =>
+      coordinator.recordFavoriteLedgerHistoryChange(accountMid, transition)
+  }
+}
+
 /** Local rule changes must refresh the actual preview workspace, never a renderer mirror. */
 async function reclassifyFavoriteWorkspaceIfPreviewing(accountMid: string) {
   const coordinator = oldFavoriteWorkspaceCoordinator
@@ -1269,9 +1285,18 @@ function registerAssistantPreferenceHandlers() {
       await favoriteRepositoryRemoteOperations.runExclusive(() => bilibiliSessionProxy.applyPreference(mode))
       writeBilibiliConnectionMode(mode)
     }
-    const saved = saveAssistantPreferences(getDesktopStore(), preferences)
+    const currentPreferences = loadAssistantPreferences(getDesktopStore())
+    const favoriteRulesChanged = JSON.stringify(currentPreferences.favoriteLedgers) !== JSON.stringify(preferences.favoriteLedgers) ||
+      JSON.stringify(currentPreferences.favoriteAccountPreferences) !== JSON.stringify(preferences.favoriteAccountPreferences)
+    const historyAccountMid = favoriteRulesChanged ? await readCurrentBilibiliAccountMid() : null
+    const saved = await recordFavoriteLedgerHistoryAroundMutation(
+      historyAccountMid ?? undefined,
+      favoriteLedgerHistoryWiring(),
+      async () => saveAssistantPreferences(getDesktopStore(), preferences)
+    )
     const next = withBilibiliConnectionMode(saved)
     sendAssistantPreferencesChanged(next)
+    if (historyAccountMid && favoriteLedgerHistoryWiring()) notifyFloatingAssistantSnapshotChanged()
     if (connectionModeChanged) requestBilibiliWebviewReload()
     return next
   })
@@ -1285,7 +1310,13 @@ function registerAssistantPreferenceHandlers() {
       writeBilibiliConnectionMode(mode)
     }
     const normalizedAssistantPatch = normalizeAssistantPreferencePatch(assistantPatch)
-    const saved = patchAssistantPreferences(getDesktopStore(), assistantPatch)
+    const capturesFavoriteHistory = favoriteLedgerPreferencePatchTouchesRules(assistantPatch)
+    const historyAccountMid = capturesFavoriteHistory ? await readCurrentBilibiliAccountMid() : null
+    const saved = await recordFavoriteLedgerHistoryAroundMutation(
+      historyAccountMid ?? undefined,
+      favoriteLedgerHistoryWiring(),
+      async () => patchAssistantPreferences(getDesktopStore(), assistantPatch)
+    )
     const next = withBilibiliConnectionMode(saved)
     if (normalizedAssistantPatch || bilibiliConnectionMode !== undefined) {
       sendAssistantPreferencePatchChanged({
@@ -1297,6 +1328,7 @@ function registerAssistantPreferenceHandlers() {
     } else {
       sendAssistantPreferencesChanged(next)
     }
+    if (historyAccountMid && favoriteLedgerHistoryWiring()) notifyFloatingAssistantSnapshotChanged()
     if (connectionModeChanged) requestBilibiliWebviewReload()
     return next
   })
