@@ -2519,12 +2519,19 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       try {
         const before = await oldFavoriteWorkspaceCoordinator!.getSnapshot(accountMid)
         if (!before) return null
-        if (before && !('recovery' in before)) {
-          await oldFavoriteWorkspaceScanService!.pauseForRecovery(accountMid)
+        // A recovery snapshot does not have a complete workspace to pause. Returning
+        // its structured summary keeps the renderer on the established recovery or
+        // rebuild path instead of asking DeepSeek to read a corrupt mirror.
+        if ('recovery' in before) {
+          return oldFavoriteWorkspaceCoordinator!.getRecoverySummary(accountMid)
         }
+        await oldFavoriteWorkspaceScanService!.pauseForRecovery(accountMid)
         await oldFavoriteWorkspaceDeepSeekService!.pauseForRecovery(accountMid)
         await oldFavoriteWorkspaceCoordinator!.settleExecutionIntentForRecovery(accountMid)
         const after = await oldFavoriteWorkspaceCoordinator!.getSnapshot(accountMid)
+        if (after && 'recovery' in after) {
+          return oldFavoriteWorkspaceCoordinator!.getRecoverySummary(accountMid)
+        }
         if (after && !('recovery' in after) && after.status === 'executing') {
           await oldFavoriteWorkspaceCoordinator!.pauseBilibiliSync(accountMid)
         }

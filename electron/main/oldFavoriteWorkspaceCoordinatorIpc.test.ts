@@ -236,6 +236,28 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(coordinator.executeFrozenBilibiliPlan).not.toHaveBeenCalled()
   })
 
+  it('returns the structured rebuild summary when recovery preparation reaches a corrupt mirror', async () => {
+    const ipcMain = new FakeIpcMain()
+    const summary = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'rebuild-required' as const, currentStep: 'rebuild-required' as const,
+      baselineChangeEvidence: {
+        scope: 'account' as const, workspaceBaselineRevision: 4, repositoryRevision: 5, changed: false,
+        direction: 'unchanged' as const, manualClassificationsRemainAuthoritative: true as const, changedDimensions: []
+      },
+      recoveryChoices: ['view'] as const
+    }
+    const coordinator = { getRecoverySummary: vi.fn().mockResolvedValue(summary) }
+    const prepareRecovery = vi.fn().mockRejectedValue(new Error('Old favorite workspace requires rebuild.'))
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, prepareRecovery,
+      isTrustedSender: (id) => id === 7, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:prepare-recovery', 7, '100')).resolves.toEqual(summary)
+    expect(prepareRecovery).toHaveBeenCalledExactlyOnceWith('100')
+    expect(coordinator.getRecoverySummary).toHaveBeenCalledExactlyOnceWith('100')
+  })
+
   it('accepts only an explicit, revision-guarded recovery decision from the current trusted account', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

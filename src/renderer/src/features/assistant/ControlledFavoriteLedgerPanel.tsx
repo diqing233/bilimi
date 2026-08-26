@@ -48,6 +48,12 @@ function normalizeAccountMid(value: string | undefined) {
   return BigInt(value.trim()).toString()
 }
 
+function recoveryPreparationFailureMessage(error: unknown) {
+  const detail = error instanceof Error ? error.message : ''
+  if (detail.includes('requires rebuild')) return '工作镜像暂时无法恢复，请重新打开整理收藏。'
+  return '整理草稿准备失败，请重新尝试。'
+}
+
 function waitForVisiblePaint() {
   return new Promise<void>((resolve) => {
     let settled = false
@@ -796,7 +802,7 @@ export function ControlledFavoriteLedgerPanel({
       void startScan('incremental')
     } catch (error) {
       if (!isCurrentRequest()) return
-      setRecoveryPreparationError(error instanceof Error ? error.message : '暂停并保存整理进度失败，请重试。')
+      setRecoveryPreparationError(recoveryPreparationFailureMessage(error))
     } finally {
       if (isCurrentRequest()) setRecoveryPreparing(false)
     }
@@ -1357,7 +1363,7 @@ export function ControlledFavoriteLedgerPanel({
       </OldFavoriteModal> : null}
       {resumeDialogOpen && recoveryPreparationError ? <OldFavoriteModal title="整理收藏"
         onCancel={() => { setRecoveryPreparationError(null); setResumeDialogOpen(false); closeGuide() }}
-        extraActions={<button type="button" onClick={() => void requestOldFavoriteOrganization()}>重试暂停</button>}>
+        extraActions={<button type="button" onClick={() => void requestOldFavoriteOrganization()}>重新尝试</button>}>
         <p role="alert">{recoveryPreparationError}</p>
       </OldFavoriteModal> : null}
       {resumeDialogOpen && recoverySummary ? <OldFavoriteModal title="整理收藏"

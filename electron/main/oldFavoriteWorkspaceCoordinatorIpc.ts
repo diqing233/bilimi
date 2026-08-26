@@ -34,6 +34,10 @@ type IpcMain = { handle(channel: string, handler: (event: IpcEvent, ...args: nev
 
 type WorkspaceRecoverySummary = OldFavoriteWorkspaceRecoverySummary
 
+function isOldFavoriteWorkspaceRebuildRequiredError(error: unknown) {
+  return error instanceof Error && error.message.includes('Old favorite workspace requires rebuild.')
+}
+
 type WorkspaceCommand =
   | { type: 'start-scan'; mode: 'incremental' | 'full'; clearBilibiliMirror?: boolean }
   | { type: 'start-selected-reorganization'; aids: number[] }
@@ -398,7 +402,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     try {
       return await options.prepareRecovery(accountMid)
     } catch (error) {
-      if (!isOldFavoriteWorkspaceRecoveryDecisionStaleError(error)) throw error
+      if (!isOldFavoriteWorkspaceRecoveryDecisionStaleError(error) && !isOldFavoriteWorkspaceRebuildRequiredError(error)) throw error
       return options.coordinator.getRecoverySummary(accountMid) as Promise<WorkspaceRecoverySummary | null>
     }
   })

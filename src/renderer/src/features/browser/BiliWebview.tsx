@@ -324,6 +324,11 @@ export const BiliWebview = memo(function BiliWebview({
       setDirectRetryError('')
     }
 
+    const handleDomReady = () => {
+      reportTargetState()
+      handleLoadSuccess()
+    }
+
     const settleInitialLoadIfReady = () => {
       let webContentsId: number | undefined
       try {
@@ -337,13 +342,14 @@ export const BiliWebview = memo(function BiliWebview({
     }
 
     webview.addEventListener('new-window', handleNewWindow)
-    webview.addEventListener('dom-ready', reportTargetState)
+    webview.addEventListener('dom-ready', handleDomReady)
     webview.addEventListener('did-finish-load', reportTargetState)
     webview.addEventListener('dom-ready', installLinkCapture)
     webview.addEventListener('did-finish-load', installLinkCapture)
     webview.addEventListener('dom-ready', installDanmakuSeekRepaint)
     webview.addEventListener('did-finish-load', installDanmakuSeekRepaint)
     webview.addEventListener('did-finish-load', handleLoadSuccess)
+    webview.addEventListener('did-stop-loading', handleLoadSuccess)
     const handleArchivedTimestamp = () => seekArchivedTimestampRef.current()
     webview.addEventListener('did-finish-load', handleArchivedTimestamp)
     webview.addEventListener('did-fail-load', handleLoadFailure)
@@ -368,13 +374,14 @@ export const BiliWebview = memo(function BiliWebview({
     return () => {
       window.clearTimeout(targetStateFallbackTimer)
       webview.removeEventListener('new-window', handleNewWindow)
-      webview.removeEventListener('dom-ready', reportTargetState)
+      webview.removeEventListener('dom-ready', handleDomReady)
       webview.removeEventListener('did-finish-load', reportTargetState)
       webview.removeEventListener('dom-ready', installLinkCapture)
       webview.removeEventListener('did-finish-load', installLinkCapture)
       webview.removeEventListener('dom-ready', installDanmakuSeekRepaint)
       webview.removeEventListener('did-finish-load', installDanmakuSeekRepaint)
       webview.removeEventListener('did-finish-load', handleLoadSuccess)
+      webview.removeEventListener('did-stop-loading', handleLoadSuccess)
       webview.removeEventListener('did-finish-load', handleArchivedTimestamp)
       webview.removeEventListener('did-fail-load', handleLoadFailure)
       webview.removeEventListener('did-start-navigation', handleNavigationStart)

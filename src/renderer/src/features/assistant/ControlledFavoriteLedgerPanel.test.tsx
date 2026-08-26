@@ -386,6 +386,25 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(open).not.toHaveBeenCalled()
   })
 
+  it('does not expose an IPC recovery error in the organization dialog', async () => {
+    window.bilimiDesktop = {
+      prepareOldFavoriteWorkspaceRecoveryV1: vi.fn().mockRejectedValue(
+        new Error("Error invoking remote method 'old-favorite-workspace-v1:prepare-recovery': Error: Old favorite workspace requires rebuild.")
+      )
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
+
+    const dialog = await screen.findByRole('dialog', { name: '整理收藏' })
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('工作镜像暂时无法恢复，请重新打开整理收藏。')
+    expect(within(dialog).getByRole('button', { name: '重新尝试' })).toBeInTheDocument()
+    expect(dialog).not.toHaveTextContent('Error invoking remote method')
+    expect(dialog).not.toHaveTextContent('requires rebuild')
+  })
+
   it('keeps the legacy ledger shell order and puts the library beside the original toolbar actions', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
