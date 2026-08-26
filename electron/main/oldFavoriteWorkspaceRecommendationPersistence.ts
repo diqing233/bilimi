@@ -16,10 +16,9 @@ export function removeRecommendedLedgers(current: FavoriteLedger[], recommendati
 function matchesGeneratedRecommendation(ledger: FavoriteLedger, recommendation: FavoriteLedger) {
   const hasRemoteBinding = Boolean(ledger.bilibiliFolderId?.trim()) ||
     (ledger.bilibiliFolderIds ?? []).some((folderId) => folderId.trim())
-  // Older recommendation records were written before syncState existed. They
-  // are still generated drafts when their exact generated shape is intact;
-  // explicit unbound records remain authoritative even without a remote id.
-  return (ledger.syncState === 'local-draft' || ledger.syncState === undefined) &&
+  // Only a persisted source may authorize cancellation as a generated draft.
+  // Shape, binding state, remote ids and names are all ambiguous legacy data.
+  return ledger.ruleOrigin === 'recommendation-draft' &&
     ledger.bindingState !== 'unbound' && !hasRemoteBinding &&
     ledger.displayName === recommendation.displayName &&
     (ledger.ruleType ?? 'keyword') === (recommendation.ruleType ?? 'keyword') &&
@@ -102,7 +101,7 @@ export function mergeRecoveredLedgerDrafts(current: FavoriteLedger[], recovered:
 
 export function markRecommendedLedgersLocalDraft(current: FavoriteLedger[], recommendationIds: string[]) {
   const recommendedIds = new Set(recommendationIds)
-  return current.map((ledger) => recommendedIds.has(ledger.id) && !ledger.bilibiliFolderId
-    ? { ...ledger, syncState: 'local-draft' as const }
+  return current.map((ledger) => recommendedIds.has(ledger.id) && ledger.ruleOrigin === 'recommendation-draft' && !ledger.bilibiliFolderId
+    ? { ...ledger, syncState: 'local-draft' as const, ruleOrigin: 'recommendation-draft' as const }
     : ledger)
 }

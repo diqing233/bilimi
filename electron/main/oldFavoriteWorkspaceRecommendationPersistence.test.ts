@@ -13,7 +13,7 @@ describe('old favorite workspace recommendation persistence', () => {
   ]
   const recommendation = {
     id: 'custom-author-alice', displayName: 'bilimi·Alice', keywords: ['Alice'], ruleType: 'author' as const,
-    enabled: true, priority: 10_000, isDefault: false
+    enabled: true, priority: 10_000, ruleOrigin: 'recommendation-draft' as const, isDefault: false
   }
 
   it('adds adopted recommendations as saved local rules without disturbing existing rules', () => {
@@ -75,8 +75,8 @@ describe('old favorite workspace recommendation persistence', () => {
     )).toEqual([...defaults, disabled, reprioritized, promoted])
   })
 
-  it('removes a generated recommendation without a remote binding even when its legacy record lacks syncState', () => {
-    const legacyGenerated = { ...recommendation }
+  it('removes an explicitly generated recommendation without a remote binding even when it lacks syncState', () => {
+    const legacyGenerated = { ...recommendation, syncState: undefined }
     const bound = { ...recommendation, id: 'custom-author-bound', bilibiliFolderId: '42', bindingState: 'bound' as const }
     const unboundWithRemote = { ...recommendation, id: 'custom-author-unbound', bilibiliFolderId: '43', bindingState: 'unbound' as const }
 
@@ -116,6 +116,7 @@ describe('old favorite workspace recommendation persistence', () => {
       id: 'saved-alice',
       displayName: 'bilimi·Alice 精选',
       enabled: false,
+      ruleOrigin: 'saved-rule' as const,
       syncState: 'local-draft' as const
     }
     const generated = { ...recommendation, id: 'custom-author-alice-new' }

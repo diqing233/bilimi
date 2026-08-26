@@ -314,6 +314,23 @@ describe('favorite ledger model', () => {
     expect(ledgers.map((ledger) => ledger.id)).not.toContain('custom-remote-orphan')
   })
 
+  it('migrates an ambiguous local draft to a saved rule instead of giving a later checkbox permission to delete it', () => {
+    const ledgers = normalizeFavoriteLedgers([{
+      id: 'custom-legacy-rule',
+      displayName: 'bilimi·旧规则',
+      keywords: ['旧规则'],
+      enabled: true,
+      priority: 90,
+      syncState: 'local-draft',
+      isDefault: false
+    }])
+
+    expect(ledgers.find((ledger) => ledger.id === 'custom-legacy-rule')).toEqual(expect.objectContaining({
+      ruleOrigin: 'saved-rule'
+    }))
+    expect(ledgers.find((ledger) => ledger.id === 'custom-legacy-rule')).not.toHaveProperty('syncState')
+  })
+
   it('keeps a saved legacy pending-classification inbox ledger as inbox', () => {
     const ledgers = normalizeFavoriteLedgers([
       {

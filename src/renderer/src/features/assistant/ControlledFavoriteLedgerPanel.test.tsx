@@ -142,7 +142,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} openLedgerId="custom-author-honker233" openLedgerRequestVersion={1}
       ledgers={[
         { id: 'custom-author-honker233-9.2d', displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'author', enabled: true, priority: 10, bindingState: 'unbacked', isDefault: false },
-        { id: 'custom-author-honker233', displayName: 'bilimi·honker233', keywords: [], enabled: true, priority: 10_000, syncState: 'local-draft', isDefault: false }
+        { id: 'custom-author-honker233', displayName: 'bilimi·honker233', keywords: [], enabled: true, priority: 10_000, syncState: 'local-draft', ruleOrigin: 'recommendation-draft', isDefault: false }
       ]} />)
 
     await waitFor(() => expect(screen.getByRole('region', { name: '当前收藏夹' }))
@@ -188,7 +188,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
   it('does not project a candidate-only local draft as a saved recommendation', () => {
     const projection = createRecommendationProjection([
       { id: 'candidate-only', displayName: 'bilimi·候选草稿', keywords: [], enabled: true, priority: 10,
-        syncState: 'local-draft', isDefault: false }
+        bindingState: 'unbacked', ruleOrigin: 'recommendation-draft', isDefault: false }
     ], [{ id: 'candidate-only', displayName: 'bilimi·候选草稿', kind: 'author', keywords: ['候选草稿'], count: 1, reason: '推荐 UP' }])
 
     expect(projection.candidateToLedgerId.has('candidate-only')).toBe(false)
@@ -198,7 +198,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
   it('does not fall back to a candidate id when opening a temporary draft', () => {
     expect(resolveRecommendationOpenLedgerId('candidate-only', [{
       id: 'candidate-only', displayName: 'bilimi·候选草稿', keywords: [], enabled: true, priority: 10,
-      syncState: 'local-draft', isDefault: false
+      syncState: 'local-draft', ruleOrigin: 'recommendation-draft', isDefault: false
     }], [{ id: 'candidate-only', displayName: 'bilimi·候选草稿', kind: 'author', keywords: ['候选草稿'], count: 1, reason: '推荐 UP' }])).toBeUndefined()
   })
 
@@ -1184,7 +1184,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{
       id: 'custom-honker', displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'keyword', enabled: true,
-      priority: 10_000, bindingState: 'unbacked', syncState: 'local-draft', isDefault: false
+      priority: 10_000, syncState: 'local-draft', ruleOrigin: 'saved-rule', isDefault: false
     }]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
 
     await expect(screen.findByRole('button', { name: '移出同步 bilimi·honker233' })).resolves.toBeEnabled()
@@ -3394,17 +3394,23 @@ describe('ControlledFavoriteLedgerPanel', () => {
         ? { ...preview, recommendations: { ...preview.recommendations, adoptedCandidateIds: ['author-up'] } }
         : frozen
     ))
+    const saveRecommendationDraft = vi.fn()
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
     } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
-      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+      onEnsureLedgers={vi.fn()} onSaveLedgers={saveRecommendationDraft} />)
 
     await openPersistedWorkspaceGuide()
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'UP' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: ['author-up']
+    }))
+    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 25)) })
+    expect(saveRecommendationDraft).toHaveBeenCalledTimes(1)
     fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '确认执行' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
@@ -4321,7 +4327,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{
       id: 'author-a', displayName: 'bilimi·A', keywords: [], ruleType: 'author', enabled: true,
-      priority: 10_000, bindingState: 'unbacked', isDefault: false
+      priority: 10_000, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
     }]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
     await openPersistedWorkspaceGuide()
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))

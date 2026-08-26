@@ -26,7 +26,7 @@ export type FavoriteFolderCapabilities = {
  * only and never establish a remote binding.
  */
 export function resolveFavoriteLedgerCapabilities(ledger: FavoriteLedger): FavoriteLedgerCapabilities {
-  if (ledger.syncState === 'local-draft') {
+  if (ledger.syncState === 'local-draft' && ledger.ruleOrigin !== 'saved-rule') {
     return { identity: 'local-draft', canClassify: false, canProvisionRemote: false, canOpenRemote: false, canDeleteRemote: false }
   }
   return {

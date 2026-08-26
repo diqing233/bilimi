@@ -43,6 +43,8 @@ export type RecommendationKind = FavoriteLedgerId
 export type FavoriteLedgerRuleType = 'keyword' | 'author' | 'tag' | 'deepseek'
 export type FavoriteLedgerSyncState = 'local-draft'
 export type FavoriteLedgerBindingState = 'bound' | 'unbacked' | 'unbound'
+/** The local provenance decides recommendation cancellation; binding state does not. */
+export type FavoriteLedgerRuleOrigin = 'saved-rule' | 'recommendation-draft'
 
 export type FavoriteLedger = {
   id: FavoriteLedgerId
@@ -78,6 +80,8 @@ export type FavoriteLedger = {
   pendingRemoteFolderTitle?: string
   /** Local drafts are unconfigured rules and do not classify or sync until explicitly saved. */
   syncState?: FavoriteLedgerSyncState
+  /** Persisted provenance for the saved-rule versus generated-recommendation boundary. */
+  ruleOrigin?: FavoriteLedgerRuleOrigin
   isDefault: boolean
 }
 

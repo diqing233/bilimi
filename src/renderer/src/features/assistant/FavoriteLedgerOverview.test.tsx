@@ -231,6 +231,28 @@ describe('FavoriteLedgerOverview', () => {
     expect([...enabledStates.mock.calls.at(-1)![0]]).toContainEqual(['custom', false])
   })
 
+  it('does not republish unchanged enabled state when the parent callback identity changes', async () => {
+    const notifications: ReadonlyMap<string, boolean>[] = []
+    function Host() {
+      const [rerendered, setRerendered] = useState(false)
+      return <>
+        <output data-testid="enabled-callback-host">{rerendered ? 'rerendered' : 'initial'}</output>
+        <FavoriteLedgerOverview ledgers={[
+          { id: 'custom', displayName: 'bilimi·自建', keywords: [], enabled: true, priority: 10, isDefault: false }
+        ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onEnabledStateChange={(enabledById) => {
+          notifications.push(enabledById)
+          if (!rerendered) setRerendered(true)
+        }} />
+      </>
+    }
+
+    render(<Host />)
+
+    await waitFor(() => expect(screen.getByTestId('enabled-callback-host')).toHaveTextContent('rerendered'))
+    expect(notifications).toHaveLength(1)
+    expect([...notifications[0]!]).toEqual([['custom', true]])
+  })
+
   it('deletes a persisted remote draft through the draft-only path without entering managed deletion', async () => {
     const deleteFavoriteLedgerDraft = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerId: 'remote-draft' })
     const save = vi.fn()
@@ -451,6 +473,22 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-unbound', false))
     expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '未绑定推荐' })).toBeInTheDocument()
+  })
+
+  it('turns an edited recommendation draft into a saved rule before persisting it', async () => {
+    const save = vi.fn()
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'recommended-up', displayName: 'bilimi·推荐 UP', keywords: ['推荐 UP'], ruleType: 'author',
+      enabled: true, priority: 10, syncState: 'local-draft', ruleOrigin: 'recommendation-draft', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '推荐 UP' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith([expect.objectContaining({
+      id: 'recommended-up', ruleOrigin: 'saved-rule', bindingState: 'unbacked'
+    })], { deleteDisabled: false }))
+    expect(save.mock.calls[0]?.[0][0]).not.toHaveProperty('syncState')
   })
 
   it('keeps deletion mode open when cancelling a recommendation fails', async () => {
@@ -2422,7 +2460,7 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['local-only']))
     expect(previewFavoriteLibraryManagedFolderDelete).not.toHaveBeenCalled()
     expect(deleteFavoriteLibraryManagedFoldersLocal).not.toHaveBeenCalled()
-    expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument())
   })
 
   it('confirms a remote draft and saved custom ledger together before local deletion', async () => {

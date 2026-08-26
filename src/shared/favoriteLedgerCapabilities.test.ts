@@ -15,6 +15,12 @@ describe('favorite ledger capabilities', () => {
     })
   })
 
+  it('keeps a persisted saved rule classifiable when its legacy transport state is local-draft', () => {
+    expect(resolveFavoriteLedgerCapabilities(ledger({ syncState: 'local-draft', ruleOrigin: 'saved-rule' }))).toEqual({
+      identity: 'managed', canClassify: true, canProvisionRemote: true, canOpenRemote: false, canDeleteRemote: false
+    })
+  })
+
   it('treats a persisted ledger identity as managed without granting remote authority from its title', () => {
     expect(resolveFavoriteLedgerCapabilities(ledger({ displayName: 'bilimi·音乐' }))).toEqual({
       identity: 'managed', canClassify: true, canProvisionRemote: true, canOpenRemote: false, canDeleteRemote: false

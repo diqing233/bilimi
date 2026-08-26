@@ -12,7 +12,7 @@ import {
 } from '@shared/favoriteLedgerDeletion'
 import { isUnsavedFavoriteLedgerDraft } from '@shared/favoriteLedgerDraftDeletion'
 import type { FavoriteLedger, FavoriteLedgerRuleType, FavoriteLedgerSaveOptions } from '@shared/types'
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type DragEvent } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { OldFavoriteModal } from './OldFavoriteModal'
 import { resolveSidebarTooltipPosition } from './sidebarTooltipPosition'
@@ -290,6 +290,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
+  const persistedLedgerIds = useMemo(() => new Set(ledgers.map((ledger) => ledger.id)), [ledgers])
   const isSystemDisabled = (ledger: FavoriteLedger) => !defaultFavoriteSystemEnabled && ledger.isDefault && ledger.id !== 'inbox'
   const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
   const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault
@@ -313,7 +314,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         ? 'unbound'
         : ledger.bindingState ?? (label === '已备册' ? 'bound' : 'unbacked')
   const isRemoteOnlyDraft = (ledger: FavoriteLedger) => remoteOnlyDraftLedgerIds.includes(ledger.id) && isUnsavedFavoriteLedgerDraft(ledger)
-  const isTransientNewDraft = (ledger: FavoriteLedger) => !ledgers.some((item) => item.id === ledger.id) &&
+  const isTransientNewDraft = (ledger: FavoriteLedger) => !persistedLedgerIds.has(ledger.id) &&
     ledger.syncState === 'local-draft' &&
     !ledger.isDefault &&
     !ledger.bilibiliFolderId &&
@@ -350,8 +351,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const [locallyUnsavedLedgerIds, setLocallyUnsavedLedgerIds] = useState<ReadonlySet<string>>(() => new Set())
   const ledgerHasUnsavedChanges = (ledger: FavoriteLedger) =>
     ledgerHasUnsavedChangesFromSnapshots(ledger, savedLedgerSnapshots)
-  const isOperable = (ledger: FavoriteLedger, unsavedLedgerIds = locallyUnsavedLedgerIds) => !unsavedLedgerIds.has(ledger.id) &&
-    (ledger.syncState !== 'local-draft' || Boolean(organizationSavedLedgerEnabledById?.has(ledger.id))) && !isRecoveredRemoteDraft(ledger) &&
+  const isOperable = (ledger: FavoriteLedger, unsavedLedgerIds = locallyUnsavedLedgerIds) =>
+    !unsavedLedgerIds.has(ledger.id) && !isTransientNewDraft(ledger) &&
+    (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule' ||
+      Boolean(organizationSavedLedgerEnabledById?.has(ledger.id)) ||
+      Boolean(organizationRecommendationEnabledById?.has(ledger.id))) && !isRecoveredRemoteDraft(ledger) &&
     !isSystemDisabled(ledger) && !isRoundLocked(ledger) && !isForcedEnabled(ledger)
   const enableEntries = (items: FavoriteLedger[], deletionMode = false, enabledOverride?: ReadonlyMap<string, boolean>, unsavedLedgerIds = locallyUnsavedLedgerIds): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
     id: ledger.id,
@@ -396,6 +400,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const toggleVersionsRef = useRef(new Map<string, number>())
   const toggleSaveInFlightRef = useRef(false)
   const enabledStateChangeSourceRef = useRef<'editor-unsaved' | 'organization-selection' | undefined>(undefined)
+  const onEnabledStateChangeRef = useRef(onEnabledStateChange)
   const onSaveLedgersRef = useRef(onSaveLedgers)
   const onSaveLedgerEnabledRef = useRef(onSaveLedgerEnabled)
   const editorRef = useRef<HTMLElement | null>(null)
@@ -403,6 +408,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const positionedLedgerRequestRef = useRef<string | null>(null)
   const openLedgerRequest = openLedgerId ? `${openLedgerId}:${openLedgerRequestVersion}` : null
   const createLedgerRequest = createLedger ? `new:${createLedgerRequestVersion}` : null
+  onEnabledStateChangeRef.current = onEnabledStateChange
   onSaveLedgersRef.current = onSaveLedgers
   onSaveLedgerEnabledRef.current = onSaveLedgerEnabled
   useLayoutEffect(() => {
@@ -538,11 +544,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const notify = () => {
       const source = enabledStateChangeSourceRef.current
       enabledStateChangeSourceRef.current = undefined
-      onEnabledStateChange?.(enableStore.getEnabledById(), source)
+      onEnabledStateChangeRef.current?.(enableStore.getEnabledById(), source)
     }
     notify()
     return enableStore.subscribe(notify)
-  }, [enableStore, onEnabledStateChange])
+  }, [enableStore])
   const organizationRecommendationSignature = organizationRecommendationEnabledById
     ? JSON.stringify([...organizationRecommendationEnabledById].sort(([left], [right]) => left.localeCompare(right)))
     : ''
@@ -762,7 +768,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     persist(reordered.map((ledger, index) => ({ ...ledger, priority: (index + 1) * 10 })))
   }
   const add = () => {
-    const ledger: FavoriteLedger = { id: idFor('new-ledger'), displayName: BILIMI_LEDGER_PREFIX, keywords: [], ruleType: 'keyword', enabled: false, priority: (draftLedgers.length + 1) * 10, syncState: 'local-draft', isDefault: false }
+    const ledger: FavoriteLedger = { id: idFor('new-ledger'), displayName: BILIMI_LEDGER_PREFIX, keywords: [], ruleType: 'keyword', enabled: false, priority: (draftLedgers.length + 1) * 10, syncState: 'local-draft', ruleOrigin: 'saved-rule', isDefault: false }
     enableStore.reconcile(enableEntries([...draftLedgers, ledger]))
     setDraftLedgers((current) => [...current, ledger]); setActiveLedgerId(ledger.id); setNewLedger(true); setDraftDeletionError(null)
   }
@@ -814,19 +820,20 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const previous = ledgers
     const persistVersion = ++persistVersionRef.current
     const next = projectEnabled(draftLedgers).map((ledger) => {
-      if (ledger.id !== activeLedgerId || (!isRecoveredRemoteDraft(ledger) && !isTransientNewDraft(ledger))) return ledger
-      const { syncState: _syncState, ...savedLedger } = ledger
+      if (ledger.id !== activeLedgerId || (!isRecoveredRemoteDraft(ledger) && !isTransientNewDraft(ledger) && ledger.ruleOrigin !== 'recommendation-draft')) return ledger
+      const { syncState: _syncState, ruleOrigin: _ruleOrigin, ...savedLedger } = ledger
       if (isRecoveredRemoteDraft(ledger) && savedLedger.bilibiliFolderId) {
         return {
           ...savedLedger,
+          ruleOrigin: 'saved-rule' as const,
           bindingState: 'unbound' as const,
           pendingRemoteBinding: true,
           pendingRemoteFolderId: savedLedger.bilibiliFolderId
         }
       }
       return savedLedger.bindingState || savedLedger.bilibiliFolderId
-        ? savedLedger
-        : { ...savedLedger, bindingState: 'unbacked' as const }
+        ? { ...savedLedger, ruleOrigin: 'saved-rule' as const }
+        : { ...savedLedger, ruleOrigin: 'saved-rule' as const, bindingState: 'unbacked' as const }
     })
     const nextUnsavedLedgerIds = new Set(locallyUnsavedLedgerIds)
     nextUnsavedLedgerIds.delete(savingLedgerId)
@@ -865,7 +872,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         ? currentLedgers.filter((ledger) => targetLedgerIds.has(ledger.id))
         : selectedBackupLedgers(currentLedgers)
       const skippedLedgers = selectedLedgers.filter((ledger) =>
-        ledger.syncState === 'local-draft' || ledgerHasUnsavedChangesFromSnapshots(ledger, savedLedgerSnapshotsRef.current))
+        (ledger.syncState === 'local-draft' && ledger.ruleOrigin !== 'saved-rule') ||
+        ledgerHasUnsavedChangesFromSnapshots(ledger, savedLedgerSnapshotsRef.current))
       const eligibleLedgers = selectedLedgers.filter((ledger) => !skippedLedgers.includes(ledger))
       if (skippedLedgers.length) {
         setBackupSkipNotice(`${skippedLedgers.map((ledger) => displayTitle(ledger.displayName)).join('、')}尚未保存，已跳过本次备册，请先保存后再备册。`)

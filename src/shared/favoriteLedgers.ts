@@ -506,11 +506,21 @@ function normalizedManagedDisplayName(displayName: string): string {
 }
 
 function cloneLedger(ledger: FavoriteLedger): FavoriteLedger {
-  return {
+  const cloned = {
     ...ledger,
     displayName: normalizedManagedDisplayName(ledger.displayName),
     keywords: [...ledger.keywords]
   }
+  // Old records did not persist how a local draft was created. When that
+  // source is unknowable, protect the user's rule rather than treating a
+  // checkbox click as permission to delete it.
+  if (cloned.syncState === 'local-draft' && !cloned.ruleOrigin &&
+    !cloned.bilibiliFolderId?.trim() && !(cloned.bilibiliFolderIds ?? []).some((folderId) => folderId.trim()) &&
+    cloned.bindingState === undefined) {
+    const { syncState: _syncState, ...savedLedger } = cloned
+    return { ...savedLedger, ruleOrigin: 'saved-rule' }
+  }
+  return cloned
 }
 
 function hasLocalLedgerRule(ledger: FavoriteLedger) {

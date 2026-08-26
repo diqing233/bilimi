@@ -794,6 +794,7 @@ function asLocalRecommendedLedger(candidate: StoredRecommendation, priority: num
     enabled: true,
     priority,
     syncState: 'local-draft',
+    ruleOrigin: 'recommendation-draft',
     bindingState: 'unbacked',
     isDefault: false
   }

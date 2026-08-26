@@ -3047,7 +3047,7 @@ describe('App runtime integration', () => {
     const accountMid = '100'
     const enabled = { id: 'enabled', displayName: 'bilimi·已勾选', keywords: [], enabled: true, priority: 10, isDefault: false }
     const unchecked = { id: 'unchecked', displayName: 'bilimi·未勾选', keywords: [], enabled: false, priority: 20, isDefault: false }
-    const draft = { id: 'draft', displayName: 'bilimi·草稿', keywords: [], enabled: true, priority: 30, syncState: 'local-draft' as const, isDefault: false }
+    const draft = { id: 'draft', displayName: 'bilimi·草稿', keywords: [], enabled: true, priority: 30, syncState: 'local-draft' as const, ruleOrigin: 'recommendation-draft' as const, isDefault: false }
     const ledgers = [enabled, unchecked, draft]
     const initialPreferences = createAppPreferences({
       favoriteAccountPreferences: {
