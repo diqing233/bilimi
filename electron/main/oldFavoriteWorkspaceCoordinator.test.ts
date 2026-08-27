@@ -6059,6 +6059,89 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ]))
   })
 
+  it('includes an adopted local recommendation in backup preflight even when its archive count is zero', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const savedLedgers: FavoriteLedger[] = [
+      { id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], enabled: true, priority: 10, isDefault: true },
+      { id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'], ruleType: 'author', enabled: true,
+        priority: 10_000, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false }
+    ]
+    const coordinator = createCoordinator(repository, workspaceStore, {
+      initializeOnOpen: false,
+      classifyCurrentItem: () => ({ targetLedgerIds: [], confidence: 'low' as const }),
+      listSavedLedgers: async () => savedLedgers.map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
+      listSavedEnabledLedgers: async () => savedLedgers.filter((ledger) => ledger.enabled).map((ledger) => ({ id: ledger.id, title: ledger.displayName }))
+    })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Unmatched 1', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Unmatched 2', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    await coordinator.setRoundExcludedLedgerIds('100', [], { participatingSavedLedgerIds: ['game'] })
+    const candidate = requireSnapshot(await coordinator.getSnapshot('100')).recommendations.candidates
+      .find((item) => item.id === 'custom-author-up-alpha')
+    if (!candidate) throw new Error('UP Alpha recommendation unexpectedly unavailable')
+    await coordinator.setRecommendedCandidates('100', [candidate.id])
+
+    await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toMatchObject({
+      missingLedgers: expect.arrayContaining([expect.objectContaining({ logicalLedgerId: candidate.id })])
+    })
+  })
+
+  it('keeps adopted recommendation assignments when round participation is refreshed', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const ledgers: FavoriteLedger[] = [
+      { id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], enabled: true, priority: 10, isDefault: true },
+      { id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'], ruleType: 'author', enabled: true,
+        priority: 10_000, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false }
+    ]
+    const classifyCurrentItems = (items: Array<{ aid: number; author?: string }>, recommendedLedgers: Array<{ id: string }>) =>
+      items.map((item) => ({
+        targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha')
+          ? ['custom-author-up-alpha'] : ['game'],
+        confidence: 'high' as const
+      }))
+    const coordinator = createCoordinator(repository, workspaceStore, {
+      initializeOnOpen: false,
+      classifyCurrentItems,
+      listSavedLedgers: async () => ledgers.map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
+      listSavedEnabledLedgers: async () => ledgers.filter((ledger) => ledger.enabled).map((ledger) => ({ id: ledger.id, title: ledger.displayName }))
+    })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'UP video 1', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'UP video 2', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    const initial = requireSnapshot(await coordinator.getSnapshot('100'))
+    const candidate = initial.recommendations.candidates.find((item) => item.id === 'custom-author-up-alpha')
+    if (!candidate) throw new Error('UP Alpha recommendation unexpectedly unavailable')
+    await coordinator.setRecommendedCandidates('100', [candidate.id])
+    await coordinator.setRoundExcludedLedgerIds('100', [], { participatingSavedLedgerIds: ['game', candidate.id] })
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(Object.values(snapshot.classifications).filter((classification) =>
+      classification.targetLedgerIds.includes(candidate.id))).toHaveLength(2)
+  })
+
   it('publishes distinct canonical author recommendations with complete renderer rules', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

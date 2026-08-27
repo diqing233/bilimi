@@ -3584,7 +3584,9 @@ export class OldFavoriteWorkspaceCoordinator {
       // main-process classifier must produce the new durable result before any
       // archive or history projection is published.
       const reclassified = participationChanged && (this.options.classifyCurrentItem || this.options.classifyCurrentItems)
-        ? await this.autoClassifyAllSegmentsUnsafe(workspace, true, false, false, undefined, false, participatingSavedLedgerIds)
+        ? await this.autoClassifyAllSegmentsUnsafe(
+            workspace, true, false, false, recommendations, false, participatingSavedLedgerIds
+          )
         : workspace
       const afterHistoryState = await this.captureFavoriteLedgerHistoryStateUnsafe(reclassified, recommendations, excludedLedgerIds)
       const updated = beforeHistoryState && afterHistoryState
@@ -4743,6 +4745,19 @@ export class OldFavoriteWorkspaceCoordinator {
       const savedLedgerTitleById = new Map(savedLedgers
         .map((ledger) => [ledger.id.trim(), ledger.title.trim()] as const)
         .filter(([logicalLedgerId, title]) => logicalLedgerId && title))
+      // A locally adopted recommendation is persisted as a local-draft rule,
+      // so it is not necessarily part of the round's upper-card participation
+      // set captured when the scan began. It is nevertheless an explicit
+      // current-round target and must be checked/created even when its archive
+      // count is zero. Remote-only drafts are excluded by the main-process
+      // listSavedEnabledLedgers projection and therefore cannot enter here.
+      const recoveredRecommendations = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
+      const recommendationState: RecommendationState = 'recovery' in recoveredRecommendations ||
+        !recoveredRecommendations.recommendations.initialized
+        ? { initialized: false, candidates: [], adoptedCandidateIds: [] }
+        : recoveredRecommendations.recommendations
+      const adoptedLocalRecommendationIds = recommendationState.adoptedCandidateIds
+        .filter((logicalLedgerId) => savedLedgerTitleById.has(logicalLedgerId))
       const boundTitleById = new Map(repositorySnapshot.folders
         .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
         .map((folder) => [folder.logicalLedgerId!, folder.title]))
@@ -4768,6 +4783,7 @@ export class OldFavoriteWorkspaceCoordinator {
         savedLedgers.map((ledger) => ledger.id.trim()).filter(Boolean)
       const selectedLogicalLedgerIds = [...new Set([
         ...participatingSavedLedgerIds,
+        ...adoptedLocalRecommendationIds,
         ...Object.keys(assignmentAids),
         ...(backupOnlyInbox ? ['inbox'] : [])
       ])].filter((logicalLedgerId) => logicalLedgerId &&

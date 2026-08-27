@@ -2405,10 +2405,22 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       }
     },
     listSavedEnabledLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
-      .filter((ledger) => ledger.enabled && (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule'))
+      .filter((ledger) => {
+        if (!ledger.enabled) return false
+        if (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule') return true
+        // A locally adopted recommendation has no remote folder yet, but it
+        // is still a real current-round backup target. Keep observed remote
+        // drafts out of this list by requiring the absence of every remote ID.
+        return ledger.ruleOrigin === 'recommendation-draft' &&
+          !ledger.bilibiliFolderId?.trim() && !(ledger.bilibiliFolderIds ?? []).some((id) => id.trim())
+      })
       .map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
     listSavedLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
-      .filter((ledger) => ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule')
+      .filter((ledger) => {
+        if (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule') return true
+        return ledger.ruleOrigin === 'recommendation-draft' &&
+          !ledger.bilibiliFolderId?.trim() && !(ledger.bilibiliFolderIds ?? []).some((id) => id.trim())
+      })
       .map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
     resolveSavedLedgerRule: async (accountMid, logicalLedgerId) => {
       const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers

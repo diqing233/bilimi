@@ -19,9 +19,25 @@
 图二发现一个令人惊讶的地方，我自己创建收藏夹原神归档预览正常，并且让原来为0的推荐收藏夹数据变为正常
 ```
 
+### R002
+
+截图：`C:\Users\diqing\AppData\Local\Temp\codex-clipboard-41bf6f61-fb1c-41e4-acbe-34145e224117.png`
+
+截图目标：`整理收藏 → 归档预览 → 本轮总览`及“同步前备册确认”弹窗。弹窗列出多个未备册收藏夹；归档预览中 `bilimi·honker233` 与 `bilimi·杨颜同学`仍显示“预计归档 0 条”。
+
+```text
+你没修吗，以前都可以为什么现在不行，上一轮问题也说得很清楚了吧
+```
+
+## R002 逐项索引追加
+
+| ID | 原文 | 精确目标 | 目标界面 / 数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化 / 迁移 / B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| I003 | R002 | 推荐候选已采用且本地命中非 0 时，分类 journal、归档预览和同步前备册预检必须在同一权威快照中反映实际成员；不得出现采用状态已持久化但目标仍为 0 的中间结果。 | 推荐采用命令、工作区分类 journal、归档预览 `archiveTargets`、同步前备册确认。 | 仅针对本轮已采用并仍参与的推荐候选；真正无命中时才显示 0。 | 采用/重新勾选必须等待分类结果提交后再发布最终推荐快照；若队列竞态导致采用集合变化，必须按最新集合重算，不得用旧分类覆盖新状态。 | 仅修改本地分类与投影；不创建、绑定、删除、移动 B 站收藏夹，不写视频。 | 不改上方已保存规则勾选/取消、删除模式、DeepSeek、转写、视频同步执行、单个备册入口及其他主题文件。 | `setRecommendedCandidates`、`applyRecommendedLedgerDeltaUnsafe`、`setRoundExcludedLedgerIds` 的推荐快照传递、推荐持久化队列、分类 journal、归档/备册投影。 | 已实施待验证 | RED：原备册预检测试只返回 `game`，未返回已采用本地推荐；GREEN 后 `includes an adopted local recommendation in backup preflight even when its archive count is zero`、`keeps adopted recommendation assignments when round participation is refreshed` 通过。Electron 只读证据为 `.codex-artifacts/2026-08-28-favorite-round-readonly.png` 与 `.codex-artifacts/2026-08-28-favorite-round-readonly-scroll.png`；未执行真实 B 站创建、绑定、删除、移动或视频写入。 |
+
 ## 逐项索引
 
 | ID | 原文 | 精确目标 | 目标界面 / 数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化 / 迁移 / B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| I001 | R001（图一、图二） | 查明：已勾选推荐收藏夹的归档预览为何先显示 0 条，而在另行创建“原神”规则后才恢复为非 0；预览必须使用当前权威的推荐采用、参与规则和完整分类结果，不能依赖后续无关规则目录变化才刷新。 | 整理收藏 → 推荐收藏夹；归档预览 → 本轮总览；主进程工作区分类与聚合快照。 | 仅限当前轮已勾选/已采用推荐收藏夹；0 条必须是真实完整分类后无成员，不能是遗漏投影或过期快照。 | 推荐项勾选后完成本地采用和重分类，再以同一权威快照更新归档预览；新建其他规则不得成为推荐项数据恢复的隐含触发器。 | 当前为本地数据与投影排查；不得因检查创建、绑定、删除 B 站收藏夹或写入视频。 | 不修改正常的上方规则勾选/取消、删除模式、DeepSeek、转写、视频同步与无关 UI。 | 推荐采用事务、分类队列、工作区快照、归档汇总投影。 | 已实施待验证 | 代码：`electron/main/oldFavoriteWorkspaceCoordinator.ts:4767` 保留完整分类快照，`src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.tsx:1469` 传递候选→已保存规则映射，`OldFavoriteArchivePreviewStep.tsx:137` 与 `OldFavoriteOverviewControls.tsx:51` 将候选目标规范化并合并分段计数。测试：协调器 `projects adopted recommendation members into the archive overview immediately` 通过；渲染回归 `keeps a recommendation-linked saved rule visible when the classification uses the candidate id` 通过；归档预览/确认 75 项通过。Electron 真实数据尚未执行。 |
-| I002 | R001（图一） | 确认并同步到 B 站的备册预检必须把所有本轮已勾选收藏夹纳入备册范围，即使该收藏夹本轮预计归档为 0 条；提示应一次覆盖这两个已勾选而未备册的收藏夹。 | 整理收藏 → 确认执行 → 确认并同步到 B 站 → 同一备册确认窗口。 | 规则已勾选但本轮成员数为 0 时仍须列入备册预检；未勾选、远端草稿和已删除规则不纳入。 | 点击同步时按当前勾选集合生成备册清单；有未备册目标时显示一次确认，确认后才开始既有本地保存、备册与同步顺序。 | 实际 B 站写入仅在用户确认后发生；本轮检查不触发真实创建、绑定、删除、移动或视频写入。 | 不改变“暂存默认不写视频”、既有单窗口确认、未绑定候选知情同意和已备册规则的同步逻辑。 | 规则参与集、同步前备册投影、确认窗口与绑定/分册预检。 | 已实施待验证 | 代码：`electron/main/oldFavoriteWorkspaceCoordinator.ts:4767-4777` 将 `participatingSavedLedgerIds` 与实际 assignment 分离，0 条目标仍进入 `missingLedgers`，视频写入仍由 assignments 决定。测试：`includes every selected saved rule in backup preflight even when it has zero archive members` 通过；协调器全量 352 项、备册 API 197 项、同步服务 68 项、上方概览 114 项、能力/目标规划/动作执行/App 152 项通过。Electron 真实确认窗口及 B 站副作用未执行。 |
+| I001 | R001（图一、图二） | 查明：已勾选推荐收藏夹的归档预览为何先显示 0 条，而在另行创建“原神”规则后才恢复为非 0；预览必须使用当前权威的推荐采用、参与规则和完整分类结果，不能依赖后续无关规则目录变化才刷新。 | 整理收藏 → 推荐收藏夹；归档预览 → 本轮总览；主进程工作区分类与聚合快照。 | 仅限当前轮已勾选/已采用推荐收藏夹；0 条必须是真实完整分类后无成员，不能是遗漏投影或过期快照。 | 推荐项勾选后完成本地采用和重分类，再以同一权威快照更新归档预览；新建其他规则不得成为推荐项数据恢复的隐含触发器。 | 当前为本地数据与投影排查；不得因检查创建、绑定、删除 B 站收藏夹或写入视频。 | 不修改正常的上方规则勾选/取消、删除模式、DeepSeek、转写、视频同步与无关 UI。 | 推荐采用事务、分类队列、工作区快照、归档汇总投影。 | 已实施待验证 | 代码：`electron/main/oldFavoriteWorkspaceCoordinator.ts:4070` 推荐采用重分类、`electron/main/oldFavoriteWorkspaceCoordinator.ts:3587` 刷新参与规则时复用同一推荐快照，`src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.tsx:1469` 传递候选→已保存规则映射，`OldFavoriteArchivePreviewStep.tsx:137` 与 `OldFavoriteOverviewControls.tsx:51` 合并分段计数。测试：协调器 `projects adopted recommendation members into the archive overview immediately`、`keeps adopted recommendation assignments when round participation is refreshed` 通过；渲染 `ControlledFavoriteLedgerPanel`、归档预览/确认共 238 项通过。Electron 已完成只读截图 `.codex-artifacts/2026-08-28-favorite-round-readonly.png`；未执行真实 B 站副作用。 |
+| I002 | R001（图一） | 确认并同步到 B 站的备册预检必须把所有本轮已勾选收藏夹纳入备册范围，即使该收藏夹本轮预计归档为 0 条；提示应一次覆盖这两个已勾选而未备册的收藏夹。 | 整理收藏 → 确认执行 → 确认并同步到 B 站 → 同一备册确认窗口。 | 规则已勾选但本轮成员数为 0 时仍须列入备册预检；未勾选、远端草稿和已删除规则不纳入。 | 点击同步时按当前勾选集合生成备册清单；有未备册目标时显示一次确认，确认后才开始既有本地保存、备册与同步顺序。 | 实际 B 站写入仅在用户确认后发生；本轮检查不触发真实创建、绑定、删除、移动或视频写入。 | 不改变“暂存默认不写视频”、既有单窗口确认、未绑定候选知情同意和已备册规则的同步逻辑。 | 规则参与集、同步前备册投影、确认窗口与绑定/分册预检。 | 已实施待验证 | 代码：`electron/main/oldFavoriteWorkspaceCoordinator.ts:4740-4788` 让已采用本地推荐与上方参与集共同进入 `selectedLogicalLedgerIds`，0 条目标仍进入 `missingLedgers`；`electron/main/index.ts:2407-2430` 仅将无真实远端 ID 的本地推荐列入已保存列表，远端草稿继续过滤。测试：`includes every selected saved rule in backup preflight even when it has zero archive members`、`includes an adopted local recommendation in backup preflight even when its archive count is zero` 及协调器全量 354 项通过；备册 API、同步服务和归档预览/确认回归 379 项通过。Electron 截图见 `.codex-artifacts/2026-08-28-favorite-round-readonly.png`；真实确认窗口和 B 站副作用未执行。 |
