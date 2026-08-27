@@ -396,6 +396,39 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(targets).toHaveTextContent('空收藏夹预计归档 0 条')
   })
 
+  it('keeps a recommendation-linked saved rule visible when the classification uses the candidate id', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [{ id: 'segment-1', index: 0, itemCount: 2, status: 'previewing' as const }],
+      currentSegment: null, classifications: {}, recommendations: {
+        candidates: [{ id: 'candidate-honker', displayName: 'bilimi·honker233', kind: 'author' as const, count: 2, reason: '推荐 UP', keywords: ['honker233'] }],
+        adoptedCandidateIds: ['candidate-honker']
+      },
+      overview: {
+        completedSegmentCount: 1, totalSegmentCount: 1, available: true, sourceFolders: [], unavailableItemCount: 0,
+        processedItemCount: 2, classifiedItemCount: 2, unmatchedItemCount: 0, waitingItemCount: 0,
+        recommendationCounts: [{ id: 'candidate-honker', count: 2 }],
+        archiveTargets: [{ ledgerId: 'candidate-honker', itemCount: 2, segmentCounts: [{ segmentId: 'segment-1', count: 2 }] }]
+      },
+      history: { cursor: 0, length: 0 }
+    }
+
+    render(<OldFavoriteWholeRunOverview
+      snapshot={snapshot}
+      showArchiveTargets
+      ledgerNames={new Map([['saved-honker', 'bilimi·honker233']])}
+      selectedRecommendationIds={new Set(['candidate-honker'])}
+      enabledLedgerIds={new Set(['saved-honker'])}
+      candidateLedgerIds={new Map([['candidate-honker', 'saved-honker']])}
+    />)
+
+    expect(screen.getAllByRole('article').some((article) =>
+      article.textContent?.includes('bilimi·honker233') && article.textContent.includes('预计归档 2 条'))
+    ).toBe(true)
+  })
+
   it('closes the whole-run progress across completed, tagging, and waiting batches', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

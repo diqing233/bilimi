@@ -49,6 +49,7 @@ type OldFavoriteGuideProps = {
   onCancelPreviewPreparation?: () => void
   ledgers: FavoriteLedger[]
   enabledLedgerIds?: ReadonlySet<string>
+  candidateLedgerIds?: ReadonlyMap<string, string>
   deepSeekAvailable: boolean
   deepSeekFeedback: DeepSeekWorkspaceFeedback | null
   onSelectSegment: (segmentId: string) => void
@@ -147,6 +148,7 @@ export function OldFavoriteGuide({
   onCancelPreviewPreparation = () => undefined,
   ledgers,
   enabledLedgerIds,
+  candidateLedgerIds,
   deepSeekAvailable,
   deepSeekFeedback,
   onSelectSegment,
@@ -367,6 +369,7 @@ export function OldFavoriteGuide({
       snapshot={displayedSnapshot}
       ledgers={ledgers}
       enabledLedgerIds={enabledLedgerIds}
+      candidateLedgerIds={candidateLedgerIds}
       loading={loading}
       mutationLocked={readOnlyBrowsing}
       deepSeekAvailable={deepSeekAvailable}
@@ -389,6 +392,7 @@ export function OldFavoriteGuide({
       snapshot={displayedSnapshot}
       ledgers={ledgers}
       enabledLedgerIds={enabledLedgerIds}
+      candidateLedgerIds={candidateLedgerIds}
       loading={loading}
       reconciling={reconciling}
       preparationStatus={preparationStatus}

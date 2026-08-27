@@ -4760,10 +4760,18 @@ export class OldFavoriteWorkspaceCoordinator {
       const backupOnlyInbox = options.includeInbox !== true &&
         savedLedgers.some((ledger) => ledger.id.trim() === 'inbox') &&
         classifications.some((classification) => classification.targetLedgerIds.some((ledgerId) => ledgerId.trim() === 'inbox'))
+      // Backup obligations follow the round's selected saved-rule set, not
+      // only the rules that happened to receive a classified video. A
+      // selected rule with zero archive members still needs its first
+      // physical shard checked/created; assignmentAids remains write-only.
+      const participatingSavedLedgerIds = this.participatingSavedLedgerIdsByAccount.get(workspace.accountMid) ??
+        savedLedgers.map((ledger) => ledger.id.trim()).filter(Boolean)
       const selectedLogicalLedgerIds = [...new Set([
+        ...participatingSavedLedgerIds,
         ...Object.keys(assignmentAids),
         ...(backupOnlyInbox ? ['inbox'] : [])
-      ])].sort()
+      ])].filter((logicalLedgerId) => logicalLedgerId &&
+        (logicalLedgerId === 'inbox' || savedLedgerTitleById.has(logicalLedgerId) || Object.hasOwn(assignmentAids, logicalLedgerId))).sort()
       const logicalLedgerIds = [...new Set(selectedLogicalLedgerIds)].sort()
       const logicalTitles = new Map(await Promise.all(logicalLedgerIds.map(async (logicalLedgerId) => [
         logicalLedgerId, await titleFor(logicalLedgerId)

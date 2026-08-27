@@ -1688,6 +1688,7 @@ export function ControlledFavoriteLedgerPanel({
 
         ledgers={displayedLedgersWithLiveEnabled}
         enabledLedgerIds={enabledLedgerIds}
+        candidateLedgerIds={recommendationProjection?.candidateToLedgerId}
         deepSeekAvailable={deepSeekArchiveAvailable}
         deepSeekFeedback={workspace.deepSeekFeedback}
         onSelectSegment={(segmentId) => void workspace.selectSegment(segmentId)}

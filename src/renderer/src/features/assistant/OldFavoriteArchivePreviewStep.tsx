@@ -94,13 +94,14 @@ type OldFavoriteArchivePreviewStepProps = {
   onApplyManualClassifications: (assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => void
   recommendedCandidateIds?: string[]
   enabledLedgerIds?: ReadonlySet<string>
+  candidateLedgerIds?: ReadonlyMap<string, string>
   viewScope?: OldFavoriteViewScope
   onViewScopeChange?: (scope: OldFavoriteViewScope) => void
   contentAvailable?: boolean
 }
 
 type OldFavoriteArchiveGroupsProps = Pick<OldFavoriteArchivePreviewStepProps,
-  'snapshot' | 'ledgers' | 'loading' | 'mutationLocked' | 'onApplyManualClassification' | 'onApplyManualClassifications' | 'recommendedCandidateIds' | 'enabledLedgerIds'>
+  'snapshot' | 'ledgers' | 'loading' | 'mutationLocked' | 'onApplyManualClassification' | 'onApplyManualClassifications' | 'recommendedCandidateIds' | 'enabledLedgerIds' | 'candidateLedgerIds'>
 
 const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   snapshot,
@@ -110,7 +111,8 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   onApplyManualClassification,
   onApplyManualClassifications,
   recommendedCandidateIds,
-  enabledLedgerIds
+  enabledLedgerIds,
+  candidateLedgerIds
 }: OldFavoriteArchiveGroupsProps) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const [batchGroupId, setBatchGroupId] = useState<string | null>(null)
@@ -135,14 +137,22 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   const effectiveClassifications = useMemo(() => {
     const selectedRecommendations = new Set(selectedRecommendationKey.split('\u0001').filter(Boolean))
     return Object.fromEntries(Object.entries(snapshot.classifications).map(([aid, classification]) => {
-      const targetLedgerIds = classification.targetLedgerIds.filter((ledgerId) =>
-        ledgerId === 'inbox' || (enabledLedgerIds?.has(ledgerId) ?? true) && (!recommendationIds.has(ledgerId) || selectedRecommendations.has(ledgerId)))
-      return [aid, targetLedgerIds.length === classification.targetLedgerIds.length
+      const targetLedgerIds = [...new Set(classification.targetLedgerIds.flatMap((ledgerId) => {
+        const resolvedLedgerId = candidateLedgerIds?.get(ledgerId) ?? ledgerId
+        return ledgerId === 'inbox' || (enabledLedgerIds?.has(resolvedLedgerId) ?? true) &&
+          (!recommendationIds.has(ledgerId) || selectedRecommendations.has(ledgerId))
+          ? [resolvedLedgerId]
+          : []
+      }))]
+      return [aid, targetLedgerIds.length === classification.targetLedgerIds.length &&
+        targetLedgerIds.every((ledgerId, index) => ledgerId === classification.targetLedgerIds[index])
         ? classification
         : { ...classification, targetLedgerIds }]
     }))
-  }, [enabledLedgerIds, recommendationIds, selectedRecommendationKey, snapshot.classifications])
+  }, [candidateLedgerIds, enabledLedgerIds, recommendationIds, selectedRecommendationKey, snapshot.classifications])
   const selectedRecommendations = useMemo(() => new Set(selectedRecommendationKey.split('\u0001').filter(Boolean)), [selectedRecommendationKey])
+  const selectedRecommendationLedgerIds = useMemo(() => new Set([...selectedRecommendations]
+    .map((candidateId) => candidateLedgerIds?.get(candidateId) ?? candidateId)), [candidateLedgerIds, selectedRecommendations])
   const unmatched = items.filter((item) => !effectiveClassifications[String(item.aid)]?.targetLedgerIds.length)
   const classified = groupOldFavoritePreviewItems(items, effectiveClassifications, new Set(ledgers.map((ledger) => ledger.id)))
   const previewGroups = [
@@ -157,7 +167,7 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
     }))
   ]
   for (const ledger of ledgers) {
-    if (!recommendationIds.has(ledger.id) || !selectedRecommendations.has(ledger.id) || previewGroups.some((group) => group.id === ledger.id)) continue
+    if (!selectedRecommendationLedgerIds.has(ledger.id) || previewGroups.some((group) => group.id === ledger.id)) continue
     previewGroups.push({ id: ledger.id, title: ledger.displayName, items: [] })
   }
   const handleManualClassification = (aid: number, currentLedgerId: string | undefined, nextTargetLedgerIds: string[]) => {
@@ -344,6 +354,7 @@ export function OldFavoriteArchivePreviewStep({
   onApplyManualClassifications,
   recommendedCandidateIds = [],
   enabledLedgerIds,
+  candidateLedgerIds,
   viewScope: controlledViewScope,
   onViewScopeChange,
   contentAvailable = true,
@@ -537,7 +548,7 @@ export function OldFavoriteArchivePreviewStep({
           {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="归档预览视图" value={viewScope} onChange={setViewScope} /> : null}
         </div>
       </div>
-      {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds)} enabledLedgerIds={enabledLedgerIds} /> : null}
+      {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds)} enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} /> : null}
       <p role="status">{viewScope === 'all' ? '本轮仍有标签补取中，完成批次会在就绪后汇总到归档预览。' : '当前批次标签补取中，完成后可查看归档预览。'}</p>
     </section>
   }
@@ -640,12 +651,12 @@ export function OldFavoriteArchivePreviewStep({
       </div>
     </div>
     {hasMultipleSegments ? <div className="favorite-ledger-panel__scope-panel" hidden={viewScope !== 'all'} data-testid="whole-run-archive-view">
-      <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds)} enabledLedgerIds={enabledLedgerIds} />
+      <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds)} enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} />
     </div> : null}
     <div className="favorite-ledger-panel__scope-panel" hidden={hasMultipleSegments && viewScope === 'all'} data-testid="current-archive-view">
       <OldFavoriteArchiveGroups snapshot={snapshot} ledgers={ledgers} loading={loading} mutationLocked={mutationLocked}
         onApplyManualClassification={onApplyManualClassification} onApplyManualClassifications={onApplyManualClassifications}
-        recommendedCandidateIds={recommendedCandidateIds} enabledLedgerIds={enabledLedgerIds} />
+        recommendedCandidateIds={recommendedCandidateIds} enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} />
     </div>
     {deepSeekDialogOpen ? <OldFavoriteModal
       title="DeepSeek 整理"

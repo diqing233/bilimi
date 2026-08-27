@@ -22,6 +22,12 @@ type OldFavoriteWholeRunOverviewProps = {
   showArchiveTargets?: boolean
   selectedRecommendationIds?: ReadonlySet<string>
   enabledLedgerIds?: ReadonlySet<string>
+  /**
+   * A recommendation candidate can be adopted by an existing saved rule.
+   * Classification snapshots may still carry the candidate id, while every
+   * visible saved-rule control and its enabled state use the saved-rule id.
+   */
+  candidateLedgerIds?: ReadonlyMap<string, string>
 }
 
 const BILIMI_STAGING_TOOLTIP = '未匹配到合适分类会先归类在 bilimi·暂存里，保存到本地收藏库时会存入 bilimi·暂存，点击同步时默认不上传 B 站。'
@@ -31,7 +37,8 @@ export function OldFavoriteWholeRunOverview({
   ledgerNames = new Map(),
   showArchiveTargets = false,
   selectedRecommendationIds,
-  enabledLedgerIds
+  enabledLedgerIds,
+  candidateLedgerIds
 }: OldFavoriteWholeRunOverviewProps) {
   const overview = snapshot.overview
   if (!overview) {
@@ -41,18 +48,37 @@ export function OldFavoriteWholeRunOverview({
     </div>
   }
 
-  const archiveTargetById = new Map(overview.archiveTargets.map((target) => [target.ledgerId, target]))
+  const canonicalLedgerId = (ledgerId: string) => candidateLedgerIds?.get(ledgerId) ?? ledgerId
   const recommendationIds = new Set(snapshot.recommendations.candidates.map((candidate) => candidate.id))
   const selectedRecommendations = selectedRecommendationIds ?? new Set(snapshot.recommendations.adoptedCandidateIds)
+  const archiveTargetById = new Map<string, typeof overview.archiveTargets[number]>()
+  for (const target of overview.archiveTargets) {
+    const ledgerId = canonicalLedgerId(target.ledgerId)
+    if (ledgerId !== 'inbox' && enabledLedgerIds && !enabledLedgerIds.has(ledgerId)) continue
+    if (recommendationIds.has(target.ledgerId) && !selectedRecommendations.has(target.ledgerId)) continue
+    const current = archiveTargetById.get(ledgerId)
+    if (!current) {
+      archiveTargetById.set(ledgerId, ledgerId === target.ledgerId ? target : { ...target, ledgerId })
+      continue
+    }
+    const segmentCounts = new Map(current.segmentCounts.map((segment) => [segment.segmentId, segment.count]))
+    for (const segment of target.segmentCounts) {
+      segmentCounts.set(segment.segmentId, (segmentCounts.get(segment.segmentId) ?? 0) + segment.count)
+    }
+    archiveTargetById.set(ledgerId, {
+      ...current,
+      itemCount: current.itemCount + target.itemCount,
+      segmentCounts: [...segmentCounts].map(([segmentId, count]) => ({ segmentId, count }))
+    })
+  }
   const archiveTargetIds = [...new Set([
     'inbox',
-    ...ledgerNames.keys(),
-    ...overview.archiveTargets.map((target) => target.ledgerId)
+    ...[...ledgerNames.keys()].map(canonicalLedgerId),
+    ...archiveTargetById.keys()
   ])].filter((ledgerId) => {
     if (ledgerId === 'inbox') return true
     if (enabledLedgerIds && !enabledLedgerIds.has(ledgerId)) return false
-    if (!recommendationIds.has(ledgerId)) return true
-    return selectedRecommendations.has(ledgerId)
+    return true
   })
   const archiveTargets = archiveTargetIds.map((ledgerId) => archiveTargetById.get(ledgerId) ?? {
     ledgerId,

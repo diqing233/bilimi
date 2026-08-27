@@ -6017,6 +6017,48 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('projects adopted recommendation members into the archive overview immediately', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>, recommendedLedgers: Array<{ id: string }>) =>
+      items.map((item) => ({
+        targetLedgerIds: recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha') && item.aid <= 2
+          ? ['custom-author-up-alpha'] : [],
+        confidence: 'high' as const
+      })))
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false, classifyCurrentItems, segmentSize: () => 500
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 501, isBilimiWorkFolder: false, selected: true }]
+    })
+    const items = Array.from({ length: 501 }, (_unused, index) => ({
+      aid: index + 1,
+      title: `Video ${index + 1}`,
+      ...(index < 2 ? { author: 'UP Alpha' } : {}),
+      sourceFolderIds: ['source']
+    }))
+    for (let offset = 0; offset < items.length; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1, hasMore: offset + 50 < items.length,
+        items: items.slice(offset, offset + 50)
+      })
+    }
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    const initial = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(initial.segments).toHaveLength(2)
+    const candidate = initial.recommendations.candidates.find((item) => item.id === 'custom-author-up-alpha')
+    if (!candidate) throw new Error('UP Alpha recommendation unexpectedly unavailable')
+
+    await coordinator.setRecommendedCandidates('100', [candidate.id])
+    const selected = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(selected.overview?.archiveTargets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ledgerId: candidate.id, itemCount: 2 })
+    ]))
+  })
+
   it('publishes distinct canonical author recommendations with complete renderer rules', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -8959,6 +9001,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: aids.map((aid) => ({ aid, targetLedgerIds: ['game'] }))
     })
+    await coordinator.setRoundExcludedLedgerIds('100', ['genshin'])
 
     await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toEqual(expect.objectContaining({
       missingLedgers: [{ logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', reason: 'unbacked', bindingCandidates: [] }],
@@ -8969,6 +9012,32 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     }))
 
     expect(ensurePhysicalShard).not.toHaveBeenCalled()
+  })
+
+  it('includes every selected saved rule in backup preflight even when it has zero archive members', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-28T00:00:00.000Z' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([
+        { id: 'game', title: 'bilimi·游戏专区' },
+        { id: 'honker233', title: 'bilimi·honker233' }
+      ]),
+      now: () => '2026-08-28T00:00:00.000Z'
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['game'] }]
+    })
+
+    await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toMatchObject({
+      missingLedgers: expect.arrayContaining([
+        expect.objectContaining({ logicalLedgerId: 'game', reason: 'unbacked' }),
+        expect.objectContaining({ logicalLedgerId: 'honker233', reason: 'unbacked' })
+      ])
+    })
   })
 
   it('requires a first backup for an eligible inbox without adding inbox videos to the default write plan', async () => {
@@ -9421,6 +9490,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['game'] }, { aid: 2, targetLedgerIds: ['game'] }]
     })
+    await coordinator.setRoundExcludedLedgerIds('100', ['honker233'])
     const revisionBefore = (await repository.getSnapshot('100')).revision
 
     await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toEqual(expect.objectContaining({
@@ -9458,6 +9528,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     })
+    await coordinator.setRoundExcludedLedgerIds('100', ['honker233'])
     await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toMatchObject({
       missingLedgers: [], requiredPhysicalShards: []
     })
