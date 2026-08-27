@@ -277,6 +277,7 @@ export function ControlledFavoriteLedgerPanel({
   // so an editor update cannot overwrite a just-clicked organization choice.
   const [organizationSavedLedgerParticipationById, setOrganizationSavedLedgerParticipationById] = useState<ReadonlyMap<string, boolean>>(() => new Map())
   const organizationSavedLedgerParticipationByIdRef = useRef(organizationSavedLedgerParticipationById)
+  const pendingOrganizationSavedLedgerIdsRef = useRef<Set<string>>(new Set())
   const visiblePromotedRecommendationLedgers = promotedRecommendationAccountKey === accountKey
     ? promotedRecommendationLedgers
     : []
@@ -337,6 +338,23 @@ export function ControlledFavoriteLedgerPanel({
     setRecommendationPromotionSaving(false)
     setPromotedRecommendationAccountKey(accountKey)
   }, [accountKey, promotedRecommendationAccountKey, updateOrganizationSavedLedgerParticipationById])
+  useEffect(() => {
+    const snapshot = workspace.snapshot
+    if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return
+    const pendingLedgerIds = pendingOrganizationSavedLedgerIdsRef.current
+    const authoritativeParticipationById = new Map(effectiveLedgers
+      .filter((ledger) => !remoteOnlyDraftLedgerIds.includes(ledger.id))
+      .map((ledger) => [ledger.id, ledger.enabled && !(snapshot.excludedLedgerIds ?? []).includes(ledger.id)] as const))
+    const nextEnabledById = new Map(ledgerEnabledByIdRef.current)
+    for (const [ledgerId, enabled] of authoritativeParticipationById) {
+      if (!pendingLedgerIds.has(ledgerId)) nextEnabledById.set(ledgerId, enabled)
+    }
+    updateLedgerEnabledById(nextEnabledById)
+    updateOrganizationSavedLedgerParticipationById(new Map(
+      [...organizationSavedLedgerParticipationByIdRef.current]
+        .filter(([ledgerId]) => pendingLedgerIds.has(ledgerId))
+    ))
+  }, [effectiveLedgers, remoteOnlyDraftLedgerIds, updateLedgerEnabledById, updateOrganizationSavedLedgerParticipationById, workspace.snapshot])
   useEffect(() => {
     // The workspace snapshot hydrates the adopted ids after the panel mounts.
     // Keep the event-side selection ref aligned, but never overwrite a newer
@@ -508,6 +526,7 @@ export function ControlledFavoriteLedgerPanel({
     nextParticipationById.set(ledgerId, enabled)
     updateOrganizationSavedLedgerParticipationById(nextParticipationById)
     const retainLinkedSavedLedgerIds = candidateId ? [ledgerId] : []
+    pendingOrganizationSavedLedgerIdsRef.current.add(ledgerId)
     try {
       const committedCandidateIds = JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)
         ? await setOrganizationRecommendedCandidates(nextCandidateIds, { retainLinkedSavedLedgerIds })
@@ -531,6 +550,8 @@ export function ControlledFavoriteLedgerPanel({
       await saveLedgerEnabledAndRefreshWorkspace(ledgerId, previousEnabledById.get(ledgerId) ?? savedLedger.enabled).catch(() => undefined)
       await workspace.setRoundExcludedLedgerIds(snapshot.excludedLedgerIds ?? []).catch(() => undefined)
       return false
+    } finally {
+      pendingOrganizationSavedLedgerIdsRef.current.delete(ledgerId)
     }
   }, [effectiveLedgers, organizationUpperLedgerIds, persistedUpperLedgerIds, saveLedgerEnabledAndRefreshWorkspace, setOrganizationRecommendedCandidates, updateLedgerEnabledById, updateOrganizationSavedLedgerParticipationById, workspace.setRoundExcludedLedgerIds, workspace.snapshot])
   const updateOrganizationRecommendedCandidates = useCallback((update: (current: string[]) => string[]) => {
@@ -623,6 +644,7 @@ export function ControlledFavoriteLedgerPanel({
     })
     const nextExcludedLedgerIds = [...selectableLedgerIds].filter((ledgerId) => !selectedIds.has(ledgerId))
     const retainLinkedSavedLedgerIds = [...selectableLedgerIds]
+    for (const [ledgerId] of changedEnabledByLedgerId) pendingOrganizationSavedLedgerIdsRef.current.add(ledgerId)
     try {
       const selectionChanged = JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)
       if (selectionChanged) {
@@ -649,6 +671,8 @@ export function ControlledFavoriteLedgerPanel({
       }
       await workspace.setRoundExcludedLedgerIds(snapshot.excludedLedgerIds ?? []).catch(() => undefined)
       return false
+    } finally {
+      for (const [ledgerId] of changedEnabledByLedgerId) pendingOrganizationSavedLedgerIdsRef.current.delete(ledgerId)
     }
   }, [effectiveLedgers, saveLedgerEnabledAndRefreshWorkspace, setOrganizationRecommendedCandidates, updateLedgerEnabledById, workspace.setRoundExcludedLedgerIds, workspace.snapshot])
   useEffect(() => {

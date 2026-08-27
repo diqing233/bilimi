@@ -388,7 +388,11 @@ export function OldFavoriteArchivePreviewStep({
   const historyLabel = (entry: OldFavoriteWorkspaceSnapshot['history']['entries'][number]) => {
     const favoriteRule = entry.summary?.favoriteRule
     if (favoriteRule) {
-      const action = favoriteRule.action === 'checked' ? '勾选' : favoriteRule.action === 'unchecked' ? '取消' : '调整'
+      const action = favoriteRule.action === 'checked' ? '勾选'
+        : favoriteRule.action === 'unchecked' ? '取消'
+          : favoriteRule.action === 'created' ? '新建'
+            : favoriteRule.action === 'deleted' ? '删除'
+              : '更新'
       const title = stripBilimiLedgerPrefix(favoriteRule.title) || '已删除收藏夹'
       const movements = favoriteRule.movementGroups
         .map((group) => `${historyTargetLabel(group.beforeTargetLedgerIds)} → ${historyTargetLabel(group.afterTargetLedgerIds)}`)
@@ -397,7 +401,7 @@ export function OldFavoriteArchivePreviewStep({
         ? `${action}「${title}」后，自动分类 ${entry.summary?.movedCount ?? entry.changeCount} 条：${movements}`
         : `${action}「${title}」参与本轮分类，未产生分类移动`
     }
-    if (entry.source === 'favorite-rules') return '收藏夹规则与勾选已更新'
+    if (entry.source === 'favorite-rules') return '收藏夹规则变更：已恢复本地规则与本轮勾选'
     if (!entry.summary) {
       return `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${historyTargetLabel(entry.targetLedgerIds)}`
     }

@@ -65,18 +65,42 @@ const OLD_FAVORITE_WORKSPACE_RECOVERY_DECISION_STALE_MESSAGE = 'Old favorite wor
 const LOCAL_RESULT_PREPARATION_BATCH_SIZE = 128
 
 type FavoriteRuleHistoryEffect = {
-  action: 'checked' | 'unchecked' | 'updated'
+  action: 'checked' | 'unchecked' | 'created' | 'updated' | 'deleted'
   title: string
 }
 
 function favoriteRuleHistoryEffect(entry: OldFavoriteWorkspaceHistoryEntry): FavoriteRuleHistoryEffect | undefined {
   const transition = entry.favoriteRuleState
   if (!transition) return undefined
-  const effects = new Map<string, 'checked' | 'unchecked'>()
-  const record = (ledgerId: string, action: 'checked' | 'unchecked') => {
+  const effects = new Map<string, FavoriteRuleHistoryEffect['action']>()
+  const priority: Record<FavoriteRuleHistoryEffect['action'], number> = {
+    checked: 1,
+    unchecked: 1,
+    updated: 2,
+    created: 3,
+    deleted: 3
+  }
+  const record = (ledgerId: string, action: FavoriteRuleHistoryEffect['action']) => {
     const id = ledgerId.trim()
-    if (!id || effects.has(id)) return
+    if (!id || (effects.has(id) && priority[effects.get(id)!] >= priority[action])) return
     effects.set(id, action)
+  }
+  const beforeLedgers = new Map(transition.before.ledgers.map((ledger) => [ledger.id, ledger]))
+  const afterLedgers = new Map(transition.after.ledgers.map((ledger) => [ledger.id, ledger]))
+  for (const ledgerId of new Set([...beforeLedgers.keys(), ...afterLedgers.keys()])) {
+    const before = beforeLedgers.get(ledgerId)
+    const after = afterLedgers.get(ledgerId)
+    if (!before && after) {
+      record(ledgerId, 'created')
+      continue
+    }
+    if (before && !after) {
+      record(ledgerId, 'deleted')
+      continue
+    }
+    if (!before || !after) continue
+    if (before.enabled !== after.enabled) record(ledgerId, after.enabled ? 'checked' : 'unchecked')
+    else if (JSON.stringify(before) !== JSON.stringify(after)) record(ledgerId, 'updated')
   }
   const beforeAdopted = new Set(transition.before.adoptedCandidateIds)
   const afterAdopted = new Set(transition.after.adoptedCandidateIds)
@@ -86,14 +110,6 @@ function favoriteRuleHistoryEffect(entry: OldFavoriteWorkspaceHistoryEntry): Fav
   const afterExcluded = new Set(transition.after.excludedLedgerIds)
   for (const ledgerId of beforeExcluded) if (!afterExcluded.has(ledgerId)) record(ledgerId, 'checked')
   for (const ledgerId of afterExcluded) if (!beforeExcluded.has(ledgerId)) record(ledgerId, 'unchecked')
-  const beforeLedgers = new Map(transition.before.ledgers.map((ledger) => [ledger.id, ledger]))
-  const afterLedgers = new Map(transition.after.ledgers.map((ledger) => [ledger.id, ledger]))
-  for (const ledgerId of new Set([...beforeLedgers.keys(), ...afterLedgers.keys()])) {
-    const before = beforeLedgers.get(ledgerId)
-    const after = afterLedgers.get(ledgerId)
-    if (before?.enabled === after?.enabled) continue
-    record(ledgerId, after?.enabled ? 'checked' : 'unchecked')
-  }
   if (!effects.size) return undefined
   const titles = [...effects.keys()].map((ledgerId) =>
     afterLedgers.get(ledgerId)?.displayName?.trim() || beforeLedgers.get(ledgerId)?.displayName?.trim() || '已删除收藏夹')

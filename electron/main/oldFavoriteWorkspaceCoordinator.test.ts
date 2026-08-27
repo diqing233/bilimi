@@ -10861,6 +10861,35 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('describes a saved rule created through history instead of emitting a generic favorite-rule record', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const created: FavoriteLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: ['旋律'], ruleType: 'keyword',
+      enabled: true, priority: 1, isDefault: false
+    }
+    await coordinator.open('100')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+
+    await coordinator.recordFavoriteLedgerHistoryChange('100', {
+      before: { ledgers: [], adoptedCandidateIds: [], excludedLedgerIds: [] },
+      after: { ledgers: [created], adoptedCandidateIds: [], excludedLedgerIds: [] }
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      history: {
+        entries: [{
+          source: 'favorite-rules',
+          summary: { favoriteRule: { action: 'created', title: 'bilimi·音乐' } }
+        }]
+      }
+    })
+  })
+
   it('rebuilds the local classification projection after restoring a rule-history entry', async () => {
     const root = await createRoot()
     const classifyCurrentItem = vi.fn(() => ({ targetLedgerIds: ['music'], confidence: 'high' as const }))

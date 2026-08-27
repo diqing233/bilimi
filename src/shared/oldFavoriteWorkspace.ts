@@ -468,9 +468,9 @@ export type OldFavoriteWorkspaceSnapshot = {
         afterTargetLedgerIds: string[]
         reason: string
         movedCount: number
-        /** One local rule-selection action, compactly projected for the change-history menu. */
+        /** One local rule/selection action, compactly projected for the change-history menu. */
         favoriteRule?: {
-          action: 'checked' | 'unchecked' | 'updated'
+          action: 'checked' | 'unchecked' | 'created' | 'updated' | 'deleted'
           title: string
           movementGroups: Array<{
             beforeTargetLedgerIds: string[]

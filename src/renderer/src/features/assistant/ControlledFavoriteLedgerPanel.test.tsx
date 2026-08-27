@@ -228,6 +228,45 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(screen.getByTestId('favorite-ledger-chip-promoted-honker')).toBeInTheDocument())
   })
 
+  it('rehydrates an upper saved-rule checkbox from the restored authority after a history reset', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: {
+        cursor: 1, length: 1, entries: [{
+          cursor: 1, source: 'favorite-rules' as const, changeCount: 0, targetLedgerIds: [],
+          summary: { beforeTargetLedgerIds: [], afterTargetLedgerIds: [], reason: '收藏夹规则与勾选', movedCount: 0 }
+        }]
+      }
+    }
+    let excludedLedgerIds: string[] = []
+    const command = vi.fn((_accountMid: string, request: { type: string; ledgerIds?: string[] }) => {
+      if (request.type === 'set-round-excluded-ledger-ids') excludedLedgerIds = request.ledgerIds ?? []
+      if (request.type === 'move-history-cursor') excludedLedgerIds = []
+      return Promise.resolve({ ...preview, excludedLedgerIds })
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: ['旋律'], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false
+    }]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={vi.fn().mockResolvedValue(undefined)} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '移出同步 bilimi·音乐' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '加入同步 bilimi·音乐' })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(await screen.findByRole('button', { name: '查看改动记录' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '恢复初始改动' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'move-history-cursor', cursor: 0 }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '移出同步 bilimi·音乐' })).toBeInTheDocument())
+  })
+
   it('commits a linked upper-rule selection before merging its durable enabled state', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

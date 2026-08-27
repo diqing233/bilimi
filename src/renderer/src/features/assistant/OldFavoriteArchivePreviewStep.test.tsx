@@ -599,6 +599,31 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(current).not.toHaveTextContent('收藏夹规则与勾选已更新')
   })
 
+  it('uses a recoverable Chinese scope label for legacy favorite-rule history without an operation summary', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: {
+          cursor: 1, length: 1, entries: [{
+            cursor: 1, source: 'favorite-rules', changeCount: 0, targetLedgerIds: [],
+            summary: { beforeTargetLedgerIds: [], afterTargetLedgerIds: [], reason: '收藏夹规则与勾选', movedCount: 0 }
+          }]
+        }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '查看改动记录' }))
+    const current = screen.getByRole('menu', { name: '改动记录' })
+      .querySelector('.favorite-ledger-panel__archive-history-current')
+    expect(current).toHaveTextContent('当前记录：收藏夹规则变更：已恢复本地规则与本轮勾选')
+    expect(current).not.toHaveTextContent('收藏夹规则与勾选已更新')
+  })
+
   it('shows each DeepSeek video move with its title and before-to-after folders', () => {
     render(<OldFavoriteArchivePreviewStep
       snapshot={{
