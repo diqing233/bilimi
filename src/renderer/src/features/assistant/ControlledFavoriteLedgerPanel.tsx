@@ -79,6 +79,11 @@ function enabledMapsMatch(left: ReadonlyMap<string, boolean>, right: ReadonlyMap
   return [...left].every(([id, enabled]) => right.get(id) === enabled)
 }
 
+function sameRecommendationCandidateIds(left: readonly string[], right: readonly string[]) {
+  const normalize = (ids: readonly string[]) => [...new Set(ids.map((id) => id.trim()).filter(Boolean))].sort()
+  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right))
+}
+
 type RecommendationProjection = {
   candidateToLedgerId: Map<string, string>
   ledgerToCandidateId: Map<string, string>
@@ -261,6 +266,40 @@ export function ControlledFavoriteLedgerPanel({
     // workspace read/reclassification behind the narrow preference write.
     return onSaveLedgerEnabled?.(ledgerId, enabled, historyOptions)
   }, [onSaveLedgerEnabled])
+  const pendingHistoryRestoreRef = useRef<{ workspaceId: string; cursor: number } | null>(null)
+  const skipNextPassiveRecommendationPromotionRef = useRef(false)
+  const runHistoryRestore = useCallback(async (cursor: number, run: () => Promise<OldFavoriteWorkspaceSnapshot | null>) => {
+    const snapshot = workspace.snapshot
+    const activeSnapshot = snapshot && !('recovery' in snapshot) && snapshot.status === 'previewing'
+      ? snapshot
+      : null
+    const target = activeSnapshot && cursor !== activeSnapshot.history.cursor
+      ? { workspaceId: activeSnapshot.workspaceId, cursor }
+      : null
+    if (target) {
+      // Set synchronously, before the IPC command can cause a surrounding
+      // preference render.  That render must not promote the selection being
+      // undone while it still observes the previous workspace snapshot.
+      pendingHistoryRestoreRef.current = target
+      skipNextPassiveRecommendationPromotionRef.current = true
+    }
+    const next = await run()
+    if (!next && target && pendingHistoryRestoreRef.current === target) {
+      pendingHistoryRestoreRef.current = null
+      skipNextPassiveRecommendationPromotionRef.current = false
+    }
+    return next
+  }, [workspace.snapshot])
+  const undoOrganizationHistory = useCallback(() => {
+    const cursor = workspace.snapshot && !('recovery' in workspace.snapshot) ? workspace.snapshot.history.cursor - 1 : 0
+    return runHistoryRestore(cursor, workspace.undoClassification)
+  }, [runHistoryRestore, workspace.snapshot, workspace.undoClassification])
+  const redoOrganizationHistory = useCallback(() => {
+    const cursor = workspace.snapshot && !('recovery' in workspace.snapshot) ? workspace.snapshot.history.cursor + 1 : 0
+    return runHistoryRestore(cursor, workspace.redoClassification)
+  }, [runHistoryRestore, workspace.redoClassification, workspace.snapshot])
+  const moveOrganizationHistoryCursor = useCallback((cursor: number) =>
+    runHistoryRestore(cursor, () => workspace.moveHistoryCursor(cursor)), [runHistoryRestore, workspace.moveHistoryCursor])
   const [promotedRecommendationLedgers, setPromotedRecommendationLedgers] = useState<FavoriteLedger[]>([])
   const promotedRecommendationLedgersRef = useRef<FavoriteLedger[]>([])
   const promotedRecommendationHistoryCursorRef = useRef<string | null>(null)
@@ -366,6 +405,14 @@ export function ControlledFavoriteLedgerPanel({
     promotedRecommendationLedgersRef.current = nextPromoted
     setPromotedRecommendationLedgers(nextPromoted)
   }, [ledgers, recommendationPromotionSaving, workspace.recommendedCandidateIds, workspace.snapshot])
+  useEffect(() => {
+    const pending = pendingHistoryRestoreRef.current
+    const snapshot = workspace.snapshot
+    if (!pending || !snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' ||
+      snapshot.workspaceId !== pending.workspaceId || snapshot.history.cursor !== pending.cursor ||
+      !sameRecommendationCandidateIds(workspace.recommendedCandidateIds, snapshot.recommendations.adoptedCandidateIds)) return
+    pendingHistoryRestoreRef.current = null
+  }, [workspace.recommendedCandidateIds, workspace.snapshot])
   useEffect(() => {
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return
@@ -704,8 +751,20 @@ export function ControlledFavoriteLedgerPanel({
     }
   }, [effectiveLedgers, saveLedgerEnabledAndRefreshWorkspace, setOrganizationRecommendedCandidates, updateLedgerEnabledById, workspace.setRoundExcludedLedgerIds, workspace.snapshot])
   useEffect(() => {
-    promoteSelectedRecommendationLedgers(workspace.recommendedCandidateIds)
-  }, [promoteSelectedRecommendationLedgers, workspace.recommendedCandidateIds])
+    const snapshot = workspace.snapshot
+    if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' || pendingHistoryRestoreRef.current) return
+    if (skipNextPassiveRecommendationPromotionRef.current) {
+      skipNextPassiveRecommendationPromotionRef.current = false
+      return
+    }
+    // This passive bridge only restores a selection already confirmed by the
+    // current durable history cursor.  A cursor restore can render once with
+    // the former checkbox state before the workspace hook rehydrates it; that
+    // old state must never be promoted into a new rule-history branch.
+    const adoptedCandidateIds = snapshot.recommendations.adoptedCandidateIds
+    if (!sameRecommendationCandidateIds(workspace.recommendedCandidateIds, adoptedCandidateIds)) return
+    void promoteSelectedRecommendationLedgers(adoptedCandidateIds)
+  }, [promoteSelectedRecommendationLedgers, workspace.recommendedCandidateIds, workspace.snapshot])
   // FavoriteLedgerOverview owns its narrow deletion IPC. Once that command
   // succeeds, replace the renderer's prior selection with the main-process
   // transaction snapshot before any recommendation promotion effect can run.
@@ -1598,9 +1657,9 @@ export function ControlledFavoriteLedgerPanel({
         }}
         onCancelDeepSeek={() => void workspace.cancelCurrentSegmentDeepSeek()}
         deepSeekCancelRequested={workspace.deepSeekCancelRequested}
-        onUndoClassification={() => void workspace.undoClassification()}
-        onRedoClassification={() => void workspace.redoClassification()}
-        onMoveHistoryCursor={(cursor) => void workspace.moveHistoryCursor(cursor)}
+        onUndoClassification={() => void undoOrganizationHistory()}
+        onRedoClassification={() => void redoOrganizationHistory()}
+        onMoveHistoryCursor={(cursor) => void moveOrganizationHistoryCursor(cursor)}
         onApplyManualClassification={applyManualClassification}
         onApplyManualClassifications={applyManualClassifications}
         onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { ControlledFavoriteLedgerPanel, createRecommendationProjection, resolveRecommendationOpenLedgerId } from './ControlledFavoriteLedgerPanel'
 import { OldFavoriteWholeRunOverview } from './OldFavoriteOverviewControls'
@@ -4185,6 +4186,69 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'move-history-cursor', cursor: 0 }))
     await waitFor(() => expect(screen.queryByRole('button', { name: '历史作者' })).not.toBeInTheDocument())
+  })
+
+  it('does not recreate a recommendation draft from the selection that predates restoring history', async () => {
+    const historyLedger = {
+      id: 'author-history', displayName: 'bilimi·历史作者', keywords: ['历史作者'], ruleType: 'author' as const,
+      enabled: true, priority: 10_000, ruleOrigin: 'recommendation-draft' as const, bindingState: 'unbacked' as const, isDefault: false
+    }
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {},
+      recommendations: {
+        candidates: [{ id: 'author-history', displayName: 'bilimi·历史作者', kind: 'author' as const, count: 2, reason: '历史推荐' }],
+        adoptedCandidateIds: ['author-history']
+      },
+      history: {
+        cursor: 1, length: 1, baselineCursor: 0, entries: [{
+          cursor: 1, source: 'favorite-rules' as const, changeCount: 1, targetLedgerIds: ['author-history'],
+          summary: { beforeTargetLedgerIds: [], afterTargetLedgerIds: ['author-history'], reason: '新建收藏夹', movedCount: 0 }
+        }]
+      }
+    }
+    const restored = {
+      ...preview,
+      recommendations: { ...preview.recommendations, adoptedCandidateIds: [] },
+      history: { ...preview.history, cursor: 0 }
+    }
+    let replaceLedgers!: (ledgers: typeof historyLedger[]) => void
+    const save = vi.fn(async (nextLedgers: typeof historyLedger[]) => replaceLedgers(nextLedgers))
+    const command = vi.fn((_accountMid: string, request: { type: string }) => {
+      if (request.type === 'move-history-cursor') {
+        replaceLedgers([])
+        return Promise.resolve(restored)
+      }
+      return Promise.resolve(preview)
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    function Harness() {
+      const [ledgers, setLedgers] = useState([historyLedger])
+      replaceLedgers = setLedgers
+      return <ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={ledgers} missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()} onSaveLedgers={save} />
+    }
+
+    render(<Harness />)
+    await openPersistedWorkspaceGuide()
+    expect(await screen.findByRole('button', { name: '历史作者' })).toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(await screen.findByRole('button', { name: '查看改动记录' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '恢复初始改动' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'move-history-cursor', cursor: 0 }))
+    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 20)) })
+    expect(save).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: '历史作者' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeEnabled()
   })
 
   it('waits for a promoted recommendation rule to persist before applying its adoption', async () => {
