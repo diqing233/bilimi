@@ -60,7 +60,12 @@ type WorkspaceCommand =
   | { type: 'reclassify-favorite-configuration' }
   | { type: 'refresh-relationship-projection' }
   | { type: 'set-recommended-candidates'; candidateIds: string[] }
-  | { type: 'set-round-excluded-ledger-ids'; ledgerIds: string[]; mergeFavoriteRuleHistory?: boolean }
+  | {
+      type: 'set-round-excluded-ledger-ids'
+      ledgerIds: string[]
+      participatingSavedLedgerIds?: string[]
+      mergeFavoriteRuleHistory?: boolean
+    }
   | { type: 'prepare-recommendation-preview'; candidateIds: string[] }
   | { type: 'cancel-recommendation-preview-preparation' }
   | { type: 'create-local-ledger-and-reclassify'; title: string }
@@ -242,11 +247,17 @@ function command(value: unknown): WorkspaceCommand {
   }
   if (candidate.type === 'set-round-excluded-ledger-ids' && Array.isArray(candidate.ledgerIds) &&
     candidate.ledgerIds.length <= 128 && candidate.ledgerIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
+    (candidate.participatingSavedLedgerIds === undefined || (Array.isArray(candidate.participatingSavedLedgerIds) &&
+      candidate.participatingSavedLedgerIds.length <= 128 && candidate.participatingSavedLedgerIds.every((id) =>
+        typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128))) &&
     (candidate.mergeFavoriteRuleHistory === undefined || candidate.mergeFavoriteRuleHistory === true) &&
-    Object.keys(candidate).every((key) => key === 'type' || key === 'ledgerIds' || key === 'mergeFavoriteRuleHistory')) {
+    Object.keys(candidate).every((key) => key === 'type' || key === 'ledgerIds' || key === 'participatingSavedLedgerIds' || key === 'mergeFavoriteRuleHistory')) {
     return {
       type: 'set-round-excluded-ledger-ids',
       ledgerIds: [...new Set(candidate.ledgerIds.map((id) => id.trim()))].sort(),
+      ...(candidate.participatingSavedLedgerIds === undefined ? {} : {
+        participatingSavedLedgerIds: [...new Set(candidate.participatingSavedLedgerIds.map((id) => id.trim()))].sort()
+      }),
       ...(candidate.mergeFavoriteRuleHistory === true ? { mergeFavoriteRuleHistory: true } : {})
     }
   }
@@ -574,11 +585,12 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       return options.coordinator.getSnapshot(accountMid)
     }
     if (requested.type === 'set-round-excluded-ledger-ids') {
-      if (requested.mergeFavoriteRuleHistory === true) {
-        await options.coordinator.setRoundExcludedLedgerIds(accountMid, requested.ledgerIds, { mergeWithLatestClassification: true })
-      } else {
-        await options.coordinator.setRoundExcludedLedgerIds(accountMid, requested.ledgerIds)
-      }
+      await options.coordinator.setRoundExcludedLedgerIds(accountMid, requested.ledgerIds, {
+        ...(requested.participatingSavedLedgerIds === undefined ? {} : {
+          participatingSavedLedgerIds: requested.participatingSavedLedgerIds
+        }),
+        ...(requested.mergeFavoriteRuleHistory === true ? { mergeWithLatestClassification: true } : {})
+      })
       return options.coordinator.getSnapshot(accountMid)
     }
     if (requested.type === 'prepare-recommendation-preview') {

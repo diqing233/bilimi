@@ -872,10 +872,13 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [setRecommendedCandidates])
   const setRoundExcludedLedgerIds = useCallback((
     ledgerIds: string[],
-    options: { mergeFavoriteRuleHistory?: boolean } = {}
+    options: { mergeFavoriteRuleHistory?: boolean; participatingSavedLedgerIds?: string[] } = {}
   ) => sendCommand({
     type: 'set-round-excluded-ledger-ids',
     ledgerIds: normalizeCandidateIds(ledgerIds),
+    ...(options.participatingSavedLedgerIds === undefined ? {} : {
+      participatingSavedLedgerIds: normalizeCandidateIds(options.participatingSavedLedgerIds)
+    }),
     ...(options.mergeFavoriteRuleHistory === true ? { mergeFavoriteRuleHistory: true } : {})
   }), [sendCommand])
   const prepareRecommendationPreview = useCallback(async () => {

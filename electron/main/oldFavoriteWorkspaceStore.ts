@@ -9,7 +9,8 @@ import {
   type OldFavoriteWorkspaceLocalWorkspaceFolder,
   type OldFavoriteWorkspaceDeepSeekRunCheckpoint,
   type OldFavoriteWorkspaceExecutionIntent,
-  type OldFavoriteWorkspaceTagAdoption
+  type OldFavoriteWorkspaceTagAdoption,
+  type OldFavoriteWorkspaceFavoriteRuleHistoryState
 } from '../../src/shared/oldFavoriteWorkspace'
 
 type ScanItem = {
@@ -95,6 +96,8 @@ type Overlay = {
   classifications: Classification[]
   history: History[]
   excludedLedgerIds?: string[]
+  participatingSavedLedgerIds?: string[]
+  initialFavoriteRuleState?: OldFavoriteWorkspaceFavoriteRuleHistoryState
   recommendations?: {
     initialized?: boolean
     candidates?: Recommendation[]
@@ -144,7 +147,7 @@ function normalizeTagVersions(value: Record<string, number> | undefined) {
   )) as Record<string, number>
 }
 
-type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history' | 'excludedLedgerIds'>
+type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history' | 'excludedLedgerIds' | 'participatingSavedLedgerIds'>
 
 function normalizeExcludedLedgerIds(value: unknown): string[] {
   return Array.isArray(value)
@@ -653,6 +656,8 @@ export class OldFavoriteWorkspaceStore {
       let overview: Overlay['overview'] | undefined
       let inventoryMetrics: OldFavoriteInventoryMetricProjection | undefined
       let excludedLedgerIds: string[] = []
+      let participatingSavedLedgerIds: string[] | undefined
+      let initialFavoriteRuleState: OldFavoriteWorkspaceFavoriteRuleHistoryState | undefined
       const overlayHistory: OverlayHistory[] = []
       let planReadiness = { selectedAidCount: 0, classifiedAidCount: 0 }
       for (const line of committedJournal.split('\n').filter(Boolean)) {
@@ -660,9 +665,18 @@ export class OldFavoriteWorkspaceStore {
         overlayHistory.push({
           currentSegmentId: overlay.currentSegmentId,
           history: overlay.history.map(clone),
-          ...(overlay.excludedLedgerIds !== undefined ? { excludedLedgerIds: normalizeExcludedLedgerIds(overlay.excludedLedgerIds) } : {})
+          ...(overlay.excludedLedgerIds !== undefined ? { excludedLedgerIds: normalizeExcludedLedgerIds(overlay.excludedLedgerIds) } : {}),
+          ...(overlay.participatingSavedLedgerIds !== undefined
+            ? { participatingSavedLedgerIds: normalizeExcludedLedgerIds(overlay.participatingSavedLedgerIds) }
+            : {})
         })
         if (overlay.excludedLedgerIds !== undefined) excludedLedgerIds = normalizeExcludedLedgerIds(overlay.excludedLedgerIds)
+        if (overlay.participatingSavedLedgerIds !== undefined) {
+          participatingSavedLedgerIds = normalizeExcludedLedgerIds(overlay.participatingSavedLedgerIds)
+        }
+        if (overlay.initialFavoriteRuleState !== undefined && !initialFavoriteRuleState) {
+          initialFavoriteRuleState = clone(overlay.initialFavoriteRuleState)
+        }
         for (const item of overlay.classifications) classifications[String(item.aid)] = clone(item)
         history.push(...overlay.history.map(clone))
         if (overlay.recommendations?.candidates) {
@@ -834,6 +848,8 @@ export class OldFavoriteWorkspaceStore {
         ,inventoryMetrics
         ,overview
         ,excludedLedgerIds
+        ,participatingSavedLedgerIds
+        ,initialFavoriteRuleState
         ,tagEnrichment, tagAdoption, tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags }))
       }
     } catch {
@@ -963,7 +979,10 @@ export class OldFavoriteWorkspaceStore {
       return {
         currentSegmentId: overlay.currentSegmentId,
         history: overlay.history.map(clone),
-        ...(overlay.excludedLedgerIds !== undefined ? { excludedLedgerIds: normalizeExcludedLedgerIds(overlay.excludedLedgerIds) } : {})
+        ...(overlay.excludedLedgerIds !== undefined ? { excludedLedgerIds: normalizeExcludedLedgerIds(overlay.excludedLedgerIds) } : {}),
+        ...(overlay.participatingSavedLedgerIds !== undefined
+          ? { participatingSavedLedgerIds: normalizeExcludedLedgerIds(overlay.participatingSavedLedgerIds) }
+          : {})
       }
     })
   }
@@ -1051,11 +1070,19 @@ export class OldFavoriteWorkspaceStore {
     let executionIntent: Overlay['executionIntent']
     let inventoryMetrics: OldFavoriteInventoryMetricProjection | undefined
     let excludedLedgerIds: string[] = []
+    let participatingSavedLedgerIds: string[] | undefined
+    let initialFavoriteRuleState: OldFavoriteWorkspaceFavoriteRuleHistoryState | undefined
 
     for (const raw of committed.split('\n').filter(Boolean)) {
       const overlay = JSON.parse(raw) as Overlay
       currentSegmentId = overlay.currentSegmentId
       if (overlay.excludedLedgerIds !== undefined) excludedLedgerIds = normalizeExcludedLedgerIds(overlay.excludedLedgerIds)
+      if (overlay.participatingSavedLedgerIds !== undefined) {
+        participatingSavedLedgerIds = normalizeExcludedLedgerIds(overlay.participatingSavedLedgerIds)
+      }
+      if (overlay.initialFavoriteRuleState !== undefined && !initialFavoriteRuleState) {
+        initialFavoriteRuleState = clone(overlay.initialFavoriteRuleState)
+      }
       for (const classification of overlay.classifications) classifications.set(classification.aid, clone(classification))
       if (overlay.history.length) {
         historyOverlays.push({ currentSegmentId: overlay.currentSegmentId, classifications: [], history: overlay.history.map(clone) })
@@ -1104,6 +1131,8 @@ export class OldFavoriteWorkspaceStore {
       classifications: [...classifications.values()],
       history: [],
       ...(excludedLedgerIds.length ? { excludedLedgerIds } : {}),
+      ...(participatingSavedLedgerIds !== undefined ? { participatingSavedLedgerIds } : {}),
+      ...(initialFavoriteRuleState ? { initialFavoriteRuleState } : {}),
       ...(hasRecommendations ? { recommendations } : {}),
       ...(planReadiness ? { planReadiness } : {}),
       scanMetadata: {

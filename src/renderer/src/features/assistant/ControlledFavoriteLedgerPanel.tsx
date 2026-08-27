@@ -626,6 +626,10 @@ export function ControlledFavoriteLedgerPanel({
     const nextParticipationById = new Map(previousParticipationById)
     nextParticipationById.set(ledgerId, enabled)
     updateOrganizationSavedLedgerParticipationById(nextParticipationById)
+    const participatingSavedLedgerIds = [...persistedUpperLedgerIds]
+      .filter((candidateLedgerId) => nextEnabledById.get(candidateLedgerId) ??
+        effectiveLedgers.find((ledger) => ledger.id === candidateLedgerId)?.enabled)
+      .sort()
     const retainLinkedSavedLedgerIds = candidateId ? [ledgerId] : []
     pendingOrganizationSavedLedgerIdsRef.current.add(ledgerId)
     try {
@@ -634,6 +638,9 @@ export function ControlledFavoriteLedgerPanel({
         : priorCandidateIds
       const selectionChanged = JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)
       const next = await workspace.setRoundExcludedLedgerIds([...excludedLedgerIds], {
+        ...(enabled && isSavedUpperLedger(savedLedger) && participatingSavedLedgerIds.length
+          ? { participatingSavedLedgerIds }
+          : {}),
         ...(candidateId && selectionChanged ? { mergeFavoriteRuleHistory: true } : {})
       })
       if (!next || 'recovery' in next) throw new Error('Organization selection update failed.')
@@ -649,7 +656,12 @@ export function ControlledFavoriteLedgerPanel({
         await setOrganizationRecommendedCandidates(priorCandidateIds, { retainLinkedSavedLedgerIds }).catch(() => undefined)
       }
       await saveLedgerEnabledAndRefreshWorkspace(ledgerId, previousEnabledById.get(ledgerId) ?? savedLedger.enabled).catch(() => undefined)
-      await workspace.setRoundExcludedLedgerIds(snapshot.excludedLedgerIds ?? []).catch(() => undefined)
+      await workspace.setRoundExcludedLedgerIds(snapshot.excludedLedgerIds ?? [], {
+        participatingSavedLedgerIds: [...persistedUpperLedgerIds]
+          .filter((candidateLedgerId) => previousEnabledById.get(candidateLedgerId) ??
+            effectiveLedgers.find((ledger) => ledger.id === candidateLedgerId)?.enabled)
+          .sort()
+      }).catch(() => undefined)
       return false
     } finally {
       pendingOrganizationSavedLedgerIdsRef.current.delete(ledgerId)
@@ -752,6 +764,9 @@ export function ControlledFavoriteLedgerPanel({
         await setOrganizationRecommendedCandidates(nextCandidateIds, { retainLinkedSavedLedgerIds })
       }
       const next = await workspace.setRoundExcludedLedgerIds(nextExcludedLedgerIds, {
+        ...(changedEnabledByLedgerId.some(([, enabled]) => enabled)
+          ? { participatingSavedLedgerIds: [...selectedIds].sort() }
+          : {}),
         ...(selectionChanged ? { mergeFavoriteRuleHistory: true } : {})
       })
       if (!next || 'recovery' in next) throw new Error('Organization selection update failed.')
@@ -770,7 +785,12 @@ export function ControlledFavoriteLedgerPanel({
           previousEnabledById.get(ledgerId) ?? effectiveLedgers.find((ledger) => ledger.id === ledgerId)?.enabled ?? false
         ).catch(() => undefined)
       }
-      await workspace.setRoundExcludedLedgerIds(snapshot.excludedLedgerIds ?? []).catch(() => undefined)
+      await workspace.setRoundExcludedLedgerIds(snapshot.excludedLedgerIds ?? [], {
+        participatingSavedLedgerIds: [...selectableLedgerIds]
+          .filter((ledgerId) => previousEnabledById.get(ledgerId) ??
+            effectiveLedgers.find((ledger) => ledger.id === ledgerId)?.enabled)
+          .sort()
+      }).catch(() => undefined)
       return false
     } finally {
       for (const [ledgerId] of changedEnabledByLedgerId) pendingOrganizationSavedLedgerIdsRef.current.delete(ledgerId)

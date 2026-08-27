@@ -9150,6 +9150,227 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('reclassifies when the participating rule set changes while exclusions stay empty', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' })
+    let reselected = false
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: reselected ? ['genshin'] : [],
+      confidence: 'high' as const
+    })))
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItems,
+      listSavedLedgers: vi.fn().mockResolvedValue([{ id: 'genshin', title: 'bilimi·原神' }]),
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([])
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: '视频', tags: ['ready'], sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    const callsBeforeReselect = classifyCurrentItems.mock.calls.length
+    reselected = true
+    await expect(coordinator.setRoundExcludedLedgerIds('100', [])).resolves.toMatchObject({
+      classifications: {
+        1: expect.objectContaining({ targetLedgerIds: ['genshin'] })
+      },
+      planReadiness: expect.objectContaining({ classifiedAidCount: 1 })
+    })
+    expect(classifyCurrentItems.mock.calls.length).toBeGreaterThan(callsBeforeReselect)
+  })
+
+  it('does not implicitly reinclude a saved rule that was disabled at round start', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' })
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: ['game'], confidence: 'high' as const
+    })))
+    const savedLedgers: FavoriteLedger[] = [
+      { id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], ruleType: 'keyword', enabled: true, priority: 1, isDefault: false, ruleOrigin: 'saved-rule' },
+      { id: 'music', displayName: 'bilimi·音乐', keywords: ['音乐'], ruleType: 'keyword', enabled: false, priority: 2, isDefault: false, ruleOrigin: 'saved-rule' }
+    ]
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItems,
+      loadFavoriteLedgerHistoryLedgers: vi.fn().mockResolvedValue(savedLedgers),
+      listSavedLedgers: vi.fn().mockResolvedValue(savedLedgers.map((ledger) => ({ id: ledger.id, title: ledger.displayName }))),
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([{ id: 'game', title: 'bilimi·游戏专区' }])
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+
+    await coordinator.setRoundExcludedLedgerIds('100', ['game'])
+    const callsBeforeReenable = classifyCurrentItems.mock.calls.length
+    await coordinator.setRoundExcludedLedgerIds('100', [])
+
+    expect(classifyCurrentItems.mock.calls.length).toBeGreaterThan(callsBeforeReenable)
+    expect(classifyCurrentItems).toHaveBeenLastCalledWith(
+      expect.any(Array), expect.any(Array), '100',
+      expect.objectContaining({ participatingSavedLedgerIds: ['game'] })
+    )
+  })
+
+  it('reclassifies an explicit upper-card re-enable before the enabled preference write completes', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-28T00:00:00.000Z' })
+    const ledger: FavoriteLedger = {
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], ruleType: 'keyword',
+      enabled: false, priority: 1, isDefault: false, ruleOrigin: 'saved-rule'
+    }
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: ['game'], confidence: 'high' as const
+    })))
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItems,
+      loadFavoriteLedgerHistoryLedgers: vi.fn().mockResolvedValue([ledger]),
+      listSavedLedgers: vi.fn().mockResolvedValue([{ id: ledger.id, title: ledger.displayName }]),
+      // This is the renderer's real ordering: the selection command runs before
+      // the narrow account preference write has changed enabled=false to true.
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([])
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const callsBeforeReenable = classifyCurrentItems.mock.calls.length
+
+    await coordinator.setRoundExcludedLedgerIds('100', [], {
+      participatingSavedLedgerIds: ['game']
+    })
+
+    expect(classifyCurrentItems.mock.calls.length).toBeGreaterThan(callsBeforeReenable)
+    expect(classifyCurrentItems).toHaveBeenLastCalledWith(
+      expect.any(Array), expect.any(Array), '100',
+      expect.objectContaining({ participatingSavedLedgerIds: ['game'] })
+    )
+  })
+
+  it('restores the persisted round-start checkbox state instead of a later history before-state', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' })
+    const restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)
+    const initialLedger: FavoriteLedger = {
+      id: 'genshin', displayName: 'bilimi·原神', keywords: ['原神'], ruleType: 'tag',
+      enabled: false, priority: 1, isDefault: false
+    }
+    let currentLedgers = [initialLedger]
+    let firstClassification = true
+    const classifyCurrentItem = vi.fn(() => ({
+      targetLedgerIds: firstClassification ? ['initial'] : ['manual'],
+      confidence: 'high' as const
+    }))
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItem,
+      loadFavoriteLedgerHistoryLedgers: vi.fn().mockImplementation(async () => currentLedgers),
+      restoreFavoriteLedgerHistoryState
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: '视频', tags: ['ready'], sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    firstClassification = false
+    const baseline = requireSnapshot(await coordinator.getSnapshot('100')).history.baselineCursor ?? 0
+    expect(baseline).toBeGreaterThan(0)
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
+    })
+    const laterEnabled: FavoriteLedger = { ...initialLedger, enabled: true }
+    currentLedgers = [laterEnabled]
+    await coordinator.recordFavoriteLedgerHistoryChange('100', {
+      before: { ledgers: [laterEnabled], adoptedCandidateIds: [], excludedLedgerIds: [] },
+      after: { ledgers: [{ ...laterEnabled, enabled: false }], adoptedCandidateIds: [], excludedLedgerIds: ['genshin'] },
+      mergeWithLatestClassification: true
+    })
+
+    await coordinator.moveHistoryCursor('100', baseline)
+
+    expect(restoreFavoriteLedgerHistoryState).toHaveBeenLastCalledWith('100', {
+      ledgers: [initialLedger], adoptedCandidateIds: [], excludedLedgerIds: []
+    })
+  })
+
+  it('reclassifies a restored baseline with that baseline participation set', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-28T00:00:00.000Z' })
+    const ledger: FavoriteLedger = {
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], ruleType: 'keyword',
+      enabled: true, priority: 1, isDefault: false, ruleOrigin: 'saved-rule'
+    }
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: ['game'], confidence: 'high' as const
+    })))
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      classifyCurrentItems,
+      loadFavoriteLedgerHistoryLedgers: vi.fn().mockResolvedValue([ledger]),
+      restoreFavoriteLedgerHistoryState: vi.fn().mockResolvedValue(undefined),
+      listSavedLedgers: vi.fn().mockResolvedValue([{ id: ledger.id, title: ledger.displayName }]),
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([{ id: ledger.id, title: ledger.displayName }])
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const baseline = requireSnapshot(await coordinator.getSnapshot('100')).history.baselineCursor ?? 0
+    await coordinator.setRoundExcludedLedgerIds('100', ['game'])
+    const callsBeforeRestore = classifyCurrentItems.mock.calls.length
+
+    await coordinator.moveHistoryCursor('100', baseline)
+
+    expect(classifyCurrentItems.mock.calls.length).toBeGreaterThan(callsBeforeRestore)
+    expect(classifyCurrentItems).toHaveBeenLastCalledWith(
+      expect.any(Array), expect.any(Array), '100',
+      expect.objectContaining({ participatingSavedLedgerIds: ['game'] })
+    )
+  })
+
+  it('persists the restored round participation set for a later restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' })
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>) => items.map(() => ({
+      targetLedgerIds: ['game'], confidence: 'high' as const
+    })))
+    const ledger: FavoriteLedger = {
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], ruleType: 'keyword',
+      enabled: false, priority: 1, isDefault: false, ruleOrigin: 'saved-rule'
+    }
+    const createOptions = (restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)) => ({
+      classifyCurrentItems,
+      loadFavoriteLedgerHistoryLedgers: vi.fn().mockResolvedValue([ledger]),
+      listSavedLedgers: vi.fn().mockResolvedValue([{ id: 'game', title: ledger.displayName }]),
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([{ id: 'game', title: ledger.displayName }]),
+      restoreFavoriteLedgerHistoryState
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), createOptions())
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.setRoundExcludedLedgerIds('100', ['game'])
+    await coordinator.setRoundExcludedLedgerIds('100', [])
+    const baseline = requireSnapshot(await coordinator.getSnapshot('100')).history.baselineCursor ?? 0
+    await coordinator.moveHistoryCursor('100', baseline)
+    const callsBeforeSameProcessCheck = classifyCurrentItems.mock.calls.length
+    await coordinator.setRoundExcludedLedgerIds('100', ['game'])
+    expect(classifyCurrentItems.mock.calls.length).toBe(callsBeforeSameProcessCheck)
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      ...createOptions(), initializeOnOpen: false
+    })
+    await restarted.getSnapshot('100')
+    const callsBefore = classifyCurrentItems.mock.calls.length
+    await restarted.setRoundExcludedLedgerIds('100', ['game'])
+
+    expect(classifyCurrentItems.mock.calls.length).toBe(callsBefore)
+  })
+
   it('does not require a remote target for an aid whose only classification is excluded from this round', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-23T00:00:00.000Z' })

@@ -318,6 +318,39 @@ describe('ControlledFavoriteLedgerPanel', () => {
     ])
   })
 
+  it('sends a saved upper-rule re-enable as the final stable participation set before its preference write', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {}, excludedLedgerIds: ['saved-game'],
+      recommendations: { candidates: [], adoptedCandidateIds: [] as string[] },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn((_accountMid: string, request: { type: string; ledgerIds?: string[] }) => Promise.resolve({
+      ...preview,
+      excludedLedgerIds: request.type === 'set-round-excluded-ledger-ids' ? request.ledgerIds ?? [] : preview.excludedLedgerIds
+    }))
+    const saveEnabled = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{
+      id: 'saved-game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], ruleType: 'keyword', enabled: false,
+      priority: 10_000, ruleOrigin: 'saved-rule', isDefault: false
+    }]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '加入同步 bilimi·游戏专区' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-round-excluded-ledger-ids', ledgerIds: [], participatingSavedLedgerIds: ['saved-game']
+    }))
+    expect(saveEnabled).toHaveBeenCalledWith('saved-game', true, { mergeFavoriteRuleHistory: true })
+  })
+
   it('does not project a candidate-only local draft as a saved recommendation', () => {
     const projection = createRecommendationProjection([
       { id: 'candidate-only', displayName: 'bilimi·候选草稿', keywords: [], enabled: true, priority: 10,
@@ -1346,7 +1379,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: 'honker233' })).toBeInTheDocument()
   })
 
-  it('restores a disabled saved high-priority rule when its linked lower recommendation is checked again', async () => {
+  it('restores a disabled recommendation draft when its linked lower recommendation is checked again', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,

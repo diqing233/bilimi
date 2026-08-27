@@ -121,6 +121,10 @@ function matchingFavoriteRuleIdSets(left: ReadonlySet<string>, right: ReadonlySe
   return left.size > 0 && left.size === right.size && [...left].every((id) => right.has(id))
 }
 
+function favoriteRuleIdSetsMatch(left: ReadonlySet<string>, right: ReadonlySet<string>) {
+  return left.size === right.size && [...left].every((id) => right.has(id))
+}
+
 function favoriteRuleHistoryEffect(entry: OldFavoriteWorkspaceHistoryEntry): FavoriteRuleHistoryEffect | undefined {
   const transition = entry.favoriteRuleState
   if (!transition) return undefined
@@ -1173,6 +1177,8 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly inFlightTagEnrichmentAids = new Map<string, Set<number>>()
   private readonly recommendations = new Map<string, RecommendationState>()
   private readonly roundExcludedLedgerIdsByAccount = new Map<string, string[]>()
+  private readonly participatingSavedLedgerIdsByAccount = new Map<string, string[]>()
+  private readonly initialFavoriteRuleStatesByAccount = new Map<string, OldFavoriteWorkspaceFavoriteRuleHistoryState>()
   private readonly recommendationIndexes = new Map<string, RecommendationIndex>()
   private readonly planReadiness = new Map<string, PlanReadiness>()
   private readonly staleDeepSeekAids = new Map<string, number[]>()
@@ -1282,6 +1288,8 @@ export class OldFavoriteWorkspaceCoordinator {
     this.tagAdoptions.clear()
     this.recommendations.clear()
     this.roundExcludedLedgerIdsByAccount.clear()
+    this.participatingSavedLedgerIdsByAccount.clear()
+    this.initialFavoriteRuleStatesByAccount.clear()
     this.recommendationIndexes.clear()
     this.planReadiness.clear()
     this.staleDeepSeekAids.clear()
@@ -3256,6 +3264,11 @@ export class OldFavoriteWorkspaceCoordinator {
       )
       const recommendations = recommendationsFromIndex(recommendationIndex)
       const readiness = this.calculatePlanReadinessFromItems(completed, organizableItemsByAid.values(), sourceFolders)
+      const roundStart = await this.captureRoundStartFavoriteRuleStateUnsafe(completed, recommendations)
+      if (roundStart) {
+        this.initialFavoriteRuleStatesByAccount.set(completed.accountMid, clone(roundStart.state))
+        this.participatingSavedLedgerIdsByAccount.set(completed.accountMid, [...roundStart.participatingSavedLedgerIds])
+      }
       const discoveredAids = new Set([
         ...itemsByAid.keys(),
         ...Object.values(managedMembers).flat()
@@ -3297,6 +3310,10 @@ export class OldFavoriteWorkspaceCoordinator {
         [...itemsByAid.values()].filter((item) => isUnavailableScanItem(item)).length)
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
         currentSegmentId, classifications: [], history: [], recommendations, planReadiness: readiness,
+        ...(roundStart ? {
+          initialFavoriteRuleState: clone(roundStart.state),
+          participatingSavedLedgerIds: [...roundStart.participatingSavedLedgerIds]
+        } : {}),
         scanMetadata: { sourceFolders, ...completedScan, inventoryMetrics }, tagEnrichment,
         overview: this.persistedOverviewRuntime(overviewRuntime)
       })
@@ -3391,6 +3408,23 @@ export class OldFavoriteWorkspaceCoordinator {
           items: segment.aids.map((aid) => ({ aid, sourceFolderIds: ['legacy-source'] }))
         }))
       })
+      const initialRecommendations: RecommendationState = {
+        initialized: true,
+        candidates: [],
+        adoptedCandidateIds: []
+      }
+      const roundStart = await this.captureRoundStartFavoriteRuleStateUnsafe(completed, initialRecommendations)
+      if (roundStart) {
+        this.initialFavoriteRuleStatesByAccount.set(completed.accountMid, clone(roundStart.state))
+        this.participatingSavedLedgerIdsByAccount.set(completed.accountMid, [...roundStart.participatingSavedLedgerIds])
+        await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
+          currentSegmentId,
+          classifications: [],
+          history: [],
+          initialFavoriteRuleState: clone(roundStart.state),
+          participatingSavedLedgerIds: [...roundStart.participatingSavedLedgerIds]
+        })
+      }
       const descriptors = completed.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
       await this.appendEvents(completed, currentSegmentId, [{
         type: 'scan',
@@ -3489,7 +3523,15 @@ export class OldFavoriteWorkspaceCoordinator {
   async setRoundExcludedLedgerIds(
     accountMid: string,
     ledgerIds: string[],
-    options: { mergeWithLatestClassification?: boolean } = {}
+    options: {
+      mergeWithLatestClassification?: boolean
+      /**
+       * The upper-card selection captured by the renderer before its narrow
+       * account-preference write settles.  This makes an explicit re-enable
+       * distinguishable from a rule that was already disabled at round start.
+       */
+      participatingSavedLedgerIds?: readonly string[]
+    } = {}
   ) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
@@ -3504,17 +3546,43 @@ export class OldFavoriteWorkspaceCoordinator {
         await this.options.listSavedEnabledLedgers?.(workspace.accountMid) ?? []
       const savedLedgerIds = new Set(savedLedgers.map((ledger) => ledger.id.trim()).filter(Boolean))
       const excludedLedgerIds = [...new Set(ledgerIds.map((id) => id.trim()).filter((id) => savedLedgerIds.has(id)))].sort()
-      const previousExcludedLedgerIds = this.roundExcludedLedgerIdsByAccount.get(workspace.accountMid) ?? []
-      const participationChanged = JSON.stringify(previousExcludedLedgerIds) !== JSON.stringify(excludedLedgerIds)
+      const previousParticipatingSavedLedgerIds = this.participatingSavedLedgerIdsByAccount.get(workspace.accountMid)
+      const requestedParticipatingSavedLedgerIds = options.participatingSavedLedgerIds === undefined
+        ? undefined
+        : [...new Set(options.participatingSavedLedgerIds
+          .map((ledgerId) => ledgerId.trim())
+          .filter((ledgerId) => savedLedgerIds.has(ledgerId)))].sort()
+      // Once a round-start snapshot exists, the account's enabled-rule list is
+      // authoritative for the participation universe.  Older workspaces do
+      // not have that snapshot, so retain the historical all-saved fallback
+      // instead of silently dropping rules merely because the optional
+      // enabled-list bridge is unavailable.
+      const currentlyEnabledLedgers = requestedParticipatingSavedLedgerIds === undefined && this.options.listSavedEnabledLedgers
+        ? await this.options.listSavedEnabledLedgers(workspace.accountMid)
+        : undefined
+      const participationUniverse = requestedParticipatingSavedLedgerIds !== undefined
+        ? new Set(requestedParticipatingSavedLedgerIds)
+        : previousParticipatingSavedLedgerIds !== undefined
+          ? new Set((currentlyEnabledLedgers ?? previousParticipatingSavedLedgerIds)
+            .map((ledger) => typeof ledger === 'string' ? ledger : ledger.id)
+            .map((ledgerId) => ledgerId.trim())
+            .filter((ledgerId) => savedLedgerIds.has(ledgerId)))
+          : savedLedgerIds
+      const participatingSavedLedgerIds = [...participationUniverse]
+        .filter((ledgerId) => !excludedLedgerIds.includes(ledgerId)).sort()
+      const participationChanged = !favoriteRuleIdSetsMatch(
+        new Set(previousParticipatingSavedLedgerIds), new Set(participatingSavedLedgerIds)
+      )
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
-        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], excludedLedgerIds
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], excludedLedgerIds,
+        participatingSavedLedgerIds
       })
       this.roundExcludedLedgerIdsByAccount.set(workspace.accountMid, excludedLedgerIds)
+      this.participatingSavedLedgerIdsByAccount.set(workspace.accountMid, participatingSavedLedgerIds)
       // A saved-rule participation change is not merely a preview filter.  It
       // changes the eligible rule set for this round, so the existing bounded
       // main-process classifier must produce the new durable result before any
       // archive or history projection is published.
-      const participatingSavedLedgerIds = [...savedLedgerIds].filter((ledgerId) => !excludedLedgerIds.includes(ledgerId)).sort()
       const reclassified = participationChanged && (this.options.classifyCurrentItem || this.options.classifyCurrentItems)
         ? await this.autoClassifyAllSegmentsUnsafe(workspace, true, false, false, undefined, false, participatingSavedLedgerIds)
         : workspace
@@ -4186,7 +4254,8 @@ export class OldFavoriteWorkspaceCoordinator {
   ) {
     return this.autoClassifySegmentsUnsafe(
       workspace,
-      workspace.segments.map((segment) => segment.id),
+      (this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments)
+        .slice().sort((left, right) => left.index - right.index).map((segment) => segment.id),
       replaceSystem,
       undefined,
       recommendationState,
@@ -5460,7 +5529,10 @@ export class OldFavoriteWorkspaceCoordinator {
       while (updated.historyCursor > resolvedTargetCursor) updated = undoWorkspaceChange(updated)
       while (updated.historyCursor < resolvedTargetCursor) updated = redoWorkspaceChange(updated)
       if (updated === workspace) return clone(workspace)
-      const favoriteRuleState = this.favoriteRuleHistoryStateAtCursor(updated.history, updated.historyCursor)
+      const favoriteRuleState = updated.historyCursor <= (updated.historyBaselineCursor ?? 0)
+        ? this.initialFavoriteRuleStatesByAccount.get(updated.accountMid) ??
+          this.favoriteRuleHistoryStateAtCursor(updated.history, updated.historyCursor)
+        : this.favoriteRuleHistoryStateAtCursor(updated.history, updated.historyCursor)
       if (favoriteRuleState) {
         await this.options.restoreFavoriteLedgerHistoryState?.(updated.accountMid, clone(favoriteRuleState))
         const currentRecommendations = await this.ensureRecommendations(updated)
@@ -5470,12 +5542,19 @@ export class OldFavoriteWorkspaceCoordinator {
         }
         this.recommendations.set(updated.accountMid, restoredRecommendations)
         this.roundExcludedLedgerIdsByAccount.set(updated.accountMid, [...favoriteRuleState.excludedLedgerIds])
+        this.participatingSavedLedgerIdsByAccount.set(updated.accountMid,
+          favoriteRuleState.ledgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id).sort())
         // A history cursor restores durable local intent first, then rebuilds
         // the derived archive/sync projection from that exact intent. This
         // remains local-only: classification never creates, binds, deletes,
         // or writes a Bilibili folder.
+        const restoredParticipatingSavedLedgerIds = favoriteRuleState.ledgers
+          .filter((ledger) => ledger.enabled && !favoriteRuleState.excludedLedgerIds.includes(ledger.id))
+          .map((ledger) => ledger.id).sort()
         const rebuilt = this.options.classifyCurrentItem || this.options.classifyCurrentItems
-          ? await this.autoClassifyAllSegmentsUnsafe(updated, true, true, true, restoredRecommendations, true)
+          ? await this.autoClassifyAllSegmentsUnsafe(
+              updated, true, true, true, restoredRecommendations, true, restoredParticipatingSavedLedgerIds
+            )
           : updated
         const readiness = await this.calculatePlanReadiness(rebuilt)
         await this.options.workspaceStore.appendOverlay(rebuilt.accountMid, rebuilt.id, {
@@ -5484,6 +5563,7 @@ export class OldFavoriteWorkspaceCoordinator {
           history: [encodeJournalEvent({ type: 'history-cursor', historyCursor: rebuilt.historyCursor })],
           recommendations: clone(restoredRecommendations),
           excludedLedgerIds: [...favoriteRuleState.excludedLedgerIds],
+          participatingSavedLedgerIds: restoredParticipatingSavedLedgerIds,
           planReadiness: readiness
         })
         this.planReadiness.set(rebuilt.accountMid, readiness)
@@ -5528,6 +5608,18 @@ export class OldFavoriteWorkspaceCoordinator {
       adoptedCandidateIds: recommendations.adoptedCandidateIds,
       excludedLedgerIds: [...excludedLedgerIds]
     })
+  }
+
+  private async captureRoundStartFavoriteRuleStateUnsafe(
+    workspace: OldFavoriteWorkspace,
+    recommendations: RecommendationState
+  ) {
+    const state = await this.captureFavoriteLedgerHistoryStateUnsafe(workspace, recommendations, [])
+    if (!state) return undefined
+    return {
+      state,
+      participatingSavedLedgerIds: state.ledgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id).sort()
+    }
   }
 
   async getFavoriteLedgerHistoryState(accountMid: string): Promise<OldFavoriteWorkspaceFavoriteRuleHistoryState | undefined> {
@@ -5996,6 +6088,8 @@ export class OldFavoriteWorkspaceCoordinator {
     this.deepSeekRunCheckpoints.delete(account)
     this.recommendationIndexes.delete(account)
     this.roundExcludedLedgerIdsByAccount.delete(account)
+    this.participatingSavedLedgerIdsByAccount.delete(account)
+    this.initialFavoriteRuleStatesByAccount.delete(account)
     this.remember(workspace, '', [], new Set())
     return mode ? { ...workspace, mode } : workspace
   }
@@ -6026,6 +6120,16 @@ export class OldFavoriteWorkspaceCoordinator {
       }
     }
     this.roundExcludedLedgerIdsByAccount.set(marker.accountMid, [...(recovered.excludedLedgerIds ?? [])])
+    if (recovered.participatingSavedLedgerIds !== undefined) {
+      this.participatingSavedLedgerIdsByAccount.set(marker.accountMid, [...recovered.participatingSavedLedgerIds])
+    } else {
+      this.participatingSavedLedgerIdsByAccount.delete(marker.accountMid)
+    }
+    if (recovered.initialFavoriteRuleState) {
+      this.initialFavoriteRuleStatesByAccount.set(marker.accountMid, clone(recovered.initialFavoriteRuleState))
+    } else {
+      this.initialFavoriteRuleStatesByAccount.delete(marker.accountMid)
+    }
     const recoveredDeepSeekRunCheckpoint = recovered.deepSeekRunCheckpoint?.workspaceId === marker.id
       ? clone(recovered.deepSeekRunCheckpoint)
       : null
@@ -6534,6 +6638,8 @@ export class OldFavoriteWorkspaceCoordinator {
     this.inFlightTagEnrichmentAids.delete(accountMid)
     this.recommendations.delete(accountMid)
     this.roundExcludedLedgerIdsByAccount.delete(accountMid)
+    this.participatingSavedLedgerIdsByAccount.delete(accountMid)
+    this.initialFavoriteRuleStatesByAccount.delete(accountMid)
     this.recommendationIndexes.delete(accountMid)
     this.planReadiness.delete(accountMid)
     this.staleDeepSeekAids.delete(accountMid)
