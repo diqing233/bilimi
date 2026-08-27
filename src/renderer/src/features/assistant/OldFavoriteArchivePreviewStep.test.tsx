@@ -558,6 +558,47 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.queryByRole('button', { name: '恢复初始改动' })).not.toBeInTheDocument()
   })
 
+  it('renders one complete Chinese favorite-rule effect record with every source-to-target group', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 3, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: [1, 2, 3], items: [] }, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: {
+          cursor: 1, length: 1, entries: [{
+            cursor: 1, source: 'favorite-rules', changeCount: 3, targetLedgerIds: ['game'],
+            summary: {
+              beforeTargetLedgerIds: ['music'], afterTargetLedgerIds: ['game'], reason: '收藏夹规则与勾选', movedCount: 3,
+              favoriteRule: {
+                action: 'unchecked', title: 'bilimi·游戏专区', movementGroups: [
+                  { beforeTargetLedgerIds: ['music'], afterTargetLedgerIds: ['game'], count: 2 },
+                  { beforeTargetLedgerIds: ['inbox'], afterTargetLedgerIds: ['game'], count: 1 }
+                ]
+              }
+            }
+          }]
+        }
+      }}
+      ledgers={[
+        { id: 'music', displayName: '音乐', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false },
+        { id: 'game', displayName: '游戏专区', keywords: [], ruleType: 'keyword', enabled: true, priority: 1, isDefault: false }
+      ]}
+      loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '查看改动记录' }))
+    const current = screen.getByRole('menu', { name: '改动记录' })
+      .querySelector('.favorite-ledger-panel__archive-history-current')
+    const label = '取消「游戏专区」后，自动分类 3 条：音乐 → 游戏专区；暂存 → 游戏专区'
+    expect(current).toHaveTextContent(`当前记录：${label}`)
+    expect(current).toHaveAttribute('title', `当前记录：${label}`)
+    expect(current).not.toHaveTextContent('收藏夹规则与勾选已更新')
+  })
+
   it('shows each DeepSeek video move with its title and before-to-after folders', () => {
     render(<OldFavoriteArchivePreviewStep
       snapshot={{

@@ -5735,17 +5735,28 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const afterRecommendation = requireSnapshot(await coordinator.getSnapshot('100'))
     expect(afterRecommendation.history.length).toBe(historyLengthBeforeSelection + 1)
     expect(afterRecommendation.history.entries.at(-1)).toMatchObject({
-      source: 'system-high',
+      source: 'favorite-rules',
       changeCount: 2,
       targetLedgerIds: ['custom-author-up-alpha'],
-      summary: expect.objectContaining({ movedCount: 2 })
+      summary: expect.objectContaining({
+        movedCount: 2,
+        favoriteRule: {
+          action: 'checked',
+          title: 'bilimi·UP Alpha',
+          movementGroups: [{
+            beforeTargetLedgerIds: [],
+            afterTargetLedgerIds: ['custom-author-up-alpha'],
+            count: 2
+          }]
+        }
+      })
     })
 
     await coordinator.setRoundExcludedLedgerIds('100', ['custom-author-up-alpha'], { mergeWithLatestClassification: true })
     const afterExclusion = requireSnapshot(await coordinator.getSnapshot('100'))
     expect(afterExclusion.history.length).toBe(historyLengthBeforeSelection + 1)
     expect(afterExclusion.history.entries.at(-1)).toMatchObject({
-      source: 'system-high',
+      source: 'favorite-rules',
       changeCount: 2,
       targetLedgerIds: ['custom-author-up-alpha']
     })
@@ -5799,7 +5810,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
     expect(snapshot.history.length).toBe(baselineLength + 1)
-    expect(snapshot.history.entries.at(-1)).toMatchObject({ source: 'favorite-rules' })
+    expect(snapshot.history.entries.at(-1)).toMatchObject({
+      source: 'favorite-rules',
+      summary: expect.objectContaining({
+        favoriteRule: {
+          action: 'unchecked',
+          title: 'bilimi·honker233',
+          movementGroups: []
+        }
+      })
+    })
     await coordinator.moveHistoryCursor('100', baselineLength)
     await coordinator.moveHistoryCursor('100', baselineLength + 1)
     expect(restoreFavoriteLedgerHistoryState.mock.calls).toEqual(expect.arrayContaining([
@@ -10901,10 +10921,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     const beforeRestore = requireSnapshot(await coordinator.getSnapshot('100'))
     const ruleEntry = beforeRestore.history.entries.find((entry) =>
-      entry.source === 'system-high' && entry.targetLedgerIds.includes('custom-author-up-alpha')
+      entry.source === 'favorite-rules' && entry.targetLedgerIds.includes('custom-author-up-alpha')
     )
     expect(ruleEntry).toBeDefined()
-    expect(ruleEntry).toMatchObject({ source: 'system-high', changeCount: 2 })
+    expect(ruleEntry).toMatchObject({ source: 'favorite-rules', changeCount: 2 })
     const priorCursor = ruleEntry!.cursor - 1
     const originalLength = beforeRestore.history.length
 

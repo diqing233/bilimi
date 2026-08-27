@@ -5,6 +5,7 @@ import {
   type OldFavoriteWorkspaceDeepSeekProcessedItem,
   type OldFavoriteWorkspaceSnapshot
 } from '@shared/oldFavoriteWorkspace'
+import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
@@ -385,6 +386,17 @@ export function OldFavoriteArchivePreviewStep({
   const detailTargetLabel = (targetLedgerIds: string[]) =>
     targetLedgerIds.map((id) => id === 'inbox' ? '暂存' : ledgerNames.get(id) ?? id).join('、') || '未分类'
   const historyLabel = (entry: OldFavoriteWorkspaceSnapshot['history']['entries'][number]) => {
+    const favoriteRule = entry.summary?.favoriteRule
+    if (favoriteRule) {
+      const action = favoriteRule.action === 'checked' ? '勾选' : favoriteRule.action === 'unchecked' ? '取消' : '调整'
+      const title = stripBilimiLedgerPrefix(favoriteRule.title) || '已删除收藏夹'
+      const movements = favoriteRule.movementGroups
+        .map((group) => `${historyTargetLabel(group.beforeTargetLedgerIds)} → ${historyTargetLabel(group.afterTargetLedgerIds)}`)
+        .join('；')
+      return movements
+        ? `${action}「${title}」后，自动分类 ${entry.summary?.movedCount ?? entry.changeCount} 条：${movements}`
+        : `${action}「${title}」参与本轮分类，未产生分类移动`
+    }
     if (entry.source === 'favorite-rules') return '收藏夹规则与勾选已更新'
     if (!entry.summary) {
       return `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${historyTargetLabel(entry.targetLedgerIds)}`

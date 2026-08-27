@@ -481,7 +481,12 @@ export function ControlledFavoriteLedgerPanel({
     const savedLedger = effectiveLedgers.find((ledger) => ledger.id === ledgerId && organizationUpperLedgerIds.has(ledger.id))
     if (!savedLedger) return false
     const projection = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates)
-    const candidateId = projection.ledgerToCandidateId.get(ledgerId)
+    // Recommendation drafts normally keep their lower cancellation semantics.
+    // The upper card is different: when it already owns the exact stable ID of
+    // a candidate, this user action changes round participation rather than
+    // deleting a draft.  Do not infer this from a title or rule shape.
+    const candidateId = projection.ledgerToCandidateId.get(ledgerId) ??
+      (snapshot.recommendations.candidates.some((candidate) => candidate.id === ledgerId) ? ledgerId : undefined)
     const priorCandidateIds = [...(organizationRecommendationIdsInitializedRef.current
       ? organizationRecommendationIdsRef.current
       : snapshot.recommendations.adoptedCandidateIds)]
@@ -502,10 +507,10 @@ export function ControlledFavoriteLedgerPanel({
     const nextParticipationById = new Map(previousParticipationById)
     nextParticipationById.set(ledgerId, enabled)
     updateOrganizationSavedLedgerParticipationById(nextParticipationById)
-    const retainedLinkedSavedLedgerIds = candidateId ? [ledgerId] : []
+    const retainLinkedSavedLedgerIds = candidateId ? [ledgerId] : []
     try {
       const committedCandidateIds = JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)
-        ? await setOrganizationRecommendedCandidates(nextCandidateIds, { retainedLinkedSavedLedgerIds })
+        ? await setOrganizationRecommendedCandidates(nextCandidateIds, { retainLinkedSavedLedgerIds })
         : priorCandidateIds
       const selectionChanged = JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)
       const next = await workspace.setRoundExcludedLedgerIds([...excludedLedgerIds], {
@@ -521,7 +526,7 @@ export function ControlledFavoriteLedgerPanel({
       updateLedgerEnabledById(previousEnabledById)
       updateOrganizationSavedLedgerParticipationById(previousParticipationById)
       if (JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)) {
-        await setOrganizationRecommendedCandidates(priorCandidateIds, { retainedLinkedSavedLedgerIds }).catch(() => undefined)
+        await setOrganizationRecommendedCandidates(priorCandidateIds, { retainLinkedSavedLedgerIds }).catch(() => undefined)
       }
       await saveLedgerEnabledAndRefreshWorkspace(ledgerId, previousEnabledById.get(ledgerId) ?? savedLedger.enabled).catch(() => undefined)
       await workspace.setRoundExcludedLedgerIds(snapshot.excludedLedgerIds ?? []).catch(() => undefined)
@@ -548,17 +553,20 @@ export function ControlledFavoriteLedgerPanel({
         : undefined
     const linkedSavedLedgerId = snapshot && !('recovery' in snapshot) && snapshot.status === 'previewing' && changedCandidateId
       ? createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates)
-        .candidateToLedgerId.get(changedCandidateId)
+        .candidateToLedgerId.get(changedCandidateId) ??
+        ((snapshot.excludedLedgerIds ?? []).includes(changedCandidateId) && organizationUpperLedgerIds.has(changedCandidateId)
+          ? changedCandidateId
+          : undefined)
       : undefined
     const linkedSavedLedger = linkedSavedLedgerId
-      ? effectiveLedgers.find((ledger) => ledger.id === linkedSavedLedgerId && persistedUpperLedgerIds.has(ledger.id))
+      ? effectiveLedgers.find((ledger) => ledger.id === linkedSavedLedgerId && organizationUpperLedgerIds.has(ledger.id))
       : undefined
     if (linkedSavedLedger) {
       void setOrganizationSavedLedgerParticipation(linkedSavedLedger.id, addedCandidateIds.length === 1)
       return
     }
     void setOrganizationRecommendedCandidates(next)
-  }, [effectiveLedgers, persistedUpperLedgerIds, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.recommendedCandidateIds, workspace.snapshot])
+  }, [effectiveLedgers, organizationUpperLedgerIds, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.recommendedCandidateIds, workspace.snapshot])
   const handleOrganizationRecommendationToggle = useCallback(async (ledgerId: string, enabled: boolean) => {
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return false
@@ -566,9 +574,12 @@ export function ControlledFavoriteLedgerPanel({
     const candidateId = projection.ledgerToCandidateId.get(ledgerId) ??
       (snapshot.recommendations.candidates.some((candidate) => candidate.id === ledgerId) ? ledgerId : undefined)
     if (!candidateId) return false
-    const linkedSavedLedgerId = projection.candidateToLedgerId.get(candidateId)
+    const linkedSavedLedgerId = projection.candidateToLedgerId.get(candidateId) ??
+      ((snapshot.excludedLedgerIds ?? []).includes(candidateId) && organizationUpperLedgerIds.has(candidateId)
+        ? candidateId
+        : undefined)
     const linkedSavedLedger = linkedSavedLedgerId
-      ? effectiveLedgers.find((ledger) => ledger.id === linkedSavedLedgerId && persistedUpperLedgerIds.has(ledger.id))
+      ? effectiveLedgers.find((ledger) => ledger.id === linkedSavedLedgerId && organizationUpperLedgerIds.has(ledger.id))
       : undefined
     if (linkedSavedLedger) {
       return setOrganizationSavedLedgerParticipation(linkedSavedLedger.id, enabled)
@@ -577,7 +588,7 @@ export function ControlledFavoriteLedgerPanel({
       ? [...organizationRecommendationIdsRef.current, candidateId]
       : organizationRecommendationIdsRef.current.filter((currentCandidateId) => currentCandidateId !== candidateId))
     return enabled ? committedIds.includes(candidateId) : !committedIds.includes(candidateId)
-  }, [effectiveLedgers, persistedUpperLedgerIds, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.snapshot])
+  }, [effectiveLedgers, organizationUpperLedgerIds, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.snapshot])
   const handleOrganizationSavedLedgerToggle = useCallback(async (ledgerId: string, enabled: boolean) =>
     setOrganizationSavedLedgerParticipation(ledgerId, enabled), [setOrganizationSavedLedgerParticipation])
   const handleOrganizationSavedLedgerSelectionChange = useCallback(async (selectedLedgerIds: string[]) => {
@@ -611,11 +622,11 @@ export function ControlledFavoriteLedgerPanel({
       return previousEnabled === enabled ? [] : [[ledgerId, enabled] as const]
     })
     const nextExcludedLedgerIds = [...selectableLedgerIds].filter((ledgerId) => !selectedIds.has(ledgerId))
-    const retainedLinkedSavedLedgerIds = [...selectableLedgerIds]
+    const retainLinkedSavedLedgerIds = [...selectableLedgerIds]
     try {
       const selectionChanged = JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)
       if (selectionChanged) {
-        await setOrganizationRecommendedCandidates(nextCandidateIds, { retainedLinkedSavedLedgerIds })
+        await setOrganizationRecommendedCandidates(nextCandidateIds, { retainLinkedSavedLedgerIds })
       }
       const next = await workspace.setRoundExcludedLedgerIds(nextExcludedLedgerIds, {
         ...(selectionChanged ? { mergeFavoriteRuleHistory: true } : {})
@@ -628,7 +639,7 @@ export function ControlledFavoriteLedgerPanel({
     } catch {
       updateLedgerEnabledById(previousEnabledById)
       if (JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)) {
-        await setOrganizationRecommendedCandidates(priorCandidateIds, { retainedLinkedSavedLedgerIds }).catch(() => undefined)
+        await setOrganizationRecommendedCandidates(priorCandidateIds, { retainLinkedSavedLedgerIds }).catch(() => undefined)
       }
       for (const [ledgerId] of changedEnabledByLedgerId) {
         await saveLedgerEnabledAndRefreshWorkspace(
@@ -1325,7 +1336,6 @@ export function ControlledFavoriteLedgerPanel({
   const hasBackupEligibleLedger = displayedLedgersWithLiveEnabled.some((ledger) =>
     ledger.enabled && (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule') &&
     (defaultFavoriteSystemEnabled !== false || !ledger.isDefault || ledger.id === 'inbox'))
-
   const ensureLedgersAndOpenFavoritePage = async () => {
     if (ensuringLedgersRef.current) return
     ensuringLedgersRef.current = true

@@ -185,7 +185,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(open.mock.calls.length).toBeGreaterThan(readsBeforeDeletion))
   })
 
-  it('never deletes a promoted recommendation draft when its upper card is unchecked', async () => {
+  it('keeps a promoted recommendation draft and cancels its exact lower adoption when its upper card is unchecked', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
@@ -197,9 +197,12 @@ describe('ControlledFavoriteLedgerPanel', () => {
       },
       history: { cursor: 0, length: 0 }
     }
-    const command = vi.fn((_accountMid: string, request: { type: string; ledgerIds?: string[] }) => Promise.resolve({
+    const command = vi.fn((_accountMid: string, request: { type: string; ledgerIds?: string[]; candidateIds?: string[] }) => Promise.resolve({
       ...preview,
-      excludedLedgerIds: request.type === 'set-round-excluded-ledger-ids' ? request.ledgerIds : preview.excludedLedgerIds
+      excludedLedgerIds: request.type === 'set-round-excluded-ledger-ids' ? request.ledgerIds : preview.excludedLedgerIds,
+      recommendations: request.type === 'set-recommended-candidates'
+        ? { ...preview.recommendations, adoptedCandidateIds: request.candidateIds ?? [] }
+        : preview.recommendations
     }))
     const saveEnabled = vi.fn().mockResolvedValue(undefined)
     window.bilimiDesktop = {
@@ -216,10 +219,13 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '移出同步 bilimi·honker233' }))
 
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
-      type: 'set-round-excluded-ledger-ids', ledgerIds: ['promoted-honker']
+      type: 'set-recommended-candidates', candidateIds: []
     }))
-    expect(command).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'set-recommended-candidates' }))
-    expect(screen.getByTestId('favorite-ledger-chip-promoted-honker')).toBeInTheDocument()
+    expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-round-excluded-ledger-ids', ledgerIds: ['promoted-honker'], mergeFavoriteRuleHistory: true
+    })
+    expect(saveEnabled).toHaveBeenCalledWith('promoted-honker', false, { mergeFavoriteRuleHistory: true })
+    await waitFor(() => expect(screen.getByTestId('favorite-ledger-chip-promoted-honker')).toBeInTheDocument())
   })
 
   it('commits a linked upper-rule selection before merging its durable enabled state', async () => {
@@ -1331,7 +1337,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{
       id: 'custom-honker', displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'author', enabled: false,
-      priority: 10_000, bindingState: 'unbacked', syncState: 'local-draft', isDefault: false
+      priority: 10_000, bindingState: 'unbacked', syncState: 'local-draft', ruleOrigin: 'recommendation-draft', isDefault: false
     }]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveEnabled} />)
 
     await openPersistedWorkspaceGuide()

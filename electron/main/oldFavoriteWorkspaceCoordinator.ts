@@ -64,6 +64,64 @@ export const OLD_FAVORITE_WORKSPACE_TAG_ADOPTION_FAILURE_PERSISTED = Symbol('old
 const OLD_FAVORITE_WORKSPACE_RECOVERY_DECISION_STALE_MESSAGE = 'Old favorite workspace recovery decision is stale; read a new recovery summary first.'
 const LOCAL_RESULT_PREPARATION_BATCH_SIZE = 128
 
+type FavoriteRuleHistoryEffect = {
+  action: 'checked' | 'unchecked' | 'updated'
+  title: string
+}
+
+function favoriteRuleHistoryEffect(entry: OldFavoriteWorkspaceHistoryEntry): FavoriteRuleHistoryEffect | undefined {
+  const transition = entry.favoriteRuleState
+  if (!transition) return undefined
+  const effects = new Map<string, 'checked' | 'unchecked'>()
+  const record = (ledgerId: string, action: 'checked' | 'unchecked') => {
+    const id = ledgerId.trim()
+    if (!id || effects.has(id)) return
+    effects.set(id, action)
+  }
+  const beforeAdopted = new Set(transition.before.adoptedCandidateIds)
+  const afterAdopted = new Set(transition.after.adoptedCandidateIds)
+  for (const ledgerId of beforeAdopted) if (!afterAdopted.has(ledgerId)) record(ledgerId, 'unchecked')
+  for (const ledgerId of afterAdopted) if (!beforeAdopted.has(ledgerId)) record(ledgerId, 'checked')
+  const beforeExcluded = new Set(transition.before.excludedLedgerIds)
+  const afterExcluded = new Set(transition.after.excludedLedgerIds)
+  for (const ledgerId of beforeExcluded) if (!afterExcluded.has(ledgerId)) record(ledgerId, 'checked')
+  for (const ledgerId of afterExcluded) if (!beforeExcluded.has(ledgerId)) record(ledgerId, 'unchecked')
+  const beforeLedgers = new Map(transition.before.ledgers.map((ledger) => [ledger.id, ledger]))
+  const afterLedgers = new Map(transition.after.ledgers.map((ledger) => [ledger.id, ledger]))
+  for (const ledgerId of new Set([...beforeLedgers.keys(), ...afterLedgers.keys()])) {
+    const before = beforeLedgers.get(ledgerId)
+    const after = afterLedgers.get(ledgerId)
+    if (before?.enabled === after?.enabled) continue
+    record(ledgerId, after?.enabled ? 'checked' : 'unchecked')
+  }
+  if (!effects.size) return undefined
+  const titles = [...effects.keys()].map((ledgerId) =>
+    afterLedgers.get(ledgerId)?.displayName?.trim() || beforeLedgers.get(ledgerId)?.displayName?.trim() || '已删除收藏夹')
+  const actions = new Set(effects.values())
+  return {
+    action: actions.size === 1 ? [...actions][0]! : 'updated',
+    title: titles.join('、')
+  }
+}
+
+function favoriteRuleMovementGroups(entry: OldFavoriteWorkspaceHistoryEntry) {
+  const groups = new Map<string, {
+    beforeTargetLedgerIds: string[]
+    afterTargetLedgerIds: string[]
+    count: number
+  }>()
+  for (const change of entry.changes) {
+    const beforeTargetLedgerIds = [...(change.before?.targetLedgerIds ?? [])]
+    const afterTargetLedgerIds = [...(change.after?.targetLedgerIds ?? [])]
+    if (JSON.stringify(beforeTargetLedgerIds) === JSON.stringify(afterTargetLedgerIds)) continue
+    const key = JSON.stringify([beforeTargetLedgerIds, afterTargetLedgerIds])
+    const existing = groups.get(key)
+    if (existing) existing.count += 1
+    else groups.set(key, { beforeTargetLedgerIds, afterTargetLedgerIds, count: 1 })
+  }
+  return [...groups.values()]
+}
+
 /** A persisted preview needs a new recovery choice, but is not itself corrupt. */
 export function isOldFavoriteWorkspaceRecoveryDecisionStaleError(error: unknown) {
   return error instanceof Error && error.message === OLD_FAVORITE_WORKSPACE_RECOVERY_DECISION_STALE_MESSAGE
@@ -5337,6 +5395,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const entry: OldFavoriteWorkspaceHistoryEntry = shouldMerge
       ? {
           ...clone(latest!),
+          source: 'favorite-rules',
           favoriteRuleState: {
             before: clone(latest!.favoriteRuleState?.before ?? before),
             after
@@ -7505,6 +7564,7 @@ export class OldFavoriteWorkspaceCoordinator {
           targetLedgerIds: [...new Set(entry.changes.flatMap((change) => change.after?.targetLedgerIds ?? change.before?.targetLedgerIds ?? []))].sort(),
           summary: (() => {
             const firstChange = entry.changes[0]
+            const favoriteRule = favoriteRuleHistoryEffect(entry)
             const title = firstChange
               ? currentSegmentItemsByAid.get(firstChange.aid)?.title?.trim().slice(0, 160)
               : undefined
@@ -7522,6 +7582,12 @@ export class OldFavoriteWorkspaceCoordinator {
               afterTargetLedgerIds: [...(firstChange?.after?.targetLedgerIds ?? [])],
               reason: reasons[entry.source],
               movedCount: entry.changes.length,
+              ...(favoriteRule ? {
+                favoriteRule: {
+                  ...favoriteRule,
+                  movementGroups: favoriteRuleMovementGroups(entry)
+                }
+              } : {}),
               ...(entry.source === 'deepseek' ? {
                 details: (entry.deepSeekProcessedItems ?? entry.changes.map((change) => ({
                   aid: change.aid,
