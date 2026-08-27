@@ -305,6 +305,7 @@ export function ControlledFavoriteLedgerPanel({
   const promotedRecommendationHistoryCursorRef = useRef<string | null>(null)
   const [dismissedGeneratedRecommendationLedgerIds, setDismissedGeneratedRecommendationLedgerIds] = useState<ReadonlySet<string>>(() => new Set())
   const pendingRecommendationSavesRef = useRef(new Map<string, Promise<unknown>>())
+  const pendingRecommendationCancellationLedgerIdsRef = useRef(new Set<string>())
   const [recommendationPromotionSaving, setRecommendationPromotionSaving] = useState(false)
   const organizationRecommendationIdsRef = useRef<string[]>(workspace.recommendedCandidateIds)
   const organizationRecommendationIdsInitializedRef = useRef(false)
@@ -382,7 +383,7 @@ export function ControlledFavoriteLedgerPanel({
   useEffect(() => {
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' ||
-      recommendationPromotionSaving || pendingRecommendationSavesRef.current.size) return
+      recommendationPromotionSaving || pendingRecommendationSavesRef.current.size || workspace.recommendationSaving) return
     // Promoted recommendations only bridge the renderer while their durable
     // rule or adopted candidate state catches up.  A history cursor may restore
     // an older rule directory in which that bridge no longer exists; retaining
@@ -401,10 +402,10 @@ export function ControlledFavoriteLedgerPanel({
         ])
     const nextPromoted = promotedRecommendationLedgersRef.current.filter((ledger) =>
       durableLedgerIds.has(ledger.id) || retainedCandidateIds.has(ledger.id))
-    if (nextPromoted.length === promotedRecommendationLedgersRef.current.length) return
+    if (nextPromoted.length === promotedRecommendationLedgersRef.current.length || pendingRecommendationCancellationLedgerIdsRef.current.size) return
     promotedRecommendationLedgersRef.current = nextPromoted
     setPromotedRecommendationLedgers(nextPromoted)
-  }, [ledgers, recommendationPromotionSaving, workspace.recommendedCandidateIds, workspace.snapshot])
+  }, [ledgers, recommendationPromotionSaving, workspace.recommendationSaving, workspace.recommendedCandidateIds, workspace.snapshot])
   useEffect(() => {
     const pending = pendingHistoryRestoreRef.current
     const snapshot = workspace.snapshot
@@ -442,7 +443,10 @@ export function ControlledFavoriteLedgerPanel({
       : [...workspace.recommendedCandidateIds]
     organizationRecommendationIdsInitializedRef.current = true
   }, [recommendationPromotionSaving, workspace.recommendedCandidateIds, workspace.snapshot])
-  const promoteSelectedRecommendationLedgers = useCallback(async (candidateIds: readonly string[]) => {
+  const promoteSelectedRecommendationLedgers = useCallback(async (
+    candidateIds: readonly string[],
+    options: { persist?: boolean } = {}
+  ) => {
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return true
     const selectedIds = new Set(candidateIds)
@@ -461,6 +465,7 @@ export function ControlledFavoriteLedgerPanel({
     const nextPromoted = [...promotedRecommendationLedgersRef.current, ...additions]
     promotedRecommendationLedgersRef.current = nextPromoted
     setPromotedRecommendationLedgers(nextPromoted)
+    if (options.persist === false) return true
     setRecommendationPromotionSaving(true)
     const nextLedgers = mergePromotedRecommendationLedgers(ledgers, nextPromoted)
     const saveOperation = Promise.resolve().then(() => saveLedgersAndRefreshWorkspace(nextLedgers, {
@@ -508,6 +513,7 @@ export function ControlledFavoriteLedgerPanel({
         ? [ledgerId]
         : []
     })
+    removedGeneratedDraftLedgerIds.forEach((ledgerId) => pendingRecommendationCancellationLedgerIdsRef.current.add(ledgerId))
     setDismissedGeneratedRecommendationLedgerIds((current) => {
       const next = new Set(current)
       for (const candidateId of nextCandidateIds) {
@@ -516,11 +522,18 @@ export function ControlledFavoriteLedgerPanel({
       return next
     })
     const priorCandidateIds = [...(needsSnapshotHydration ? snapshotAdoptedCandidateIds : organizationRecommendationIdsRef.current)]
+    const hasNewCandidate = nextCandidateIds.some((candidateId) => !priorCandidateIds.includes(candidateId))
     organizationRecommendationIdsInitializedRef.current = true
     organizationRecommendationIdsRef.current = nextCandidateIds
     workspace.stageRecommendedCandidateSelection(nextCandidateIds)
+    // For a newly adopted candidate, the workspace command must capture its
+    // history baseline before the renderer preference mirror is written. A
+    // cancellation has no new rule to persist, so retain its established
+    // failure/rollback ordering.
+    if (hasNewCandidate) workspace.setRecommendedCandidates(nextCandidateIds)
     const promotionReady = await promoteSelectedRecommendationLedgers(nextCandidateIds)
     if (!promotionReady) {
+      removedGeneratedDraftLedgerIds.forEach((ledgerId) => pendingRecommendationCancellationLedgerIdsRef.current.delete(ledgerId))
       if (JSON.stringify(organizationRecommendationIdsRef.current) === JSON.stringify(nextCandidateIds)) {
         organizationRecommendationIdsRef.current = priorCandidateIds
         workspace.stageRecommendedCandidateSelection(priorCandidateIds)
@@ -532,18 +545,31 @@ export function ControlledFavoriteLedgerPanel({
     // in flight. Only the latest selection may reach the workspace command;
     // otherwise an older save can re-adopt a draft after it was cancelled.
     if (JSON.stringify(organizationRecommendationIdsRef.current) !== JSON.stringify(nextCandidateIds)) {
+      removedGeneratedDraftLedgerIds.forEach((ledgerId) => pendingRecommendationCancellationLedgerIdsRef.current.delete(ledgerId))
       return organizationRecommendationIdsRef.current
     }
-    workspace.setRecommendedCandidates(nextCandidateIds)
-    const committedCandidateIds = new Set(await workspace.waitForRecommendationQueue())
-    organizationRecommendationIdsRef.current = [...committedCandidateIds]
-    if (removedGeneratedDraftLedgerIds.length) {
-      setDismissedGeneratedRecommendationLedgerIds((current) => new Set([
-        ...current,
-        ...removedGeneratedDraftLedgerIds.filter((ledgerId) => !committedCandidateIds.has(projection.ledgerToCandidateId.get(ledgerId) ?? ledgerId))
-      ]))
+    if (!hasNewCandidate) workspace.setRecommendedCandidates(nextCandidateIds)
+    try {
+      const committedCandidateIds = new Set(await workspace.waitForRecommendationQueue({ rejectOnError: true }))
+      organizationRecommendationIdsRef.current = [...committedCandidateIds]
+      if (removedGeneratedDraftLedgerIds.length) {
+        setDismissedGeneratedRecommendationLedgerIds((current) => new Set([
+          ...current,
+          ...removedGeneratedDraftLedgerIds.filter((ledgerId) => !committedCandidateIds.has(projection.ledgerToCandidateId.get(ledgerId) ?? ledgerId))
+        ]))
+      }
+      return [...committedCandidateIds]
+    } catch (error) {
+      // A failed cancellation must leave the previously adopted recommendation
+      // visible and selected. The queue has already restored its authoritative
+      // ids; keep the renderer ref aligned so a retry follows the same path.
+      if (!hasNewCandidate && JSON.stringify(organizationRecommendationIdsRef.current) === JSON.stringify(nextCandidateIds)) {
+        organizationRecommendationIdsRef.current = priorCandidateIds
+      }
+      throw error
+    } finally {
+      removedGeneratedDraftLedgerIds.forEach((ledgerId) => pendingRecommendationCancellationLedgerIdsRef.current.delete(ledgerId))
     }
-    return [...committedCandidateIds]
   }, [ledgers, promoteSelectedRecommendationLedgers, workspace.recommendedCandidateIds, workspace.setRecommendedCandidates, workspace.snapshot, workspace.stageRecommendedCandidateSelection, workspace.waitForRecommendationQueue])
   const handleEnabledStateChange = useCallback((next: ReadonlyMap<string, boolean>, source?: 'editor-unsaved' | 'organization-selection') => {
     const previousEnabledById = ledgerEnabledByIdRef.current

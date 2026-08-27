@@ -4251,7 +4251,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeEnabled()
   })
 
-  it('waits for a promoted recommendation rule to persist before applying its adoption', async () => {
+  it('adopts a recommendation before any redundant renderer rule save can block history capture', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 },
@@ -4262,15 +4262,22 @@ describe('ControlledFavoriteLedgerPanel', () => {
       },
       history: { cursor: 0, length: 0 }
     }
-    const save = deferred<unknown>()
-    const saveLedgers = vi.fn(() => save.promise)
+    const events: string[] = []
+    const saveLedgers = vi.fn(() => {
+      events.push('save')
+      return new Promise<unknown>(() => undefined)
+    })
     const adoption = vi.fn().mockResolvedValue({
       ...preview,
       recommendations: { ...preview.recommendations, adoptedCandidateIds: ['author-race'] }
     })
+    const command = vi.fn(async (...args: Parameters<typeof adoption>) => {
+      events.push('command')
+      return adoption(...args)
+    })
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
-      commandOldFavoriteWorkspaceV1: adoption
+      commandOldFavoriteWorkspaceV1: command
     } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
@@ -4279,15 +4286,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '竞态作者' }))
 
-    await waitFor(() => expect(saveLedgers).toHaveBeenCalled())
-    expect(adoption).not.toHaveBeenCalledWith('100', {
-      type: 'set-recommended-candidates', candidateIds: ['author-race']
-    })
-
-    await act(async () => save.resolve(undefined))
     await waitFor(() => expect(adoption).toHaveBeenCalledWith('100', {
       type: 'set-recommended-candidates', candidateIds: ['author-race']
     }))
+    expect(saveLedgers).toHaveBeenCalled()
+    expect(events.slice(0, 2)).toEqual(['command', 'save'])
   })
 
   it('marks a promoted recommendation save as recommendation-only so it does not request a full rule reclassification', async () => {

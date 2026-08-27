@@ -208,7 +208,12 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const recommendationQueueRunningRef = useRef(false)
   const previewPreparationGenerationRef = useRef(0)
   const activePreviewPreparationWorkspaceIdRef = useRef<string | null>(null)
-  const recommendationQueueIdleResolversRef = useRef<Array<(ids: readonly string[]) => void>>([])
+  const recommendationQueueIdleResolversRef = useRef<Array<{
+    resolve: (ids: readonly string[]) => void
+    reject: (error: unknown) => void
+    rejectOnError: boolean
+  }>>([])
+  const recommendationQueueErrorRef = useRef<unknown>(null)
   const activeAccountMidRef = useRef(accountMid)
 
   useEffect(() => {
@@ -249,7 +254,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setPreviewPreparationError(null)
     previewPreparationGenerationRef.current += 1
     activePreviewPreparationWorkspaceIdRef.current = null
-    recommendationQueueIdleResolversRef.current.splice(0).forEach((resolve) => resolve())
+    recommendationQueueErrorRef.current = null
+    recommendationQueueIdleResolversRef.current.splice(0).forEach(({ resolve }) => resolve([]))
     activeDeepSeekWorkspaceId.current = null
     observedDeepSeekCheckpointRef.current = false
     terminalDeepSeekWorkspaceId.current = null
@@ -782,6 +788,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (!accountMid || !command) return
     const generation = accountGeneration.current
     recommendationQueueRunningRef.current = true
+    recommendationQueueErrorRef.current = null
     setRecommendationSaving(true)
     try {
       while (recommendationDesiredRef.current && accountGeneration.current === generation) {
@@ -803,6 +810,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
           }
         } catch (error) {
           if (accountGeneration.current !== generation) return
+          recommendationQueueErrorRef.current = error
           setRecommendationError(recommendationFailureMessage(error))
           if (!recommendationDesiredRef.current) {
             recommendedCandidateIdsRef.current = recommendationCommittedRef.current
@@ -814,13 +822,21 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       if (accountGeneration.current === generation) {
         setRecommendationSaving(false)
         recommendationQueueRunningRef.current = false
-        recommendationQueueIdleResolversRef.current.splice(0).forEach((resolve) => resolve([...recommendedCandidateIdsRef.current]))
+        const error = recommendationQueueErrorRef.current
+        recommendationQueueIdleResolversRef.current.splice(0).forEach(({ resolve, reject, rejectOnError }) => {
+          if (rejectOnError && error) reject(error)
+          else resolve([...recommendedCandidateIdsRef.current])
+        })
       }
     }
   }, [accountMid])
-  const waitForRecommendationQueue = useCallback((): Promise<readonly string[]> => {
-    if (!recommendationQueueRunningRef.current && !recommendationDesiredRef.current) return Promise.resolve([...recommendedCandidateIdsRef.current])
-    return new Promise<readonly string[]>((resolve) => recommendationQueueIdleResolversRef.current.push(resolve))
+  const waitForRecommendationQueue = useCallback((options: { rejectOnError?: boolean } = {}): Promise<readonly string[]> => {
+    const rejectOnError = options.rejectOnError === true
+    if (!recommendationQueueRunningRef.current && !recommendationDesiredRef.current) {
+      if (rejectOnError && recommendationQueueErrorRef.current) return Promise.reject(recommendationQueueErrorRef.current)
+      return Promise.resolve([...recommendedCandidateIdsRef.current])
+    }
+    return new Promise<readonly string[]>((resolve, reject) => recommendationQueueIdleResolversRef.current.push({ resolve, reject, rejectOnError }))
   }, [])
   const cancelRecommendationPreviewPreparation = useCallback(async () => {
     previewPreparationGenerationRef.current += 1
