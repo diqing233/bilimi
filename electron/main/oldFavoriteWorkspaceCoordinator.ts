@@ -186,16 +186,15 @@ function canCoalesceLegacyFavoriteRuleHistoryEntries(
   return stableSerialize(previous.changes) === stableSerialize(next.changes)
 }
 
-function isSemanticFavoriteRuleHistoryNoOp(entry: OldFavoriteWorkspaceHistoryEntry) {
-  return entry.source === 'favorite-rules' && entry.changes.length === 0 && Boolean(entry.favoriteRuleState) &&
-    favoriteRuleHistoryStatesMatch(entry.favoriteRuleState!.before, entry.favoriteRuleState!.after)
+function isUnrestorableFavoriteRuleHistoryEntry(entry: OldFavoriteWorkspaceHistoryEntry) {
+  return entry.source === 'favorite-rules' && entry.changes.length === 0
 }
 
 function projectVisibleFavoriteRuleHistoryEntries(history: readonly OldFavoriteWorkspaceHistoryEntry[]) {
   const projected: ProjectedFavoriteRuleHistoryEntry[] = []
   for (let index = 0; index < history.length;) {
     const initial = history[index]!
-    if (isSemanticFavoriteRuleHistoryNoOp(initial)) {
+    if (isUnrestorableFavoriteRuleHistoryEntry(initial)) {
       index += 1
       continue
     }
@@ -220,12 +219,20 @@ function projectVisibleFavoriteRuleHistoryEntries(history: readonly OldFavoriteW
   return projected
 }
 
+function projectedFavoriteRuleHistoryCursor(
+  history: readonly OldFavoriteWorkspaceHistoryEntry[],
+  requestedCursor: number,
+  projected = projectVisibleFavoriteRuleHistoryEntries(history)
+) {
+  return projected.find((entry) => entry.firstCursor <= requestedCursor && requestedCursor <= entry.cursor)?.cursor ??
+    projected.findLast((entry) => entry.cursor <= requestedCursor)?.cursor ?? 0
+}
+
 function resolveProjectedFavoriteRuleHistoryCursor(
   history: readonly OldFavoriteWorkspaceHistoryEntry[],
   requestedCursor: number
 ) {
-  const projected = projectVisibleFavoriteRuleHistoryEntries(history)
-  return projected.find((entry) => entry.firstCursor <= requestedCursor && requestedCursor <= entry.cursor)?.cursor ?? requestedCursor
+  return projectedFavoriteRuleHistoryCursor(history, requestedCursor)
 }
 
 function favoriteRuleMovementGroups(entry: OldFavoriteWorkspaceHistoryEntry) {
@@ -4402,9 +4409,15 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       this.assertCurrentSegmentTagReady(workspace)
       if (workspace.historyCursor <= (workspace.historyBaselineCursor ?? 0)) return clone(workspace)
-      const updated = undoWorkspaceChange(workspace)
+      let updated = workspace
+      let changedEntry: OldFavoriteWorkspaceHistoryEntry | undefined
+      do {
+        const entry = updated.history[updated.historyCursor - 1]
+        updated = undoWorkspaceChange(updated)
+        if (!entry || !isUnrestorableFavoriteRuleHistoryEntry(entry)) changedEntry = entry
+      } while (!changedEntry && updated.historyCursor > (workspace.historyBaselineCursor ?? 0))
       if (updated === workspace) return clone(workspace)
-      const readiness = await this.applyReadinessHistoryChange(workspace, workspace.history[workspace.historyCursor - 1], 'undo')
+      const readiness = await this.applyReadinessHistoryChange(workspace, changedEntry, 'undo')
       await this.appendEvents(updated, this.currentSegment(workspace), [{
         type: 'history-cursor', historyCursor: updated.historyCursor
       }], readiness)
@@ -4417,9 +4430,15 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       this.assertCurrentSegmentTagReady(workspace)
-      const updated = redoWorkspaceChange(workspace)
+      let updated = workspace
+      let changedEntry: OldFavoriteWorkspaceHistoryEntry | undefined
+      do {
+        const entry = updated.history[updated.historyCursor]
+        updated = redoWorkspaceChange(updated)
+        if (!entry || !isUnrestorableFavoriteRuleHistoryEntry(entry)) changedEntry = entry
+      } while (!changedEntry && updated.historyCursor < updated.history.length)
       if (updated === workspace) return clone(workspace)
-      const readiness = await this.applyReadinessHistoryChange(workspace, workspace.history[workspace.historyCursor], 'forward')
+      const readiness = await this.applyReadinessHistoryChange(workspace, changedEntry, 'forward')
       await this.appendEvents(updated, this.currentSegment(workspace), [{
         type: 'history-cursor', historyCursor: updated.historyCursor
       }], readiness)
@@ -5539,26 +5558,20 @@ export class OldFavoriteWorkspaceCoordinator {
     const latest = activeHistory.at(-1)
     // The renderer marks only the serial steps of one upper-rule click. A
     // classification move and the trailing enabled/excluded state therefore
-    // share one undo record; a no-move selection keeps one rule-only record.
+    // share one undo record. A rule-only change remains durable through its
+    // owning command, but has no archive-history position to restore.
     const shouldMerge = transition.mergeWithLatestClassification === true &&
-      Boolean(latest && (latest.changes.length || latest.favoriteRuleState))
-    const entry: OldFavoriteWorkspaceHistoryEntry = shouldMerge
-      ? {
-          ...clone(latest!),
-          source: 'favorite-rules',
-          favoriteRuleState: {
-            before: clone(latest!.favoriteRuleState?.before ?? before),
-            after
-          }
-        }
-      : {
-          source: 'favorite-rules',
-          changes: [],
-          favoriteRuleState: { before, after }
-        }
-    const history = shouldMerge
-      ? [...activeHistory.slice(0, -1), entry]
-      : [...activeHistory, entry]
+      Boolean(latest?.changes.length)
+    if (!shouldMerge) return clone(workspace)
+    const entry: OldFavoriteWorkspaceHistoryEntry = {
+      ...clone(latest!),
+      source: 'favorite-rules',
+      favoriteRuleState: {
+        before: clone(latest!.favoriteRuleState?.before ?? before),
+        after
+      }
+    }
+    const history = [...activeHistory.slice(0, -1), entry]
     const updated: OldFavoriteWorkspace = {
       ...workspace,
       history,
@@ -5597,7 +5610,7 @@ export class OldFavoriteWorkspaceCoordinator {
     let applied: OldFavoriteWorkspaceFavoriteRuleHistoryState | undefined
     for (let index = 0; index < history.length; index += 1) {
       const transition = history[index]?.favoriteRuleState
-      if (!transition) continue
+      if (!transition || isUnrestorableFavoriteRuleHistoryEntry(history[index]!)) continue
       if (index >= cursor) return clone(applied ?? transition.before)
       applied = transition.after
     }
@@ -5605,9 +5618,10 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   /**
-   * Adds one local-only rule/selection checkpoint to the same durable cursor
-   * used by the archive change history. Callers provide authoritative main
-   * process snapshots; this method never contacts Bilibili.
+   * Attaches a local-only rule/selection snapshot to an existing
+   * classification movement. Rule-only state is already durable in its
+   * owning command and never creates a history cursor. This never contacts
+   * Bilibili.
    */
   async recordFavoriteLedgerHistoryChange(
     accountMid: string,
@@ -7402,6 +7416,18 @@ export class OldFavoriteWorkspaceCoordinator {
     const currentSegment = workspace.segments.find((segment) => segment.id === this.currentSegment(workspace))
     const currentSegmentItems = this.currentSegmentItems.get(workspace.accountMid) ?? []
     const currentSegmentItemsByAid = new Map(currentSegmentItems.map((item) => [item.aid, item]))
+    const projectedHistory = projectVisibleFavoriteRuleHistoryEntries(workspace.history)
+    const projectedHistoryCursor = projectedFavoriteRuleHistoryCursor(
+      workspace.history,
+      workspace.historyCursor,
+      projectedHistory
+    )
+    const projectedHistoryLength = projectedHistory.at(-1)?.cursor ?? 0
+    const projectedHistoryBaselineCursor = projectedFavoriteRuleHistoryCursor(
+      workspace.history,
+      workspace.historyBaselineCursor ?? 0,
+      projectedHistory
+    )
     const tagEnrichment = this.tagEnrichments.get(workspace.accountMid)
     const tagAdoption = this.tagAdoptions.get(workspace.accountMid)
     const wholeRunTagCutoffAccepted = this.hasWholeRunTagCutoffAccepted(workspace, tagEnrichment)
@@ -7704,11 +7730,11 @@ export class OldFavoriteWorkspaceCoordinator {
         return { ...readiness, unclassifiedAidCount: readiness.selectedAidCount - readiness.classifiedAidCount }
       })(),
       history: {
-        cursor: workspace.historyCursor,
-        length: workspace.history.length,
-        ...(workspace.historyBaselineCursor ? { baselineCursor: workspace.historyBaselineCursor } : {}),
-        entries: projectVisibleFavoriteRuleHistoryEntries(workspace.history)
-          .filter((projected) => projected.cursor > (workspace.historyBaselineCursor ?? 0))
+        cursor: projectedHistoryCursor,
+        length: projectedHistoryLength,
+        ...(projectedHistoryBaselineCursor ? { baselineCursor: projectedHistoryBaselineCursor } : {}),
+        entries: projectedHistory
+          .filter((projected) => projected.cursor > projectedHistoryBaselineCursor)
           .map(({ entry, cursor }) => ({
           cursor,
           source: entry.source,

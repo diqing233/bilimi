@@ -11,6 +11,7 @@ import { classifyOldFavoriteItemsCooperatively } from './oldFavoriteWorkspaceCla
 import {
   createOldFavoriteWorkspace,
   type OldFavoriteWorkspace,
+  type OldFavoriteWorkspaceHistoryEntry,
   type OldFavoriteWorkspaceRecoveryRequired,
   type OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
@@ -5832,7 +5833,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       expect.objectContaining({ participatingSavedLedgerIds: ['music'] }))
   })
 
-  it('merges the remaining enabled and exclusion state into one rule-only history when no video moved', async () => {
+  it('does not add a history cursor for favorite-rule state changes when no video moved', async () => {
     const root = await createRoot()
     const restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)
     const coordinator = createCoordinator(
@@ -5874,26 +5875,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
-    expect(snapshot.history.length).toBe(baselineLength + 1)
-    expect(snapshot.history.entries.at(-1)).toMatchObject({
-      source: 'favorite-rules',
-      summary: expect.objectContaining({
-        favoriteRule: {
-          action: 'unchecked',
-          title: 'bilimi·honker233',
-          movementGroups: []
-        }
-      })
-    })
-    await coordinator.moveHistoryCursor('100', baselineLength)
-    await coordinator.moveHistoryCursor('100', baselineLength + 1)
-    expect(restoreFavoriteLedgerHistoryState.mock.calls).toEqual(expect.arrayContaining([
-      ['100', before],
-      ['100', excluded]
-    ]))
+    expect(snapshot.history).toMatchObject({ length: baselineLength, cursor: baselineLength, entries: [] })
+    expect(restoreFavoriteLedgerHistoryState).not.toHaveBeenCalled()
   })
 
-  it('projects legacy favorite-rule intermediate checkpoints to the completed cancellation state', async () => {
+  it('does not create legacy favorite-rule intermediate checkpoints when no video moved', async () => {
     const root = await createRoot()
     const restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)
     const coordinator = createCoordinator(
@@ -5931,27 +5917,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       ledgers: roundExcluded.ledgers.map((ledger) => ({ ...ledger, enabled: false }))
     }
 
-    // These three records model journals produced before rule-selection writes
-    // were coalesced. They are one user cancellation, not three selectable
-    // historical positions.
+    // Repeated rule-only writes must not create any selectable historical
+    // position. The rule mutations themselves are owned by their callers.
     await coordinator.recordFavoriteLedgerHistoryChange('100', { before: initial, after: recommendationCancelled })
     await coordinator.recordFavoriteLedgerHistoryChange('100', { before: recommendationCancelled, after: roundExcluded })
     await coordinator.recordFavoriteLedgerHistoryChange('100', { before: roundExcluded, after: fullyCancelled })
 
     const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
-    expect(snapshot.history.length).toBe(baselineLength + 3)
-    expect(snapshot.history.entries).toHaveLength(1)
-    expect(snapshot.history.entries[0]).toMatchObject({ cursor: baselineLength + 3, source: 'favorite-rules' })
-
-    await coordinator.moveHistoryCursor('100', baselineLength)
-    await coordinator.moveHistoryCursor('100', baselineLength + 1)
-
-    expect(restoreFavoriteLedgerHistoryState).toHaveBeenLastCalledWith('100', fullyCancelled)
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
-      history: { cursor: baselineLength + 3 },
-      recommendations: { adoptedCandidateIds: [] },
-      excludedLedgerIds: ['saved-honker']
-    })
+    expect(snapshot.history).toMatchObject({ length: baselineLength, cursor: baselineLength, entries: [] })
+    expect(restoreFavoriteLedgerHistoryState).not.toHaveBeenCalled()
   })
 
   it('does not record a semantic no-op favorite-rule checkpoint with reordered fields', async () => {
@@ -10984,7 +10958,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('restores saved-rule selection and recommendation adoption from a durable rule-history entry', async () => {
+  it('restores saved-rule selection and recommendation adoption from a classification movement entry', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-25T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
@@ -10998,19 +10972,29 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       restoreFavoriteLedgerHistoryState
     })
     await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
     await coordinator.recordScanInventory('100', {
       sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
     })
-    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
+    })
 
     await coordinator.recordFavoriteLedgerHistoryChange('100', {
       before: { ledgers: beforeLedgers, adoptedCandidateIds: ['custom-tag-genshin'], excludedLedgerIds: [] },
-      after: { ledgers: afterLedgers, adoptedCandidateIds: [], excludedLedgerIds: ['genshin'] }
+      after: { ledgers: afterLedgers, adoptedCandidateIds: [], excludedLedgerIds: ['genshin'] },
+      mergeWithLatestClassification: true
     })
     const changed = requireSnapshot(await coordinator.getSnapshot('100'))
     expect(changed.history).toMatchObject({
       cursor: 1,
-      entries: [{ cursor: 1, source: 'favorite-rules', changeCount: 0 }]
+      entries: [{ cursor: 1, source: 'favorite-rules', changeCount: 1 }]
     })
 
     const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
@@ -11030,7 +11014,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('describes a saved rule created through history instead of emitting a generic favorite-rule record', async () => {
+  it('does not expose a history entry when a saved rule is created without classification movement', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -11050,12 +11034,63 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
-      history: {
-        entries: [{
-          source: 'favorite-rules',
-          summary: { favoriteRule: { action: 'created', title: 'bilimi·音乐' } }
-        }]
+      history: { cursor: 0, length: 0, entries: [] }
+    })
+  })
+
+  it('hides legacy zero-movement favorite-rule checkpoints and skips them when undoing', async () => {
+    const root = await createRoot()
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    )
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
+    })
+    const internals = coordinator as unknown as { workspaces: Map<string, OldFavoriteWorkspace> }
+    const workspace = internals.workspaces.get('100')
+    if (!workspace) throw new Error('workspace unexpectedly unavailable')
+    const legacy: OldFavoriteWorkspaceHistoryEntry = {
+      source: 'favorite-rules',
+      changes: [],
+      favoriteRuleState: {
+        before: { ledgers: [], adoptedCandidateIds: [], excludedLedgerIds: [] },
+        after: {
+          ledgers: [{ id: 'legacy-genshin', displayName: 'bilimi·原神', keywords: ['原神'], ruleType: 'keyword', enabled: true, priority: 1, isDefault: false }],
+          adoptedCandidateIds: [], excludedLedgerIds: []
+        }
       }
+    }
+    internals.workspaces.set('100', {
+      ...workspace,
+      history: [...workspace.history, legacy],
+      historyCursor: workspace.historyCursor + 1
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      history: {
+        cursor: 1,
+        length: 1,
+        entries: [{ cursor: 1, source: 'manual', changeCount: 1 }]
+      }
+    })
+
+    await coordinator.undoClassificationChange('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {},
+      history: { cursor: 0, length: 1, entries: [{ cursor: 1, source: 'manual', changeCount: 1 }] }
     })
   })
 
@@ -11077,13 +11112,18 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await coordinator.finishScan('100')
     await coordinator.acceptCurrentTags('100')
+    const baselineCursor = requireSnapshot(await coordinator.getSnapshot('100')).history.cursor
     const callsBeforeRestore = classifyCurrentItem.mock.calls.length
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
+    })
     await coordinator.recordFavoriteLedgerHistoryChange('100', {
       before: { ledgers: [], adoptedCandidateIds: [], excludedLedgerIds: [] },
-      after: { ledgers: [], adoptedCandidateIds: [], excludedLedgerIds: ['music'] }
+      after: { ledgers: [], adoptedCandidateIds: [], excludedLedgerIds: ['music'] },
+      mergeWithLatestClassification: true
     })
 
-    await coordinator.moveHistoryCursor('100', 1)
+    await coordinator.moveHistoryCursor('100', baselineCursor)
 
     expect(classifyCurrentItem.mock.calls.length).toBeGreaterThan(callsBeforeRestore)
   })
@@ -11157,7 +11197,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('records a recommended-folder adoption as a durable rule-history transition', async () => {
+  it('persists a zero-movement recommended-folder adoption without a history transition', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-25T00:00:00.000Z' })
     let persistedLedgers: FavoriteLedger[] = []
@@ -11188,12 +11228,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] },
-      history: {
-        entries: expect.arrayContaining([
-          expect.objectContaining({ source: 'favorite-rules', changeCount: 0 })
-        ])
-      }
+      history: { entries: [] }
     })
+    expect(persistedLedgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'custom-author-up-alpha' })
+    ]))
   })
 
   it('backfills a missing automatic classification baseline when a ready draft is restored', async () => {
