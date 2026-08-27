@@ -2357,9 +2357,19 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     classifyCurrentItems: (items, recommendedLedgers = [], accountMid, options) => {
       // Capture the saved rules once per workspace command, then classify its segment in memory.
       const accountPreferences = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+      const participatingSavedLedgerIds = options?.participatingSavedLedgerIds
+      const participatingSavedLedgerIdSet = participatingSavedLedgerIds === undefined
+        ? undefined
+        : new Set(participatingSavedLedgerIds)
+      const favoriteLedgers = participatingSavedLedgerIdSet
+        ? accountPreferences.favoriteLedgers.map((ledger) => {
+            const isSavedRule = ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule'
+            return isSavedRule ? { ...ledger, enabled: participatingSavedLedgerIdSet.has(ledger.id) } : ledger
+          })
+        : accountPreferences.favoriteLedgers
       const ledgers = mergeOldFavoriteWorkspaceLedgers(
         classifierLedgersForAccount(
-          accountPreferences.favoriteLedgers,
+          favoriteLedgers,
           accountPreferences.defaultFavoriteSystemEnabled
         ),
         recommendedLedgers,

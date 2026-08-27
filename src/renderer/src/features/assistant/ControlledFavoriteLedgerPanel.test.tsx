@@ -4136,6 +4136,57 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(save.mock.calls[0]?.[0][0]).not.toHaveProperty('syncState')
   })
 
+  it('removes a promoted recommendation cache entry after history restores a ledger directory without it', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {},
+      recommendations: {
+        candidates: [{ id: 'author-history', displayName: 'bilimi·历史作者', kind: 'author' as const, count: 2, reason: '历史推荐' }],
+        adoptedCandidateIds: [] as string[]
+      },
+      history: {
+        cursor: 1, length: 1, entries: [{
+          cursor: 1, source: 'favorite-rules' as const, changeCount: 1, targetLedgerIds: ['author-history'],
+          summary: { beforeTargetLedgerIds: [], afterTargetLedgerIds: ['author-history'], reason: '收藏夹规则与勾选', movedCount: 1 }
+        }]
+      }
+    }
+    const restored = {
+      ...preview,
+      recommendations: { ...preview.recommendations, adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 1, entries: preview.history.entries }
+    }
+    const command = vi.fn((_accountMid: string, request: { type: string; candidateIds?: string[] }) => Promise.resolve(
+      request.type === 'set-recommended-candidates'
+        ? { ...preview, recommendations: { ...preview.recommendations, adoptedCandidateIds: request.candidateIds ?? [] } }
+        : request.type === 'move-history-cursor'
+          ? restored
+          : preview
+    ))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+    const save = vi.fn().mockResolvedValue(undefined)
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={save} />)
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '历史作者' }))
+    expect(await screen.findByRole('button', { name: '历史作者' })).toBeInTheDocument()
+    await waitFor(() => expect(save).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(await screen.findByRole('button', { name: '查看改动记录' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '恢复初始改动' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'move-history-cursor', cursor: 0 }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: '历史作者' })).not.toBeInTheDocument())
+  })
+
   it('waits for a promoted recommendation rule to persist before applying its adoption', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

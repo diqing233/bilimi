@@ -401,7 +401,7 @@ export function OldFavoriteArchivePreviewStep({
         ? `${action}「${title}」后，自动分类 ${entry.summary?.movedCount ?? entry.changeCount} 条：${movements}`
         : `${action}「${title}」参与本轮分类，未产生分类移动`
     }
-    if (entry.source === 'favorite-rules') return '收藏夹规则变更：已恢复本地规则与本轮勾选'
+    if (entry.source === 'favorite-rules') return '历史收藏夹调整：恢复当时的本地规则、勾选与分类结果'
     if (!entry.summary) {
       return `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${historyTargetLabel(entry.targetLedgerIds)}`
     }

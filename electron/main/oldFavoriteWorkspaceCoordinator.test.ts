@@ -5767,6 +5767,71 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ]))
   })
 
+  it('reclassifies a saved-rule cancellation to another active saved rule and records the move', async () => {
+    const root = await createRoot()
+    const classifyCurrentItems = vi.fn((
+      items: Array<{ aid: number }>,
+      _recommendedLedgers: Array<{ id: string }>,
+      _accountMid: string,
+      options?: { participatingSavedLedgerIds?: readonly string[] }
+    ) => {
+      const participating = new Set(options?.participatingSavedLedgerIds ?? ['game', 'music'])
+      return items.map(() => ({
+        targetLedgerIds: [participating.has('game') ? 'game' : 'music'],
+        confidence: 'high' as const
+      }))
+    })
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root }),
+      {
+        classifyCurrentItems,
+        listSavedLedgers: vi.fn().mockResolvedValue([
+          { id: 'game', title: 'bilimi·游戏专区' },
+          { id: 'music', title: 'bilimi·音乐' }
+        ]),
+        loadFavoriteLedgerHistoryLedgers: vi.fn().mockResolvedValue([
+          { id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], ruleType: 'keyword', enabled: true, priority: 20, ruleOrigin: 'saved-rule', bindingState: 'unbacked', isDefault: false },
+          { id: 'music', displayName: 'bilimi·音乐', keywords: ['音乐'], ruleType: 'keyword', enabled: true, priority: 10, ruleOrigin: 'saved-rule', bindingState: 'unbacked', isDefault: false }
+        ] as FavoriteLedger[])
+      }
+    )
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: '来源', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: '游戏视频', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    expect(requireSnapshot(await coordinator.getSnapshot('100')).classifications).toMatchObject({
+      '1': { targetLedgerIds: ['game'], source: 'system-high' }
+    })
+
+    await coordinator.setRoundExcludedLedgerIds('100', ['game'])
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['music'], source: 'system-high' } },
+      history: {
+        entries: [expect.objectContaining({
+          source: 'favorite-rules',
+          summary: expect.objectContaining({
+            favoriteRule: expect.objectContaining({
+              action: 'unchecked',
+              title: 'bilimi·游戏专区',
+              movementGroups: [{ beforeTargetLedgerIds: ['game'], afterTargetLedgerIds: ['music'], count: 1 }]
+            })
+          })
+        })]
+      }
+    })
+    expect(classifyCurrentItems).toHaveBeenLastCalledWith(expect.any(Array), expect.any(Array), '100',
+      expect.objectContaining({ participatingSavedLedgerIds: ['music'] }))
+  })
+
   it('merges the remaining enabled and exclusion state into one rule-only history when no video moved', async () => {
     const root = await createRoot()
     const restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)
@@ -5826,6 +5891,110 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       ['100', before],
       ['100', excluded]
     ]))
+  })
+
+  it('projects legacy favorite-rule intermediate checkpoints to the completed cancellation state', async () => {
+    const root = await createRoot()
+    const restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root }),
+      {
+        loadFavoriteLedgerHistoryLedgers: vi.fn().mockResolvedValue([]),
+        restoreFavoriteLedgerHistoryState
+      }
+    )
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'One', author: 'honker233', tags: ['ready'], sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    const baselineLength = requireSnapshot(await coordinator.getSnapshot('100')).history.length
+    const initial = {
+      ledgers: [{
+        id: 'saved-honker', displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'author' as const,
+        enabled: true, priority: 10_000, ruleOrigin: 'saved-rule' as const, bindingState: 'unbacked' as const, isDefault: false
+      }],
+      adoptedCandidateIds: ['saved-honker'],
+      excludedLedgerIds: []
+    }
+    const recommendationCancelled = { ...initial, adoptedCandidateIds: [] }
+    const roundExcluded = { ...recommendationCancelled, excludedLedgerIds: ['saved-honker'] }
+    const fullyCancelled = {
+      ...roundExcluded,
+      ledgers: roundExcluded.ledgers.map((ledger) => ({ ...ledger, enabled: false }))
+    }
+
+    // These three records model journals produced before rule-selection writes
+    // were coalesced. They are one user cancellation, not three selectable
+    // historical positions.
+    await coordinator.recordFavoriteLedgerHistoryChange('100', { before: initial, after: recommendationCancelled })
+    await coordinator.recordFavoriteLedgerHistoryChange('100', { before: recommendationCancelled, after: roundExcluded })
+    await coordinator.recordFavoriteLedgerHistoryChange('100', { before: roundExcluded, after: fullyCancelled })
+
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(snapshot.history.length).toBe(baselineLength + 3)
+    expect(snapshot.history.entries).toHaveLength(1)
+    expect(snapshot.history.entries[0]).toMatchObject({ cursor: baselineLength + 3, source: 'favorite-rules' })
+
+    await coordinator.moveHistoryCursor('100', baselineLength)
+    await coordinator.moveHistoryCursor('100', baselineLength + 1)
+
+    expect(restoreFavoriteLedgerHistoryState).toHaveBeenLastCalledWith('100', fullyCancelled)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      history: { cursor: baselineLength + 3 },
+      recommendations: { adoptedCandidateIds: [] },
+      excludedLedgerIds: ['saved-honker']
+    })
+  })
+
+  it('does not record a semantic no-op favorite-rule checkpoint with reordered fields', async () => {
+    const root = await createRoot()
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { loadFavoriteLedgerHistoryLedgers: vi.fn().mockResolvedValue([]) }
+    )
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'One', author: 'honker233', tags: ['ready'], sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    const baselineLength = requireSnapshot(await coordinator.getSnapshot('100')).history.length
+    const before = {
+      ledgers: [{
+        id: 'saved-honker', displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'author' as const,
+        enabled: true, priority: 10_000, ruleOrigin: 'saved-rule' as const, bindingState: 'unbacked' as const, isDefault: false
+      }],
+      adoptedCandidateIds: ['saved-honker'],
+      excludedLedgerIds: []
+    }
+    const after = {
+      ledgers: [{
+        displayName: 'bilimi·honker233', id: 'saved-honker', isDefault: false, bindingState: 'unbacked' as const,
+        ruleOrigin: 'saved-rule' as const, priority: 10_000, enabled: true, ruleType: 'author' as const, keywords: ['honker233']
+      }],
+      adoptedCandidateIds: ['saved-honker'],
+      excludedLedgerIds: []
+    }
+
+    await coordinator.recordFavoriteLedgerHistoryChange('100', { before, after })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      history: { length: baselineLength, entries: [] }
+    })
   })
 
   it('applies an indexed recommendation without preview preparation', async () => {

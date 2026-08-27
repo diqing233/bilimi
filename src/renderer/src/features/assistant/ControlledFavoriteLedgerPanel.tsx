@@ -263,6 +263,7 @@ export function ControlledFavoriteLedgerPanel({
   }, [onSaveLedgerEnabled])
   const [promotedRecommendationLedgers, setPromotedRecommendationLedgers] = useState<FavoriteLedger[]>([])
   const promotedRecommendationLedgersRef = useRef<FavoriteLedger[]>([])
+  const promotedRecommendationHistoryCursorRef = useRef<string | null>(null)
   const [dismissedGeneratedRecommendationLedgerIds, setDismissedGeneratedRecommendationLedgerIds] = useState<ReadonlySet<string>>(() => new Set())
   const pendingRecommendationSavesRef = useRef(new Map<string, Promise<unknown>>())
   const [recommendationPromotionSaving, setRecommendationPromotionSaving] = useState(false)
@@ -330,6 +331,7 @@ export function ControlledFavoriteLedgerPanel({
   useEffect(() => {
     if (promotedRecommendationAccountKey === accountKey) return
     promotedRecommendationLedgersRef.current = []
+    promotedRecommendationHistoryCursorRef.current = null
     setPromotedRecommendationLedgers([])
     setDismissedGeneratedRecommendationLedgerIds(new Set())
     organizationRecommendationIdsRef.current = []
@@ -338,6 +340,32 @@ export function ControlledFavoriteLedgerPanel({
     setRecommendationPromotionSaving(false)
     setPromotedRecommendationAccountKey(accountKey)
   }, [accountKey, promotedRecommendationAccountKey, updateOrganizationSavedLedgerParticipationById])
+  useEffect(() => {
+    const snapshot = workspace.snapshot
+    if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing' ||
+      recommendationPromotionSaving || pendingRecommendationSavesRef.current.size) return
+    // Promoted recommendations only bridge the renderer while their durable
+    // rule or adopted candidate state catches up.  A history cursor may restore
+    // an older rule directory in which that bridge no longer exists; retaining
+    // it would reinsert a local rule the main process deliberately removed.
+    const historyCursorKey = `${snapshot.workspaceId}:${snapshot.history.cursor}`
+    const historyCursorChanged = promotedRecommendationHistoryCursorRef.current !== null &&
+      promotedRecommendationHistoryCursorRef.current !== historyCursorKey
+    promotedRecommendationHistoryCursorRef.current = historyCursorKey
+    const durableLedgerIds = new Set(ledgers.map((ledger) => ledger.id))
+    const retainedCandidateIds = new Set(historyCursorChanged
+      ? snapshot.recommendations.adoptedCandidateIds
+      : [
+          ...workspace.recommendedCandidateIds,
+          ...organizationRecommendationIdsRef.current,
+          ...snapshot.recommendations.adoptedCandidateIds
+        ])
+    const nextPromoted = promotedRecommendationLedgersRef.current.filter((ledger) =>
+      durableLedgerIds.has(ledger.id) || retainedCandidateIds.has(ledger.id))
+    if (nextPromoted.length === promotedRecommendationLedgersRef.current.length) return
+    promotedRecommendationLedgersRef.current = nextPromoted
+    setPromotedRecommendationLedgers(nextPromoted)
+  }, [ledgers, recommendationPromotionSaving, workspace.recommendedCandidateIds, workspace.snapshot])
   useEffect(() => {
     const snapshot = workspace.snapshot
     if (!snapshot || 'recovery' in snapshot || snapshot.status !== 'previewing') return

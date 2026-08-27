@@ -198,10 +198,8 @@ export function OldFavoriteGuide({
   const [viewedSnapshot, setViewedSnapshot] = useState<Exclude<OldFavoriteWorkspaceView, null | { recovery: 'rebuild-required' }> | null>(null)
   useEffect(() => {
     if (!snapshot || 'recovery' in snapshot) return
-    if (snapshot.segments.length <= 1) {
-      initializedMultiBatchWorkspaceIdRef.current = snapshot.workspaceId
-      return
-    }
+    const hasMultipleSegments = snapshot.hasMultipleSegments || snapshot.segments.length > 1
+    if (!hasMultipleSegments) return
     if (initializedMultiBatchWorkspaceIdRef.current === snapshot.workspaceId) return
     initializedMultiBatchWorkspaceIdRef.current = snapshot.workspaceId
     setViewScope('all')

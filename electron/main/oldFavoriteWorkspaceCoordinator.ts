@@ -69,6 +69,58 @@ type FavoriteRuleHistoryEffect = {
   title: string
 }
 
+type ProjectedFavoriteRuleHistoryEntry = {
+  entry: OldFavoriteWorkspaceHistoryEntry
+  firstCursor: number
+  cursor: number
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === undefined) return 'undefined'
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map((item) => stableSerialize(item)).join(',')}]`
+  const entries = Object.entries(value)
+    .filter(([, item]) => item !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableSerialize(item)}`).join(',')}}`
+}
+
+function favoriteRuleHistoryStatesMatch(
+  left: OldFavoriteWorkspaceFavoriteRuleHistoryState,
+  right: OldFavoriteWorkspaceFavoriteRuleHistoryState
+) {
+  const normalizeForComparison = (state: OldFavoriteWorkspaceFavoriteRuleHistoryState) => ({
+    ledgers: [...state.ledgers].sort((first, second) => first.id.localeCompare(second.id)),
+    adoptedCandidateIds: [...state.adoptedCandidateIds].sort(),
+    excludedLedgerIds: [...state.excludedLedgerIds].sort()
+  })
+  return stableSerialize(normalizeForComparison(left)) === stableSerialize(normalizeForComparison(right))
+}
+
+function favoriteRuleHistoryChangedLedgerIds(entry: OldFavoriteWorkspaceHistoryEntry) {
+  const transition = entry.favoriteRuleState
+  if (!transition) return new Set<string>()
+  const changed = new Set<string>()
+  const beforeLedgers = new Map(transition.before.ledgers.map((ledger) => [ledger.id, ledger]))
+  const afterLedgers = new Map(transition.after.ledgers.map((ledger) => [ledger.id, ledger]))
+  for (const ledgerId of new Set([...beforeLedgers.keys(), ...afterLedgers.keys()])) {
+    if (stableSerialize(beforeLedgers.get(ledgerId)) !== stableSerialize(afterLedgers.get(ledgerId))) changed.add(ledgerId)
+  }
+  const addSetDifference = (before: readonly string[], after: readonly string[]) => {
+    const beforeIds = new Set(before)
+    const afterIds = new Set(after)
+    for (const ledgerId of beforeIds) if (!afterIds.has(ledgerId)) changed.add(ledgerId)
+    for (const ledgerId of afterIds) if (!beforeIds.has(ledgerId)) changed.add(ledgerId)
+  }
+  addSetDifference(transition.before.adoptedCandidateIds, transition.after.adoptedCandidateIds)
+  addSetDifference(transition.before.excludedLedgerIds, transition.after.excludedLedgerIds)
+  return changed
+}
+
+function matchingFavoriteRuleIdSets(left: ReadonlySet<string>, right: ReadonlySet<string>) {
+  return left.size > 0 && left.size === right.size && [...left].every((id) => right.has(id))
+}
+
 function favoriteRuleHistoryEffect(entry: OldFavoriteWorkspaceHistoryEntry): FavoriteRuleHistoryEffect | undefined {
   const transition = entry.favoriteRuleState
   if (!transition) return undefined
@@ -100,7 +152,7 @@ function favoriteRuleHistoryEffect(entry: OldFavoriteWorkspaceHistoryEntry): Fav
     }
     if (!before || !after) continue
     if (before.enabled !== after.enabled) record(ledgerId, after.enabled ? 'checked' : 'unchecked')
-    else if (JSON.stringify(before) !== JSON.stringify(after)) record(ledgerId, 'updated')
+    else if (stableSerialize(before) !== stableSerialize(after)) record(ledgerId, 'updated')
   }
   const beforeAdopted = new Set(transition.before.adoptedCandidateIds)
   const afterAdopted = new Set(transition.after.adoptedCandidateIds)
@@ -118,6 +170,62 @@ function favoriteRuleHistoryEffect(entry: OldFavoriteWorkspaceHistoryEntry): Fav
     action: actions.size === 1 ? [...actions][0]! : 'updated',
     title: titles.join('、')
   }
+}
+
+function canCoalesceLegacyFavoriteRuleHistoryEntries(
+  previous: OldFavoriteWorkspaceHistoryEntry,
+  next: OldFavoriteWorkspaceHistoryEntry
+) {
+  if (previous.source !== 'favorite-rules' || next.source !== 'favorite-rules' ||
+    !previous.favoriteRuleState || !next.favoriteRuleState) return false
+  if (!favoriteRuleHistoryStatesMatch(previous.favoriteRuleState.after, next.favoriteRuleState.before)) return false
+  const previousEffect = favoriteRuleHistoryEffect(previous)
+  const nextEffect = favoriteRuleHistoryEffect(next)
+  if (!previousEffect || !nextEffect || previousEffect.action !== nextEffect.action) return false
+  if (!matchingFavoriteRuleIdSets(favoriteRuleHistoryChangedLedgerIds(previous), favoriteRuleHistoryChangedLedgerIds(next))) return false
+  return stableSerialize(previous.changes) === stableSerialize(next.changes)
+}
+
+function isSemanticFavoriteRuleHistoryNoOp(entry: OldFavoriteWorkspaceHistoryEntry) {
+  return entry.source === 'favorite-rules' && entry.changes.length === 0 && Boolean(entry.favoriteRuleState) &&
+    favoriteRuleHistoryStatesMatch(entry.favoriteRuleState!.before, entry.favoriteRuleState!.after)
+}
+
+function projectVisibleFavoriteRuleHistoryEntries(history: readonly OldFavoriteWorkspaceHistoryEntry[]) {
+  const projected: ProjectedFavoriteRuleHistoryEntry[] = []
+  for (let index = 0; index < history.length;) {
+    const initial = history[index]!
+    if (isSemanticFavoriteRuleHistoryNoOp(initial)) {
+      index += 1
+      continue
+    }
+    let entry = clone(initial)
+    let lastIndex = index
+    while (lastIndex + 1 < history.length && canCoalesceLegacyFavoriteRuleHistoryEntries(entry, history[lastIndex + 1]!)) {
+      const next = history[lastIndex + 1]!
+      entry = {
+        ...clone(entry),
+        source: 'favorite-rules',
+        changes: clone(entry.changes.length ? entry.changes : next.changes),
+        favoriteRuleState: {
+          before: clone(entry.favoriteRuleState!.before),
+          after: clone(next.favoriteRuleState!.after)
+        }
+      }
+      lastIndex += 1
+    }
+    projected.push({ entry, firstCursor: index + 1, cursor: lastIndex + 1 })
+    index = lastIndex + 1
+  }
+  return projected
+}
+
+function resolveProjectedFavoriteRuleHistoryCursor(
+  history: readonly OldFavoriteWorkspaceHistoryEntry[],
+  requestedCursor: number
+) {
+  const projected = projectVisibleFavoriteRuleHistoryEntries(history)
+  return projected.find((entry) => entry.firstCursor <= requestedCursor && requestedCursor <= entry.cursor)?.cursor ?? requestedCursor
 }
 
 function favoriteRuleMovementGroups(entry: OldFavoriteWorkspaceHistoryEntry) {
@@ -1089,7 +1197,11 @@ export class OldFavoriteWorkspaceCoordinator {
       }>>
     }
     syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'stopAndAbandonFrozenPlan' | 'pauseFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'rebindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'deleteManagedRemoteFolders' | 'previewManagedFolderDeletion'>
-    classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers?: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
+    classifyCurrentItem?: (
+      item: CurrentSegmentItem,
+      recommendedLedgers?: RecommendedLedger[],
+      options?: { participatingSavedLedgerIds?: readonly string[] }
+    ) => AutomaticClassification | Promise<AutomaticClassification>
     classifyCurrentItems?: (
       items: CurrentSegmentItem[],
       recommendedLedgers: RecommendedLedger[],
@@ -1098,6 +1210,7 @@ export class OldFavoriteWorkspaceCoordinator {
         onBatchComplete?: (completedItemCount: number, totalItemCount: number) => void
         shouldCancel?: () => boolean
         excludedRecommendedLedgers?: RecommendedLedger[]
+        participatingSavedLedgerIds?: readonly string[]
       }
     ) => AutomaticClassification[] | Promise<AutomaticClassification[]>
     saveRecommendedLedgers?: (
@@ -3384,18 +3497,29 @@ export class OldFavoriteWorkspaceCoordinator {
         await this.options.listSavedEnabledLedgers?.(workspace.accountMid) ?? []
       const savedLedgerIds = new Set(savedLedgers.map((ledger) => ledger.id.trim()).filter(Boolean))
       const excludedLedgerIds = [...new Set(ledgerIds.map((id) => id.trim()).filter((id) => savedLedgerIds.has(id)))].sort()
+      const previousExcludedLedgerIds = this.roundExcludedLedgerIdsByAccount.get(workspace.accountMid) ?? []
+      const participationChanged = JSON.stringify(previousExcludedLedgerIds) !== JSON.stringify(excludedLedgerIds)
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], excludedLedgerIds
       })
       this.roundExcludedLedgerIdsByAccount.set(workspace.accountMid, excludedLedgerIds)
-      const afterHistoryState = await this.captureFavoriteLedgerHistoryStateUnsafe(workspace, recommendations, excludedLedgerIds)
+      // A saved-rule participation change is not merely a preview filter.  It
+      // changes the eligible rule set for this round, so the existing bounded
+      // main-process classifier must produce the new durable result before any
+      // archive or history projection is published.
+      const participatingSavedLedgerIds = [...savedLedgerIds].filter((ledgerId) => !excludedLedgerIds.includes(ledgerId)).sort()
+      const reclassified = participationChanged && (this.options.classifyCurrentItem || this.options.classifyCurrentItems)
+        ? await this.autoClassifyAllSegmentsUnsafe(workspace, true, false, false, undefined, false, participatingSavedLedgerIds)
+        : workspace
+      const afterHistoryState = await this.captureFavoriteLedgerHistoryStateUnsafe(reclassified, recommendations, excludedLedgerIds)
       const updated = beforeHistoryState && afterHistoryState
-        ? await this.recordFavoriteLedgerHistoryChangeUnsafe(workspace, {
+        ? await this.recordFavoriteLedgerHistoryChangeUnsafe(reclassified, {
             before: beforeHistoryState,
             after: afterHistoryState,
-            mergeWithLatestClassification: options.mergeWithLatestClassification === true
+            mergeWithLatestClassification: options.mergeWithLatestClassification === true ||
+              reclassified.historyCursor > workspace.historyCursor
           })
-        : workspace
+        : reclassified
       return this.createSnapshot(updated)
     })
   }
@@ -4050,7 +4174,8 @@ export class OldFavoriteWorkspaceCoordinator {
     replaceDeepSeek = false,
     replaceManual = false,
     recommendationState?: RecommendationState,
-    persistAsHistoryProjection = false
+    persistAsHistoryProjection = false,
+    participatingSavedLedgerIds?: readonly string[]
   ) {
     return this.autoClassifySegmentsUnsafe(
       workspace,
@@ -4060,7 +4185,8 @@ export class OldFavoriteWorkspaceCoordinator {
       recommendationState,
       replaceDeepSeek,
       replaceManual,
-      persistAsHistoryProjection
+      persistAsHistoryProjection,
+      participatingSavedLedgerIds
     )
   }
 
@@ -4087,7 +4213,8 @@ export class OldFavoriteWorkspaceCoordinator {
     recommendationState?: RecommendationState,
     replaceDeepSeek = false,
     replaceManual = false,
-    persistAsHistoryProjection = false
+    persistAsHistoryProjection = false,
+    participatingSavedLedgerIds?: readonly string[]
   ) {
     const classify = this.options.classifyCurrentItem
     const classifyMany = this.options.classifyCurrentItems
@@ -4143,11 +4270,17 @@ export class OldFavoriteWorkspaceCoordinator {
           })
         const classifications = classifyMany
           ? await classifyMany(candidates.map(clone), clone(recommendedLedgers), workspace.accountMid, {
-              excludedRecommendedLedgers: clone(excludedRecommendedLedgers)
+              excludedRecommendedLedgers: clone(excludedRecommendedLedgers),
+              ...(participatingSavedLedgerIds === undefined ? {} : { participatingSavedLedgerIds: [...participatingSavedLedgerIds] })
             })
-          : await Promise.all(candidates.map((item) => recommendedLedgers.length
-            ? classify!(clone(item), clone(recommendedLedgers))
-            : classify!(clone(item))))
+          : await Promise.all(candidates.map((item) => {
+            if (participatingSavedLedgerIds === undefined) {
+              return recommendedLedgers.length
+                ? classify!(clone(item), clone(recommendedLedgers))
+                : classify!(clone(item))
+            }
+            return classify!(clone(item), clone(recommendedLedgers), { participatingSavedLedgerIds })
+          }))
         if (classifications.length !== candidates.length) {
           throw new Error('Old favorite workspace automatic classification result is invalid.')
         }
@@ -5300,12 +5433,13 @@ export class OldFavoriteWorkspaceCoordinator {
       if (!Number.isSafeInteger(targetCursor) || targetCursor < 0 || targetCursor > workspace.history.length) {
         throw new Error('Old favorite workspace history cursor is invalid.')
       }
-      if (targetCursor < (workspace.historyBaselineCursor ?? 0)) {
+      const resolvedTargetCursor = resolveProjectedFavoriteRuleHistoryCursor(workspace.history, targetCursor)
+      if (resolvedTargetCursor < (workspace.historyBaselineCursor ?? 0)) {
         throw new Error('Old favorite workspace history cursor cannot precede the initial classification baseline.')
       }
       let updated = workspace
-      while (updated.historyCursor > targetCursor) updated = undoWorkspaceChange(updated)
-      while (updated.historyCursor < targetCursor) updated = redoWorkspaceChange(updated)
+      while (updated.historyCursor > resolvedTargetCursor) updated = undoWorkspaceChange(updated)
+      while (updated.historyCursor < resolvedTargetCursor) updated = redoWorkspaceChange(updated)
       if (updated === workspace) return clone(workspace)
       const favoriteRuleState = this.favoriteRuleHistoryStateAtCursor(updated.history, updated.historyCursor)
       if (favoriteRuleState) {
@@ -5400,7 +5534,7 @@ export class OldFavoriteWorkspaceCoordinator {
   ): Promise<OldFavoriteWorkspace> {
     const before = this.normalizeFavoriteRuleHistoryState(transition.before)
     const after = this.normalizeFavoriteRuleHistoryState(transition.after)
-    if (JSON.stringify(before) === JSON.stringify(after)) return clone(workspace)
+    if (favoriteRuleHistoryStatesMatch(before, after)) return clone(workspace)
     const activeHistory = workspace.history.slice(0, workspace.historyCursor)
     const latest = activeHistory.at(-1)
     // The renderer marks only the serial steps of one upper-rule click. A
@@ -7573,8 +7707,10 @@ export class OldFavoriteWorkspaceCoordinator {
         cursor: workspace.historyCursor,
         length: workspace.history.length,
         ...(workspace.historyBaselineCursor ? { baselineCursor: workspace.historyBaselineCursor } : {}),
-        entries: workspace.history.slice(workspace.historyBaselineCursor ?? 0).map((entry, index) => ({
-          cursor: (workspace.historyBaselineCursor ?? 0) + index + 1,
+        entries: projectVisibleFavoriteRuleHistoryEntries(workspace.history)
+          .filter((projected) => projected.cursor > (workspace.historyBaselineCursor ?? 0))
+          .map(({ entry, cursor }) => ({
+          cursor,
           source: entry.source,
           changeCount: entry.changes.length,
           targetLedgerIds: [...new Set(entry.changes.flatMap((change) => change.after?.targetLedgerIds ?? change.before?.targetLedgerIds ?? []))].sort(),
