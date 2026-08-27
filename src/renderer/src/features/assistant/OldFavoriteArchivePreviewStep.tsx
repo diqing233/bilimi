@@ -101,7 +101,7 @@ type OldFavoriteArchivePreviewStepProps = {
 }
 
 type OldFavoriteArchiveGroupsProps = Pick<OldFavoriteArchivePreviewStepProps,
-  'snapshot' | 'ledgers' | 'loading' | 'mutationLocked' | 'onApplyManualClassification' | 'onApplyManualClassifications' | 'recommendedCandidateIds' | 'enabledLedgerIds' | 'candidateLedgerIds'>
+  'snapshot' | 'ledgers' | 'loading' | 'mutationLocked' | 'onApplyManualClassification' | 'onApplyManualClassifications' | 'enabledLedgerIds' | 'candidateLedgerIds'>
 
 const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   snapshot,
@@ -110,7 +110,6 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   mutationLocked = false,
   onApplyManualClassification,
   onApplyManualClassifications,
-  recommendedCandidateIds,
   enabledLedgerIds,
   candidateLedgerIds
 }: OldFavoriteArchiveGroupsProps) {
@@ -133,7 +132,7 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   const items = (snapshot.currentSegment?.items ?? []).filter((item) =>
     !isUnavailablePreviewItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
   const recommendationIds = useMemo(() => new Set(snapshot.recommendations.candidates.map((candidate) => candidate.id)), [snapshot.recommendations.candidates])
-  const selectedRecommendationKey = (recommendedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds).join('\u0001')
+  const selectedRecommendationKey = snapshot.recommendations.adoptedCandidateIds.join('\u0001')
   const effectiveClassifications = useMemo(() => {
     const selectedRecommendations = new Set(selectedRecommendationKey.split('\u0001').filter(Boolean))
     return Object.fromEntries(Object.entries(snapshot.classifications).map(([aid, classification]) => {
@@ -352,7 +351,6 @@ export function OldFavoriteArchivePreviewStep({
   onMoveHistoryCursor,
   onApplyManualClassification,
   onApplyManualClassifications,
-  recommendedCandidateIds = [],
   enabledLedgerIds,
   candidateLedgerIds,
   viewScope: controlledViewScope,
@@ -548,7 +546,7 @@ export function OldFavoriteArchivePreviewStep({
           {hasMultipleSegments ? <OldFavoriteViewScopeSwitch label="归档预览视图" value={viewScope} onChange={setViewScope} /> : null}
         </div>
       </div>
-      {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds)} enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} /> : null}
+      {hasMultipleSegments && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} /> : null}
       <p role="status">{viewScope === 'all' ? '本轮仍有标签补取中，完成批次会在就绪后汇总到归档预览。' : '当前批次标签补取中，完成后可查看归档预览。'}</p>
     </section>
   }
@@ -651,12 +649,12 @@ export function OldFavoriteArchivePreviewStep({
       </div>
     </div>
     {hasMultipleSegments ? <div className="favorite-ledger-panel__scope-panel" hidden={viewScope !== 'all'} data-testid="whole-run-archive-view">
-      <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds)} enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} />
+      <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} />
     </div> : null}
     <div className="favorite-ledger-panel__scope-panel" hidden={hasMultipleSegments && viewScope === 'all'} data-testid="current-archive-view">
       <OldFavoriteArchiveGroups snapshot={snapshot} ledgers={ledgers} loading={loading} mutationLocked={mutationLocked}
         onApplyManualClassification={onApplyManualClassification} onApplyManualClassifications={onApplyManualClassifications}
-        recommendedCandidateIds={recommendedCandidateIds} enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} />
+        enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} />
     </div>
     {deepSeekDialogOpen ? <OldFavoriteModal
       title="DeepSeek 整理"

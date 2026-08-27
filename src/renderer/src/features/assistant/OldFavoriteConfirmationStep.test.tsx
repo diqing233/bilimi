@@ -4,8 +4,37 @@ import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteConfirmationStep } from './OldFavoriteConfirmationStep'
 import { OldFavoriteGuide } from './OldFavoriteGuide'
+import { OldFavoriteWholeRunOverview } from './OldFavoriteOverviewControls'
 
 describe('OldFavoriteConfirmationStep', () => {
+  it('shows an adopted recommendation archive count when the renderer selection is temporarily empty', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 33, hasMultipleSegments: true, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [{
+        id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 33, readiness: 'ready' as const,
+        completedTagItemCount: 33, pendingTagItemCount: 0
+      }], currentSegment: null, classifications: {}, recommendations: {
+        candidates: [{ id: 'recommended-author', displayName: 'bilimi·推荐 UP', kind: 'author' as const, count: 33, reason: 'test' }],
+        adoptedCandidateIds: ['recommended-author']
+      }, history: { cursor: 0, length: 0, entries: [] }, overview: {
+        available: true, completedSegmentCount: 1, totalSegmentCount: 1, unavailableItemCount: 0, sourceFolders: [], recommendationCounts: [],
+        processedItemCount: 33, classifiedItemCount: 33, unmatchedItemCount: 0, waitingItemCount: 0,
+        archiveTargets: [{ ledgerId: 'recommended-author', itemCount: 33, segmentCounts: [{ segmentId: 'segment-1', count: 33 }] }]
+      }
+    }
+
+    render(<OldFavoriteWholeRunOverview
+      snapshot={snapshot}
+      ledgerNames={new Map([['recommended-author', 'bilimi·推荐 UP']])}
+      showArchiveTargets
+      selectedRecommendationIds={new Set()}
+    />)
+
+    expect(screen.getByText('bilimi·推荐 UP')).toBeInTheDocument()
+    expect(screen.getByText('预计归档 33 条')).toBeInTheDocument()
+  })
+
   it('lets the sync confirmation summary inherit normal modal typography', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
     const summaryRule = styles.match(/\.favorite-ledger-panel__sync-summary p\s*\{([\s\S]*?)\n\}/)?.[1]
@@ -85,7 +114,7 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.queryByRole('group', { name: '本批操作' })).not.toBeInTheDocument()
 
     rendered.rerender(<OldFavoriteConfirmationStep snapshot={snapshot} ledgers={ledgers} {...props} recommendedCandidateIds={[]} viewScope="all" />)
-    expect(screen.queryByText('预计归档 499 条')).not.toBeInTheDocument()
+    expect(screen.getByText('预计归档 499 条')).toBeInTheDocument()
 
     rendered.rerender(<OldFavoriteConfirmationStep snapshot={{ ...snapshot, hasMultipleSegments: false, segments: [snapshot.segments[0]] }} ledgers={ledgers} {...props} />)
     expect(screen.queryByRole('group', { name: '确认执行视图' })).not.toBeInTheDocument()

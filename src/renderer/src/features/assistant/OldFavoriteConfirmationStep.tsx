@@ -116,7 +116,6 @@ export function OldFavoriteConfirmationStep({
   onPauseBilibiliSync = () => undefined,
   onStopSyncAndFinish = () => undefined,
   onReconcile,
-  recommendedCandidateIds,
   enabledLedgerIds,
   candidateLedgerIds,
   viewScope: controlledViewScope,
@@ -239,7 +238,7 @@ export function OldFavoriteConfirmationStep({
         <button type="button" disabled={loading || pauseRequested || stopRequested} onClick={requestPauseBilibiliSync}>{pauseRequested ? '正在暂停…' : '暂停同步'}</button>
         <button type="button" disabled={loading || stopRequested} onClick={() => setStopSyncDialogOpen(true)}>{stopRequested ? '正在停止…' : '结束本轮整理'}</button>
       </div>
-      {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)} enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} /> : null}
+      {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} /> : null}
       {stopSyncDialogOpen ? <OldFavoriteModal
         title="结束本轮整理"
         confirmLabel="确认结束本轮"
@@ -389,7 +388,7 @@ export function OldFavoriteConfirmationStep({
         </div>
       </section> : null}
     </div>
-    {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets selectedRecommendationIds={new Set(recommendedCandidateIds ?? snapshot.recommendations.adoptedCandidateIds)} enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} /> : null}
+    {isMultiSegment && viewScope === 'all' ? <OldFavoriteWholeRunOverview snapshot={snapshot} ledgerNames={ledgerNames} showArchiveTargets enabledLedgerIds={enabledLedgerIds} candidateLedgerIds={candidateLedgerIds} /> : null}
     {endDialogOpen ? <OldFavoriteModal title="结束本轮整理?" onCancel={() => setEndDialogOpen(false)} extraActions={<>
       <button type="button" onClick={() => { setEndDialogOpen(false); onCloseCurrentWorkspace() }}>关闭整理</button>
       <button type="button" onClick={() => { setEndDialogOpen(false); onAbandonCurrentWorkspace() }}>确认结束</button>

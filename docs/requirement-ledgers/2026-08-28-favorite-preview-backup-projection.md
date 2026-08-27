@@ -29,11 +29,34 @@
 你没修吗，以前都可以为什么现在不行，上一轮问题也说得很清楚了吧
 ```
 
+### R003
+
+```text
+讨论有备册提示了归档预览为什么还是0
+```
+
+### R004
+
+截图：`C:\Users\diqing\AppData\Local\Temp\codex-clipboard-1a85a842-634f-4125-ab21-c9692452fa86.png`
+
+截图目标：`整理收藏 → 确认执行 → 同步前备册确认`与其后的`归档预览`列表。确认窗口把`bilimi·honker233`与`bilimi·哈米伦的弄笛者`列为`未备册`，但右侧归档预览的相同两个收藏夹显示`预计归档 0 条`。用户本条未附加文字。
+
+```text
+
+```
+
+### R005
+
+```text
+我自己创建收藏夹会让原来为0的推荐收藏夹数据变为正常，能不能参考下
+```
+
 ## R002 逐项索引追加
 
 | ID | 原文 | 精确目标 | 目标界面 / 数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化 / 迁移 / B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | I003 | R002 | 推荐候选已采用且本地命中非 0 时，分类 journal、归档预览和同步前备册预检必须在同一权威快照中反映实际成员；不得出现采用状态已持久化但目标仍为 0 的中间结果。 | 推荐采用命令、工作区分类 journal、归档预览 `archiveTargets`、同步前备册确认。 | 仅针对本轮已采用并仍参与的推荐候选；真正无命中时才显示 0。 | 采用/重新勾选必须等待分类结果提交后再发布最终推荐快照；若队列竞态导致采用集合变化，必须按最新集合重算，不得用旧分类覆盖新状态。 | 仅修改本地分类与投影；不创建、绑定、删除、移动 B 站收藏夹，不写视频。 | 不改上方已保存规则勾选/取消、删除模式、DeepSeek、转写、视频同步执行、单个备册入口及其他主题文件。 | `setRecommendedCandidates`、`applyRecommendedLedgerDeltaUnsafe`、`setRoundExcludedLedgerIds` 的推荐快照传递、推荐持久化队列、分类 journal、归档/备册投影。 | 已实施待验证 | RED：原备册预检测试只返回 `game`，未返回已采用本地推荐；GREEN 后 `includes an adopted local recommendation in backup preflight even when its archive count is zero`、`keeps adopted recommendation assignments when round participation is refreshed` 通过。Electron 只读证据为 `.codex-artifacts/2026-08-28-favorite-round-readonly.png` 与 `.codex-artifacts/2026-08-28-favorite-round-readonly-scroll.png`；未执行真实 B 站创建、绑定、删除、移动或视频写入。 |
+| I004 | R003、R004、R005 | 查明并消除“同步前备册确认已把同一已采用推荐规则列为未备册，归档预览却为 0 条”的跨投影不一致；以上方自行新建收藏夹后旧推荐项恢复计数的完整重分类路径作为正确性参照，但不得因此令推荐项勾选阻塞或卡顿。 | 整理收藏 → 归档预览；确认执行 → 同步前备册确认；工作区推荐状态、分类 journal、上方已保存规则目录。 | 同一稳定规则 ID在本轮已采用、未取消且其扫描匹配 AID非 0 时，预览必须显示其实际归档数；真正无匹配才显示 0。 | 备册预检和归档预览必须读取同一规则 ID映射与同版分类快照；不能仅让备册侧修复为“已识别”而遗漏分类投影。 | 本轮仅验证本地投影；未创建、绑定、删除、移动 B 站收藏夹，未写视频。 | 不改 DeepSeek、转写、删除模式、视频同步、单个收藏夹备册入口或无关功能。 | 推荐采用/规则 ID映射、`classifications.targetLedgerIds`、归档汇总投影、同步前备册预检；上方新建规则的 `createLocalLedgerAndReclassify` 全轮重分类路径。 | 已实施；真实远端副作用与实际勾选性能待验证 | 代码：`OldFavoriteOverviewControls.tsx:52-87`仅汇总主进程`overview.archiveTargets`；`OldFavoriteArchivePreviewStep.tsx:135-152`只读取快照`adoptedCandidateIds`；`OldFavoriteConfirmationStep.tsx:241,391`不再传递渲染器局部推荐选择。RED：空局部选择时归档数被过滤为 0 / 当前批被误投未匹配；GREEN：`OldFavoriteConfirmationStep`、`OldFavoriteArchivePreviewStep` 77 项，含“33 条仍显示”与当前批保留已采用推荐。回归：受影响面板、预览、确认 240 项；完整`npm test` 240 文件、4,130 项；`npm run build`均通过。Electron 只读：`.codex-artifacts/2026-08-28-authoritative-recommendation-archive-projection.png`中`bilimi·honker233`显示 33 条（第 1 批 23、第 2 批 10），而`bilimi·你好`保持真实 0。未点击备册确认、创建、绑定、删除或同步；因此未验证真实 B 站副作用，也未通过真实推荐勾选操作量化鼠标不卡。 |
 
 ## 逐项索引
 

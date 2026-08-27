@@ -3,6 +3,29 @@ import { describe, expect, it, vi } from 'vitest'
 import { groupOldFavoritePreviewItems, OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 
 describe('OldFavoriteArchivePreviewStep', () => {
+  it('keeps an adopted recommendation in the current preview while renderer selection is temporarily empty', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 1, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }], segments: [],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Recommendation member', sourceFolderIds: ['source'] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['recommended-author'], source: 'system-high' as const } },
+      recommendations: {
+        candidates: [{ id: 'recommended-author', displayName: '推荐 UP', kind: 'author' as const, count: 1, reason: 'test' }],
+        adoptedCandidateIds: ['recommended-author']
+      }, history: { cursor: 0, length: 0, entries: [] }
+    }
+
+    render(<OldFavoriteArchivePreviewStep snapshot={snapshot} ledgers={[
+      { id: 'recommended-author', displayName: '推荐 UP', keywords: [], enabled: true, priority: 0, isDefault: false }
+    ]} recommendedCandidateIds={[]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()} />)
+
+    expect(screen.getByRole('group', { name: '推荐 UP 1 条' })).toBeInTheDocument()
+    expect(screen.getByText('Recommendation member')).toBeInTheDocument()
+  })
+
   it('includes a reselected remote source after its managed relationship is cleared', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,

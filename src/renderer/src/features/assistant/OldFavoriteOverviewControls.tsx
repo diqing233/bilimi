@@ -36,7 +36,6 @@ export function OldFavoriteWholeRunOverview({
   snapshot,
   ledgerNames = new Map(),
   showArchiveTargets = false,
-  selectedRecommendationIds,
   enabledLedgerIds,
   candidateLedgerIds
 }: OldFavoriteWholeRunOverviewProps) {
@@ -49,13 +48,10 @@ export function OldFavoriteWholeRunOverview({
   }
 
   const canonicalLedgerId = (ledgerId: string) => candidateLedgerIds?.get(ledgerId) ?? ledgerId
-  const recommendationIds = new Set(snapshot.recommendations.candidates.map((candidate) => candidate.id))
-  const selectedRecommendations = selectedRecommendationIds ?? new Set(snapshot.recommendations.adoptedCandidateIds)
   const archiveTargetById = new Map<string, typeof overview.archiveTargets[number]>()
   for (const target of overview.archiveTargets) {
     const ledgerId = canonicalLedgerId(target.ledgerId)
     if (ledgerId !== 'inbox' && enabledLedgerIds && !enabledLedgerIds.has(ledgerId)) continue
-    if (recommendationIds.has(target.ledgerId) && !selectedRecommendations.has(target.ledgerId)) continue
     const current = archiveTargetById.get(ledgerId)
     if (!current) {
       archiveTargetById.set(ledgerId, ledgerId === target.ledgerId ? target : { ...target, ledgerId })
