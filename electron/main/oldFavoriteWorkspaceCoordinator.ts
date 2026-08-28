@@ -5576,31 +5576,29 @@ export class OldFavoriteWorkspaceCoordinator {
         this.roundExcludedLedgerIdsByAccount.set(updated.accountMid, [...favoriteRuleState.excludedLedgerIds])
         this.participatingSavedLedgerIdsByAccount.set(updated.accountMid,
           favoriteRuleState.ledgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id).sort())
-        // A history cursor restores durable local intent first, then rebuilds
-        // the derived archive/sync projection from that exact intent. This
-        // remains local-only: classification never creates, binds, deletes,
-        // or writes a Bilibili folder.
+        // The cursor has already replayed the historical classification
+        // journal. Restore the local rule intent and derive archive/sync
+        // state from that exact historical classification; reclassifying here
+        // would overwrite manual or DeepSeek decisions from the target entry.
+        // This remains local-only: it never creates, binds, deletes, or
+        // writes a Bilibili folder.
         const restoredParticipatingSavedLedgerIds = favoriteRuleState.ledgers
           .filter((ledger) => ledger.enabled && !favoriteRuleState.excludedLedgerIds.includes(ledger.id))
           .map((ledger) => ledger.id).sort()
-        const rebuilt = this.options.classifyCurrentItem || this.options.classifyCurrentItems
-          ? await this.autoClassifyAllSegmentsUnsafe(
-              updated, true, true, true, restoredRecommendations, true, restoredParticipatingSavedLedgerIds
-            )
-          : updated
-        const readiness = await this.calculatePlanReadiness(rebuilt)
-        await this.options.workspaceStore.appendOverlay(rebuilt.accountMid, rebuilt.id, {
-          currentSegmentId: this.currentSegment(rebuilt),
+        this.captureCurrentSegmentOverviewClassifications(updated)
+        const readiness = this.calculatePlanReadinessFromOverviewProjection(updated)
+        await this.options.workspaceStore.appendOverlay(updated.accountMid, updated.id, {
+          currentSegmentId: this.currentSegment(updated),
           classifications: [],
-          history: [encodeJournalEvent({ type: 'history-cursor', historyCursor: rebuilt.historyCursor })],
+          history: [encodeJournalEvent({ type: 'history-cursor', historyCursor: updated.historyCursor })],
           recommendations: clone(restoredRecommendations),
           excludedLedgerIds: [...favoriteRuleState.excludedLedgerIds],
           participatingSavedLedgerIds: restoredParticipatingSavedLedgerIds,
           planReadiness: readiness
         })
-        this.planReadiness.set(rebuilt.accountMid, readiness)
-        this.workspaces.set(rebuilt.accountMid, rebuilt)
-        return clone(rebuilt)
+        this.planReadiness.set(updated.accountMid, readiness)
+        this.workspaces.set(updated.accountMid, updated)
+        return clone(updated)
       }
       const readiness = await this.calculatePlanReadiness(updated)
       await this.appendEvents(updated, this.currentSegment(workspace), [{
@@ -6739,6 +6737,19 @@ export class OldFavoriteWorkspaceCoordinator {
     const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
     return this.calculatePlanReadinessFromClassifications(workspace, recovered.classifications)
+  }
+
+  /** Computes readiness from the already-restored historical overview, without reclassifying it. */
+  private calculatePlanReadinessFromOverviewProjection(workspace: OldFavoriteWorkspace): PlanReadiness {
+    const runtime = this.overviewRuntimes.get(workspace.accountMid)
+    if (!runtime) return this.calculatePlanReadinessFromClassifications(workspace, workspace.classifications)
+    const classifications: OldFavoriteWorkspace['classifications'] = {}
+    for (const segmentClassifications of runtime.classificationsBySegment.values()) {
+      for (const classification of segmentClassifications.values()) {
+        classifications[String(classification.aid)] = clone(classification)
+      }
+    }
+    return this.calculatePlanReadinessFromClassifications(workspace, classifications)
   }
 
   private calculatePlanReadinessFromClassifications(

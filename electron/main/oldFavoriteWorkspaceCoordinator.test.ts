@@ -9480,7 +9480,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('reclassifies a restored baseline with that baseline participation set', async () => {
+  it('does not run a new classifier when restoring its historical baseline participation set', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-28T00:00:00.000Z' })
     const ledger: FavoriteLedger = {
@@ -9506,11 +9506,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.moveHistoryCursor('100', baseline)
 
-    expect(classifyCurrentItems.mock.calls.length).toBeGreaterThan(callsBeforeRestore)
-    expect(classifyCurrentItems).toHaveBeenLastCalledWith(
-      expect.any(Array), expect.any(Array), '100',
-      expect.objectContaining({ participatingSavedLedgerIds: ['game'] })
-    )
+    expect(classifyCurrentItems.mock.calls.length).toBe(callsBeforeRestore)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {},
+      history: { cursor: baseline }
+    })
   })
 
   it('persists the restored round participation set for a later restart', async () => {
@@ -11510,13 +11510,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('rebuilds the local classification projection after restoring a rule-history entry', async () => {
+  it('replays the selected historical classification after restoring a rule-history entry', async () => {
     const root = await createRoot()
     const classifyCurrentItem = vi.fn(() => ({ targetLedgerIds: ['music'], confidence: 'high' as const }))
+    const restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)
     const coordinator = createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-08-25T00:00:00.000Z' }),
       new OldFavoriteWorkspaceStore({ root }),
-      { classifyCurrentItem, restoreFavoriteLedgerHistoryState: vi.fn().mockResolvedValue(undefined) }
+      { classifyCurrentItem, restoreFavoriteLedgerHistoryState }
     )
     await coordinator.open('100')
     await coordinator.recordScanInventory('100', {
@@ -11529,7 +11530,6 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.finishScan('100')
     await coordinator.acceptCurrentTags('100')
     const baselineCursor = requireSnapshot(await coordinator.getSnapshot('100')).history.cursor
-    const callsBeforeRestore = classifyCurrentItem.mock.calls.length
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['manual'] }]
     })
@@ -11538,10 +11538,20 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       after: { ledgers: [], adoptedCandidateIds: [], excludedLedgerIds: ['music'] },
       mergeWithLatestClassification: true
     })
+    const manualHistoryCursor = requireSnapshot(await coordinator.getSnapshot('100')).history.cursor
 
     await coordinator.moveHistoryCursor('100', baselineCursor)
+    const callsBeforeRestoringManualPosition = classifyCurrentItem.mock.calls.length
+    await coordinator.moveHistoryCursor('100', manualHistoryCursor)
 
-    expect(classifyCurrentItem.mock.calls.length).toBeGreaterThan(callsBeforeRestore)
+    expect(classifyCurrentItem.mock.calls.length).toBe(callsBeforeRestoringManualPosition)
+    expect(restoreFavoriteLedgerHistoryState).toHaveBeenLastCalledWith('100', {
+      ledgers: [], adoptedCandidateIds: [], excludedLedgerIds: ['music']
+    })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: { '1': { aid: 1, targetLedgerIds: ['manual'], source: 'manual' } },
+      history: { cursor: manualHistoryCursor, length: manualHistoryCursor }
+    })
   })
 
   it('keeps the original redo branch after rebuilding a restored rule-history projection', async () => {
