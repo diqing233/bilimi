@@ -268,6 +268,65 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '移出同步 bilimi·音乐' })).toBeInTheDocument())
   })
 
+  it('does not keep a future recommendation draft selected in its upper card after restoring history', async () => {
+    const honkerId = 'custom-author-honker233-小王爱马枪~9.2d'
+    const hamId = 'custom-author-哈米伦的弄笛者'
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {}, excludedLedgerIds: [] as string[],
+      recommendations: {
+        candidates: [
+          { id: honkerId, displayName: 'bilimi·honker233', kind: 'author' as const, keywords: ['honker233'], count: 34, reason: '推荐 UP' },
+          { id: hamId, displayName: 'bilimi·哈米伦的弄笛者', kind: 'author' as const, keywords: ['哈米伦的弄笛者'], count: 14, reason: '推荐 UP' }
+        ],
+        adoptedCandidateIds: [honkerId, hamId]
+      },
+      history: {
+        cursor: 2, length: 2, entries: [
+          { cursor: 2, source: 'favorite-rules' as const, changeCount: 14, targetLedgerIds: [hamId], summary: {
+            beforeTargetLedgerIds: [], afterTargetLedgerIds: [hamId], reason: '收藏夹规则与勾选', movedCount: 14,
+            favoriteRule: { action: 'checked' as const, title: 'bilimi·哈米伦的弄笛者', movementGroups: [] }
+          } },
+          { cursor: 1, source: 'favorite-rules' as const, changeCount: 34, targetLedgerIds: [honkerId], summary: {
+            beforeTargetLedgerIds: [], afterTargetLedgerIds: [honkerId], reason: '收藏夹规则与勾选', movedCount: 34,
+            favoriteRule: { action: 'checked' as const, title: 'bilimi·honker233', movementGroups: [] }
+          } }
+        ]
+      }
+    }
+    const restored = {
+      ...preview,
+      recommendations: { ...preview.recommendations, adoptedCandidateIds: [honkerId] },
+      history: { ...preview.history, cursor: 1 }
+    }
+    const command = vi.fn((_accountMid: string, request: { type: string }) =>
+      Promise.resolve(request.type === 'move-history-cursor' ? restored : preview))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: honkerId, displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'author', enabled: true,
+        priority: 10_000, syncState: 'local-draft', ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false },
+      { id: hamId, displayName: 'bilimi·哈米伦的弄笛者', keywords: ['哈米伦的弄笛者'], ruleType: 'author', enabled: true,
+        priority: 10_001, syncState: 'local-draft', ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={vi.fn().mockResolvedValue(undefined)} />)
+
+    await openPersistedWorkspaceGuide()
+    expect(await screen.findByRole('button', { name: '移出同步 bilimi·honker233' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '移出同步 bilimi·哈米伦的弄笛者' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(await screen.findByRole('button', { name: '查看改动记录' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '勾选「honker233」参与本轮分类，未产生分类移动' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'move-history-cursor', cursor: 1 }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '移出同步 bilimi·honker233' })).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: '加入同步 bilimi·哈米伦的弄笛者' })).toBeInTheDocument()
+  })
+
   it('commits a linked upper-rule selection before merging its durable enabled state', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

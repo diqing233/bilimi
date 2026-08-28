@@ -1468,6 +1468,15 @@ export function ControlledFavoriteLedgerPanel({
   const recommendationProjection = activeSnapshot?.status === 'previewing'
     ? createRecommendationProjection(displayedLedgers, activeSnapshot.recommendations.candidates)
     : undefined
+  const authoritativePureRecommendationAdoptionByLedgerId = activeSnapshot?.status === 'previewing'
+    ? new Map(activeSnapshot.recommendations.candidates.flatMap((candidate) => {
+      const ledgerId = recommendationProjection!.candidateToLedgerId.get(candidate.id) ?? candidate.id
+      const ledger = displayedLedgers.find((item) => item.id === ledgerId)
+      return ledger && isPureRecommendedLocalDraft(ledger)
+        ? [[ledgerId, activeSnapshot.recommendations.adoptedCandidateIds.includes(candidate.id)] as const]
+        : []
+    }))
+    : undefined
   const organizationRecommendationEnabledById = activeSnapshot?.status === 'previewing'
     ? new Map(activeSnapshot.recommendations.candidates.flatMap((candidate) => {
       const ledgerId = recommendationProjection!.candidateToLedgerId.get(candidate.id) ?? candidate.id
@@ -1485,6 +1494,7 @@ export function ControlledFavoriteLedgerPanel({
       .filter((ledger) => !remoteOnlyDraftLedgerIds.includes(ledger.id))
       .map((ledger) => [ledger.id,
         organizationSavedLedgerParticipationById.get(ledger.id) ??
+        authoritativePureRecommendationAdoptionByLedgerId?.get(ledger.id) ??
         (ledger.enabled && !(activeSnapshot.excludedLedgerIds ?? []).includes(ledger.id))]))
     : undefined
   const enabledLedgerIds = new Set(displayedLedgersWithLiveEnabled
