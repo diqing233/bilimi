@@ -626,7 +626,11 @@ export function OldFavoriteArchivePreviewStep({
                 <span className="disclosure-arrow favorite-ledger-panel__archive-history-arrow" aria-hidden="true" />
               </button>
               {historyOpen ? createPortal(<div {...historyMenuScope} ref={historyMenuRef} className="favorite-ledger-panel__archive-history-menu" style={{ top: historyMenuPosition.top, left: historyMenuPosition.left, right: 'auto' }} role="menu" aria-label="改动记录">
-                <div className="favorite-ledger-panel__archive-history-current" title={`当前记录：${currentHistoryLabel}`}>当前记录：{currentHistoryLabel}</div>
+                <div className="favorite-ledger-panel__archive-history-count">本轮可恢复记录（{historyEntries.length} 条）</div>
+                {currentHistoryEntry ? <div role="menuitem" aria-current="true" aria-disabled="true"
+                  className="favorite-ledger-panel__archive-history-entry favorite-ledger-panel__archive-history-entry--current favorite-ledger-panel__archive-history-current"
+                  title={`当前：${currentHistoryLabel}`}>当前：{currentHistoryLabel}</div> : <div
+                    className="favorite-ledger-panel__archive-history-baseline">当前：本轮初始分类</div>}
                 {previousHistoryEntries.map((entry) => <button key={entry.cursor} type="button" role="menuitem"
                   className="favorite-ledger-panel__archive-history-entry" title={historyLabel(entry)} disabled={loading || mutationLocked} onClick={() => {
                     setHistoryOpen(false)

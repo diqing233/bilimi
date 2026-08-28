@@ -524,7 +524,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(within(secondGroup).queryByRole('button', { name: '取消批量' })).not.toBeInTheDocument()
   })
 
-  it('shows only post-scan changes and restores the automatic-classification baseline', () => {
+  it('renders the current branch history as records and restores the automatic-classification baseline', () => {
     const onMoveHistoryCursor = vi.fn()
     const { container } = render(<OldFavoriteArchivePreviewStep
       snapshot={{
@@ -568,9 +568,11 @@ describe('OldFavoriteArchivePreviewStep', () => {
     const menu = screen.getByRole('menu', { name: '改动记录' })
     expect(container.querySelector('[role="menu"][aria-label="改动记录"]')).toBeNull()
     expect(document.body.contains(menu)).toBe(true)
-    const currentRecord = menu.querySelector('.favorite-ledger-panel__archive-history-current')
-    expect(currentRecord).toHaveTextContent('当前记录：Preview：Archive → Manual')
-    expect(currentRecord).toHaveAttribute('title', '当前记录：Preview：Archive → Manual')
+    expect(within(menu).getByText('本轮可恢复记录（2 条）')).toBeInTheDocument()
+    const currentRecord = within(menu).getByRole('menuitem', { name: '当前：Preview：Archive → Manual' })
+    expect(currentRecord).toHaveAttribute('aria-current', 'true')
+    expect(currentRecord).toHaveAttribute('aria-disabled', 'true')
+    expect(currentRecord).toHaveAttribute('title', '当前：Preview：Archive → Manual')
     expect(menu.querySelector('.favorite-ledger-panel__archive-history-divider')).not.toBeNull()
     const deepSeekRecord = within(menu).getByRole('menuitem', { name: 'DeepSeek 整理 44 条：未分类 → Manual' })
     expect(deepSeekRecord).toHaveAttribute('title', 'DeepSeek 整理 44 条：未分类 → Manual')
@@ -617,8 +619,8 @@ describe('OldFavoriteArchivePreviewStep', () => {
     const current = screen.getByRole('menu', { name: '改动记录' })
       .querySelector('.favorite-ledger-panel__archive-history-current')
     const label = '取消「游戏专区」后，自动分类 3 条：音乐 → 游戏专区；暂存 → 游戏专区'
-    expect(current).toHaveTextContent(`当前记录：${label}`)
-    expect(current).toHaveAttribute('title', `当前记录：${label}`)
+    expect(current).toHaveTextContent(`当前：${label}`)
+    expect(current).toHaveAttribute('title', `当前：${label}`)
     expect(current).not.toHaveTextContent('收藏夹规则与勾选已更新')
   })
 
@@ -643,7 +645,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
     fireEvent.click(screen.getByRole('button', { name: '查看改动记录' }))
     const current = screen.getByRole('menu', { name: '改动记录' })
       .querySelector('.favorite-ledger-panel__archive-history-current')
-    expect(current).toHaveTextContent('当前记录：历史收藏夹调整：恢复当时的本地规则、勾选与分类结果')
+    expect(current).toHaveTextContent('当前：历史收藏夹调整：恢复当时的本地规则、勾选与分类结果')
     expect(current).not.toHaveTextContent('收藏夹规则变更：已恢复本地规则与本轮勾选')
   })
 

@@ -6241,16 +6241,32 @@ body[data-floating-window="true"],
 @keyframes favorite-ledger-panel-spin {
   to { transform: rotate(360deg); }
 }
-.favorite-ledger-panel__archive-history-current {
+.favorite-ledger-panel__archive-history-count {
   min-width: 0;
-  padding: 6px 8px 7px;
+  padding: 2px 8px 4px;
+  color: var(--porcelain-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.favorite-ledger-panel__archive-history-current,
+.favorite-ledger-panel__archive-history-baseline {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 6px 8px;
   overflow: hidden;
-  border-bottom: 1px solid #174577;
+  border: 1px solid rgba(31, 99, 181, 0.36);
   color: var(--porcelain-deep);
   font-size: 12px;
-  font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.favorite-ledger-panel__archive-history-current {
+  background: rgba(220, 238, 255, 0.72);
+  font-weight: 800;
+}
+.favorite-ledger-panel__archive-history-baseline {
+  color: var(--porcelain-muted);
 }
 .favorite-ledger-panel__archive-history-divider {
   height: 0;
