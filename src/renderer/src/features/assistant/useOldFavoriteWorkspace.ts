@@ -215,6 +215,13 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }>>([])
   const recommendationQueueErrorRef = useRef<unknown>(null)
   const activeAccountMidRef = useRef(accountMid)
+  const invalidateBackgroundWorkspaceRefreshes = useCallback(() => {
+    // A recommendation IPC response contains a newer, already-classified
+    // workspace snapshot. A background read that started before it returned
+    // must not replace that result with its earlier observation.
+    backgroundRequestVersion.current += 1
+    setBackgroundRefreshing(false)
+  }, [])
 
   useEffect(() => {
     const previousAccountMid = activeAccountMidRef.current
@@ -797,6 +804,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         try {
           const next = await command(accountMid, { type: 'set-recommended-candidates', candidateIds: requestedIds })
           if (!next || accountGeneration.current !== generation || normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) continue
+          invalidateBackgroundWorkspaceRefreshes()
           const authoritativeIds = snapshotCandidateIds(next, accountMid)
           recommendationCommittedRef.current = authoritativeIds
           setRecommendationError(null)
@@ -829,7 +837,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         })
       }
     }
-  }, [accountMid])
+  }, [accountMid, invalidateBackgroundWorkspaceRefreshes])
   const waitForRecommendationQueue = useCallback((options: { rejectOnError?: boolean } = {}): Promise<readonly string[]> => {
     const rejectOnError = options.rejectOnError === true
     if (!recommendationQueueRunningRef.current && !recommendationDesiredRef.current) {
@@ -854,13 +862,14 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [accountMid])
   const setRecommendedCandidates = useCallback((candidateIds: string[]) => {
     if (activePreviewPreparationWorkspaceIdRef.current) void cancelRecommendationPreviewPreparation()
+    invalidateBackgroundWorkspaceRefreshes()
     const normalized = normalizeCandidateIds(candidateIds)
     recommendedCandidateIdsRef.current = normalized
     setRecommendedCandidateIds(normalized)
     setRecommendationError(null)
     recommendationDesiredRef.current = normalized
     void runRecommendationQueue()
-  }, [cancelRecommendationPreviewPreparation, runRecommendationQueue])
+  }, [cancelRecommendationPreviewPreparation, invalidateBackgroundWorkspaceRefreshes, runRecommendationQueue])
   const stageRecommendedCandidateSelection = useCallback((candidateIds: string[]) => {
     const normalized = normalizeCandidateIds(candidateIds)
     recommendedCandidateIdsRef.current = normalized

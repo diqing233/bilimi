@@ -540,6 +540,39 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.recommendedCandidateIds).toEqual(['author-a'])
   })
 
+  it('does not let an earlier background refresh overwrite a returned recommendation snapshot', async () => {
+    const before = recommendationWorkspace()
+    const adopted = {
+      ...recommendationWorkspace(['author-a']),
+      classifications: { '1': { aid: 1, targetLedgerIds: ['author-a'], source: 'system-high' as const } }
+    }
+    const staleOpen = deferred<typeof before>()
+    const recommendationCommand = deferred<typeof adopted>()
+    const open = vi.fn()
+      .mockResolvedValueOnce(before)
+      .mockReturnValueOnce(staleOpen.promise)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: vi.fn().mockReturnValue(recommendationCommand.promise)
+    } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+    await waitFor(() => expect(result.current.snapshot).toBe(before))
+
+    let background!: Promise<unknown>
+    act(() => {
+      result.current.setRecommendedCandidates(['author-a'])
+      background = result.current.refresh(true)
+    })
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(2))
+
+    await act(async () => { recommendationCommand.resolve(adopted) })
+    await waitFor(() => expect(result.current.snapshot).toBe(adopted))
+    await act(async () => { staleOpen.resolve(before) })
+
+    await expect(background).resolves.toBeNull()
+    expect(result.current.snapshot).toBe(adopted)
+  })
+
   it('rolls recommendation choices back to the authoritative snapshot when saving fails', async () => {
     const pending = deferred<ReturnType<typeof recommendationWorkspace>>()
     const command = vi.fn().mockReturnValue(pending.promise)
