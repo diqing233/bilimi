@@ -2321,12 +2321,15 @@ export default function App() {
         dismissedRemoteFolderIds
       })
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
+    const refreshFavoriteLedgerStatusAfterBackup = async () => {
+      if (!accountMid) return
+      favoriteLedgerStatusCacheRef.current = null
+      await readFavoriteLedgerStatus(accountMid, { force: true }).catch(() => undefined)
+    }
     const observedRemoteOnlyDrafts = Array.isArray(result.remoteOnlyDraftLedgerIds) && result.remoteOnlyDraftLedgerIds.length > 0
     const releaseObservedRemoteDraftRediscovery = async () => {
       if (!options?.rediscoverDeletedRemoteDrafts || !(result.ok === true || observedRemoteOnlyDrafts)) return
       await window.bilimiDesktop?.consumeFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid)
-      favoriteLedgerStatusCacheRef.current = null
-      await readFavoriteLedgerStatus(accountMid, { force: true })
     }
 
     if (Array.isArray(result.ledgers)) {
@@ -2392,6 +2395,7 @@ export default function App() {
           setPreferences(savedPreferences)
         }
         await releaseObservedRemoteDraftRediscovery()
+        await refreshFavoriteLedgerStatusAfterBackup()
         window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
         return {
           ...result,
@@ -2423,6 +2427,7 @@ export default function App() {
       // Release only after that observation; a failure before the inventory
       // leaves the temporary suppression intact for the next explicit backup.
       await releaseObservedRemoteDraftRediscovery()
+      await refreshFavoriteLedgerStatusAfterBackup()
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
       return { ...result, ledgers: persistedLedgersWithHistory }
     }

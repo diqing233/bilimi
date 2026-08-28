@@ -267,6 +267,23 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(saveFunction).toContain('refreshFavoriteOrganizationRelationshipProjection')
   })
 
+  it('invalidates stale favorite status before broadcasting an ordinary backup result', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgers('),
+      source.indexOf('async function openBilibiliFavorites()')
+    )
+    const refreshHelper = saveFunction.slice(
+      saveFunction.indexOf('const refreshFavoriteLedgerStatusAfterBackup'),
+      saveFunction.indexOf('const observedRemoteOnlyDrafts')
+    )
+    const ordinarySuccessPath = saveFunction.slice(saveFunction.lastIndexOf('await releaseObservedRemoteDraftRediscovery()'))
+
+    expect(refreshHelper).toContain('favoriteLedgerStatusCacheRef.current = null')
+    expect(refreshHelper).toContain('readFavoriteLedgerStatus(accountMid, { force: true })')
+    expect(ordinarySuccessPath).toContain('await refreshFavoriteLedgerStatusAfterBackup()')
+  })
+
   it('rolls back a failed ledger-rule patch only while that mutation is still current', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const saveFunction = source.slice(
