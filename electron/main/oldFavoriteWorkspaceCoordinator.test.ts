@@ -2007,6 +2007,35 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('keeps the authoritative archive projection in sync after a manual classification', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      classifyCurrentItems: (items) => items.map(() => ({ targetLedgerIds: [], confidence: 'low' as const }))
+    })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Video', tags: ['ready'], sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    const runtime = (coordinator as unknown as {
+      overviewRuntimes: Map<string, { classificationsBySegment: Map<string, Map<number, { targetLedgerIds: string[] }>> }>
+    }).overviewRuntimes.get('100')
+    expect(runtime?.classificationsBySegment.get('segment-1')?.get(1)).toEqual(
+      expect.objectContaining({ aid: 1, targetLedgerIds: ['music'] })
+    )
+  })
+
   it('publishes high-frequency tag recommendations only when the current batch completes', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -11082,6 +11111,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       classifications: { '1': { targetLedgerIds: ['music'] } },
       history: { cursor: 1, length: 2 }
     })
+
+    await coordinator.moveHistoryCursor('100', 0)
+    const runtime = (coordinator as unknown as {
+      overviewRuntimes: Map<string, { classificationsBySegment: Map<string, Map<number, { targetLedgerIds: string[] }>> }>
+    }).overviewRuntimes.get('100')
+    expect(runtime?.classificationsBySegment.get('segment-1')?.has(1)).toBe(false)
   })
 
   it.each([
@@ -11177,6 +11212,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(resolved).toMatchObject({
       classifications: { '1': { targetLedgerIds: ['original-music'], source: 'fallback' } }
     })
+    const runtime = (coordinator as unknown as {
+      overviewRuntimes: Map<string, { classificationsBySegment: Map<string, Map<number, { targetLedgerIds: string[] }>> }>
+    }).overviewRuntimes.get('100')
+    expect(runtime?.classificationsBySegment.get(before.currentSegment!.id)?.get(1)).toEqual(
+      expect.objectContaining({ targetLedgerIds: ['original-music'] })
+    )
     expect(resolved.history.entries[0]).toMatchObject({ source: 'fallback', summary: { reason: '沿用原自动分类' } })
     await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).resolves.toMatchObject({ status: 'previewing' })
   })

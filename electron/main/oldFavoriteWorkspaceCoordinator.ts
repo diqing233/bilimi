@@ -1745,6 +1745,10 @@ export class OldFavoriteWorkspaceCoordinator {
         deepSeekRunCheckpoint: null,
         ...(resumedIntent ? { executionIntent: resumedIntent } : {})
       })
+      this.updateOverviewClassifications(workspace.accountMid, [{
+        segmentId: this.currentSegment(workspace),
+        entry
+      }])
       this.planReadiness.set(workspace.accountMid, readiness)
       this.deepSeekRunCheckpoints.delete(workspace.accountMid)
       if (resumedIntent) this.executionIntents.set(workspace.accountMid, resumedIntent)
@@ -3497,6 +3501,7 @@ export class OldFavoriteWorkspaceCoordinator {
           historyCursor: updated.historyCursor
         })], planReadiness: readiness
       })
+      this.updateOverviewClassifications(workspace.accountMid, [{ segmentId: currentSegmentId, entry }])
       this.planReadiness.set(workspace.accountMid, readiness)
       const frozenIds = new Set(this.frozenSegments.get(workspace.accountMid) ?? [])
       frozenIds.delete(currentSegmentId)
@@ -3673,6 +3678,7 @@ export class OldFavoriteWorkspaceCoordinator {
           type: 'classification', entry: clone(entry), historyCursor: updated.historyCursor
         })], planReadiness: readiness
       })
+      this.updateOverviewClassifications(workspace.accountMid, [{ segmentId: currentSegmentId, entry }])
       this.planReadiness.set(workspace.accountMid, readiness)
       const frozenIds = new Set(this.frozenSegments.get(workspace.accountMid) ?? [])
       frozenIds.delete(currentSegmentId)
@@ -4492,6 +4498,7 @@ export class OldFavoriteWorkspaceCoordinator {
       await this.appendEvents(updated, this.currentSegment(workspace), [{
         type: 'history-cursor', historyCursor: updated.historyCursor
       }], readiness)
+      this.captureCurrentSegmentOverviewClassifications(updated)
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
     })
@@ -4513,6 +4520,7 @@ export class OldFavoriteWorkspaceCoordinator {
       await this.appendEvents(updated, this.currentSegment(workspace), [{
         type: 'history-cursor', historyCursor: updated.historyCursor
       }], readiness)
+      this.captureCurrentSegmentOverviewClassifications(updated)
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
     })
@@ -5598,6 +5606,7 @@ export class OldFavoriteWorkspaceCoordinator {
       await this.appendEvents(updated, this.currentSegment(workspace), [{
         type: 'history-cursor', historyCursor: updated.historyCursor
       }], readiness)
+      this.captureCurrentSegmentOverviewClassifications(updated)
       this.planReadiness.set(updated.accountMid, readiness)
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
