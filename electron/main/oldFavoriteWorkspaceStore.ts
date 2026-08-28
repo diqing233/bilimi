@@ -149,6 +149,20 @@ function normalizeTagVersions(value: Record<string, number> | undefined) {
 
 type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history' | 'excludedLedgerIds' | 'participatingSavedLedgerIds'>
 
+function projectOverlayHistory(overlay: Overlay): OverlayHistory {
+  if (typeof overlay.currentSegmentId !== 'string' || !Array.isArray(overlay.history)) {
+    throw new Error('Old favorite workspace journal is invalid.')
+  }
+  return {
+    currentSegmentId: overlay.currentSegmentId,
+    history: overlay.history.map(clone),
+    ...(overlay.excludedLedgerIds !== undefined ? { excludedLedgerIds: normalizeExcludedLedgerIds(overlay.excludedLedgerIds) } : {}),
+    ...(overlay.participatingSavedLedgerIds !== undefined
+      ? { participatingSavedLedgerIds: normalizeExcludedLedgerIds(overlay.participatingSavedLedgerIds) }
+      : {})
+  }
+}
+
 function normalizeExcludedLedgerIds(value: unknown): string[] {
   return Array.isArray(value)
     ? [...new Set(value.filter((id): id is string => typeof id === 'string')
@@ -262,6 +276,9 @@ export class OldFavoriteWorkspaceStore {
   private readonly readLog = new Map<string, string[]>()
   private operationTail = Promise.resolve()
   private readonly verifiedJournals = new Map<string, { cursor: number; checksum: string; file: string }>()
+  private readonly overlayHistories = new Map<string, {
+    cursor: number; checksum: string; file: string; entries: OverlayHistory[]
+  }>()
 
   constructor(private readonly options: { root: string }) {}
 
@@ -300,8 +317,11 @@ export class OldFavoriteWorkspaceStore {
     }
     await this.writeManifest(directory, withoutChecksum)
     await this.atomicWrite(join(directory, 'overlay.journal.jsonl'), '')
-    this.writeLog.set(this.key(accountMid, input.workspaceId), [])
-    this.readLog.set(this.key(accountMid, input.workspaceId), [])
+    const key = this.key(accountMid, input.workspaceId)
+    this.verifiedJournals.delete(key)
+    this.overlayHistories.delete(key)
+    this.writeLog.set(key, [])
+    this.readLog.set(key, [])
   }
 
   async appendOverlay(accountMid: string, workspaceId: string, overlay: Overlay) {
@@ -600,6 +620,18 @@ export class OldFavoriteWorkspaceStore {
     }
     await this.writeManifest(directory, next)
     this.verifiedJournals.set(key, { cursor: nextCursor, checksum: nextJournalChecksum, file: journalFile })
+    const cachedHistory = this.overlayHistories.get(key)
+    if (cachedHistory?.cursor === manifest.journalCursor && cachedHistory.checksum === manifest.journalChecksum &&
+      cachedHistory.file === journalFile) {
+      this.overlayHistories.set(key, {
+        cursor: nextCursor,
+        checksum: nextJournalChecksum,
+        file: journalFile,
+        entries: [...cachedHistory.entries, projectOverlayHistory(overlay)]
+      })
+    } else {
+      this.overlayHistories.delete(key)
+    }
     this.writeLog.set(key, ['manifest.json', journalFile])
   }
 
@@ -621,13 +653,9 @@ export class OldFavoriteWorkspaceStore {
   private async recoverUnsafe(accountMid: string, workspaceId: string) {
     const account = normalizedAccountMid(accountMid)
     const directory = this.workspaceDirectory(account, workspaceId)
-    const manifest = await this.readManifest(directory)
+    let manifest = await this.readManifest(directory)
     if (!manifest || manifest.accountMid !== account) return { recovery: 'rebuild-required', preserveCompletedLocalResults: true }
     try {
-      const currentSegment = manifest.segments.find((segment) => segment.id === manifest.currentSegmentId)
-      const loadedSegment = currentSegment
-        ? await this.readSegment(directory, currentSegment)
-        : { id: '', aids: [] as number[], items: [] as ScanItem[] }
       const journalPath = join(directory, this.journalFile(manifest))
       let journal = Buffer.alloc(0)
       if (manifest.journalCursor > 0) {
@@ -662,14 +690,7 @@ export class OldFavoriteWorkspaceStore {
       let planReadiness = { selectedAidCount: 0, classifiedAidCount: 0 }
       for (const line of committedJournal.split('\n').filter(Boolean)) {
         const overlay = JSON.parse(line) as Overlay
-        overlayHistory.push({
-          currentSegmentId: overlay.currentSegmentId,
-          history: overlay.history.map(clone),
-          ...(overlay.excludedLedgerIds !== undefined ? { excludedLedgerIds: normalizeExcludedLedgerIds(overlay.excludedLedgerIds) } : {}),
-          ...(overlay.participatingSavedLedgerIds !== undefined
-            ? { participatingSavedLedgerIds: normalizeExcludedLedgerIds(overlay.participatingSavedLedgerIds) }
-            : {})
-        })
+        overlayHistory.push(projectOverlayHistory(overlay))
         if (overlay.excludedLedgerIds !== undefined) excludedLedgerIds = normalizeExcludedLedgerIds(overlay.excludedLedgerIds)
         if (overlay.participatingSavedLedgerIds !== undefined) {
           participatingSavedLedgerIds = normalizeExcludedLedgerIds(overlay.participatingSavedLedgerIds)
@@ -825,6 +846,28 @@ export class OldFavoriteWorkspaceStore {
         }
         if (overlay.overview) overview = clone(overlay.overview)
       }
+      let repairedCurrentSegmentId: string | undefined
+      if (manifest.status !== 'scanning' && manifest.segments.length > 0 &&
+        !manifest.segments.some((segment) => segment.id === manifest.currentSegmentId)) {
+        const recoveredSegmentId = [...overlayHistory].reverse()
+          .map((overlay) => overlay.currentSegmentId)
+          .find((segmentId) => Boolean(segmentId) && manifest.segments.some((segment) => segment.id === segmentId)) ??
+          (manifest.segments.length === 1 ? manifest.segments[0].id : undefined)
+        if (!recoveredSegmentId) throw new Error('active segment is invalid')
+        const { checksum: _storedChecksum, ...manifestWithoutChecksum } = manifest
+        const repairedManifest: Omit<Manifest, 'checksum'> = { ...manifestWithoutChecksum, currentSegmentId: recoveredSegmentId }
+        await this.writeManifest(directory, repairedManifest)
+        manifest = { ...repairedManifest, checksum: checksum(canonicalManifest(repairedManifest)) }
+        repairedCurrentSegmentId = recoveredSegmentId
+      }
+      const currentSegment = manifest.segments.find((segment) => segment.id === manifest.currentSegmentId)
+      const loadedSegment = currentSegment
+        ? await this.readSegment(directory, currentSegment)
+        : { id: '', aids: [] as number[], items: [] as ScanItem[] }
+      const key = this.key(account, workspaceId)
+      const journalFile = this.journalFile(manifest)
+      this.verifiedJournals.set(key, { cursor: manifest.journalCursor, checksum: manifest.journalChecksum, file: journalFile })
+      this.overlayHistories.set(key, { cursor: manifest.journalCursor, checksum: manifest.journalChecksum, file: journalFile, entries: overlayHistory.map(clone) })
       return {
         workspaceId: manifest.workspaceId, accountMid: manifest.accountMid, status: manifest.status,
         baselineRevision: manifest.baselineRevision, currentSegmentId: manifest.currentSegmentId,
@@ -851,6 +894,7 @@ export class OldFavoriteWorkspaceStore {
         ,participatingSavedLedgerIds
         ,initialFavoriteRuleState
         ,tagEnrichment, tagAdoption, tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags }))
+        ,...(repairedCurrentSegmentId ? { repairedCurrentSegmentId } : {})
       }
     } catch {
       return { recovery: 'rebuild-required', preserveCompletedLocalResults: true }
@@ -959,32 +1003,36 @@ export class OldFavoriteWorkspaceStore {
     const directory = this.workspaceDirectory(account, workspaceId)
     const manifest = await this.readManifest(directory)
     if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
-    const journalPath = join(directory, this.journalFile(manifest))
+    const key = this.key(account, workspaceId)
+    const journalFile = this.journalFile(manifest)
+    const cached = this.overlayHistories.get(key)
+    if (cached?.cursor === manifest.journalCursor && cached.checksum === manifest.journalChecksum && cached.file === journalFile) {
+      return cached.entries.map(clone)
+    }
+    const journalPath = join(directory, journalFile)
     let journal = Buffer.alloc(0)
     try {
       journal = await readFile(journalPath)
       this.recordRead(directory, 'overlay.journal.jsonl')
     } catch {
       if (manifest.journalCursor > 0) throw new Error('Old favorite workspace journal is corrupt.')
+      this.overlayHistories.set(key, {
+        cursor: manifest.journalCursor, checksum: manifest.journalChecksum, file: journalFile, entries: []
+      })
       return []
     }
     if (journal.byteLength < manifest.journalCursor) throw new Error('Old favorite workspace journal is corrupt.')
     const committed = journal.subarray(0, manifest.journalCursor).toString('utf8')
     if (journalChecksum(committed, manifest.journalChecksumMode) !== manifest.journalChecksum) throw new Error('Old favorite workspace journal is corrupt.')
-    return committed.split('\n').filter(Boolean).map((line) => {
-      const overlay = JSON.parse(line) as Overlay
-      if (typeof overlay.currentSegmentId !== 'string' || !Array.isArray(overlay.history)) {
-        throw new Error('Old favorite workspace journal is invalid.')
-      }
-      return {
-        currentSegmentId: overlay.currentSegmentId,
-        history: overlay.history.map(clone),
-        ...(overlay.excludedLedgerIds !== undefined ? { excludedLedgerIds: normalizeExcludedLedgerIds(overlay.excludedLedgerIds) } : {}),
-        ...(overlay.participatingSavedLedgerIds !== undefined
-          ? { participatingSavedLedgerIds: normalizeExcludedLedgerIds(overlay.participatingSavedLedgerIds) }
-          : {})
-      }
+    const entries = committed.split('\n').filter(Boolean)
+      .map((line) => projectOverlayHistory(JSON.parse(line) as Overlay))
+    this.overlayHistories.set(key, {
+      cursor: manifest.journalCursor,
+      checksum: manifest.journalChecksum,
+      file: journalFile,
+      entries: entries.map(clone)
     })
+    return entries.map(clone)
   }
 
   async readWorkspaceWrites(accountMid: string, workspaceId: string) {

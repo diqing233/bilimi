@@ -4779,11 +4779,7 @@ export class OldFavoriteWorkspaceCoordinator {
       // current-round target and must be checked/created even when its archive
       // count is zero. Remote-only drafts are excluded by the main-process
       // listSavedEnabledLedgers projection and therefore cannot enter here.
-      const recoveredRecommendations = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
-      const recommendationState: RecommendationState = 'recovery' in recoveredRecommendations ||
-        !recoveredRecommendations.recommendations.initialized
-        ? { initialized: false, candidates: [], adoptedCandidateIds: [] }
-        : recoveredRecommendations.recommendations
+      const recommendationState = await this.ensureRecommendations(workspace)
       const adoptedLocalRecommendationIds = recommendationState.adoptedCandidateIds
         .filter((logicalLedgerId) => savedLedgerTitleById.has(logicalLedgerId))
       const boundTitleById = new Map(repositorySnapshot.folders
@@ -6479,6 +6475,9 @@ export class OldFavoriteWorkspaceCoordinator {
     } else this.tagEnrichments.delete(marker.accountMid)
     await this.restoreTagAdoptionUnsafe(workspace, recovered.currentSegmentId, recovered.tagAdoption)
     this.remember(workspace, recovered.currentSegmentId, scan.segments, frozenIds)
+    if (recovered.repairedCurrentSegmentId) {
+      await this.persistMarker(workspace)
+    }
     const normalizedDeepSeekRunCheckpoint = this.normalizeDeepSeekRunCheckpoint(workspace, recoveredDeepSeekRunCheckpoint)
     if (normalizedDeepSeekRunCheckpoint) this.deepSeekRunCheckpoints.set(marker.accountMid, clone(normalizedDeepSeekRunCheckpoint))
     if (JSON.stringify(normalizedDeepSeekRunCheckpoint) !== JSON.stringify(recoveredDeepSeekRunCheckpoint)) {
@@ -6945,8 +6944,14 @@ export class OldFavoriteWorkspaceCoordinator {
     lastCommittedId?: string
   ): Promise<FavoriteRepositoryWorkspace> {
     const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
-    const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
+    const recovered = await this.options.workspaceStore.readRecoverySummary(workspace.accountMid, workspace.id)
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
+    if (recovered.workspaceId !== workspace.id || recovered.accountMid !== workspace.accountMid ||
+      recovered.baselineRevision !== (workspace.baseline?.revision ?? 0) ||
+      recovered.currentSegmentId !== this.currentSegment(workspace) ||
+      (workspace.segments.length > 0 && !workspace.segments.some((segment) => segment.id === recovered.currentSegmentId))) {
+      throw new Error('Old favorite workspace requires rebuild.')
+    }
     const marker: FavoriteRepositoryWorkspace = {
       id: workspace.id,
       accountMid: workspace.accountMid,
@@ -6989,7 +6994,9 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   private currentSegment(workspace: OldFavoriteWorkspace) {
-    return this.currentSegments.get(workspace.accountMid) ?? workspace.segments[0]?.id ?? ''
+    const remembered = this.currentSegments.get(workspace.accountMid)
+    if (remembered && workspace.segments.some((segment) => segment.id === remembered)) return remembered
+    return workspace.segments[0]?.id || ''
   }
 
   private async restoreRecommendationIndexes(

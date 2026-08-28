@@ -10164,9 +10164,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
     const yieldToEventLoop = vi.fn().mockResolvedValue(undefined)
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository,
-      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      workspaceStore,
       bindingService: bindings,
       segmentSize: () => 2_000,
       now: () => '2026-07-20T00:00:00.000Z',
@@ -10193,9 +10194,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       inventory: [{ id: 'remote-music-1', title: favoriteRepositoryManagedShardTitle('music', 1, 'a1b2c3'), memberCount: 0, memberAids: [] }]
     })
 
+    const workspaceId = (await repository.getSnapshot('100')).workspace!.id
+    const readsBeforeFreeze = await workspaceStore.readWorkspaceReads('100', workspaceId)
+    const recover = vi.spyOn(workspaceStore, 'recover')
+
     await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({ status: 'frozen' })
 
     expect(yieldToEventLoop).toHaveBeenCalled()
+    expect(recover).not.toHaveBeenCalled()
+    const readsAfterFreeze = await workspaceStore.readWorkspaceReads('100', workspaceId)
+    expect(readsAfterFreeze.slice(readsBeforeFreeze.length)).not.toContain('overlay.journal.jsonl')
   }, 15_000)
 
   it('does not commit or provision a missing Bilibili target while freeze is blocked', async () => {
@@ -10685,7 +10693,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.recordScanInventory('100', {
       sourceFolders: [{ id: 'remote-learning', title: 'Learning', itemCount: 3, isBilimiWorkFolder: false }]
     })
-    await coordinator.completeScan('100', { revision: 1, aids: [] })
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
 
     await repository.commit('100', {
       id: 'bind-learning', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'upsert-physical-shard-binding',
@@ -10727,7 +10735,34 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       new OldFavoriteWorkspaceStore({ root }),
       { initializeOnOpen: false }
     ).getSnapshot('100')).resolves.toMatchObject({
+      currentSegment: { id: 'segment-1', aids: [1] },
       sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'none', isBilimiWorkFolder: false, scanEligible: true, selected: true }]
+    })
+  })
+
+  it('repairs a persisted marker when a checked journal recovers its empty active segment', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await first.beginScan('100', 'incremental')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    const workspaceId = (await repository.getSnapshot('100')).workspace!.id
+    const manifestPath = join(root, 'accounts', '100', 'workspaces', workspaceId, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    const { checksum: _checksum, ...withoutChecksum } = manifest
+    const stale = { ...withoutChecksum, currentSegmentId: '' }
+    const { createHash } = await import('node:crypto')
+    await writeFile(manifestPath, JSON.stringify({
+      ...stale,
+      checksum: createHash('sha256').update(JSON.stringify(stale)).digest('hex')
+    }), 'utf8')
+
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      currentSegment: { id: 'segment-1', aids: [1] }
+    })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      workspace: { workspaceRef: { currentSegmentId: 'segment-1' } }
     })
   })
 
@@ -11008,7 +11043,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     )) as { segments: Array<{ id: string; file: string }> }
     const currentSegmentFile = manifest.segments.find((segment) => segment.id === 'segment-2')!.file
     await expect(recoveredStore.readWorkspaceReads('100', workspaceId))
-      .resolves.toEqual(['manifest.json', currentSegmentFile, 'overlay.journal.jsonl'])
+      .resolves.toEqual(['manifest.json', 'overlay.journal.jsonl', currentSegmentFile])
   })
 
   it('creates a scanning workspace and persists only its lightweight repository marker', async () => {

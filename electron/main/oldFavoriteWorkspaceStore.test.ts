@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -89,6 +90,56 @@ describe('OldFavoriteWorkspaceStore', () => {
       manifestChecksum: expect.stringMatching(/^[a-f0-9]{64}$/),
       classifications: { '1': { targetLedgerIds: ['music'], source: 'manual' } },
       history: [{ kind: 'move-items', aids: [1] }]
+    })
+  })
+
+  it('repairs an empty active segment only when the checked journal identifies a completed segment', async () => {
+    const root = await createRoot()
+    const first = new OldFavoriteWorkspaceStore({ root })
+    await first.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [{ id: 'segment-1', aids: [1] }]
+    })
+    await first.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [{ kind: 'scan-complete', aids: [1] }]
+    })
+
+    const manifestPath = join(root, 'accounts', '100', 'workspaces', 'workspace-1', 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    const { checksum: _checksum, ...withoutChecksum } = manifest
+    const stale = { ...withoutChecksum, currentSegmentId: '' }
+    await writeFile(manifestPath, JSON.stringify({
+      ...stale,
+      checksum: createHash('sha256').update(JSON.stringify(stale)).digest('hex')
+    }), 'utf8')
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      currentSegmentId: 'segment-1', repairedCurrentSegmentId: 'segment-1'
+    })
+    await expect(new OldFavoriteWorkspaceStore({ root }).readRecoverySummary('100', 'workspace-1')).resolves.toMatchObject({
+      currentSegmentId: 'segment-1'
+    })
+  })
+
+  it('keeps a multi-segment workspace rebuild-required when no checked history identifies its active segment', async () => {
+    const root = await createRoot()
+    const first = new OldFavoriteWorkspaceStore({ root })
+    await first.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [{ id: 'segment-1', aids: [1] }, { id: 'segment-2', aids: [2] }]
+    })
+
+    const manifestPath = join(root, 'accounts', '100', 'workspaces', 'workspace-1', 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    const { checksum: _checksum, ...withoutChecksum } = manifest
+    const stale = { ...withoutChecksum, currentSegmentId: '' }
+    await writeFile(manifestPath, JSON.stringify({
+      ...stale,
+      checksum: createHash('sha256').update(JSON.stringify(stale)).digest('hex')
+    }), 'utf8')
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      recovery: 'rebuild-required'
     })
   })
 
