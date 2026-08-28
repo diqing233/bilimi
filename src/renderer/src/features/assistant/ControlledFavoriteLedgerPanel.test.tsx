@@ -225,7 +225,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).toHaveBeenCalledWith('100', {
       type: 'set-round-excluded-ledger-ids', ledgerIds: ['promoted-honker'], mergeFavoriteRuleHistory: true
     })
-    expect(saveEnabled).toHaveBeenCalledWith('promoted-honker', false, { mergeFavoriteRuleHistory: true })
+    expect(saveEnabled).toHaveBeenCalledWith('promoted-honker', false)
     await waitFor(() => expect(screen.getByTestId('favorite-ledger-chip-promoted-honker')).toBeInTheDocument())
   })
 
@@ -367,13 +367,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await openPersistedWorkspaceGuide()
     fireEvent.click(await screen.findByRole('button', { name: '移出同步 bilimi·honker233' }))
 
-    await waitFor(() => expect(saveEnabled).toHaveBeenCalledWith('saved-honker', false, {
-      mergeFavoriteRuleHistory: true
-    }))
+    await waitFor(() => expect(saveEnabled).toHaveBeenCalledWith('saved-honker', false))
     expect(order).toEqual([
       'set-recommended-candidates',
       'set-round-excluded-ledger-ids',
-      'save:saved-honker:false:true'
+      'save:saved-honker:false:false'
     ])
   })
 
@@ -407,7 +405,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'set-round-excluded-ledger-ids', ledgerIds: [], participatingSavedLedgerIds: ['saved-game']
     }))
-    expect(saveEnabled).toHaveBeenCalledWith('saved-game', true, { mergeFavoriteRuleHistory: true })
+    expect(saveEnabled).toHaveBeenCalledWith('saved-game', true)
   })
 
   it('does not project a candidate-only local draft as a saved recommendation', () => {
@@ -1416,7 +1414,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-music'], mergeFavoriteRuleHistory: true
     }))
-    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false, { mergeFavoriteRuleHistory: true })
+    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false)
   })
 
   it('keeps a saved high-priority rule and its linked recommendation when the upper card is unchecked', async () => {
@@ -1460,7 +1458,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await expect(screen.findByRole('button', { name: '移出同步 bilimi·honker233' })).resolves.toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·honker233' }))
 
-    await waitFor(() => expect(saveEnabled).toHaveBeenCalledWith('custom-honker', false, { mergeFavoriteRuleHistory: true }))
+    await waitFor(() => expect(saveEnabled).toHaveBeenCalledWith('custom-honker', false))
     expect(command).toHaveBeenCalledWith('100', {
       type: 'set-recommended-candidates', candidateIds: []
     })
@@ -1509,7 +1507,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
     fireEvent.click(await screen.findByRole('checkbox', { name: 'honker233', checked: false }))
 
-    await waitFor(() => expect(saveEnabled).toHaveBeenCalledWith('custom-honker', true, { mergeFavoriteRuleHistory: true }))
+    await waitFor(() => expect(saveEnabled).toHaveBeenCalledWith('custom-honker', true))
     expect(command).toHaveBeenCalledWith('100', {
       type: 'set-recommended-candidates', candidateIds: ['custom-honker']
     })
@@ -1606,7 +1604,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-music']
     }))
     await waitFor(() => expect(screen.getByRole('button', { name: '音乐' })).toHaveAttribute('aria-pressed', 'false'))
-    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false, { mergeFavoriteRuleHistory: true })
+    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false)
   })
 
   it('persists every saved cancellation while committing one active-round projection', async () => {
@@ -1636,8 +1634,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command.mock.calls.filter(([, request]) =>
       (request as { type?: string }).type === 'set-round-excluded-ledger-ids'
     )).toHaveLength(1)
-    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false, { mergeFavoriteRuleHistory: true })
-    expect(saveEnabled).toHaveBeenCalledWith('custom-tech', false, { mergeFavoriteRuleHistory: true })
+    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false)
+    expect(saveEnabled).toHaveBeenCalledWith('custom-tech', false)
   })
 
   it('cancels every saved rule and its linked recommendation from the saved-rule bulk selection', async () => {
@@ -1673,8 +1671,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'set-round-excluded-ledger-ids', ledgerIds: ['custom-author', 'custom-music'], mergeFavoriteRuleHistory: true
     }))
-    expect(saveEnabled).toHaveBeenCalledWith('custom-author', false, { mergeFavoriteRuleHistory: true })
-    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false, { mergeFavoriteRuleHistory: true })
+    expect(saveEnabled).toHaveBeenCalledWith('custom-author', false)
+    expect(saveEnabled).toHaveBeenCalledWith('custom-music', false)
   })
 
   it('includes a recommendation-linked saved rule in the saved-rule exclusion batch', async () => {

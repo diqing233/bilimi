@@ -1441,6 +1441,30 @@ describe('account favorite repository contracts', () => {
     expect(result.memberships['bilimi-logical:music']).toBeUndefined()
   })
 
+  it('keeps a bound shard when a late pending candidate targets its old shard number', () => {
+    const now = '2026-08-29T00:00:00.000Z'
+    const bound = applyFavoriteRepositoryCommand(createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }), {
+      id: 'bound-game', accountMid: '100', issuedAt: now, type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: 'new-game'
+      }
+    }, now)
+
+    const result = applyFavoriteRepositoryCommand(bound, {
+      id: 'favorite-library:restore-managed:game:1:old-game', accountMid: '100', issuedAt: '2026-08-29T00:00:01.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['old-game']
+      }
+    }, '2026-08-29T00:00:01.000Z')
+
+    expect(result.physicalShards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 1, bindingState: 'bound', remoteFolderId: 'new-game' }),
+      expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 2, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['old-game'] })
+    ]))
+  })
+
   it('keeps each organization recovery record immutable and projects a confirmed remove from logical membership', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' }),

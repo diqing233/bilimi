@@ -1815,26 +1815,36 @@ export function applyFavoriteRepositoryCommand(
   const applyPhysicalShardBinding = (payload: Extract<FavoriteRepositoryCommand, { type: 'upsert-physical-shard-binding' }>['payload']) => {
     const logicalLedgerId = payload.logicalLedgerId.trim()
     const logicalTitle = payload.logicalTitle.trim()
-    const folderId = `bilimi:${logicalLedgerId}:${String(payload.shardNumber).padStart(3, '0')}`
     const remoteFolderId = payload.remoteFolderId?.trim()
     const bindingState = payload.bindingState
-    affectedFolderIds.push(folderId)
-    affectedAids.push(...uniquePositiveAids(payload.memberAids))
+    const knownRemoteFolderIds = [...new Set(payload.knownRemoteFolderIds?.map((id) => id.trim()).filter(Boolean) ?? [])].sort()
     const existingLogical = folders.find((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId === logicalLedgerId)
     if (existingLogical && existingLogical.title !== logicalTitle) throw new Error('Favorite repository logical ledger title is immutable.')
     if (!existingLogical) {
       folders = [...folders, { id: `bilimi-logical:${logicalLedgerId}`, title: logicalTitle, kind: 'bilimi-logical', logicalLedgerId, syncState: 'pending-reconcile' }]
     }
-    const existingShard = physicalShards.find((shard) => shard.logicalLedgerId === logicalLedgerId && shard.shardNumber === payload.shardNumber)
+    let shardNumber = payload.shardNumber
+    let existingShard = physicalShards.find((shard) => shard.logicalLedgerId === logicalLedgerId && shard.shardNumber === shardNumber)
+    if (command.id.startsWith('favorite-library:restore-managed:') &&
+      existingShard?.bindingState === 'bound' && bindingState === 'pending-reconcile') {
+      // A delayed restore may only repeat the formal remote ID or add another
+      // candidate; it can never downgrade the committed binding.
+      if (existingShard.remoteFolderId && knownRemoteFolderIds.includes(existingShard.remoteFolderId)) return
+      while (physicalShards.some((shard) => shard.logicalLedgerId === logicalLedgerId && shard.shardNumber === shardNumber)) shardNumber += 1
+      existingShard = undefined
+    }
+    const folderId = `bilimi:${logicalLedgerId}:${String(shardNumber).padStart(3, '0')}`
+    affectedFolderIds.push(folderId)
+    affectedAids.push(...uniquePositiveAids(payload.memberAids))
     if (existingShard?.remoteFolderId && remoteFolderId && existingShard.remoteFolderId !== remoteFolderId) {
       throw new Error('Favorite repository physical shard binding is immutable.')
     }
     physicalShards = [
       ...physicalShards.filter((shard) => shard !== existingShard),
       {
-        logicalLedgerId, folderId, shardNumber: payload.shardNumber, remoteTitle: payload.remoteTitle.trim(), bindingState,
+        logicalLedgerId, folderId, shardNumber, remoteTitle: payload.remoteTitle.trim(), bindingState,
         ...(remoteFolderId ? { remoteFolderId } : {}),
-        ...(bindingState === 'pending-reconcile' ? { knownRemoteFolderIds: [...new Set(payload.knownRemoteFolderIds?.map((id) => id.trim()).filter(Boolean) ?? [])].sort() } : {}),
+        ...(bindingState === 'pending-reconcile' ? { knownRemoteFolderIds } : {}),
         ...(payload.remoteMemberCount !== undefined ? { remoteMemberCount: payload.remoteMemberCount } : {})
       }
     ].sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber)

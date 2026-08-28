@@ -264,7 +264,9 @@ export function ControlledFavoriteLedgerPanel({
     // A participation change has its authoritative current-round result
     // published by the selection commands below. Do not queue a second full
     // workspace read/reclassification behind the narrow preference write.
-    return onSaveLedgerEnabled?.(ledgerId, enabled, historyOptions)
+    return historyOptions
+      ? onSaveLedgerEnabled?.(ledgerId, enabled, historyOptions)
+      : onSaveLedgerEnabled?.(ledgerId, enabled)
   }, [onSaveLedgerEnabled])
   const pendingHistoryRestoreRef = useRef<{ workspaceId: string; cursor: number } | null>(null)
   const skipNextPassiveRecommendationPromotionRef = useRef(false)
@@ -647,7 +649,7 @@ export function ControlledFavoriteLedgerPanel({
       if (candidateId && (enabled ? !committedCandidateIds.includes(candidateId) : committedCandidateIds.includes(candidateId))) {
         throw new Error('Organization recommendation selection update failed.')
       }
-      await saveLedgerEnabledAndRefreshWorkspace(ledgerId, enabled, { mergeFavoriteRuleHistory: true })
+      await saveLedgerEnabledAndRefreshWorkspace(ledgerId, enabled)
       return enabled ? !(next.excludedLedgerIds ?? []).includes(ledgerId) : (next.excludedLedgerIds ?? []).includes(ledgerId)
     } catch {
       updateLedgerEnabledById(previousEnabledById)
@@ -771,7 +773,7 @@ export function ControlledFavoriteLedgerPanel({
       })
       if (!next || 'recovery' in next) throw new Error('Organization selection update failed.')
       for (const [ledgerId, enabled] of changedEnabledByLedgerId) {
-        await saveLedgerEnabledAndRefreshWorkspace(ledgerId, enabled, { mergeFavoriteRuleHistory: true })
+        await saveLedgerEnabledAndRefreshWorkspace(ledgerId, enabled)
       }
       return [...selectableLedgerIds].every((ledgerId) => selectedIds.has(ledgerId) === !(next.excludedLedgerIds ?? []).includes(ledgerId))
     } catch {

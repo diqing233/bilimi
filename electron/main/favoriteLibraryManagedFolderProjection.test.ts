@@ -215,6 +215,41 @@ describe('favorite library managed folder projection', () => {
     })])
   })
 
+  it('keeps a newly bound shard while restoring an older same-title candidate', async () => {
+    const older = snapshot([{ id: 'old-game', title: 'bilimi·游戏专区' }])
+    const latest = {
+      ...older,
+      folders: [
+        ...older.folders,
+        { id: 'bilimi-logical:game', title: 'bilimi·游戏专区', kind: 'bilimi-logical' as const, logicalLedgerId: 'game', syncState: 'bound' as const }
+      ],
+      memberships: { ...older.memberships, 'bilimi:game:001': [], 'bilimi-logical:game': [] },
+      physicalShards: [{
+        logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound' as const, remoteFolderId: 'new-game', remoteMemberCount: 0
+      }]
+    }
+    let reads = 0
+    const commit = vi.fn().mockResolvedValue(latest)
+
+    await restoreFavoriteLibraryManagedFolderProjection({
+      accountMid: '100',
+      repository: { getSnapshot: async () => (++reads === 1 ? older : latest), commit },
+      ledgers: [ledger('game', 'bilimi·游戏专区')]
+    })
+
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'upsert-physical-shard-binding',
+      payload: expect.objectContaining({
+        logicalLedgerId: 'game', shardNumber: 2, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['old-game']
+      })
+    }))
+    expect(commit).not.toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'upsert-physical-shard-binding',
+      payload: expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 1, bindingState: 'pending-reconcile' })
+    }))
+  })
+
   it('removes an empty custom pending duplicate when the same remote folder already has a trusted binding', async () => {
     const remoteFolderId = '4050295454'
     let current = {

@@ -78,6 +78,10 @@ function remoteIdsForCandidate(candidate: FavoriteLibraryManagedFolderProjection
   return candidate.remoteFolderId ? [candidate.remoteFolderId] : candidate.knownRemoteFolderIds ?? []
 }
 
+function projectionIdentity(candidate: FavoriteLibraryManagedFolderProjection) {
+  return `${candidate.logicalLedgerId}\u0000${remoteIdsForCandidate(candidate).slice().sort().join('\u0000')}`
+}
+
 function assignStableShardNumbers(candidates: FavoriteLibraryManagedFolderProjection[]) {
   const byLogicalLedger = new Map<string, FavoriteLibraryManagedFolderProjection[]>()
   for (const candidate of candidates) {
@@ -198,6 +202,30 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     })
   }
 
+  // A newly created folder can be formally bound before the mirror includes
+  // its folder row. Keep that trusted shard in the plan so a same-title older
+  // candidate is assigned another physical shard instead of replacing it.
+  const projectedBoundRemoteIds = new Set(candidates
+    .filter((candidate) => candidate.bindingState === 'bound' && candidate.remoteFolderId)
+    .map((candidate) => candidate.remoteFolderId!))
+  for (const shard of input.snapshot.physicalShards) {
+    if (shard.bindingState !== 'bound' || !shard.remoteFolderId || projectedBoundRemoteIds.has(shard.remoteFolderId)) continue
+    const ledger = input.ledgers.find((candidate) => candidate.id === shard.logicalLedgerId) ??
+      deletedRecordsByLogicalLedgerId.get(shard.logicalLedgerId)?.ledger
+    if (!ledger) continue
+    const memberAids = [...new Set(input.snapshot.memberships[shard.folderId] ?? [])].sort((left, right) => left - right)
+    candidates.push({
+      logicalLedgerId: shard.logicalLedgerId,
+      logicalTitle: ledger.displayName.trim() || shard.remoteTitle,
+      shardNumber: shard.shardNumber,
+      remoteTitle: shard.remoteTitle,
+      memberAids,
+      bindingState: 'bound',
+      remoteFolderId: shard.remoteFolderId,
+      remoteMemberCount: shard.remoteMemberCount ?? memberAids.length
+    })
+  }
+
   const byTarget = new Map<string, FavoriteLibraryManagedFolderProjection[]>()
   for (const candidate of assignStableShardNumbers(candidates)) {
     const target = `${candidate.logicalLedgerId}:${candidate.shardNumber}`
@@ -235,14 +263,21 @@ export async function restoreFavoriteLibraryManagedFolderProjection(input: {
     })
     snapshot = await input.repository.getSnapshot(input.accountMid)
   }
-  const candidates = planFavoriteLibraryManagedFolderProjection({
-    snapshot,
+  const plan = (currentSnapshot: AccountFavoriteRepositorySnapshot) => planFavoriteLibraryManagedFolderProjection({
+    snapshot: currentSnapshot,
     ledgers: input.ledgers,
     deletedFavoriteLedgerRecords: input.deletedFavoriteLedgerRecords,
     dismissedRemoteFolderIds: []
   })
+  const candidates = plan(snapshot)
   let current = snapshot
-  for (const candidate of candidates) {
+  for (const plannedCandidate of candidates) {
+    // The create/bind command may have registered a real ID after the initial
+    // restore snapshot. Re-plan on the newest authority before persisting an
+    // older candidate so it cannot overwrite that formal binding.
+    current = await input.repository.getSnapshot(input.accountMid)
+    const candidate = plan(current).find((latestCandidate) =>
+      projectionIdentity(latestCandidate) === projectionIdentity(plannedCandidate)) ?? plannedCandidate
     const existing = current.physicalShards.find((shard) =>
       shard.logicalLedgerId === candidate.logicalLedgerId && shard.shardNumber === candidate.shardNumber)
     const knownIds = candidate.knownRemoteFolderIds ?? []
@@ -260,5 +295,5 @@ export async function restoreFavoriteLibraryManagedFolderProjection(input: {
     })
     current = await input.repository.getSnapshot(input.accountMid)
   }
-  return candidates
+  return plan(current)
 }
