@@ -993,6 +993,29 @@ function asLocalRecommendedLedger(candidate: StoredRecommendation, priority: num
   }
 }
 
+/**
+ * Recommendation drafts have no remote lifecycle rights, but an adopted
+ * candidate must still be eligible for the local classifier before its
+ * `local-draft` persistence write finishes. This object is only passed to
+ * classification; it is never persisted or used by provisioning, binding,
+ * deletion, opening, or video-write paths.
+ */
+function asRecommendedClassificationLedger(candidate: StoredRecommendation, priority: number): FavoriteLedger {
+  return {
+    id: candidate.id,
+    displayName: candidate.displayName,
+    keywords: [...candidate.keywords],
+    ruleType: candidate.kind === 'author' ? 'author' : candidate.kind === 'tag' ? 'tag' : 'keyword',
+    enabled: true,
+    priority,
+    // `mergeOldFavoriteWorkspaceLedgers` may inherit the persisted
+    // `local-draft` transport state by stable ID. Keep this classifier-only
+    // provenance so that inheritance never suppresses local classification.
+    ruleOrigin: 'saved-rule',
+    isDefault: false
+  }
+}
+
 function normalizedFavoriteRuleSemantics(rule: Pick<FavoriteLedger, 'keywords' | 'ruleType'>) {
   const ruleType = rule.ruleType ?? 'keyword'
   if (ruleType === 'deepseek') return null
@@ -4155,7 +4178,7 @@ export class OldFavoriteWorkspaceCoordinator {
     }
     const adopted = new Set(nextState.adoptedCandidateIds)
     const recommendedLedgers = nextState.candidates.filter((candidate) => adopted.has(candidate.id))
-      .map((candidate, index) => asLocalRecommendedLedger(candidate, index))
+      .map((candidate, index) => asRecommendedClassificationLedger(candidate, index))
     const excludedRecommendedLedgers = nextState.candidates.filter((candidate) => !adopted.has(candidate.id))
       .map((candidate, index) => asLocalRecommendedLedger(candidate, index))
     const classifications = this.options.classifyCurrentItems
@@ -4305,11 +4328,8 @@ export class OldFavoriteWorkspaceCoordinator {
     if (!classify && !classifyMany) throw new Error('Old favorite workspace automatic classification is unavailable.')
     const state = recommendationState ?? await this.ensureRecommendations(workspace)
     const adopted = new Set(state.adoptedCandidateIds)
-    const recommendedLedgers = state.candidates.filter((candidate) => adopted.has(candidate.id)).map((candidate, index) => ({
-      id: candidate.id, displayName: candidate.displayName, keywords: [...candidate.keywords],
-      ruleType: candidate.kind === 'author' ? 'author' as const : candidate.kind === 'tag' ? 'tag' as const : 'keyword' as const,
-      enabled: true, priority: index, isDefault: false
-    }))
+    const recommendedLedgers = state.candidates.filter((candidate) => adopted.has(candidate.id))
+      .map((candidate, index) => asRecommendedClassificationLedger(candidate, index))
     const excludedRecommendedLedgers = state.candidates.filter((candidate) => !adopted.has(candidate.id))
       .map((candidate, index) => asLocalRecommendedLedger(candidate, index))
     const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)

@@ -7,7 +7,11 @@ import { FavoriteRepositoryBindingService, favoriteRepositoryManagedShardTitle }
 import { FavoriteRepositorySyncService, type FavoriteRepositoryPageBridge } from './favoriteRepositorySyncService'
 import { mergeGeneratedRecommendations, OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
-import { classifyOldFavoriteItemsCooperatively } from './oldFavoriteWorkspaceClassification'
+import {
+  classifierLedgersForAccount,
+  classifyOldFavoriteItemsCooperatively,
+  mergeOldFavoriteWorkspaceLedgers
+} from './oldFavoriteWorkspaceClassification'
 import {
   createOldFavoriteWorkspace,
   type OldFavoriteWorkspace,
@@ -16,6 +20,7 @@ import {
   type OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
 import { createFavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
+import { classifyVideoContent } from '../../src/shared/recommendation/videoClassifier'
 import type { FavoriteLedger } from '../../src/shared/types'
 
 const roots: string[] = []
@@ -6044,6 +6049,111 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         '2': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-low' }
       }
     })
+  })
+
+  it('classifies a first adopted recommendation immediately and preserves its local-draft remote lifecycle', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-28T00:00:00.000Z' })
+    const savedLedgers: FavoriteLedger[] = [{
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: ['UP Alpha'], ruleType: 'keyword',
+      enabled: true, priority: 100, isDefault: true
+    }]
+    const persistedRecommendations: FavoriteLedger[][] = []
+    const classifyCurrentItems: NonNullable<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0]['classifyCurrentItems']> =
+      async (items, recommendedLedgers, _accountMid, options) => {
+        const ledgers = mergeOldFavoriteWorkspaceLedgers(
+          classifierLedgersForAccount(savedLedgers, true),
+          recommendedLedgers,
+          options?.excludedRecommendedLedgers
+        )
+        return classifyOldFavoriteItemsCooperatively(items, (batch) => batch.map((item) => {
+          const classification = classifyVideoContent({
+            title: item.title,
+            author: item.author,
+            tags: item.tags,
+            category: item.category
+          }, ledgers)
+          return classification.ledgerId === 'inbox'
+            ? { targetLedgerIds: [], confidence: 'low' as const }
+            : {
+                targetLedgerIds: [classification.ledgerId],
+                confidence: classification.diagnostic?.confidence === 'high' ? 'high' as const : 'low' as const
+              }
+        }), options)
+      }
+    const saveRecommendedLedgers: NonNullable<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0]['saveRecommendedLedgers']> =
+      vi.fn(async (_accountMid, ledgers) => {
+        const persisted = ledgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
+        persistedRecommendations.push(persisted)
+        savedLedgers.splice(1, savedLedgers.length, ...persisted)
+        return true
+      })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      classifyCurrentItems,
+      saveRecommendedLedgers,
+      segmentSize: () => 500,
+      listSavedLedgers: async () => savedLedgers.map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
+      listSavedEnabledLedgers: async () => savedLedgers.filter((ledger) => ledger.enabled)
+        .map((ledger) => ({ id: ledger.id, title: ledger.displayName }))
+    })
+
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 501, isBilimiWorkFolder: false, selected: true }]
+    })
+    const items = Array.from({ length: 501 }, (_unused, index) => ({
+      aid: index + 1,
+      title: `Video ${index + 1}`,
+      ...(index < 2 ? { author: 'UP Alpha' } : { author: 'UP Beta' }),
+      sourceFolderIds: ['source']
+    }))
+    for (let offset = 0; offset < items.length; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: offset / 50 + 1, hasMore: offset + 50 < items.length,
+        items: items.slice(offset, offset + 50)
+      })
+    }
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    const initial = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(initial.classifications).toMatchObject({
+      '1': { targetLedgerIds: ['game'] },
+      '2': { targetLedgerIds: ['game'] }
+    })
+    const candidate = initial.recommendations.candidates.find((item) => item.id === 'custom-author-up-alpha')
+    if (!candidate) throw new Error('UP Alpha recommendation unexpectedly unavailable')
+
+    await coordinator.setRecommendedCandidates('100', [candidate.id])
+
+    const immediatelySelected = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(immediatelySelected.classifications).toMatchObject({
+      '1': { targetLedgerIds: [candidate.id] },
+      '2': { targetLedgerIds: [candidate.id] }
+    })
+    expect(immediatelySelected.overview?.archiveTargets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ledgerId: candidate.id, itemCount: 2 })
+    ]))
+    expect(persistedRecommendations).toEqual([expect.arrayContaining([
+      expect.objectContaining({
+        id: candidate.id,
+        syncState: 'local-draft',
+        ruleOrigin: 'recommendation-draft',
+        bindingState: 'unbacked'
+      })
+    ])])
+
+    await coordinator.setRoundExcludedLedgerIds('100', [], {
+      participatingSavedLedgerIds: ['game', candidate.id]
+    })
+    const afterSavedRuleParticipationRefresh = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(afterSavedRuleParticipationRefresh.classifications).toMatchObject({
+      '1': { targetLedgerIds: [candidate.id] },
+      '2': { targetLedgerIds: [candidate.id] }
+    })
+    expect(afterSavedRuleParticipationRefresh.overview?.archiveTargets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ledgerId: candidate.id, itemCount: 2 })
+    ]))
   })
 
   it('projects adopted recommendation members into the archive overview immediately', async () => {
