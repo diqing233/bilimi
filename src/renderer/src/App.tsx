@@ -1933,7 +1933,7 @@ export default function App() {
 
   async function readFavoriteLedgerStatus(
     accountMid = assistantSnapshotCacheRef.current.accountMid,
-    options: { force?: boolean } = {}
+    options: { force?: boolean; preserveBoundLedgerIds?: readonly string[] } = {}
   ): Promise<FavoriteLedgerStatus> {
     const statusGeneration = favoriteLedgerStatusGenerationRef.current
     const favoriteLedgers = favoriteLedgersForActiveAccount(accountMid)
@@ -1979,8 +1979,22 @@ export default function App() {
     }
 
     if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
-      const recoveredLedgers = (status.ledgers ?? ledgersWithRepositoryCandidates).map((ledger) => {
+      const preservedBoundLedgerIds = new Set(options.preserveBoundLedgerIds ?? [])
+      const statusLedgerIds = new Set(status.ledgers.map((ledger) => ledger.id))
+      const recoveredLedgers = [
+        ...(status.ledgers ?? ledgersWithRepositoryCandidates),
+        ...ledgersWithRepositoryCandidates.filter((ledger) =>
+          preservedBoundLedgerIds.has(ledger.id) && ledger.bindingState === 'bound' && !statusLedgerIds.has(ledger.id)
+        )
+      ].map((ledger) => {
         const historicalSource = ledgersWithRepositoryCandidates.find((candidate) => candidate.id === ledger.id)
+        if (preservedBoundLedgerIds.has(ledger.id) && historicalSource?.bindingState === 'bound') {
+          // Immediately after creation, Bilibili's folder inventory can lag the
+          // repository binding transaction. Keep this operation's formal bound
+          // fact for one forced refresh; ordinary reads still reconcile against
+          // the current remote inventory.
+          return historicalSource
+        }
         const hasFormalOrObservedRemoteId = Boolean(ledger.bilibiliFolderId?.trim() || ledger.bilibiliFolderIds?.some((id) => id.trim()))
         return !hasFormalOrObservedRemoteId && historicalSource?.historicalBilibiliFolderIds?.length
           ? {
@@ -1992,15 +2006,15 @@ export default function App() {
             }
           : ledger
       })
-      const missingLedgerIds = status.missingLedgerIds
+      const missingLedgerIds = status.missingLedgerIds.filter((ledgerId) => !preservedBoundLedgerIds.has(ledgerId))
       const recoveredStatus: FavoriteLedgerStatus = {
-        ok: missingLedgerIds.length === 0 && !(status.unboundLedgerIds?.length),
+        ok: missingLedgerIds.length === 0 && !(status.unboundLedgerIds?.some((ledgerId) => !preservedBoundLedgerIds.has(ledgerId))),
         verified: true,
         ledgers: recoveredLedgers,
         missingLedgerIds,
-        backupConflictLedgerIds: status.backupConflictLedgerIds ?? [],
-        unboundLedgerIds: status.unboundLedgerIds ?? [],
-        unboundCandidates: status.unboundCandidates ?? [],
+        backupConflictLedgerIds: (status.backupConflictLedgerIds ?? []).filter((ledgerId) => !preservedBoundLedgerIds.has(ledgerId)),
+        unboundLedgerIds: (status.unboundLedgerIds ?? []).filter((ledgerId) => !preservedBoundLedgerIds.has(ledgerId)),
+        unboundCandidates: (status.unboundCandidates ?? []).filter((candidate) => !preservedBoundLedgerIds.has(candidate.ledgerId)),
         remoteOnlyDraftLedgerIds: status.remoteOnlyDraftLedgerIds ?? [],
         message: status.message
       }
@@ -2339,7 +2353,7 @@ export default function App() {
         dismissedRemoteFolderIds
       })
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
-    const refreshFavoriteLedgerStatusAfterBackup = async () => {
+    const refreshFavoriteLedgerStatusAfterBackup = async (preserveBoundLedgerIds: readonly string[] = []) => {
       if (!accountMid) return
       favoriteLedgerStatusCacheRef.current = null
       const existing = favoriteLedgerStatusRefreshPromisesRef.current.get(accountMid)
@@ -2347,7 +2361,7 @@ export default function App() {
         await existing
         return
       }
-      const pending = readFavoriteLedgerStatus(accountMid, { force: true })
+      const pending = readFavoriteLedgerStatus(accountMid, { force: true, preserveBoundLedgerIds })
         .then((status) => {
           // The save operation itself remains successful even when a legacy
           // bridge returns an incomplete post-save inventory. The sync panel
@@ -2404,6 +2418,25 @@ export default function App() {
         trustedRemoteShardNumbers
       )
       const backupLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult, ledgersWithFormalBindings)
+      const remoteOperationLedgerIds = new Set(remoteOperationLedgers.map((ledger) => ledger.id))
+      const formalRemoteFolderIdsByLedger = new Map(ledgersWithFormalBindings
+        .filter((ledger) => ledger.bindingState === 'bound')
+        .map((ledger) => [ledger.id, new Set([
+          ledger.bilibiliFolderId,
+          ...(ledger.bilibiliFolderIds ?? [])
+        ].filter((folderId): folderId is string => Boolean(folderId?.trim())))]))
+      const preserveBoundLedgerIds = [...new Set([
+        ...bindingResult.successfulBindings.map((binding) => binding.ledgerId),
+        ...backupLedgers
+          .filter((ledger) => {
+            if (!remoteOperationLedgerIds.has(ledger.id) || ledger.bindingState !== 'bound') return false
+            const formalRemoteFolderIds = formalRemoteFolderIdsByLedger.get(ledger.id)
+            if (!formalRemoteFolderIds?.size) return false
+            return [ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])]
+              .some((folderId) => Boolean(folderId?.trim() && formalRemoteFolderIds.has(folderId.trim())))
+          })
+          .map((ledger) => ledger.id)
+      ])]
       const persistedLedgers = options?.rediscoverDeletedRemoteDrafts || backupTargetLedgerIdSet.size
         ? mergeBackupResultIntoLocalLedgers(previousLedgers, backupLedgers)
         : backupLedgers
@@ -2435,7 +2468,7 @@ export default function App() {
           setPreferences(savedPreferences)
         }
         await releaseObservedRemoteDraftRediscovery()
-        await refreshFavoriteLedgerStatusAfterBackup()
+        await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)
         window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
         return {
           ...result,
@@ -2467,7 +2500,7 @@ export default function App() {
       // Release only after that observation; a failure before the inventory
       // leaves the temporary suppression intact for the next explicit backup.
       await releaseObservedRemoteDraftRediscovery()
-      await refreshFavoriteLedgerStatusAfterBackup()
+      await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
       return { ...result, ledgers: persistedLedgersWithHistory }
     }

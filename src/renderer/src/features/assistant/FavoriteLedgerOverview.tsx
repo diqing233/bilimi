@@ -320,6 +320,16 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     !ledger.bilibiliFolderId &&
     ledger.bindingState === undefined
   const isDraftDirectlyDeletable = (ledger: FavoriteLedger) => isRemoteOnlyDraft(ledger) || isTransientNewDraft(ledger)
+  const hasRemoteDeletionFacts = (ledger: FavoriteLedger) => Boolean(
+    ledger.bilibiliFolderId?.trim() ||
+    ledger.bilibiliFolderIds?.some((folderId) => folderId.trim()) ||
+    (ledger.pendingRemoteBinding && (ledger.pendingRemoteFolderId ?? ledger.bilibiliFolderId)?.trim()) ||
+    ledger.historicalBilibiliFolderIds?.some((folderId) => folderId.trim()) ||
+    ledger.confirmedDeletedRemoteFolderIds?.some((folderId) => folderId.trim())
+  )
+  const isPureLocalLedger = (ledger: FavoriteLedger) => !ledger.isDefault &&
+    !hasRemoteDeletionFacts(ledger) &&
+    !isRemoteOnlyDraft(ledger)
   const isRecommendationCancellationOnly = (ledger: FavoriteLedger) =>
     // A recommendation draft may have gained a real remote binding, but
     // cancelling its recommendation still only changes this round's adopted
@@ -1064,6 +1074,49 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       if (result === false) setDraftDeletionError('删除未成功，请稍后重试。')
     }
   }
+  const requestSingleLedgerDeletion = (ledger: FavoriteLedger) => {
+    if (isRecommendationCancellationOnly(ledger)) {
+      void cancelRecommendation(ledger.id)
+      return
+    }
+    if (isDraftDirectlyDeletable(ledger)) {
+      void deleteUnsavedDraft(ledger)
+      return
+    }
+    if (isPureLocalLedger(ledger)) {
+      void deleteLocalFavoriteLedgers([ledger.id])
+      return
+    }
+
+    const remoteDraftFolderId = isRemoteOnlyDraft(ledger)
+      ? ledger.bilibiliFolderId?.trim()
+      : ledger.pendingRemoteBinding
+        ? (ledger.pendingRemoteFolderId ?? ledger.bilibiliFolderId)?.trim()
+        : undefined
+    const remoteBindingIds = remoteBindingIdsForLedger(ledger)
+    const historicalIds = (ledger.historicalBilibiliFolderIds ?? []).map((folderId) => folderId.trim()).filter(Boolean)
+    const remoteDraftTargets = remoteDraftFolderId
+      ? { [ledger.id]: { remoteFolderId: remoteDraftFolderId, title: ledger.displayName } }
+      : {}
+    const plan: Omit<ManagedDeletionPlan, 'candidates'> = {
+      remoteCustomLedgerIds: !ledger.isDefault && remoteBindingIds.length && !remoteDraftFolderId ? [ledger.id] : [],
+      remoteDefaultLedgerIds: ledger.isDefault && (remoteBindingIds.length || historicalIds.length) ? [ledger.id] : [],
+      remoteDraftTargets,
+      historicalBindingTargets: ledger.isDefault && !remoteBindingIds.length && historicalIds.length
+        ? {
+            [ledger.id]: historicalIds.map((remoteFolderId) => ({
+              remoteFolderId,
+              title: ledger.historicalBilibiliFolderTitle ?? ledger.bilibiliFolderTitle ?? ledger.displayName
+            }))
+          }
+        : {},
+      localCustomLedgerIds: !ledger.isDefault && !remoteBindingIds.length && !remoteDraftFolderId ? [ledger.id] : [],
+      localDefaultLedgerIds: ledger.isDefault && !remoteBindingIds.length && !historicalIds.length ? [ledger.id] : [],
+      draftLedgerIds: remoteDraftFolderId ? [ledger.id] : [],
+      recommendationCancellationLedgerIds: []
+    }
+    void requestManagedDeletion(plan)
+  }
   const requestManagedDeletion = async (plan: Omit<ManagedDeletionPlan, 'candidates'>) => {
     if (destructiveActionLocked) return
     const ledgerIds = [...plan.remoteCustomLedgerIds, ...plan.remoteDefaultLedgerIds]
@@ -1390,7 +1443,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       </section>
       {backupSkipNotice ? <p className="favorite-ledger-panel__notice" role="alert">{backupSkipNotice}</p> : null}
       {missingLedgerIds.length && !organizationActive ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
-      {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid} onClick={() => void save()}>保存</button><button type="button" onClick={close}>取消</button>{!active.isDefault ? <button type="button" disabled={destructiveActionLocked} onClick={() => { if (isRecommendationCancellationOnly(active)) { void cancelRecommendation(active.id); return }; if (isDraftDirectlyDeletable(active)) { void deleteUnsavedDraft(active); return }; void deleteLocalFavoriteLedgers([active.id]) }}>删除</button> : null}</div></div>
+      {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid} onClick={() => void save()}>保存</button><button type="button" onClick={close}>取消</button>{!active.isDefault ? <button type="button" disabled={destructiveActionLocked} onClick={() => requestSingleLedgerDeletion(active)}>删除</button> : null}</div></div>
          {remoteOnlyDraftLedgerIds.includes(active.id) && active.bilibiliFolderId ? <p className="favorite-ledger-panel__remote-draft-notice">
            发现 B 站疑似 bilimi 收藏夹，本地尚未建立绑定，可编辑保存好之后备册；更换电脑时建议先迁移数据。
            {onDismissRemoteDraftReminder ? <button type="button" onClick={() => void onDismissRemoteDraftReminder(active.id, [...new Set([

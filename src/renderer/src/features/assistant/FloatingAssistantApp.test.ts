@@ -280,8 +280,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
     const ordinarySuccessPath = saveFunction.slice(saveFunction.lastIndexOf('await releaseObservedRemoteDraftRediscovery()'))
 
     expect(refreshHelper).toContain('favoriteLedgerStatusCacheRef.current = null')
-    expect(refreshHelper).toContain('readFavoriteLedgerStatus(accountMid, { force: true })')
-    expect(ordinarySuccessPath).toContain('await refreshFavoriteLedgerStatusAfterBackup()')
+    expect(refreshHelper).toContain('readFavoriteLedgerStatus(accountMid, { force: true, preserveBoundLedgerIds })')
+    expect(ordinarySuccessPath).toContain('await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)')
   })
 
   it('clears the rendered account-scoped favorite status before loading a replacement account', () => {
@@ -309,7 +309,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     )
 
     expect(refreshHelper).toContain('favoriteLedgerStatusRefreshPromisesRef')
-    expect(refreshHelper).toContain('readFavoriteLedgerStatus(accountMid, { force: true })')
+    expect(refreshHelper).toContain('readFavoriteLedgerStatus(accountMid, { force: true, preserveBoundLedgerIds })')
     expect(refreshHelper).toContain('verified')
     expect(refreshHelper).not.toContain('return readFavoriteLedgerStatus(accountMid, { force: true })')
     expect(refreshHelper).not.toContain('.catch(() => undefined)')

@@ -1823,6 +1823,70 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('keeps a newly bound ledger backed while the post-backup Bilibili inventory is briefly stale', async () => {
+    const accountMid = '100'
+    const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const repositorySummary = {
+      version: 1, accountMid, revision: 1, updatedAt: '2026-08-29T00:00:00.000Z',
+      videoCount: 0, folderCount: 1,
+      folders: [{ id: `bilimi-logical:${music.id}`, title: music.displayName, kind: 'bilimi-logical', logicalLedgerId: music.id, remoteFolderId: 'new-music', syncState: 'bound' }],
+      folderCounts: { [`bilimi-logical:${music.id}`]: 0 }, scopeCounts: { all: 0, pending: 0, protected: 0, unsynced: 0, recycle: 0 },
+      physicalShardCount: 1,
+      physicalShards: [{ logicalLedgerId: music.id, folderId: `bilimi:${music.id}:001`, shardNumber: 1, remoteFolderId: 'new-music', remoteTitle: music.displayName, bindingState: 'bound' as const }],
+      syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, pendingAidCount: 0, remoteReconciliations: []
+    }
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [music] }
+        }
+      })),
+      savePreferences,
+      adoptFavoriteRepositoryLedgerBinding,
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue(repositorySummary),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        if (isLedgerStatusScript(script)) {
+          return {
+            ok: false,
+            ledgers: [{ ...music, bilibiliFolderId: undefined, bilibiliFolderIds: undefined, bindingState: 'unbacked' as const }],
+            missingLedgerIds: [music.id],
+            unboundLedgerIds: [],
+            backupConflictLedgerIds: [],
+            message: 'B 站清单尚未同步。'
+          }
+        }
+        if (script.includes('/x/v3/fav/folder/add')) {
+          return {
+            ok: true,
+            ledgers: [{ ...music, bilibiliFolderId: 'new-music', bilibiliFolderIds: ['new-music'], bindingState: 'bound' as const }],
+            steps: ['api:ledger:list'],
+            missingTargets: [],
+            message: '册目已备齐。'
+          }
+        }
+        return { hasUserId: true, hasCsrf: true }
+      })
+    })
+
+    await expect(requestRuntime({
+      id: 'backup-stale-inventory', type: 'save-ledgers', ledgers: [music],
+      options: { backupTargetLedgerIds: [music.id] }
+    })).resolves.toMatchObject({ ok: true })
+
+    const savedMusic = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers
+      ?.find((ledger) => ledger.id === music.id)
+    expect(savedMusic).toMatchObject({ bilibiliFolderId: 'new-music', bindingState: 'bound' })
+  })
+
   it('keeps locally deleted and manually dismissed remote drafts suppressed during the pet full backup', async () => {
     const accountMid = '100'
     const getFavoriteLedgerRemoteDraftReminderDismissals = vi.fn().mockResolvedValue(['manual-dismissal'])
