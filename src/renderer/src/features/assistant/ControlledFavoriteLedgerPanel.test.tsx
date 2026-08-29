@@ -4315,6 +4315,74 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(stepButtons[3]).toBeEnabled())
   })
 
+  it('does not let a stale recommendation-only refresh overwrite the adopted classification snapshot', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }] },
+      classifications: {},
+      recommendations: {
+        candidates: [{ id: 'candidate-a', displayName: 'bilimi·候选 A', kind: 'author' as const, count: 1, reason: 'A' }],
+        adoptedCandidateIds: [] as string[]
+      },
+      overview: {
+        available: true, completedSegmentCount: 1, totalSegmentCount: 1, sourceFolders: [], unavailableItemCount: 0,
+        processedItemCount: 1, classifiedItemCount: 0, unmatchedItemCount: 1, waitingItemCount: 0,
+        recommendationCounts: [], archiveTargets: []
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    const adopted = {
+      ...preview,
+      classifications: { '1': { aid: 1, targetLedgerIds: ['candidate-a'], source: 'system-high' as const } },
+      recommendations: { ...preview.recommendations, adoptedCandidateIds: ['candidate-a'] },
+      overview: {
+        ...preview.overview,
+        classifiedItemCount: 1, unmatchedItemCount: 0,
+        recommendationCounts: [{ id: 'candidate-a', count: 1 }],
+        archiveTargets: [{ ledgerId: 'candidate-a', itemCount: 1, segmentCounts: [{ segmentId: 'segment-1', count: 1 }] }]
+      }
+    }
+    let resolveAdoption!: (value: typeof adopted) => void
+    const adoption = new Promise<typeof adopted>((resolve) => { resolveAdoption = resolve })
+    let resolveStaleRefresh!: (value: typeof preview) => void
+    const staleRefresh = new Promise<typeof preview>((resolve) => { resolveStaleRefresh = resolve })
+    let openCount = 0
+    const command = vi.fn((_accountMid: string, input: { type: string }) =>
+      input.type === 'set-recommended-candidates' ? adoption : Promise.resolve(preview))
+    const open = vi.fn(() => {
+      openCount += 1
+      return openCount <= 2 ? Promise.resolve(preview) : staleRefresh
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    const save = vi.fn().mockResolvedValue(undefined)
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={save} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: '整理收藏' })).toBeEnabled())
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '候选 A' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(3))
+    resolveAdoption(adopted)
+    await act(async () => { await adoption })
+    resolveStaleRefresh(preview)
+    await act(async () => { await staleRefresh })
+
+    fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
+    expect(await screen.findByRole('region', { name: '归档预览' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'bilimi·候选 A 1 条' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '未匹配到合适分类 1 条' })).not.toBeInTheDocument()
+  })
+
   it('keeps every candidate selected when several boxes are clicked before the first save returns', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

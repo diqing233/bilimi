@@ -7158,6 +7158,30 @@ export class OldFavoriteWorkspaceCoordinator {
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
     if (!recovered.recommendations.initialized) return this.ensureRecommendations(workspace)
     const state = clone(recovered.recommendations)
+    // Older overlays can retain the visible candidate count but not the
+    // private per-segment match index.  Selecting such a candidate previously
+    // persisted its adopted state yet gave the narrow delta no AIDs to
+    // reclassify, leaving the archive projection at zero until a later full
+    // saved-rule toggle happened to repair it.  Rebuild from the already
+    // restored local index before the selection transaction starts.
+    if (state.candidates.some((candidate) => !candidate.matchedAidsBySegment)) {
+      await this.ensureRecommendationIndex(workspace)
+      const index = this.recommendationIndexes.get(workspace.accountMid)
+      if (index?.workspaceId === workspace.id) {
+        const hydrated = recommendationsFromIndex(index, state.adoptedCandidateIds, state.candidates)
+        const missingCandidateIds = state.candidates
+          .filter((candidate) => !candidate.matchedAidsBySegment)
+          .map((candidate) => candidate.id)
+        const hydratedById = new Map(hydrated.candidates.map((candidate) => [candidate.id, candidate]))
+        if (missingCandidateIds.every((candidateId) => hydratedById.get(candidateId)?.matchedAidsBySegment !== undefined)) {
+          await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+            currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: clone(hydrated)
+          })
+          this.recommendations.set(workspace.accountMid, clone(hydrated))
+          return hydrated
+        }
+      }
+    }
     this.recommendations.set(workspace.accountMid, clone(state))
     return state
   }

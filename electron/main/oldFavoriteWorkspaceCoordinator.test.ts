@@ -8470,6 +8470,53 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(recovered.recommendations.candidates[0]).not.toHaveProperty('matchedAidsBySegment')
   })
 
+  it('hydrates a legacy recommendation match index before first adoption', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store)
+    await coordinator.open('100')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    const first = requireSnapshot(await coordinator.getSnapshot('100'))
+    await store.appendOverlay('100', first.workspaceId, {
+      currentSegmentId: 'segment-1', classifications: [], history: [], recommendations: {
+        initialized: true,
+        candidates: [{
+          id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', kind: 'author', sourceName: 'UP Alpha',
+          keywords: ['UP Alpha'], count: 2, reason: 'legacy candidate without an index'
+        }],
+        adoptedCandidateIds: []
+      }
+    })
+
+    const resumed = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false,
+      classifyCurrentItems: (items, recommendedLedgers) => items.map(() => ({
+        targetLedgerIds: recommendedLedgers.length ? [recommendedLedgers[0]!.id] : [],
+        confidence: 'high' as const
+      }))
+    })
+    await resumed.getSnapshot('100')
+
+    const adopted = requireSnapshot(await resumed.setRecommendedCandidates('100', ['custom-author-up-alpha']))
+
+    expect(adopted.classifications).toMatchObject({
+      '1': { targetLedgerIds: ['custom-author-up-alpha'] },
+      '2': { targetLedgerIds: ['custom-author-up-alpha'] }
+    })
+  })
+
   it('preserves an adopted legacy recommendation identity when rebuilding indexes by kind and complete source', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
