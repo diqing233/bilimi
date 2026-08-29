@@ -150,16 +150,30 @@ export function resolveRecommendationOpenLedgerId(
     : openLedgerId
 }
 
-function mergePromotedRecommendationLedgers(
+function hasFormalRemoteBinding(ledger: FavoriteLedger) {
+  return ledger.bindingState === 'bound' && Boolean(
+    ledger.bilibiliFolderId?.trim() || ledger.bilibiliFolderIds?.some((folderId) => folderId.trim())
+  )
+}
+
+export function mergePromotedRecommendationLedgers(
   ledgers: readonly FavoriteLedger[],
   promotedLedgers: readonly FavoriteLedger[]
 ) {
+  const formalLedgersById = new Map(ledgers
+    .filter(hasFormalRemoteBinding)
+    .map((ledger) => [ledger.id, ledger]))
   const promotedIds = new Set(promotedLedgers.map((ledger) => ledger.id))
   const retainedLedgers = ledgers.filter((ledger) => !(
     ledger.ruleOrigin === 'recommendation-draft' && promotedIds.has(ledger.id)
   ))
   const persistedIds = new Set(retainedLedgers.map((ledger) => ledger.id))
-  return [...retainedLedgers, ...promotedLedgers.filter((ledger) => !persistedIds.has(ledger.id))]
+  return [
+    ...retainedLedgers,
+    ...promotedLedgers
+      .map((ledger) => formalLedgersById.get(ledger.id) ?? ledger)
+      .filter((ledger) => !persistedIds.has(ledger.id))
+  ]
 }
 
 function savedRecommendationLedger(candidate: OldFavoriteWorkspaceRecommendationCandidate, index: number): FavoriteLedger {

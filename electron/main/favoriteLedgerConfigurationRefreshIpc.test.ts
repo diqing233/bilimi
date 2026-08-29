@@ -34,4 +34,15 @@ describe('favorite ledger configuration refresh IPC', () => {
     expect(handler).toContain('refreshFavoriteWorkspaceRelationshipProjectionIfPresent(accountMid)')
     expect(handler).not.toContain('reclassifyFavoriteWorkspaceIfPreviewing(accountMid)')
   })
+
+  it('reprojects all formal physical shards after a binding adoption', () => {
+    const callbackStart = mainSource.indexOf('onLedgerBindingAdopted: async (accountMid, logicalLedgerId) => {')
+    const callbackEnd = mainSource.indexOf('\n    },', callbackStart)
+    const callback = mainSource.slice(callbackStart, callbackEnd)
+    expect(mainSource).toContain('async function reconcileFavoriteLedgerBindingProjection(accountMid: string)')
+    expect(mainSource).toContain('projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, repositorySnapshot.physicalShards)')
+    expect(callback).toContain('reconcileFavoriteLedgerBindingProjection(accountMid)')
+    expect(callback).toContain('notifyFloatingAssistantSnapshotChanged()')
+    expect(callback).not.toContain('reclassifyFavoriteWorkspaceIfPreviewing(accountMid)')
+  })
 })

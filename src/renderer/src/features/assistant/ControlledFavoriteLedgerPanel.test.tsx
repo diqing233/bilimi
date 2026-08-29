@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { ControlledFavoriteLedgerPanel, createRecommendationProjection, resolveRecommendationOpenLedgerId } from './ControlledFavoriteLedgerPanel'
+import { ControlledFavoriteLedgerPanel, createRecommendationProjection, mergePromotedRecommendationLedgers, resolveRecommendationOpenLedgerId } from './ControlledFavoriteLedgerPanel'
 import { OldFavoriteWholeRunOverview } from './OldFavoriteOverviewControls'
 
 function deferred<T>() {
@@ -423,6 +423,35 @@ describe('ControlledFavoriteLedgerPanel', () => {
       id: 'candidate-only', displayName: 'bilimi·候选草稿', keywords: [], enabled: true, priority: 10,
       syncState: 'local-draft', ruleOrigin: 'recommendation-draft', isDefault: false
     }], [{ id: 'candidate-only', displayName: 'bilimi·候选草稿', kind: 'author', keywords: ['候选草稿'], count: 1, reason: '推荐 UP' }])).toBeUndefined()
+  })
+
+  it('prefers the current formally bound rule over a same-id promoted recommendation bridge', () => {
+    const [ledger] = mergePromotedRecommendationLedgers([{
+      id: 'custom-author-honker233', displayName: 'bilimi·honker233', keywords: ['honker233'],
+      ruleType: 'author', enabled: true, priority: 10, ruleOrigin: 'recommendation-draft',
+      bindingState: 'bound', bilibiliFolderId: '4048101554', bilibiliFolderIds: ['4048101554'], isDefault: false
+    }], [{
+      id: 'custom-author-honker233', displayName: 'bilimi·honker233', keywords: ['honker233'],
+      ruleType: 'author', enabled: true, priority: 10, ruleOrigin: 'recommendation-draft',
+      bindingState: 'unbacked', isDefault: false
+    }])
+
+    expect(ledger).toMatchObject({
+      bindingState: 'bound', bilibiliFolderId: '4048101554', bilibiliFolderIds: ['4048101554']
+    })
+  })
+
+  it('keeps a promoted bridge when the current same-id recommendation draft has no formal binding', () => {
+    const [ledger] = mergePromotedRecommendationLedgers([{
+      id: 'candidate', displayName: 'bilimi·候选', keywords: ['旧规则'], enabled: true,
+      priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
+    }], [{
+      id: 'candidate', displayName: 'bilimi·候选', keywords: ['推荐规则'], enabled: true,
+      priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
+    }])
+
+    expect(ledger.keywords).toEqual(['推荐规则'])
+    expect(ledger.bindingState).toBe('unbacked')
   })
 
   it('keeps enabled archive targets and bilimi temporary storage visible at zero', () => {

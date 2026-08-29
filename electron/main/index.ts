@@ -123,6 +123,7 @@ import {
   removeLocalFavoriteLedgers,
   removeUnsavedFavoriteLedgerDraft
 } from '../../src/shared/favoriteLedgerDraftDeletion'
+import { projectFavoriteLedgersFromPhysicalShards } from '../../src/shared/favoriteLedgerBindingProjection'
 import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 import { fetchFavoriteVideoMetadata } from './favoriteVideoMetadata'
 import {
@@ -782,6 +783,24 @@ function notifyFloatingAssistantSnapshotChanged() {
   const assistant = floatingAssistantController.getWindow()
 
   sendAssistantSnapshotChangedToTargets([mainWindow, assistant])
+}
+
+async function reconcileFavoriteLedgerBindingProjection(accountMid: string) {
+  const store = getDesktopStore()
+  const current = loadFavoriteAccountPreferences(store, accountMid)
+  const repositorySnapshot = await favoriteRepositoryService?.getSnapshot(accountMid).catch(() => null)
+  if (!repositorySnapshot) return false
+  const projectedLedgers = projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, repositorySnapshot.physicalShards)
+  const favoriteLedgers = projectedLedgers.map((ledger) => {
+    if (!ledger.isDefault || !ledger.managedFolderDeletedByUser) return ledger
+    const { managedFolderDeletedByUser: _deletedByUser, ...rest } = ledger
+    return rest
+  })
+  if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return false
+  saveFavoriteAccountPreferences(store, accountMid, { ...current, favoriteLedgers })
+  sendAssistantPreferencesChanged(loadAssistantPreferences(store))
+  notifyFloatingAssistantSnapshotChanged()
+  return true
 }
 
 function favoriteLedgerPreferencePatchTouchesRules(patch: Partial<AssistantPreferences>) {
@@ -2596,15 +2615,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     service: favoriteRepositoryService,
     bindingService: favoriteRepositoryBindingService,
     onLedgerBindingAdopted: async (accountMid, logicalLedgerId) => {
-      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
-      const favoriteLedgers = current.favoriteLedgers.map((ledger) => {
-        if (ledger.id !== logicalLedgerId || !ledger.isDefault || !ledger.managedFolderDeletedByUser) return ledger
-        const { managedFolderDeletedByUser: _deletedByUser, ...rest } = ledger
-        return rest
-      })
-      if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return
-      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
-      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+      await reconcileFavoriteLedgerBindingProjection(accountMid)
+      // Binding success changes the authoritative repository even when the
+      // account preference shape was already current; always invalidate the
+      // assistant snapshot so the right-side count reads every formal shard.
+      notifyFloatingAssistantSnapshotChanged()
     },
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     isTrustedReader: isTrustedFavoriteLibraryReader,
@@ -2627,6 +2642,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       // imported bindings are pending until the live inventory check above has
       // proved a unique matching remote folder.
       await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid)
+      await reconcileFavoriteLedgerBindingProjection(accountMid)
       const store = getDesktopStore()
       const favoriteAccountPreferences = loadFavoriteAccountPreferences(store, accountMid)
       await restoreFavoriteLibraryManagedFolderProjection({
