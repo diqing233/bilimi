@@ -31,7 +31,7 @@ type ControlledFavoriteLedgerPanelProps = {
   ) => Promise<unknown> | void
   onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   onOpenFavoritePage?: () => Promise<unknown> | void
-  onRefreshOrganizationState?: () => Promise<unknown> | void
+  onRefreshOrganizationState?: (options?: { reconcileFavoriteBindingProjection?: boolean }) => Promise<unknown> | void
   onOrganizationSnapshotChange?: (snapshot: OldFavoriteWorkspaceSnapshot | null) => void
   onAcknowledgeOrganizationCompletion?: (accountMid: string, workspaceId: string) => void
   onTransientFeedback?: (message: string) => void
@@ -1221,6 +1221,7 @@ export function ControlledFavoriteLedgerPanel({
     setConfirmationPreparing(true)
     setConfirmationPreparationError(null)
     try {
+      let provisionedPhysicalShards = false
       // A logical rule may have entered an explicit create/rebind flow above.
       // Do not use the snapshot from before that consent to create a capacity
       // shard: main must first confirm that every logical gap is actually gone.
@@ -1262,12 +1263,16 @@ export function ControlledFavoriteLedgerPanel({
         if (!provision) throw new Error('同步前新增分册备册不可用，请重启应用后重试。')
         setConfirmationPreparationStatus('正在确认新增分册的备册状态。')
         await provision(accountMid)
+        provisionedPhysicalShards = true
       }
       const rechecked = await readBilibiliBackupPreflight(intent.includeInbox)
       if (rechecked && hasBilibiliBackupGaps(rechecked)) {
         presentBilibiliBackupPreflight(rechecked)
         setConfirmationPreparationError('备册尚未完成；请完成列出的收藏夹和分册确认后再同步。')
         return
+      }
+      if (provisionedPhysicalShards) {
+        await onRefreshOrganizationState?.({ reconcileFavoriteBindingProjection: true })
       }
       setBilibiliBackupPreflight(null)
       setBilibiliLedgerCandidateIds({})

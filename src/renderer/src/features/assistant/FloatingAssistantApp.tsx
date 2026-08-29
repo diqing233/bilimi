@@ -197,6 +197,74 @@ export function ledgersForFavoriteBackup(ledgers: FavoriteLedger[]): FavoriteLed
   return ledgers
 }
 
+const FAVORITE_LEDGER_BINDING_PROJECTION_KEYS = [
+  'bilibiliFolderId',
+  'bilibiliFolderIds',
+  'bilibiliFolderTitle',
+  'bilibiliFolderVideoCount',
+  'bindingState',
+  'confirmedDeletedRemoteFolderIds',
+  'historicalBilibiliFolderIds',
+  'historicalBilibiliFolderTitle',
+  'pendingRemoteBinding',
+  'pendingRemoteBindingCreatedByBackup',
+  'pendingRemoteFolderId',
+  'pendingRemoteFolderTitle'
+] as const
+
+/** Reconciles remote binding facts without overwriting local rule edits. */
+export function reconcileFavoriteLedgerBindingProjection(
+  localLedgers: FavoriteLedger[],
+  authoritativeLedgers: FavoriteLedger[]
+): FavoriteLedger[] {
+  const authoritativeById = new Map(authoritativeLedgers.map((ledger) => [ledger.id, ledger]))
+  return localLedgers.map((localLedger) => {
+    const authoritativeLedger = authoritativeById.get(localLedger.id)
+    if (!authoritativeLedger) return localLedger
+
+    const localRule = { ...localLedger }
+    for (const key of FAVORITE_LEDGER_BINDING_PROJECTION_KEYS) delete localRule[key]
+    const remoteBinding = Object.fromEntries(
+      FAVORITE_LEDGER_BINDING_PROJECTION_KEYS
+        .filter((key) => authoritativeLedger[key] !== undefined)
+        .map((key) => [key, authoritativeLedger[key]])
+    ) as Partial<FavoriteLedger>
+    return { ...localRule, ...remoteBinding }
+  })
+}
+
+function reconcileFavoriteLedgerPreferences(
+  preferences: AssistantPreferences,
+  accountMid: string | undefined,
+  authoritativeLedgers: FavoriteLedger[]
+): AssistantPreferences {
+  const projectedTopLevelLedgers = reconcileFavoriteLedgerBindingProjection(
+    preferences.favoriteLedgers,
+    authoritativeLedgers
+  )
+  const accountPreferences = accountMid
+    ? preferences.favoriteAccountPreferences?.[accountMid]
+    : undefined
+  return {
+    ...preferences,
+    favoriteLedgers: projectedTopLevelLedgers,
+    ...(accountMid && accountPreferences
+      ? {
+          favoriteAccountPreferences: {
+            ...(preferences.favoriteAccountPreferences ?? {}),
+            [accountMid]: {
+              ...accountPreferences,
+              favoriteLedgers: reconcileFavoriteLedgerBindingProjection(
+                accountPreferences.favoriteLedgers,
+                authoritativeLedgers
+              )
+            }
+          }
+        }
+      : {})
+  }
+}
+
 export function statusLightNavigation(id: StatusLightId, _activeView: AssistantWorkspaceView) {
   if (id === 'deepseek') return { tab: 'settings' as const, section: 'deepseek' as const }
   if (id === 'transcription') return { tab: 'notes' as const, view: 'notes' as const }
@@ -612,7 +680,7 @@ type LedgerWorkspacePanelProps = {
   onSaveLedgerEnabled: (ledgerId: string, enabled: boolean) => Promise<unknown>
   onSyncLedgers: (ledgers: AssistantPreferences['favoriteLedgers'], options?: FavoriteLedgerSaveOptions) => Promise<unknown>
   onOpenFavoritePage: () => Promise<unknown>
-  onRefreshOrganizationState: () => Promise<unknown>
+  onRefreshOrganizationState: (options?: { reconcileFavoriteBindingProjection?: boolean }) => Promise<unknown>
   onOrganizationSnapshotChange: (snapshot: OldFavoriteWorkspaceSnapshot | null) => void
   onAcknowledgeOrganizationCompletion: (accountMid: string, workspaceId: string) => void
   onTransientFeedback: (message: string) => void
@@ -3206,7 +3274,7 @@ export function FloatingAssistantApp({
     }
   }, [])
 
-  const loadSnapshot = useCallback(({ resetVideoNote = false } = {}) => {
+  const loadSnapshot = useCallback(({ resetVideoNote = false, reconcileFavoriteBindingProjection = false } = {}) => {
     const loadGeneration = snapshotLoadGeneration.current + 1
     snapshotLoadGeneration.current = loadGeneration
     const nextLoad = (async () => {
@@ -3248,6 +3316,13 @@ export function FloatingAssistantApp({
             ...snapshotPreferencesFromRuntime,
             deepseekApiKeyStored: deepSeekKeyConfiguredRef.current
           })
+      const projectedSnapshotPreferences = reconcileFavoriteBindingProjection && loadedSnapshot.favoriteLedgerStatus?.ledgers
+        ? reconcileFavoriteLedgerPreferences(
+            snapshotPreferences,
+            loadedSnapshot.accountMid,
+            loadedSnapshot.favoriteLedgerStatus.ledgers
+          )
+        : snapshotPreferences
       const lastLocalPreferenceChangeAt = Math.max(
         lastPreferenceChangeAt.current,
         lastPreferenceSaveAt.current
@@ -3255,10 +3330,16 @@ export function FloatingAssistantApp({
       const snapshotArrivedSoonAfterLocalChange = Date.now() - lastLocalPreferenceChangeAt < 2000
       setPreferences((currentPreferences) => {
         const nextPreferences = snapshotArrivedSoonAfterLocalChange
-          ? currentPreferences
-          : snapshotPreferences
+          ? reconcileFavoriteBindingProjection && loadedSnapshot.favoriteLedgerStatus?.ledgers
+            ? reconcileFavoriteLedgerPreferences(
+                currentPreferences,
+                loadedSnapshot.accountMid,
+                loadedSnapshot.favoriteLedgerStatus.ledgers
+              )
+            : currentPreferences
+          : projectedSnapshotPreferences
         if (!snapshotArrivedSoonAfterLocalChange) {
-          committedPreferencesRef.current = snapshotPreferences
+          committedPreferencesRef.current = projectedSnapshotPreferences
         }
         preferencesRef.current = nextPreferences
         return nextPreferences
@@ -4940,7 +5021,7 @@ export function FloatingAssistantApp({
 
     if (result.ok) {
       await refreshFavoriteOrganizationRelationshipProjection()
-      await loadSnapshot()
+      await loadSnapshot({ reconcileFavoriteBindingProjection: true })
     }
 
     tellPet(result.ok ? 'success' : 'error', result.message)
@@ -4960,7 +5041,7 @@ export function FloatingAssistantApp({
 
     if (result.ok || (result.remoteOnlyDraftLedgerIds?.length ?? 0) > 0) {
       await refreshFavoriteOrganizationRelationshipProjection()
-      await loadSnapshot()
+      await loadSnapshot({ reconcileFavoriteBindingProjection: true })
     }
 
     tellPet(result.ok ? 'success' : 'error', result.message)
@@ -5158,9 +5239,9 @@ export function FloatingAssistantApp({
     if (models) setTranscriptionModels(models)
   }
 
-  const refreshOrganizationState = useCallback(async () => {
+  const refreshOrganizationState = useCallback(async (options?: { reconcileFavoriteBindingProjection?: boolean }) => {
     await refreshFavoriteOrganizationRelationshipProjection()
-    await loadSnapshot()
+    await loadSnapshot({ reconcileFavoriteBindingProjection: options?.reconcileFavoriteBindingProjection === true })
   }, [loadSnapshot, refreshFavoriteOrganizationRelationshipProjection])
 
   async function openFavoritePage() {

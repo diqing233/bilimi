@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import type { FavoriteLedger, VideoAudioTranscriptionQueueSnapshot } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import * as FloatingAssistantAppModule from './FloatingAssistantApp'
-import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, favoriteOrganizationStatus, findArchivedSummaryTextForNote, ledgersForFavoriteBackup, matchesCurrentVideoNote, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, settingsSectionScrollTop, statusLightNavigation, statusLightTooltip, statusLightTooltipParts, suppressRemoteDraftReminder } from './FloatingAssistantApp'
+import { archiveSnapshotNeedsRefresh, archivesForCurrentAccount, canPublishVideoNoteArchiveLoad, createDeepSeekSummaryFeedback, createTranscriptionQueueFeedback, defaultFavoriteSystemToggleAvailable, favoriteLedgerReclassificationRequired, favoriteOrganizationStatus, findArchivedSummaryTextForNote, ledgersForFavoriteBackup, matchesCurrentVideoNote, reconcileFavoriteLedgerBindingProjection, resolveFavoriteOrganizationLamp, SETTINGS_JUMP_OPTIONS, settingsSectionScrollTop, statusLightNavigation, statusLightTooltip, statusLightTooltipParts, suppressRemoteDraftReminder } from './FloatingAssistantApp'
 import { createInitialAssistantPreferences } from '../state/assistantState'
 
 const defaultLedger: FavoriteLedger = {
@@ -33,6 +33,41 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
+  it('projects newly bound first and capacity shards without overwriting local rule edits', () => {
+    const projected = reconcileFavoriteLedgerBindingProjection([
+      {
+        id: 'honker233', displayName: 'bilimi·honker233', keywords: ['new local keyword'], enabled: true,
+        priority: 20, isDefault: false, bindingState: 'unbacked'
+      },
+      {
+        id: 'game', displayName: 'bilimi·游戏专区', keywords: ['game'], enabled: true,
+        priority: 10, isDefault: false, bilibiliFolderId: 'game-1', bilibiliFolderIds: ['game-1'], bindingState: 'bound'
+      }
+    ], [
+      {
+        id: 'honker233', displayName: 'bilimi·honker233', keywords: ['stale'], enabled: true,
+        priority: 20, isDefault: false, bilibiliFolderId: 'honker-1', bilibiliFolderIds: ['honker-1'],
+        bilibiliFolderTitle: 'bilimi·honker233', bindingState: 'bound'
+      },
+      {
+        id: 'game', displayName: 'bilimi·游戏专区', keywords: ['stale'], enabled: true,
+        priority: 10, isDefault: false, bilibiliFolderId: 'game-1', bilibiliFolderIds: ['game-1', 'game-2'],
+        bilibiliFolderTitle: 'bilimi·游戏专区', bindingState: 'bound'
+      }
+    ])
+
+    expect(projected).toEqual([
+      expect.objectContaining({
+        id: 'honker233', keywords: ['new local keyword'], bindingState: 'bound',
+        bilibiliFolderId: 'honker-1', bilibiliFolderIds: ['honker-1']
+      }),
+      expect.objectContaining({
+        id: 'game', keywords: ['game'], bindingState: 'bound',
+        bilibiliFolderId: 'game-1', bilibiliFolderIds: ['game-1', 'game-2']
+      })
+    ])
+  })
+
   it('keeps recovered remote drafts in the full local snapshot passed to backup', () => {
     const recoveredDraft: FavoriteLedger = {
       id: 'custom-remote-game', displayName: 'bilimi·游戏专区', keywords: [], enabled: false,
@@ -262,7 +297,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(reconciliationRefresh).not.toContain('openOldFavoriteWorkspaceV1')
     expect(ensureFunction).toContain('if (result.ok)')
     expect(ensureFunction).toContain('refreshFavoriteOrganizationRelationshipProjection')
-    expect(ensureFunction).toContain('await loadSnapshot()')
+    expect(ensureFunction).toContain('await loadSnapshot({ reconcileFavoriteBindingProjection: true })')
     expect(saveFunction).toContain('if (result.ok || (result.remoteOnlyDraftLedgerIds?.length ?? 0) > 0)')
     expect(saveFunction).toContain('refreshFavoriteOrganizationRelationshipProjection')
   })
