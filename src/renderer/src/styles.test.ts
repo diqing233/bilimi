@@ -1206,6 +1206,11 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain(".favorite-ledger-panel[aria-busy='true']")
   })
 
+  it('does not put a progress cursor over the whole整理收藏 guide', () => {
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__old-favorites-guide[data-busy="true"] {\n  cursor: progress;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__old-favorites-guide[data-preview-preparing="true"] {\n  cursor: progress;')
+  })
+
   it('keeps sidebar help and status tooltips above content without using the sidebar body', () => {
     expectStyleSnippet('.favorite-ledger-panel__help-tooltip {\n  position: fixed;\n  z-index: 10001;')
     expectStyleSnippet('.floating-assistant-global-status__light-tooltip {\n  position: fixed;\n  z-index: 10001;')

@@ -3402,6 +3402,14 @@ export function FloatingAssistantApp({
 
   useEffect(() => window.bilimiDesktop?.onBilibiliAccountChanged?.(() => {
     if (localDataResetInProgress.current) return
+    const currentSnapshot = snapshotRef.current
+    const clearedSnapshot = currentSnapshot
+      ? { ...currentSnapshot, accountMid: '', favoriteLedgerStatus: null }
+      : null
+    snapshotRef.current = clearedSnapshot
+    setSnapshot(clearedSnapshot)
+    setFavoriteLedgerStatus(null)
+    setFavoriteOrganizationSnapshot(null)
     localDataInfoGeneration.current += 1
     localDataInfoLoaded.current = false
     localDataInfoRefreshInFlight.current = null

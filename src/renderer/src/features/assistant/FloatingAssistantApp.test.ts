@@ -284,6 +284,37 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(ordinarySuccessPath).toContain('await refreshFavoriteLedgerStatusAfterBackup()')
   })
 
+  it('clears the rendered account-scoped favorite status before loading a replacement account', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const accountChangeEffect = source.slice(
+      source.indexOf('onBilibiliAccountChanged'),
+      source.indexOf('useEffect(() => window.bilimiDesktop?.onLocalDataReset')
+    )
+
+    expect(accountChangeEffect).toContain('favoriteLedgerStatus')
+    expect(accountChangeEffect).toContain('setFavoriteLedgerStatus')
+    expect(accountChangeEffect).toContain('accountMid')
+    expect(accountChangeEffect).toContain('loadSnapshot')
+  })
+
+  it('does not await a duplicate status refresh in the backup save path', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgers('),
+      source.indexOf('async function openBilibiliFavorites()')
+    )
+    const refreshHelper = saveFunction.slice(
+      saveFunction.indexOf('const refreshFavoriteLedgerStatusAfterBackup'),
+      saveFunction.indexOf('const observedRemoteOnlyDrafts')
+    )
+
+    expect(refreshHelper).toContain('favoriteLedgerStatusRefreshPromisesRef')
+    expect(refreshHelper).toContain('readFavoriteLedgerStatus(accountMid, { force: true })')
+    expect(refreshHelper).toContain('verified')
+    expect(refreshHelper).not.toContain('return readFavoriteLedgerStatus(accountMid, { force: true })')
+    expect(refreshHelper).not.toContain('.catch(() => undefined)')
+  })
+
   it('rolls back a failed ledger-rule patch only while that mutation is still current', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const saveFunction = source.slice(

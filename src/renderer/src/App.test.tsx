@@ -2474,11 +2474,17 @@ describe('App runtime integration', () => {
     }
     const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
       if (userGesture) return { hasUserId: true, hasCsrf: true }
-      expect(script).toContain('"confirmCreateAndBind":true')
+      // A successful backup now performs a separate authoritative status
+      // refresh. Only the save script carries the creation-consent option;
+      // the follow-up inventory is intentionally read-only.
+      if (script.includes(LEDGER_SAVE_SCRIPT_MARKER)) {
+        expect(script).toContain('"confirmCreateAndBind":true')
+      }
       return {
         ok: true,
         ledgers: [{ ...music, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
-        steps: ['api:ledger:list', 'api:ledger:create:music'], missingTargets: [], message: '册目已备齐。'
+        steps: ['api:ledger:list', 'api:ledger:create:music'], missingTargets: [],
+        missingLedgerIds: [], verified: true, message: '册目已备齐。'
       }
     })
     Object.assign(webview, { executeJavaScript })

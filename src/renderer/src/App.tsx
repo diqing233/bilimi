@@ -792,6 +792,7 @@ export default function App() {
     checkedAt: number
     status: FavoriteLedgerStatus
   } | null>(null)
+  const favoriteLedgerStatusRefreshPromisesRef = useRef(new Map<string, Promise<FavoriteLedgerStatus | undefined>>())
   // A status read can outlive a main-process preference broadcast (for example,
   // deleting an unbound remote draft while its Bilibili inventory request is in
   // flight). Only the generation that started the read may publish its result.
@@ -1489,27 +1490,44 @@ export default function App() {
     }
   }
 
+  function setObservedBilibiliAccount(accountMid: string) {
+    const normalizedAccountMid = accountMid.trim()
+    if (normalizedAccountMid !== assistantSnapshotCacheRef.current.accountMid) {
+      favoriteLedgerStatusGenerationRef.current += 1
+      favoriteLedgerStatusCacheRef.current = null
+      assistantSnapshotCacheRef.current.favoriteLedgerStatus = null
+    }
+    assistantSnapshotCacheRef.current.accountMid = normalizedAccountMid
+    return normalizedAccountMid
+  }
+
+  function clearObservedBilibiliAccount() {
+    setObservedBilibiliAccount('')
+    favoriteLedgerStatusRefreshPromisesRef.current.clear()
+  }
+
   async function readBilibiliAccountMid(): Promise<string> {
     if (window.bilimiDesktop?.readBilibiliAccountMid) {
       try {
-        const accountMid = (await window.bilimiDesktop.readBilibiliAccountMid()).trim()
-        assistantSnapshotCacheRef.current.accountMid = accountMid
-        return accountMid
+        return setObservedBilibiliAccount(await window.bilimiDesktop.readBilibiliAccountMid())
       } catch {
-        assistantSnapshotCacheRef.current.accountMid = ''
+        clearObservedBilibiliAccount()
         return ''
       }
     }
     const currentActiveWebview = getCurrentActiveWebview()
-    if (!currentActiveWebview?.executeJavaScript) return ''
+    if (!currentActiveWebview?.executeJavaScript) {
+      clearObservedBilibiliAccount()
+      return ''
+    }
     try {
       const accountMid = String(await currentActiveWebview.executeJavaScript(
         `(() => String(document.cookie || '').match(/(?:^|;\\s*)DedeUserID=([^;]+)/)?.[1] || '')()`,
         true
       )).trim()
-      assistantSnapshotCacheRef.current.accountMid = accountMid
-      return accountMid
+      return setObservedBilibiliAccount(accountMid)
     } catch {
+      clearObservedBilibiliAccount()
       return ''
     }
   }
@@ -2324,7 +2342,29 @@ export default function App() {
     const refreshFavoriteLedgerStatusAfterBackup = async () => {
       if (!accountMid) return
       favoriteLedgerStatusCacheRef.current = null
-      await readFavoriteLedgerStatus(accountMid, { force: true }).catch(() => undefined)
+      const existing = favoriteLedgerStatusRefreshPromisesRef.current.get(accountMid)
+      if (existing) {
+        await existing
+        return
+      }
+      const pending = readFavoriteLedgerStatus(accountMid, { force: true })
+        .then((status) => {
+          // The save operation itself remains successful even when a legacy
+          // bridge returns an incomplete post-save inventory. The sync panel
+          // performs a separate fail-closed preflight and will not start
+          // remote execution until that read is verified.
+          return assistantSnapshotCacheRef.current.accountMid === accountMid && status.verified === true
+            ? status
+            : undefined
+        })
+        .then((status) => status, () => undefined)
+        .finally(() => {
+          if (favoriteLedgerStatusRefreshPromisesRef.current.get(accountMid) === pending) {
+            favoriteLedgerStatusRefreshPromisesRef.current.delete(accountMid)
+          }
+        })
+      favoriteLedgerStatusRefreshPromisesRef.current.set(accountMid, pending)
+      await pending
     }
     const observedRemoteOnlyDrafts = Array.isArray(result.remoteOnlyDraftLedgerIds) && result.remoteOnlyDraftLedgerIds.length > 0
     const releaseObservedRemoteDraftRediscovery = async () => {
