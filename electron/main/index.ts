@@ -803,6 +803,12 @@ async function reconcileFavoriteLedgerBindingProjection(accountMid: string) {
   return true
 }
 
+/** Refreshes the account rule projection after any automatic shard mutation. */
+async function refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid: string) {
+  await reconcileFavoriteLedgerBindingProjection(accountMid)
+  notifyFloatingAssistantSnapshotChanged()
+}
+
 function favoriteLedgerPreferencePatchTouchesRules(patch: Partial<AssistantPreferences>) {
   return Object.prototype.hasOwnProperty.call(patch, 'favoriteLedgers') ||
     Object.prototype.hasOwnProperty.call(patch, 'favoriteAccountPreferences')
@@ -2064,7 +2070,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     repository: favoriteRepositoryService,
     pageBridgeManager: favoriteRepositoryPageBridgeManager,
     remoteOperations: favoriteRepositoryRemoteOperations,
-    ensurePhysicalShard: (accountMid, input) => favoriteRepositoryBindingService!.ensurePhysicalShard(accountMid, input)
+    ensurePhysicalShard: (accountMid, input) => favoriteRepositoryBindingService!.ensurePhysicalShard(accountMid, input),
+    onPhysicalShardProvisioned: refreshFavoriteLedgerBindingProjectionAfterPhysicalShard
   })
   favoriteRepositoryBindingService = new FavoriteRepositoryBindingService({
     repository: favoriteRepositoryService,
@@ -2363,6 +2370,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     refreshSelectedVideoMetadata: refreshFavoriteLibraryVideo,
     syncService: favoriteRepositorySyncService,
     bindingService: favoriteRepositoryBindingService,
+    onPhysicalShardProvisioned: refreshFavoriteLedgerBindingProjectionAfterPhysicalShard,
     getUserDeletedDefaultLedgerIds: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
       .filter((ledger) => ledger.isDefault && ledger.managedFolderDeletedByUser)
       .map((ledger) => ledger.id),
@@ -2615,11 +2623,10 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     service: favoriteRepositoryService,
     bindingService: favoriteRepositoryBindingService,
     onLedgerBindingAdopted: async (accountMid, logicalLedgerId) => {
-      await reconcileFavoriteLedgerBindingProjection(accountMid)
       // Binding success changes the authoritative repository even when the
       // account preference shape was already current; always invalidate the
       // assistant snapshot so the right-side count reads every formal shard.
-      notifyFloatingAssistantSnapshotChanged()
+      await refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid)
     },
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     isTrustedReader: isTrustedFavoriteLibraryReader,
@@ -2641,7 +2648,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       // A previous complete scan can still restore local same-device bindings;
       // imported bindings are pending until the live inventory check above has
       // proved a unique matching remote folder.
-      await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid)
+      await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid).catch(() => undefined)
       await reconcileFavoriteLedgerBindingProjection(accountMid)
       const store = getDesktopStore()
       const favoriteAccountPreferences = loadFavoriteAccountPreferences(store, accountMid)

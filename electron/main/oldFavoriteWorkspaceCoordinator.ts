@@ -1231,6 +1231,8 @@ export class OldFavoriteWorkspaceCoordinator {
         ledgerId: string
         candidates: Array<{ id: string; title: string; memberCount: number; shardNumber?: number }>
       }>>
+      /** Refreshes the account-level rule projection after automatic shard provisioning. */
+      onPhysicalShardProvisioned?: (accountMid: string) => Promise<unknown> | unknown
     }
     syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'stopAndAbandonFrozenPlan' | 'pauseFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'rebindPageTarget' | 'reconcile' | 'resume' | 'getRun' | 'deleteManagedFolders' | 'deleteManagedRemoteFolders' | 'previewManagedFolderDeletion'>
     classifyCurrentItem?: (
@@ -4959,6 +4961,11 @@ export class OldFavoriteWorkspaceCoordinator {
         memberAids: []
       })
     }
+    // Automatic capacity provisioning mutates the repository through the
+    // binding service, so refresh the account-level rule projection once after
+    // the whole bounded batch. This mirrors explicit binding adoption without
+    // reclassifying the workspace or issuing another remote operation.
+    await this.options.onPhysicalShardProvisioned?.(preflight.accountMid)
     return this.getBilibiliExecutionPreflight(accountMid)
   }
 

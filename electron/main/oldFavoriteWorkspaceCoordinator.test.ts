@@ -9852,11 +9852,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const ensurePhysicalShard = vi.fn().mockResolvedValue({})
+    const onPhysicalShardProvisioned = vi.fn().mockResolvedValue(undefined)
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository,
       workspaceStore: new OldFavoriteWorkspaceStore({ root }),
       bindingService: { ensurePhysicalShard },
       listSavedEnabledLedgers: vi.fn().mockResolvedValue([{ id: 'music', title: 'bilimi·音乐' }]),
+      onPhysicalShardProvisioned,
       now: () => '2026-07-20T00:00:00.000Z'
     })
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
@@ -9876,6 +9878,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({
       logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 2
     }))
+    expect(onPhysicalShardProvisioned).toHaveBeenCalledOnce()
+    expect(onPhysicalShardProvisioned).toHaveBeenCalledWith('100')
   })
 
   it('blocks a manually created local ledger from remote execution until it is formally bound', async () => {

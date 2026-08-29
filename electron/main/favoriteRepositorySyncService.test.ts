@@ -259,9 +259,10 @@ describe('FavoriteRepositorySyncService', () => {
       'remote-music-2': Array.from({ length: 999 }, (_, index) => index + 1)
     } })
     const ensurePhysicalShard = vi.fn()
+    const onPhysicalShardProvisioned = vi.fn().mockResolvedValue(undefined)
     const service = new FavoriteRepositorySyncService({
       repository, pageBridge: { append: vi.fn(), remove: vi.fn(), readMembers, createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
-      ensurePhysicalShard, now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
+      ensurePhysicalShard, onPhysicalShardProvisioned, now: () => '2026-07-19T00:00:00.000Z', pacingMs: 0
     })
     const writer = service.createArchiveRestoreWriter()
 
@@ -277,6 +278,8 @@ describe('FavoriteRepositorySyncService', () => {
     } })
     await writer.ensurePhysicalCapacity!({ accountMid: '100', restoreId: 'restore-capacity', aid: 2, logicalFolderIds: ['bilimi-logical:music'] })
     expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({ logicalLedgerId: 'music', shardNumber: 3, memberAids: [2] }))
+    expect(onPhysicalShardProvisioned).toHaveBeenCalledOnce()
+    expect(onPhysicalShardProvisioned).toHaveBeenCalledWith('100')
   })
 
   it('rejects conflicted managed bindings before capacity creation can create another shard', async () => {

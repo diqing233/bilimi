@@ -248,6 +248,7 @@ export class FavoriteRepositorySyncService {
       shardNumber: number
       memberAids: number[]
     }) => Promise<unknown>
+    onPhysicalShardProvisioned?: (accountMid: string) => Promise<unknown> | unknown
     reconciliationReadTimeoutMs?: number
     remoteWriteTimeoutMs?: number
     retryCooldownMs?: number
@@ -759,6 +760,7 @@ export class FavoriteRepositorySyncService {
             shardNumber,
             memberAids: [aid]
           })
+          await this.options.onPhysicalShardProvisioned?.(account)
         }
       },
       write: async ({ accountMid, restoreId, aid, appendPhysicalFolderIds, removePhysicalFolderIds }) => {
