@@ -1222,6 +1222,7 @@ export function ControlledFavoriteLedgerPanel({
     setConfirmationPreparationError(null)
     try {
       let provisionedPhysicalShards = false
+      let adoptedPhysicalShards = false
       // A logical rule may have entered an explicit create/rebind flow above.
       // Do not use the snapshot from before that consent to create a capacity
       // shard: main must first confirm that every logical gap is actually gone.
@@ -1251,6 +1252,7 @@ export function ControlledFavoriteLedgerPanel({
             remoteFolderId: candidate.remoteFolderId,
             remoteTitle: candidate.remoteTitle
           })
+          adoptedPhysicalShards = true
         }
         beforeProvision = await readBilibiliBackupPreflight(intent.includeInbox) ?? beforeProvision
         if (beforeProvision.missingLedgers.length || beforeProvision.requiredPhysicalShards.some((shard) => bilibiliBindingCandidatesForShard(shard).length)) {
@@ -1271,7 +1273,7 @@ export function ControlledFavoriteLedgerPanel({
         setConfirmationPreparationError('备册尚未完成；请完成列出的收藏夹和分册确认后再同步。')
         return
       }
-      if (provisionedPhysicalShards) {
+      if (provisionedPhysicalShards || adoptedPhysicalShards) {
         await onRefreshOrganizationState?.({ reconcileFavoriteBindingProjection: true })
       }
       setBilibiliBackupPreflight(null)

@@ -86,22 +86,22 @@ Distinguish instructions in attached documents from the user's request.
 
 ### I001
 
-- 代码：`src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.tsx:1221-1278` 在容量分册 provisioning 成功后继续同一确认链路；`src/renderer/src/features/assistant/FloatingAssistantApp.tsx:200-247、3280-3346、5024-5045、5239-5244` 只投影权威绑定字段并在首册/分册后回刷。
-- 自动化：`FloatingAssistantApp.test.ts` 新增权威绑定投影测试；`ControlledFavoriteLedgerPanel.test.tsx` 新增一次确认备册首册、provision 容量分册、回刷后才执行同步的测试。聚焦运行结果：257/257 通过；主应用回归（`App.test.tsx`、协调器及 IPC）537/537 通过。
+- 代码：`src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.tsx:1221-1278` 在容量分册 provisioning 或候选分册 adoption 成功后继续同一确认链路；`src/renderer/src/features/assistant/FloatingAssistantApp.tsx:200-247、3280-3346、5024-5045、5239-5244` 只投影权威绑定字段并在首册/分册后回刷。候选分册也以真实 `remoteFolderId` adoption，不能只更新本地窗口状态。
+- 自动化：`FloatingAssistantApp.test.ts` 新增权威绑定投影测试；`ControlledFavoriteLedgerPanel.test.tsx` 覆盖一次确认备册首册、provision 容量分册、采用已发现容量分册、回刷后才执行同步。聚焦运行结果：258/258 通过；主应用回归（`App.test.tsx`、协调器及 IPC）537/537 通过。
 - Electron 只读验收：`.codex-artifacts/2026-08-29-sync-backup-binding-projection.png`（掌库页面显示已备册状态）。
-- 结果/未验证：自动化确认了同一窗口和真实 ID 链路；未执行真实 B 站创建、绑定或视频写入，因此远端副作用及真实账号上的 `honker233` 首册创建未验证。
+- 结果/未验证：自动化确认了同一窗口、真实 ID adoption 和权威刷新先于同步命令；未执行真实 B 站创建、绑定或视频写入，因此远端副作用及真实账号上的 `honker233` 首册创建未验证。
 
 ### I002
 
 - 代码：`src/renderer/src/features/assistant/FloatingAssistantApp.tsx:200-247、3280-3346、5024-5045、5239-5244`；`src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.tsx:1221-1278`。
-- 自动化：投影测试断言 `honker233` 和 `游戏专区` 的 `bilibiliFolderIds` 分别更新为权威 `['honker-1']` 与 `['game-1', 'game-2']`；容量分册刷新顺序测试通过；主应用回归通过。
+- 自动化：投影测试断言 `honker233` 和 `游戏专区` 的 `bilibiliFolderIds` 分别更新为权威 `['honker-1']` 与 `['game-1', 'game-2']`；容量分册 provisioning 与已发现分册 adoption 的刷新顺序测试均通过；主应用回归通过。
 - Electron 只读验收：`.codex-artifacts/2026-08-29-sync-backup-binding-projection.png`，当前掌库卡片按已绑定状态渲染。
 - 结果/未验证：渲染器不会再因短期本地偏好保护而覆盖权威绑定投影；未在真实 B 站账号执行容量分册创建，故真实“B站绑定：2 个收藏夹”远端结果未验证。
 
 ### I003
 
 - 代码：同 I001/I002；刷新通过单飞的状态读取和一次显式 `onRefreshOrganizationState({ reconcileFavoriteBindingProjection: true })` 完成，不触发同步阻塞或额外弹窗。
-- 自动化：聚焦测试 257/257，主应用及协调器回归 537/537；`npm run build` 通过；`git diff --check` 通过。
+- 自动化：聚焦测试 258/258，主应用及协调器回归 537/537；`npm run build` 通过；`git diff --check` 通过。
 - Electron 只读验收：开发版掌库窗口可切换并显示状态，截图同上；本轮未点击任何 B 站写入按钮。
 - 结果/未验证：代码路径无同步循环和整页重渲染；真实鼠标卡顿量化和真实远端副作用不能通过只读验收确认。
 

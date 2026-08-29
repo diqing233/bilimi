@@ -3363,6 +3363,72 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('dialog', { name: '同步前备册确认' })).not.toBeInTheDocument()
   })
 
+  it('refreshes the authoritative projection after adopting a discovered capacity shard in the same confirmation', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['game'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 },
+      history: { cursor: 1, length: 1 }
+    }
+    const initialPreflight = {
+      accountMid: '100', workspaceId: 'workspace-100',
+      missingLedgers: [{ logicalLedgerId: 'honker233', logicalTitle: 'bilimi·honker233', reason: 'unbacked' as const }],
+      requiredPhysicalShards: [{
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 2, requiredAssignmentCount: 1,
+        bindingCandidates: [{ remoteFolderId: 'game-2', remoteTitle: 'bilimi·游戏专区·2', memberCount: 3 }]
+      }]
+    }
+    const candidatePreflight = {
+      accountMid: '100', workspaceId: 'workspace-100', missingLedgers: [],
+      requiredPhysicalShards: [{
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 2, requiredAssignmentCount: 1,
+        bindingCandidates: [{ remoteFolderId: 'game-2', remoteTitle: 'bilimi·游戏专区·2', memberCount: 3 }]
+      }]
+    }
+    const clearPreflight = { accountMid: '100', workspaceId: 'workspace-100', missingLedgers: [], requiredPhysicalShards: [] }
+    const preflight = vi.fn()
+      .mockResolvedValueOnce(initialPreflight)
+      .mockResolvedValueOnce(initialPreflight)
+      .mockResolvedValueOnce(candidatePreflight)
+      .mockResolvedValueOnce(clearPreflight)
+      .mockResolvedValueOnce(clearPreflight)
+    const sync = vi.fn().mockResolvedValue({ ok: true })
+    const adopt = vi.fn().mockResolvedValue({})
+    const command = vi.fn().mockResolvedValue(preview)
+    const refresh = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      getOldFavoriteWorkspaceBilibiliExecutionPreflightV1: preflight,
+      adoptFavoriteRepositoryLedgerBinding: adopt,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      ledgers={[
+        { id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10, isDefault: false, bilibiliFolderId: 'game-1', bindingState: 'bound' },
+        { id: 'honker233', displayName: 'bilimi·honker233', keywords: [], enabled: true, priority: 20, isDefault: false, bindingState: 'unbacked' }
+      ]}
+      onEnsureLedgers={vi.fn()} onSyncLedgers={sync} onSaveLedgers={vi.fn()} onRefreshOrganizationState={refresh} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+    fireEvent.click(within(await screen.findByRole('dialog', { name: '同步前备册确认' })).getByRole('button', { name: '确认备册并继续' }))
+
+    await waitFor(() => expect(adopt).toHaveBeenCalledWith('100', {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 2,
+      remoteFolderId: 'game-2', remoteTitle: 'bilimi·游戏专区·2'
+    }))
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith({ reconcileFavoriteBindingProjection: true }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' }))
+    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(command.mock.invocationCallOrder[0])
+  })
+
   it('replaces an opened backup preflight with the latest target projection before any backup begins', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
