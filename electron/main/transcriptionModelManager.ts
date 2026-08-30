@@ -33,6 +33,8 @@ export type TranscriptionRuntimePaths = {
 }
 type Dependencies = {
   root?: string
+  /** Read-only model root shipped in the packaged resources. */
+  bundledRoot?: string
   download?: (input: DownloadInput) => Promise<string>
   verify?: (path: string, sha256: string) => Promise<boolean>
   activate?: (partialDirectory: string, finalDirectory: string) => Promise<void>
@@ -193,6 +195,7 @@ async function prepareSenseVoiceInstall({ partialDirectory, outputDirectory }: {
 
 export function createTranscriptionModelManager(deps: Dependencies = {}) {
   const root = deps.root ?? join(process.env.LOCALAPPDATA ?? process.cwd(), 'bilimi', 'transcription-models')
+  const bundledRoot = deps.bundledRoot ? resolve(deps.bundledRoot) : null
   const download = deps.download ?? fetchToPartial
   const verify = deps.verify ?? sha256Matches
   const activate = deps.activate ?? (async (partialDirectory, finalDirectory) => {
@@ -330,21 +333,23 @@ export function createTranscriptionModelManager(deps: Dependencies = {}) {
     }
     await remove(partsDirectory)
   }
-  const resolveSenseVoicePaths = () => {
-    const modelDirectory = join(root, 'sensevoice-small', 'model')
-    const helperPath = join(root, 'sensevoice-small', 'runtime', 'bin', 'sherpa-onnx-offline.exe')
+  const resolveSenseVoicePathsAt = (base: string) => {
+    const modelDirectory = join(base, 'sensevoice-small', 'model')
+    const helperPath = join(base, 'sensevoice-small', 'runtime', 'bin', 'sherpa-onnx-offline.exe')
     return exists(helperPath) && exists(join(modelDirectory, 'model.int8.onnx')) && exists(join(modelDirectory, 'tokens.txt'))
       ? { helperPath: helperPath.replace(/\\/gu, '/'), modelDirectory: modelDirectory.replace(/\\/gu, '/') }
       : null
   }
+  const bundledSenseVoicePaths = () => bundledRoot ? resolveSenseVoicePathsAt(bundledRoot) : null
+  const resolveSenseVoicePaths = () => resolveSenseVoicePathsAt(root) ?? bundledSenseVoicePaths()
   const isAvailable = (id: TranscriptionModelId) => {
-    if (id === 'sensevoice-small') return resolveSenseVoicePaths() !== null && isRuntimeValidated(id)
+    if (id === 'sensevoice-small') return resolveSenseVoicePaths() !== null && (bundledSenseVoicePaths() !== null || isRuntimeValidated(id))
     if (id === 'whisper-small') return resolveWhisperSmallPath() !== null
     return resolveFasterWhisperPaths(id) !== null && isRuntimeValidated(id)
   }
   const managedModelDirectory = (id: TranscriptionModelId) => join(root, id)
   const isManagedInstallation = (id: TranscriptionModelId) => {
-    if (id === 'sensevoice-small') return resolveSenseVoicePaths() !== null
+    if (id === 'sensevoice-small') return resolveSenseVoicePathsAt(root) !== null
     if (id === 'whisper-small') return exists(join(managedModelDirectory(id), 'ggml-small.bin'))
     return hasFasterWhisperModelFiles(id)
   }

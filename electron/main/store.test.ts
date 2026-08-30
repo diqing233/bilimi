@@ -694,15 +694,15 @@ describe('assistant preference store helpers', () => {
     })
   })
 
-  it('keeps Whisper small as the safe account default until SenseVoice passes its acceptance gate', () => {
+  it('uses SenseVoiceSmall as the default transcription model for a new account', () => {
     const store = createFakeStore()
-    expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({ transcriptionModelId: 'whisper-small' })
+    expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({ transcriptionModelId: 'sensevoice-small' })
 
     saveFavoriteAccountPreferences(store, '100', {
       ...loadFavoriteAccountPreferences(store, '100'),
-      transcriptionModelId: 'whisper-small'
+      transcriptionModelId: 'sensevoice-small'
     })
-    expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({ transcriptionModelId: 'whisper-small' })
+    expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({ transcriptionModelId: 'sensevoice-small' })
   })
 
   it('persists a durable timestamp with every favorite-account preference projection', () => {

@@ -59,7 +59,16 @@
     "extraResources": [
       {
         "from": "tools/win32",
-        "to": "tools/win32"
+        "to": "tools/win32",
+        "filter": [
+          "**/*",
+          "!whisper/models/**",
+          "!transcription-models/**"
+        ]
+      },
+      {
+        "from": "tools/win32/transcription-models/sensevoice-small",
+        "to": "tools/win32/transcription-models/sensevoice-small"
       }
     ],
     "win": {

@@ -207,6 +207,7 @@ import type {
   VideoAudioTranscriptionRequest,
   VideoNote
 } from '../../src/shared/types'
+import { DEFAULT_TRANSCRIPTION_MODEL_ID } from '../../src/shared/transcriptionModels'
 import type {
   AssistantRuntimeRequestInput,
   AssistantRuntimeRequest,
@@ -928,6 +929,12 @@ let videoTranscriptionQueue:
   | ReturnType<typeof createVideoTranscriptionQueue>
   | null = null
 const transcriptionModelManager = createTranscriptionModelManager({
+  bundledRoot: join(
+    app.isPackaged ? process.resourcesPath : process.cwd(),
+    'tools',
+    process.platform,
+    'transcription-models'
+  ),
   legacyWhisperModelPath: () => {
     try {
       return resolveMediaToolPaths().whisperModelPath
@@ -1183,8 +1190,8 @@ function getVideoTranscriptionQueue() {
         }
       },
       modelForRequest: (request) => request.accountMid
-        ? loadFavoriteAccountPreferences(getDesktopStore(), request.accountMid).transcriptionModelId ?? 'whisper-small'
-        : 'whisper-small',
+        ? loadFavoriteAccountPreferences(getDesktopStore(), request.accountMid).transcriptionModelId ?? DEFAULT_TRANSCRIPTION_MODEL_ID
+        : DEFAULT_TRANSCRIPTION_MODEL_ID,
       summarizeNote: async (note, signal, reportProgress) => {
         const preferences = loadAssistantPreferences(getDesktopStore())
         assertDeepSeekRequestEnabled(preferences, 'note-poster')
@@ -1762,8 +1769,8 @@ function registerAssistantPreferenceHandlers() {
       const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
       const preferences = loadAssistantPreferences(getDesktopStore())
       const transcriptionModelId = request.transcriptionModelId ?? (request.accountMid
-        ? loadFavoriteAccountPreferences(getDesktopStore(), request.accountMid).transcriptionModelId ?? 'whisper-small'
-        : 'whisper-small')
+        ? loadFavoriteAccountPreferences(getDesktopStore(), request.accountMid).transcriptionModelId ?? DEFAULT_TRANSCRIPTION_MODEL_ID
+        : DEFAULT_TRANSCRIPTION_MODEL_ID)
 
       try {
         return await transcribeCurrentVideoAudio({

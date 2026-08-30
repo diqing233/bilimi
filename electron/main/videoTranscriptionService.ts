@@ -8,6 +8,7 @@ import type {
   VideoAudioTranscriptionResult,
   TranscriptionModelId
 } from '../../src/shared/types'
+import { DEFAULT_TRANSCRIPTION_MODEL_ID } from '../../src/shared/transcriptionModels'
 import { downloadVideoAudio } from './audioDownload'
 import { segmentAudioForTranscription, type AudioPreparationProfile, type AudioSegment } from './audioSegmenter'
 import { exportBilibiliCookiesToFile, type CookieSessionLike } from './bilibiliCookieExport'
@@ -135,7 +136,7 @@ export async function transcribeCurrentVideoAudio({
           modelPath: tools.whisperModelPath,
           signal
         }))) as SegmentTranscriber
-    const modelId = request.transcriptionModelId ?? 'whisper-small'
+    const modelId = request.transcriptionModelId ?? DEFAULT_TRANSCRIPTION_MODEL_ID
     const transcribeCapturedModelSegment: SegmentTranscriber = resolveTranscriber
       ? resolveTranscriber(modelId)
       : transcribeSegmentForModel

@@ -56,7 +56,7 @@ function artifact(
 
 export const TRANSCRIPTION_MODEL_MANIFEST: Record<TranscriptionModelId, TranscriptionModelManifestEntry> = {
   'sensevoice-small': {
-    id: 'sensevoice-small', bundled: false, version: '2025-09-09', runtimeFamily: 'sensevoice', hardware: 'Windows x64 CPU',
+    id: 'sensevoice-small', bundled: true, version: '2025-09-09', runtimeFamily: 'sensevoice', hardware: 'Windows x64 CPU',
     license: 'FunASR Model Open Source License Agreement v1.1',
     attribution: 'SenseVoice model: QwenAudio/SenseVoice; converted release provided by k2-fsa/sherpa-onnx. Preserve model name and source attribution.',
     installedBytes: 298268065,
@@ -66,7 +66,7 @@ export const TRANSCRIPTION_MODEL_MANIFEST: Record<TranscriptionModelId, Transcri
     ]
   },
   'whisper-small': {
-    id: 'whisper-small', bundled: true, version: '5359861c739e955e79d9a303bcbc70fb988958b1', runtimeFamily: 'whisper.cpp', hardware: 'CPU', license: 'MIT', attribution: 'whisper.cpp small model by ggerganov.', installedBytes: 487601967,
+    id: 'whisper-small', bundled: false, version: '5359861c739e955e79d9a303bcbc70fb988958b1', runtimeFamily: 'whisper.cpp', hardware: 'CPU', license: 'MIT', attribution: 'whisper.cpp small model by ggerganov.', installedBytes: 487601967,
     artifacts: [artifact('whisper-small', 'ggml-small.bin', `${HF}/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.bin`, 487601967, '1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b', 'MIT', 'whisper-small-ggml-small.bin')]
   },
   'faster-whisper-large-v3': {

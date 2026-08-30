@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
 import { normalizeOldFavoriteWorkspaceSegmentSize } from '../../src/shared/oldFavoriteWorkspace'
 import { normalizeAssistantSidebarWidthPx } from '../../src/shared/assistantSidebarWidth'
+import { DEFAULT_TRANSCRIPTION_MODEL_ID } from '../../src/shared/transcriptionModels'
 import {
   DEFAULT_PET_HOVER_SHORTCUTS,
   hasLegacyAssistantHoverShortcut,
@@ -989,13 +990,12 @@ export function loadFavoriteAccountPreferences(
   const enabledOverrideStore = resolveFavoriteLedgerEnabledOverrideStore(store, overrideStore)
   const accounts = normalizeFavoriteAccountPreferenceMap(store.get('favoriteAccountPreferences'))
   const existing = applyFavoriteLedgerEnabledOverrides(accounts, enabledOverrideStore)[account]
-  if (existing) return { ...existing, transcriptionModelId: existing.transcriptionModelId ?? 'whisper-small' }
+  if (existing) return { ...existing, transcriptionModelId: existing.transcriptionModelId ?? DEFAULT_TRANSCRIPTION_MODEL_ID }
 
   const initialized: FavoriteAccountPreferences = {
     defaultFavoriteSystemEnabled: true,
     favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
-    // SenseVoice becomes the default only after the documented quality gate passes.
-    transcriptionModelId: 'whisper-small',
+    transcriptionModelId: DEFAULT_TRANSCRIPTION_MODEL_ID,
     updatedAt: new Date().toISOString()
   }
   store.set({ favoriteAccountPreferences: { ...accounts, [account]: initialized } })

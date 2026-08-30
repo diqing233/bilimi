@@ -42,7 +42,10 @@ export function createMediaToolPaths(input: MediaToolPathInput): MediaToolPaths 
   const whisperCliPath = normalizePath(join(toolRoot, 'whisper', whisperCliName(input.platform)))
   const whisperModelPath = normalizePath(join(toolRoot, 'whisper', 'models', 'ggml-small.bin'))
 
-  const requiredPaths = [ytdlpPath, ffmpegPath, ffprobePath, whisperCliPath, whisperModelPath]
+  // Whisper small is an optional downloadable model; only the executable
+  // runtime is required to start the application. SenseVoiceSmall is the
+  // packaged default and is resolved by the transcription model manager.
+  const requiredPaths = [ytdlpPath, ffmpegPath, ffprobePath, whisperCliPath]
   const missingPaths = requiredPaths.filter((path) => !input.exists(path))
   if (missingPaths.length > 0) {
     const setupHint = input.isPackaged

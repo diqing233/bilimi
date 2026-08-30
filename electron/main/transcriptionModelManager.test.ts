@@ -220,15 +220,21 @@ describe('transcription model manager', () => {
     ]))
   })
 
-  it('reports SenseVoiceSmall as an optional downloadable model until its verified runtime is installed', () => {
+  it('reports a bundled SenseVoiceSmall runtime as available and non-removable', () => {
     const manager = createTranscriptionModelManager({
       root: 'C:/bilimi-test/transcription-models',
-      exists: () => false
+      bundledRoot: 'C:/bilimi-test/bundled-models',
+      exists: (path) => [
+        'C:/bilimi-test/bundled-models/sensevoice-small/runtime/bin/sherpa-onnx-offline.exe',
+        'C:/bilimi-test/bundled-models/sensevoice-small/model/model.int8.onnx',
+        'C:/bilimi-test/bundled-models/sensevoice-small/model/tokens.txt'
+      ].includes(path.replace(/\\/gu, '/'))
     })
 
     expect(manager.list()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'sensevoice-small', bundled: false, installed: false, available: false })
+      expect.objectContaining({ id: 'sensevoice-small', bundled: true, installed: true, available: true })
     ]))
+    expect(manager.list().find((model) => model.id === 'sensevoice-small')).not.toHaveProperty('removable')
   })
 
   it('reports CPU-only until the controlled faster-whisper CUDA self-test succeeds', async () => {

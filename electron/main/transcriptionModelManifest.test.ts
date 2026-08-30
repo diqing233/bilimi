@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { TRANSCRIPTION_MODEL_MANIFEST } from './transcriptionModelManifest'
 
 describe('transcription model manifest', () => {
-  it('marks the built-in whisper.cpp small model as bundled and nonremovable', () => {
-    expect(TRANSCRIPTION_MODEL_MANIFEST['whisper-small'].bundled).toBe(true)
+  it('marks SenseVoiceSmall as bundled and Whisper small as downloadable', () => {
+    expect(TRANSCRIPTION_MODEL_MANIFEST['sensevoice-small'].bundled).toBe(true)
+    expect(TRANSCRIPTION_MODEL_MANIFEST['whisper-small'].bundled).toBe(false)
   })
 
   it('pins all downloadable artifacts to approved official sources and hashes', () => {
-    expect(TRANSCRIPTION_MODEL_MANIFEST['sensevoice-small']).toMatchObject({ bundled: false, license: 'FunASR Model Open Source License Agreement v1.1' })
+    expect(TRANSCRIPTION_MODEL_MANIFEST['sensevoice-small']).toMatchObject({ bundled: true, license: 'FunASR Model Open Source License Agreement v1.1' })
     expect(TRANSCRIPTION_MODEL_MANIFEST['whisper-small'].artifacts[0]).toMatchObject({ sha256: '1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b' })
     expect(TRANSCRIPTION_MODEL_MANIFEST['faster-whisper-large-v3'].artifacts).toContainEqual(expect.objectContaining({ path: 'model.bin', sha256: '69f74147e3334731bc3a76048724833325d2ec74642fb52620eda87352e3d4f1' }))
     expect(TRANSCRIPTION_MODEL_MANIFEST['faster-whisper-large-v3'].artifacts).toContainEqual(expect.objectContaining({ path: 'tokenizer.json', sha256: '6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca' }))

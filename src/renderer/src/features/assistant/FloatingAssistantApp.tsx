@@ -28,6 +28,7 @@ import type {
   VideoNoteArchiveEntry
 } from '@shared/types'
 import type { AssistantPreferencePatchMeta } from '@shared/types'
+import { DEFAULT_TRANSCRIPTION_MODEL_ID } from '@shared/transcriptionModels'
 import { createAssistantPreferenceOriginId } from '@shared/assistantPreferencePatchMeta'
 import { createNotePosterText } from '@shared/videoNoteArchive'
 import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
@@ -3092,7 +3093,7 @@ export function FloatingAssistantApp({
   }, [activeView, refreshLocalDataInfo])
 
   const currentAccountMid = snapshot?.accountMid ?? ''
-  const selectedTranscriptionModelId = preferences.favoriteAccountPreferences?.[currentAccountMid]?.transcriptionModelId ?? 'whisper-small'
+  const selectedTranscriptionModelId = preferences.favoriteAccountPreferences?.[currentAccountMid]?.transcriptionModelId ?? DEFAULT_TRANSCRIPTION_MODEL_ID
   const defaultFavoriteSystemEnabled = currentAccountMid in defaultFavoriteSystemOverrides
     ? defaultFavoriteSystemOverrides[currentAccountMid]
     : preferences.favoriteAccountPreferences?.[currentAccountMid]?.defaultFavoriteSystemEnabled ?? true

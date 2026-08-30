@@ -8,6 +8,7 @@
   VideoNote,
   TranscriptionModelId
 } from '../../src/shared/types'
+import { DEFAULT_TRANSCRIPTION_MODEL_ID } from '../../src/shared/transcriptionModels'
 import { createLocalVideoNoteDraft } from '../../src/shared/videoNoteDraft'
 
 type QueueDeps = {
@@ -186,7 +187,7 @@ export function createVideoTranscriptionQueue({
   loadArchiveVersion,
   saveArchiveSummary,
   isAccountStillCurrent = () => true,
-  modelForRequest = () => 'whisper-small',
+  modelForRequest = () => DEFAULT_TRANSCRIPTION_MODEL_ID,
   now = () => new Date().toISOString(),
   onSnapshot
 }: QueueDeps): VideoTranscriptionQueue {

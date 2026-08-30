@@ -1,6 +1,8 @@
 # Transcription Model Evaluation
 
-SenseVoiceSmall is not the default until this evaluation is completed with recorded evidence.
+SenseVoiceSmall is the bundled/new-account default for the Windows release. This evaluation remains the regression
+gate for future model updates and release changes; it must not silently omit speech or regress protected numbers and
+model names.
 
 ## Required samples
 
@@ -14,5 +16,6 @@ SenseVoiceSmall is not the default until this evaluation is completed with recor
 
 ## Decision gate
 
-- Mark SenseVoiceSmall as the bundled/new-account default only after the above evidence is reviewed and accepted.
-- Until then Whisper small stays the default; SenseVoiceSmall remains a verified candidate. No speaker diarization is in scope.
+- Keep SenseVoiceSmall as the bundled/new-account default while the above evidence remains within the accepted
+  regression envelope. If a future evaluation fails that envelope, record the evidence and make an explicit product
+  decision before changing the default. No speaker diarization is in scope.

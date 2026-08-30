@@ -43,9 +43,14 @@ describe('Windows installer packaging config', () => {
     expect(packageJson.build.files).toContain('out/**')
     expect(packageJson.build.files).toContain('build/icon.ico')
     expect(packageJson.build.win.icon).toBe('build/icon.ico')
-    expect(packageJson.build.extraResources).toContainEqual({
+    expect(packageJson.build.extraResources).toContainEqual(expect.objectContaining({
       from: 'tools/win32',
-      to: 'tools/win32'
+      to: 'tools/win32',
+      filter: expect.arrayContaining(['!whisper/models/**', '!transcription-models/**'])
+    }))
+    expect(packageJson.build.extraResources).toContainEqual({
+      from: 'tools/win32/transcription-models/sensevoice-small',
+      to: 'tools/win32/transcription-models/sensevoice-small'
     })
   })
 })
