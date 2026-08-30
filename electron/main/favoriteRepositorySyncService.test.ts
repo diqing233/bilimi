@@ -632,6 +632,39 @@ describe('FavoriteRepositorySyncService', () => {
     expect(deleteFolder).toHaveBeenCalledTimes(2)
   })
 
+  it('confirms an ambiguous remote deletion when the exact folder is absent on reconciliation', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-08-09T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·Music', bindingState: 'bound', remoteFolderId: 'remote-music'
+      }
+    })
+    const deleteFolder = vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'unknown', reason: 'remote-ambiguous' })
+    const readFolderInventory = vi.fn()
+      .mockResolvedValueOnce({ observedAccountMid: '100', folders: [{ id: 'remote-music', title: 'bilimi·Music', memberCount: 0 }] })
+      .mockResolvedValueOnce({ observedAccountMid: '100', folders: [] })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory
+      }
+    })
+
+    await expect(service.deleteManagedRemoteFolders('100', ['music'], false, { music: 'bilimi·Music' }, {
+      music: ['remote-music']
+    })).resolves.toMatchObject({
+      status: 'succeeded',
+      succeededRemoteFolderIds: ['remote-music'],
+      failedRemoteFolderIds: [],
+      unknownRemoteFolderIds: []
+    })
+    expect(readFolderInventory).toHaveBeenCalledTimes(2)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ physicalShards: [] })
+  })
+
   it('keeps local working folders but removes the confirmed binding when a later remote deletion is unknown', async () => {
     const repository = await createRepository()
     for (const [suffix, logicalLedgerId, aid] of [['a', 'disabled', 1], ['b', 'disabled-b', 2]] as const) {

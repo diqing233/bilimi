@@ -1145,6 +1145,22 @@ export class FavoriteRepositorySyncService {
         const outcome = error instanceof Error && 'remoteWriteRejected' in error
           ? 'failed'
           : 'result-unknown'
+        if (outcome === 'result-unknown') {
+          try {
+            const reconciliation = await bridge.readFolderInventory({
+              accountMid: account,
+              operationKey: `${runId}:reconcile:${candidate.remoteFolderId}`
+            })
+            this.assertObservedAccount(account, reconciliation.observedAccountMid)
+            if (!reconciliation.folders.some((folder) => folder.id === candidate.remoteFolderId)) {
+              deletedRemoteFolderIds.add(candidate.remoteFolderId)
+              confirmedRemoteFolderIds.add(candidate.remoteFolderId)
+              continue
+            }
+          } catch {
+            // Keep the result unknown when the post-write directory check is unavailable.
+          }
+        }
         const failedRemoteFolderIds = outcome === 'failed' ? [candidate.remoteFolderId] : []
         const unknownRemoteFolderIds = outcome === 'result-unknown' ? [candidate.remoteFolderId] : []
         const attemptedRemoteFolderIds = new Set([...confirmedRemoteFolderIds, ...failedRemoteFolderIds, ...unknownRemoteFolderIds])

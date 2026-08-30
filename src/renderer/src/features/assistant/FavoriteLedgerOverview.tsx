@@ -1268,8 +1268,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     ]))
     setDeletionExecuting(true)
     setDeletionError(null)
+    let remoteDeletionResult: unknown
     try {
-      let remoteDeletionResult: unknown
       if (deletionScope === 'bilibili' && remotePlanLedgerIds.size) {
         const historicalBindingTargetIds = Object.keys(deletionPlan.historicalBindingTargets)
         remoteDeletionResult = historicalBindingTargetIds.length
@@ -1331,7 +1331,15 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         : []
       await finalizeManagedDeletionPlan({ ...deletionPlan, confirmedRemoteFolderIds }, accountMid)
     } catch {
-      setDeletionError('删除未成功，请稍后重试。')
+      const confirmedRemoteFolderIds = confirmedRemoteFolderIdsFromDeletionResult(remoteDeletionResult)
+      const unknownRemoteFolderIds = isManagedRemoteDeletionResult(remoteDeletionResult)
+        ? remoteDeletionResult.unknownRemoteFolderIds
+        : []
+      setDeletionError(unknownRemoteFolderIds.length
+        ? '删除结果待核对：B 站未返回可靠回执，请重新打开删除确认核对后再试。'
+        : confirmedRemoteFolderIds.length
+          ? 'B 站已删除，本地状态待保存，请刷新或重试。'
+          : '删除未成功，请稍后重试。')
     } finally {
       setDeletionExecuting(false)
     }
