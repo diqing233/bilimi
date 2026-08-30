@@ -1033,6 +1033,47 @@ describe('account favorite repository contracts', () => {
     expect(result.memberships['local:music']).toEqual([1, 2])
   })
 
+  it('migrates a stable local ledger projection without touching Bilibili folders', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-30T00:00:00.000Z' }),
+      folders: [
+        { id: 'local:music', title: 'bilimi·音乐', kind: 'local' as const, syncState: 'local-only' as const },
+        { id: 'bilibili:music', title: 'bilimi·音乐', kind: 'bilibili' as const, remoteFolderId: 'remote-music', syncState: 'bound' as const }
+      ],
+      memberships: { 'local:music': [1, 2], 'bilibili:music': [1, 2] },
+      positions: {
+        '100:1': {
+          accountMid: '100', aid: 1, localDesiredFolderIds: ['local:music'], remoteObservedPhysicalFolderIds: ['remote-music'],
+          remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-30T00:00:00.000Z', revision: 0
+        }
+      },
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['local:music'], completedAt: '2026-08-30T00:00:00.000Z' }]
+    }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'migrate-local-ledger', accountMid: '100', issuedAt: '2026-08-30T00:01:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilimi-logical:music': [3] },
+        folders: [{
+          id: 'bilimi-logical:music', title: 'bilimi·音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'local-only'
+        }]
+      }
+    }, '2026-08-30T00:01:00.000Z')
+
+    expect(result.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:music', kind: 'bilimi-logical', logicalLedgerId: 'music' }),
+      expect.objectContaining({ id: 'bilibili:music', kind: 'bilibili', remoteFolderId: 'remote-music' })
+    ]))
+    expect(result.folders.find((folder) => folder.id === 'local:music')).toBeUndefined()
+    expect(result.memberships['bilimi-logical:music']).toEqual([1, 2, 3])
+    expect(result.memberships['local:music']).toBeUndefined()
+    expect(result.memberships['bilibili:music']).toEqual([1, 2])
+    expect(result.positions['100:1']?.localDesiredFolderIds).toEqual(['bilimi-logical:music'])
+    expect(result.organizationRecords).toEqual([
+      expect.objectContaining({ aid: 1, targetFolderIds: ['bilimi-logical:music'] })
+    ])
+  })
+
   it('removes formally classified or protected videos from the local inbox without removing unmatched videos', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-23T00:00:00.000Z' }),

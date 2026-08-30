@@ -3,7 +3,7 @@ export type FavoriteRepositoryLocalPlanPayload = {
   memberAidsByFolderId: Record<string, number[]>
   /** Replaces prior local and bilimi-logical organization for these videos before applying this plan. */
   replaceManagedAids?: number[]
-  folders?: Array<Pick<FavoriteRepositoryFolder, 'id' | 'title' | 'kind' | 'syncState'>>
+  folders?: Array<Pick<FavoriteRepositoryFolder, 'id' | 'title' | 'kind' | 'logicalLedgerId' | 'syncState'>>
   videos?: FavoriteRepositoryVideo[]
   organizationRecords?: FavoriteRepositoryOrganizationRecord[]
   placements?: Array<Omit<FavoriteRepositoryPositionRecord, 'accountMid' | 'positionState' | 'revision'> & {
@@ -1385,8 +1385,11 @@ function isLastAdjustment(value: unknown): value is FavoriteRepositoryLastAdjust
 function isLocalPlanFolder(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const folder = value as Record<string, unknown>
-  return typeof folder.id === 'string' && !!folder.id.trim() && typeof folder.title === 'string' && !!folder.title.trim() &&
-    folder.kind === 'local' && folder.syncState === 'local-only'
+  if (typeof folder.id !== 'string' || !folder.id.trim() || typeof folder.title !== 'string' || !folder.title.trim() ||
+    folder.syncState !== 'local-only') return false
+  if (folder.kind === 'local') return folder.id.trim().startsWith('local:') && folder.logicalLedgerId === undefined
+  return folder.kind === 'bilimi-logical' && typeof folder.logicalLedgerId === 'string' && !!folder.logicalLedgerId.trim() &&
+    folder.id.trim() === `bilimi-logical:${folder.logicalLedgerId.trim()}`
 }
 
 function isBilibiliMirrorFolder(value: unknown) {
@@ -1870,6 +1873,34 @@ export function applyFavoriteRepositoryCommand(
       const membersByFolderId = normalizeFolderMembers(command.payload.memberAidsByFolderId)
       affectedFolderIds = [...membersByFolderId.keys()].sort()
       affectedAids = uniquePositiveAids([...membersByFolderId.values()].flat()).sort((left, right) => left - right)
+      const requestedFolders = command.payload.folders ?? []
+      for (const folder of requestedFolders.filter((candidate) => candidate.kind === 'bilimi-logical')) {
+        const logicalLedgerId = folder.logicalLedgerId!.trim()
+        const logicalFolderId = `bilimi-logical:${logicalLedgerId}`
+        const legacyFolderId = `local:${logicalLedgerId}`
+        const legacyMembers = memberships[legacyFolderId] ?? []
+        const hasLegacyProjection = folders.some((candidate) => candidate.id === legacyFolderId && candidate.kind === 'local') ||
+          legacyMembers.length > 0 || Object.values(positions).some((position) => position.localDesiredFolderIds.includes(legacyFolderId)) ||
+          organizationRecords.some((record) => record.targetFolderIds.includes(legacyFolderId))
+        if (!hasLegacyProjection) continue
+
+        membersByFolderId.set(logicalFolderId, uniquePositiveAids([
+          ...(membersByFolderId.get(logicalFolderId) ?? []), ...legacyMembers
+        ]))
+        const { [legacyFolderId]: _removedLegacyMembership, ...remainingMemberships } = memberships
+        memberships = remainingMemberships
+        folders = folders.filter((candidate) => candidate.id !== legacyFolderId || candidate.kind !== 'local')
+        positions = Object.fromEntries(Object.entries(positions).map(([key, position]) => [key, {
+          ...position,
+          localDesiredFolderIds: position.localDesiredFolderIds.map((folderId) => folderId === legacyFolderId ? logicalFolderId : folderId)
+        }]))
+        organizationRecords = organizationRecords.map((record) => ({
+          ...record,
+          targetFolderIds: record.targetFolderIds.map((folderId) => folderId === legacyFolderId ? logicalFolderId : folderId)
+        }))
+        affectedFolderIds.push(legacyFolderId, logicalFolderId)
+        affectedAids.push(...legacyMembers)
+      }
       const replaceManagedAids = new Set(command.payload.replaceManagedAids ?? [])
       if (replaceManagedAids.size) {
         const managedFolderIds = Object.keys(memberships).filter((folderId) =>
@@ -1945,14 +1976,17 @@ export function applyFavoriteRepositoryCommand(
           .filter(([folderId]) => folderId !== 'local:inbox')
           .flatMap(([, aids]) => aids)
       ])
-      const requestedFolders = command.payload.folders ?? []
       for (const folder of requestedFolders) {
         const id = folder.id.trim()
         const existing = folders.find((candidate) => candidate.id === id)
-        if (existing && (existing.kind !== 'local' || existing.title !== folder.title.trim())) {
+        if (existing && (existing.kind !== folder.kind || existing.title !== folder.title.trim() ||
+          existing.logicalLedgerId !== folder.logicalLedgerId)) {
           throw new Error('Favorite repository local folder is immutable.')
         }
-        if (!existing) folders = [...folders, { id, title: folder.title.trim(), kind: 'local', syncState: 'local-only' }]
+        if (!existing) folders = [...folders, {
+          id, title: folder.title.trim(), kind: folder.kind, syncState: 'local-only',
+          ...(folder.logicalLedgerId ? { logicalLedgerId: folder.logicalLedgerId.trim() } : {})
+        }]
       }
       if (command.payload.workspace) {
         const localWorkspace = command.payload.workspace

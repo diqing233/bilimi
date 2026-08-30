@@ -4606,14 +4606,9 @@ export class OldFavoriteWorkspaceCoordinator {
         .sort((left, right) => left - right)
       if (!selectedAids.length) throw new Error('Old favorite workspace selected plan is empty.')
       const assignmentsByAid = new Map(selectedAssignments.map((assignment) => [assignment.aid, assignment]))
-      const existingLogicalFolderIds = new Set(repository.folders
-        .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
-        .map((folder) => folder.logicalLedgerId!))
       const localFolderIdForLedger = (logicalLedgerId: string) => logicalLedgerId === 'inbox'
         ? 'local:inbox'
-        : existingLogicalFolderIds.has(logicalLedgerId)
-          ? `bilimi-logical:${logicalLedgerId}`
-          : `local:${logicalLedgerId}`
+        : `bilimi-logical:${logicalLedgerId}`
       const memberAidsByFolderId: Record<string, number[]> = {}
       for (const aid of selectedAids) {
         const targets = assignmentsByAid.get(aid)?.targetLedgerIds ?? ['inbox']
@@ -4631,7 +4626,7 @@ export class OldFavoriteWorkspaceCoordinator {
         .map((folder) => [folder.id, folder.title]))
       const localFolderTitles = new Map(await Promise.all(Object.keys(memberAidsByFolderId).map(async (folderId) => {
         if (folderId === 'local:inbox') return [folderId, 'bilimi·暂存'] as const
-        const logicalLedgerId = folderId.slice('local:'.length)
+        const logicalLedgerId = folderId.slice('bilimi-logical:'.length)
         const recommendationTitle = recommendationTitles.get(logicalLedgerId)
         if (recommendationTitle) return [folderId, recommendationTitle] as const
         const existingTitle = existingLocalTitles.get(folderId)
@@ -4664,12 +4659,15 @@ export class OldFavoriteWorkspaceCoordinator {
               updatedAt: this.now()
             }]
           }),
-          folders: Object.keys(memberAidsByFolderId).filter((folderId) => folderId.startsWith('local:')).map((folderId) => ({
-            id: folderId,
-            title: localFolderTitles.get(folderId)!,
-            kind: 'local' as const,
-            syncState: 'local-only' as const
-          })),
+          folders: Object.keys(memberAidsByFolderId).map((folderId) => folderId === 'local:inbox'
+            ? { id: folderId, title: localFolderTitles.get(folderId)!, kind: 'local' as const, syncState: 'local-only' as const }
+            : {
+                id: folderId,
+                title: localFolderTitles.get(folderId)!,
+                kind: 'bilimi-logical' as const,
+                logicalLedgerId: folderId.slice('bilimi-logical:'.length),
+                syncState: 'local-only' as const
+              }),
           organizationRecords: selectedAssignments.filter((assignment) => assignment.targetLedgerIds.some((id) => id !== 'inbox')).map((assignment) => ({
             accountMid: workspace.accountMid,
             aid: assignment.aid,
@@ -5946,12 +5944,9 @@ export class OldFavoriteWorkspaceCoordinator {
       // frozen as an empty no-op for the confirmation flow.
       if (!selectedItems.length) return
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
-      const existingLogicalFolderIds = new Set(repository.folders
-        .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
-        .map((folder) => folder.logicalLedgerId!))
-      const localFolderIdForLedger = (logicalLedgerId: string) => existingLogicalFolderIds.has(logicalLedgerId)
-        ? `bilimi-logical:${logicalLedgerId}`
-        : `local:${logicalLedgerId}`
+      const localFolderIdForLedger = (logicalLedgerId: string) => logicalLedgerId === 'inbox'
+        ? 'local:inbox'
+        : `bilimi-logical:${logicalLedgerId}`
       const organizationRecordAids = new Set(repository.organizationRecords.map((record) => record.aid))
       let localResultAlreadyComplete = true
       for (let index = 0; index < selectedItems.length; index += 1) {
@@ -6023,14 +6018,15 @@ export class OldFavoriteWorkspaceCoordinator {
       const recommendationTitles = new Map((await this.ensureRecommendations(workspace)).candidates
         .map((candidate) => [candidate.id, recommendationLogicalTitle(candidate)] as const))
       const defaultTitles = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
-      const folders = await Promise.all(Object.keys(memberAidsByFolderId).filter((folderId) => folderId.startsWith('local:')).map(async (folderId) => {
+      const folders = await Promise.all(Object.keys(memberAidsByFolderId).map(async (folderId) => {
         if (folderId === 'local:inbox') return { id: folderId, title: 'bilimi·暂存', kind: 'local' as const, syncState: 'local-only' as const }
-        const ledgerId = folderId.slice('local:'.length)
+        const ledgerId = folderId.slice('bilimi-logical:'.length)
         return {
           id: folderId,
           title: repository.folders.find((folder) => folder.id === folderId)?.title ?? recommendationTitles.get(ledgerId) ??
             await this.options.resolveLedgerTitle?.(workspace.accountMid, ledgerId) ?? defaultTitles.get(ledgerId) ?? ledgerId,
-          kind: 'local' as const,
+          kind: 'bilimi-logical' as const,
+          logicalLedgerId: ledgerId,
           syncState: 'local-only' as const
         }
       }))

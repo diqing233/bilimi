@@ -1577,7 +1577,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(restored).toMatchObject({ status: 'previewing', segments: [{ readiness: 'saved' }, { readiness: 'saved' }] })
     expect(restored.executionIntent).toBeUndefined()
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'local:knowledge': Array.from({ length: 501 }, (_unused, index) => index + 1) },
+      memberships: { 'bilimi-logical:knowledge': Array.from({ length: 501 }, (_unused, index) => index + 1) },
       workspace: { status: 'previewing' }
     })
   })
@@ -1617,7 +1617,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(saved).toMatchObject({ status: 'previewing', segments: [{ readiness: 'saved' }, { readiness: 'saved' }] })
     expect(saved.executionIntent).toBeUndefined()
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'local:knowledge': Array.from({ length: 501 }, (_unused, index) => index + 1) },
+      memberships: { 'bilimi-logical:knowledge': Array.from({ length: 501 }, (_unused, index) => index + 1) },
       workspace: { status: 'previewing' }
     })
   })
@@ -2321,7 +2321,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.saveWholeRunToLocalLibrary('100')).resolves.toBeDefined()
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       memberships: {
-        'local:knowledge': [1],
+        'bilimi-logical:knowledge': [1],
         'local:inbox': expect.arrayContaining([501])
       }
     })
@@ -7403,7 +7403,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.saveCurrentSegmentToLocalLibrary('100')
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       folders: expect.arrayContaining([
-        expect.objectContaining({ id: 'local:local-topic', title: 'Renamed Topic', kind: 'local', syncState: 'local-only' })
+        expect.objectContaining({ id: 'bilimi-logical:local-topic', title: 'Renamed Topic', kind: 'bilimi-logical', logicalLedgerId: 'local-topic', syncState: 'local-only' })
       ])
     })
   })
@@ -8087,11 +8087,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.saveCurrentSegmentToLocalLibrary('100')
 
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'local:music': [1] },
+      memberships: { 'bilimi-logical:music': [1] },
       organizationRecords: [expect.objectContaining({ aid: 1 })]
     })
     const snapshot = await repository.getSnapshot('100')
-    expect(snapshot.memberships['local:knowledge']).toBeUndefined()
+    expect(snapshot.memberships['bilimi-logical:knowledge']).toBeUndefined()
   })
 
   it('freezes only selected-source classifications for Bilibili execution', async () => {
@@ -8270,10 +8270,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).resolves.toMatchObject({ status: 'previewing' })
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       folders: expect.arrayContaining([
-        expect.objectContaining({ id: 'local:music', kind: 'local', syncState: 'local-only' }),
-        expect.objectContaining({ id: 'local:knowledge', kind: 'local', syncState: 'local-only' })
+        expect.objectContaining({ id: 'bilimi-logical:music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'local-only' }),
+        expect.objectContaining({ id: 'bilimi-logical:knowledge', kind: 'bilimi-logical', logicalLedgerId: 'knowledge', syncState: 'local-only' })
       ]),
-      memberships: { 'local:music': [1], 'local:knowledge': [2] },
+      memberships: { 'bilimi-logical:music': [1], 'bilimi-logical:knowledge': [2] },
       workspace: { status: 'previewing' }
     })
   })
@@ -8343,10 +8343,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       ]
     })
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'local:music': [1] },
+      memberships: { 'bilimi-logical:music': [1] },
       workspace: { status: 'previewing' }
     })
-    expect((await repository.getSnapshot('100')).memberships).not.toHaveProperty('local:knowledge')
+    expect((await repository.getSnapshot('100')).memberships).not.toHaveProperty('bilimi-logical:knowledge')
 
     const restored = createCoordinator(repository, store, { segmentSize: () => 500, initializeOnOpen: false })
     await expect(restored.getSnapshot('100')).resolves.toMatchObject({
@@ -8363,7 +8363,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       segments: [{ id: 'segment-1', status: 'previewing' }]
     })
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'local:music': [1] }
+      memberships: { 'bilimi-logical:music': [1] }
     })
     await restored.saveCurrentSegmentToLocalLibrary('100')
     await restored.selectSegment('100', 'segment-2')
@@ -8376,7 +8376,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       ]
     })
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'local:knowledge': [1, 501] },
+      memberships: { 'bilimi-logical:knowledge': [1, 501] },
       workspace: { status: 'previewing' }
     })
   })
@@ -8567,7 +8567,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       folders: [expect.objectContaining({
-        id: 'local:custom-my-list', title: 'bilimi·我的片单', kind: 'local'
+        id: 'bilimi-logical:custom-my-list', title: 'bilimi·我的片单', kind: 'bilimi-logical',
+        logicalLedgerId: 'custom-my-list', syncState: 'local-only'
       })]
     })
   })
@@ -8591,7 +8592,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.saveCurrentSegmentToLocalLibrary('100')
 
-    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ memberships: { 'local:music': [1, 9] } })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ memberships: { 'bilimi-logical:music': [1, 9] } })
   })
 
   it('makes locally saved scan items visible through their local library folder', async () => {
@@ -8612,7 +8613,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.saveCurrentSegmentToLocalLibrary('100')
 
-    await expect(repository.getFolderPage('100', 'local:music', { limit: 10 })).resolves.toMatchObject({
+    await expect(repository.getFolderPage('100', 'bilimi-logical:music', { limit: 10 })).resolves.toMatchObject({
       items: [expect.objectContaining({ aid: 1, title: 'Saved locally', author: 'UP' })]
     })
   })
@@ -8658,13 +8659,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(commit.mock.calls[0]?.[1]).toMatchObject({
       type: 'commit-local-plan',
       payload: {
-        organizationRecords: [{ aid: 1, targetFolderIds: ['local:music'] }]
+        organizationRecords: [{ aid: 1, targetFolderIds: ['bilimi-logical:music'] }]
       }
     })
     expect(commit.mock.calls[1]?.[1]).toMatchObject({ type: 'set-workspace', payload: { status: 'previewing' } })
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       workspace: { status: 'previewing' },
-      organizationRecords: [expect.objectContaining({ aid: 1, targetFolderIds: ['local:music'] })]
+      organizationRecords: [expect.objectContaining({ aid: 1, targetFolderIds: ['bilimi-logical:music'] })]
     })
   })
 
@@ -8752,7 +8753,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       ]
     })
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'local:music': expect.arrayContaining([1, 2_001]) }, workspace: { status: 'previewing' }
+      memberships: { 'bilimi-logical:music': expect.arrayContaining([1, 2_001]) }, workspace: { status: 'previewing' }
     })
   })
 
@@ -9410,7 +9411,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).resolves.toBeTruthy()
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'local:game': [1] }
+      memberships: { 'bilimi-logical:game': [1] }
     })
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('backup-preflight-required')
 

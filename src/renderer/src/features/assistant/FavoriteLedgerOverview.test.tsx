@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useState } from 'react'
+import { createDefaultFavoriteLedgers } from '../../../../shared/favoriteLedgers'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 
 function deferred<T>() {
@@ -719,6 +720,89 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['custom']))
     expect(screen.getByRole('alert')).toHaveTextContent('B 站已删除，本地状态待保存')
     expect(screen.getByRole('button', { name: '自建' })).toBeInTheDocument()
+  })
+
+  it('reconciles every confirmed remote deletion into the refreshed default projection', async () => {
+    const defaultLedgers = createDefaultFavoriteLedgers().map((ledger) => ({
+      ...ledger,
+      enabled: true,
+      bilibiliFolderId: `remote-${ledger.id}`,
+      bilibiliFolderIds: [`remote-${ledger.id}`],
+      bindingState: 'bound' as const
+    }))
+    const remoteDrafts = ['remote-draft-one', 'remote-draft-two'].map((id, index) => ({
+      id,
+      displayName: `bilimi·远端草稿${index + 1}`,
+      keywords: [],
+      enabled: false,
+      priority: 100 + index,
+      isDefault: false,
+      syncState: 'local-draft' as const,
+      bindingState: 'unbound' as const,
+      bilibiliFolderId: id
+    }))
+    const candidates = [
+      ...defaultLedgers.map((ledger) => ({
+        logicalLedgerId: ledger.id,
+        remoteFolderId: ledger.bilibiliFolderId!,
+        title: ledger.displayName,
+        memberCount: 0,
+        state: 'bound' as const,
+        requiresUnboundAcknowledgement: false
+      })),
+      ...remoteDrafts.map((ledger) => ({
+        logicalLedgerId: ledger.id,
+        remoteFolderId: ledger.bilibiliFolderId!,
+        title: ledger.displayName,
+        memberCount: 0,
+        state: 'unbound-name-match' as const,
+        requiresUnboundAcknowledgement: true
+      }))
+    ]
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
+      status: 'succeeded',
+      succeededRemoteFolderIds: candidates.map((candidate) => candidate.remoteFolderId),
+      failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+    })
+    const deleteFavoriteLedgerDraft = vi.fn().mockResolvedValue(undefined)
+    const save = vi.fn()
+      .mockRejectedValueOnce(new Error('transient local preference failure'))
+      .mockResolvedValue({ ok: true })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue(candidates),
+        deleteManagedRemoteFolders,
+        deleteFavoriteLedgerDraft
+      }
+    })
+    render(<FavoriteLedgerOverview
+      ledgers={[...defaultLedgers, ...remoteDrafts]}
+      remoteOnlyDraftLedgerIds={remoteDrafts.map((ledger) => ledger.id)}
+      missingLedgerIds={[]}
+      onSaveLedgers={save}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '全选' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /已检测到未绑定的 bilimi 收藏夹/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+    expect(deleteManagedRemoteFolders).toHaveBeenCalledTimes(1)
+    expect(deleteFavoriteLedgerDraft).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '远端草稿1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '远端草稿2' })).not.toBeInTheDocument()
+    expect(screen.getAllByTestId(/favorite-ledger-chip-/)).toHaveLength(8)
+    for (const ledger of defaultLedgers) {
+      expect(screen.getByTestId(`favorite-ledger-chip-${ledger.id}`)).toHaveTextContent('未备册')
+    }
   })
 
   it('does not label an unresolved remote deletion as a confirmed local failure', async () => {

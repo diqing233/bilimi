@@ -1218,7 +1218,14 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       ? restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger)
       : ledger)
     if (locallyResetDefaultIds.size || remotelyDeletedDefaultIds.size) {
-      await onSaveLedgers(next, { deleteDisabled: false })
+      try {
+        await onSaveLedgers(next, { deleteDisabled: false })
+      } catch {
+        // The remote result is already confirmed. Retry only the idempotent
+        // local snapshot write; never repeat a Bilibili deletion.
+        await Promise.resolve()
+        await onSaveLedgers(next, { deleteDisabled: false })
+      }
     }
     setDraftLedgers(next)
     enableStore.reset(enableEntries(next, false))

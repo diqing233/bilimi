@@ -193,6 +193,9 @@ describe('favoriteLibraryModel', () => {
       id: 'bilimi-logical:custom-abc', title: 'bilimi·原神', kind: 'bilimi-logical', logicalLedgerId: 'custom-abc', syncState: 'pending-reconcile'
     })).toEqual({ kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' })
     expect(favoriteLibraryLedgerBindingStatus({
+      id: 'bilimi-logical:custom-abc', title: 'bilimi·原神', kind: 'bilimi-logical', logicalLedgerId: 'custom-abc', syncState: 'local-only'
+    })).toEqual({ kind: 'missing', label: '未备册', actionLabel: '去掌库收藏夹设置保存后绑定' })
+    expect(favoriteLibraryLedgerBindingStatus({
       id: 'local:custom-author-honker233', title: 'bilimi·honker233', kind: 'local', logicalLedgerId: 'custom-author-honker233', syncState: 'local-only'
     })).toEqual({ kind: 'draft', label: '已生成草稿', actionLabel: '去掌库收藏夹设置保存后绑定' })
     expect(favoriteLibraryLedgerBindingStatus({

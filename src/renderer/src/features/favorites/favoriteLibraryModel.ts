@@ -137,6 +137,9 @@ export function favoriteLibraryLedgerBindingStatus(
       : undefined
   }
   if (folder.kind !== 'bilimi-logical') return undefined
+  if (folder.syncState === 'local-only') {
+    return { kind: 'missing', label: '未备册', actionLabel: '去掌库收藏夹设置保存后绑定' }
+  }
   if (folder.syncState === 'pending-reconcile' || evidence.hasFormalPhysicalBinding === false) {
     return { kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }
   }
