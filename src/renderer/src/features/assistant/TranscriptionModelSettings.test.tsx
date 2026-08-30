@@ -114,7 +114,7 @@ describe('TranscriptionModelSettings', () => {
     expect(screen.getByRole('option', { name: /faster-whisper large-v3/ })).toHaveTextContent('全语言最高质量；速度较慢；CPU 可用，NVIDIA 显卡可启用 GPU 加速')
   })
 
-  it('marks faster-whisper large-v3-turbo as recommended and keeps the regular large model unmarked', () => {
+  it('puts the turbo recommendation at the start of its supporting description instead of its name', () => {
     render(<TranscriptionModelSettings
       accountMid="100"
       selectedModelId="faster-whisper-large-v3-turbo"
@@ -125,11 +125,15 @@ describe('TranscriptionModelSettings', () => {
       onSelect={vi.fn()}
     />)
 
-    const trigger = screen.getByRole('button', { name: '转写模型：faster-whisper large-v3-turbo（推荐）（当前模型）' })
+    const trigger = screen.getByRole('button', { name: '转写模型：faster-whisper large-v3-turbo（当前模型）' })
     expect(trigger.querySelector('svg.assistant-settings__transcription-model-chevron')).not.toBeNull()
     expect(trigger).not.toHaveTextContent('⌄')
+    expect(trigger).not.toHaveTextContent('推荐')
     fireEvent.click(trigger)
-    expect(screen.getByRole('option', { name: /faster-whisper large-v3-turbo（推荐）（当前模型）/ })).toBeInTheDocument()
+    const turboModel = screen.getByRole('option', { name: /^faster-whisper large-v3-turbo（当前模型）/ })
+    expect(turboModel.querySelector('strong')).toHaveTextContent('faster-whisper large-v3-turbo（当前模型）')
+    expect(turboModel.querySelector('strong')).not.toHaveTextContent('推荐')
+    expect(turboModel).toHaveTextContent('（推荐）全语言高质量；速度较快；CPU 可用，NVIDIA 显卡可启用 GPU 加速')
     const regularLargeModel = screen.getByRole('option', { name: /^faster-whisper large-v3 已安装/ })
     expect(regularLargeModel).toBeInTheDocument()
     expect(regularLargeModel).not.toHaveTextContent('推荐')
@@ -150,7 +154,7 @@ describe('TranscriptionModelSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: /SenseVoiceSmall/ }))
     expect(screen.getByRole('option', { name: /SenseVoiceSmall/ })).toHaveTextContent('中文为主，支持中英日韩粤；速度最快；仅 CPU 转写')
     expect(screen.getByRole('option', { name: /Whisper small/ })).toHaveTextContent('全语言通用；速度中等；仅 CPU 转写')
-    expect(screen.getByRole('option', { name: /faster-whisper large-v3-turbo/ })).toHaveTextContent('全语言高质量；速度较快；CPU 可用，NVIDIA 显卡可启用 GPU 加速')
+    expect(screen.getByRole('option', { name: /faster-whisper large-v3-turbo/ })).toHaveTextContent('（推荐）全语言高质量；速度较快；CPU 可用，NVIDIA 显卡可启用 GPU 加速')
   })
 
   it('only permits selecting installed models for the current account', () => {

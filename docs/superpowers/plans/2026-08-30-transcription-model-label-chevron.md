@@ -54,3 +54,44 @@
 ## R007 更正
 
 R006 原计划误将普通 `faster-whisper large-v3` 设为推荐；按需求账本 R007，推荐对象改为 `faster-whisper large-v3-turbo`。R006 的原始计划文字保留在 Git 历史中，本轮实施以 R007 和项目书为准。
+
+## R008 文案位置更正
+
+R008 保留 turbo 作为推荐模型的结论，但将推荐标识从名称行移到该模型的用途说明首位。顶部触发按钮和菜单选项标题只显示模型名称与既有当前模型后缀；R010 将用途说明前缀由中点分隔更正为`（推荐）全语言高质量；速度较快；CPU 可用，NVIDIA 显卡可启用 GPU 加速`。
+
+### Task 4: 先补名称与说明分离的回归测试
+
+**Files:**
+- Modify: `src/renderer/src/features/assistant/TranscriptionModelSettings.test.tsx`
+
+- [x] **Step 1: 写失败测试**
+  - 断言当前 turbo 触发按钮和 turbo 菜单标题不含“推荐”，但保留`（当前模型）`。
+  - 断言 turbo 菜单选项的说明从`推荐 · `开始；普通 large-v3 的说明不含推荐。
+- [x] **Step 2: 运行定向测试确认失败**
+
+### Task 5: 实现最小文案位置调整
+
+**Files:**
+- Modify: `src/renderer/src/features/assistant/TranscriptionModelSettings.tsx`
+
+- [x] **Step 1: 让 `LABELS` 仅保留模型名称**
+- [x] **Step 2: 仅在 turbo 的 `PURPOSES` 说明前置 `推荐 · `**
+
+### Task 6: 验证并记录
+
+**Files:**
+- Modify: `docs/requirement-ledgers/2026-08-30-transcription-model-label-chevron.md`
+
+- [x] **Step 1: 运行聚焦 Vitest、`npm run build`、`git diff --check`**
+- [x] **Step 2: Electron 开发版只读确认名称与说明位置，不选择、下载、安装、验证或删除模型**
+- [ ] **Step 3: 回填 I001 代码位置、自动化测试和截图证据，并仅提交本轮文件**
+
+### Task 7: 将用途说明的推荐分隔符改为中文括号
+
+**Files:**
+- Modify: `src/renderer/src/features/assistant/TranscriptionModelSettings.test.tsx`
+- Modify: `src/renderer/src/features/assistant/TranscriptionModelSettings.tsx`
+
+- [x] **Step 1: 将测试期望改为说明前置 `（推荐）` 并确认定向 RED**
+- [x] **Step 2: 将 turbo 用途说明前缀从 `推荐 · `改为`（推荐）`，运行 GREEN**
+- [x] **Step 3: 重跑聚焦回归、构建与 Electron 只读验收，回填 I001**

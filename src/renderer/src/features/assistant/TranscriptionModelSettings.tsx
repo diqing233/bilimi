@@ -22,14 +22,14 @@ type Props = {
 const LABELS: Record<TranscriptionModelId, string> = {
   'sensevoice-small': 'SenseVoiceSmall',
   'whisper-small': 'Whisper small',
-  'faster-whisper-large-v3-turbo': 'faster-whisper large-v3-turbo（推荐）',
+  'faster-whisper-large-v3-turbo': 'faster-whisper large-v3-turbo',
   'faster-whisper-large-v3': 'faster-whisper large-v3'
 }
 
 const PURPOSES: Record<TranscriptionModelId, string> = {
   'sensevoice-small': '中文为主，支持中英日韩粤；速度最快；仅 CPU 转写',
   'whisper-small': '全语言通用；速度中等；仅 CPU 转写',
-  'faster-whisper-large-v3-turbo': '全语言高质量；速度较快；CPU 可用，NVIDIA 显卡可启用 GPU 加速',
+  'faster-whisper-large-v3-turbo': '（推荐）全语言高质量；速度较快；CPU 可用，NVIDIA 显卡可启用 GPU 加速',
   'faster-whisper-large-v3': '全语言最高质量；速度较慢；CPU 可用，NVIDIA 显卡可启用 GPU 加速'
 }
 
