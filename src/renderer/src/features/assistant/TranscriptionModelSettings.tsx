@@ -22,8 +22,8 @@ type Props = {
 const LABELS: Record<TranscriptionModelId, string> = {
   'sensevoice-small': 'SenseVoiceSmall',
   'whisper-small': 'Whisper small',
-  'faster-whisper-large-v3-turbo': 'faster-whisper large-v3-turbo',
-  'faster-whisper-large-v3': 'faster-whisper large-v3（推荐）'
+  'faster-whisper-large-v3-turbo': 'faster-whisper large-v3-turbo（推荐）',
+  'faster-whisper-large-v3': 'faster-whisper large-v3'
 }
 
 const PURPOSES: Record<TranscriptionModelId, string> = {

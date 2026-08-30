@@ -114,19 +114,25 @@ describe('TranscriptionModelSettings', () => {
     expect(screen.getByRole('option', { name: /faster-whisper large-v3/ })).toHaveTextContent('全语言最高质量；速度较慢；CPU 可用，NVIDIA 显卡可启用 GPU 加速')
   })
 
-  it('marks faster-whisper large-v3 as recommended and uses the shared svg chevron', () => {
+  it('marks faster-whisper large-v3-turbo as recommended and keeps the regular large model unmarked', () => {
     render(<TranscriptionModelSettings
       accountMid="100"
-      selectedModelId="faster-whisper-large-v3"
-      models={[{ id: 'faster-whisper-large-v3', bundled: false, installed: true, available: true, version: 'fixed', runtimeFamily: 'faster-whisper', license: 'MIT', attribution: 'faster-whisper', downloadBytes: 1, installedBytes: 1 }]}
+      selectedModelId="faster-whisper-large-v3-turbo"
+      models={[
+        { id: 'faster-whisper-large-v3-turbo', bundled: false, installed: true, available: true, version: 'fixed', runtimeFamily: 'faster-whisper', license: 'MIT', attribution: 'faster-whisper', downloadBytes: 1, installedBytes: 1 },
+        { id: 'faster-whisper-large-v3', bundled: false, installed: true, available: true, version: 'fixed', runtimeFamily: 'faster-whisper', license: 'MIT', attribution: 'faster-whisper', downloadBytes: 1, installedBytes: 1 }
+      ]}
       onSelect={vi.fn()}
     />)
 
-    const trigger = screen.getByRole('button', { name: '转写模型：faster-whisper large-v3（推荐）（当前模型）' })
+    const trigger = screen.getByRole('button', { name: '转写模型：faster-whisper large-v3-turbo（推荐）（当前模型）' })
     expect(trigger.querySelector('svg.assistant-settings__transcription-model-chevron')).not.toBeNull()
     expect(trigger).not.toHaveTextContent('⌄')
     fireEvent.click(trigger)
-    expect(screen.getByRole('option', { name: /faster-whisper large-v3（推荐）（当前模型）/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /faster-whisper large-v3-turbo（推荐）（当前模型）/ })).toBeInTheDocument()
+    const regularLargeModel = screen.getByRole('option', { name: /^faster-whisper large-v3 已安装/ })
+    expect(regularLargeModel).toBeInTheDocument()
+    expect(regularLargeModel).not.toHaveTextContent('推荐')
   })
 
   it('explains language coverage and acceleration limits for every model', () => {
