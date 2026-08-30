@@ -86,7 +86,7 @@ describe('PetHoverShortcutSettings', () => {
       <PetHoverShortcutSettings value={['like', 'coin']} fieldStore={fieldStore} onCommit={onCommit} />
     )
 
-    fireEvent.click(screen.getAllByRole('button')[0])
+    fireEvent.click(screen.getByRole('button', { name: /^赏 / }))
     rerender(
       <PetHoverShortcutSettings value={['like', 'coin']} fieldStore={fieldStore} onCommit={onCommit} />
     )
@@ -102,7 +102,7 @@ describe('PetHoverShortcutSettings', () => {
       <PetHoverShortcutSettings fieldStore={fieldStore} onCommit={onCommit} />
     )
 
-    fireEvent.click(screen.getAllByRole('button')[0])
+    fireEvent.click(screen.getByRole('button', { name: /^赏 / }))
     view.unmount()
 
     expect(onCommit).toHaveBeenCalledWith(['coin'])

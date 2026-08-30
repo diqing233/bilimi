@@ -28,7 +28,7 @@ describe('favorite ledger API scripts', () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     localStorage.clear()
-    Object.defineProperty(document, 'cookie', { configurable: true, value: '' })
+    Reflect.deleteProperty(document, 'cookie')
     const runtimeWindow = window as typeof window & {
       __bilimiOldFavoriteScanControl?: unknown
       __bilimiOldFavoriteTagWorkerRunning?: boolean

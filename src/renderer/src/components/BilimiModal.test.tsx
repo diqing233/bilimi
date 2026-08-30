@@ -54,6 +54,25 @@ describe('BilimiModal', () => {
     expect(screen.getByRole('dialog', { name: '正在处理' })).toHaveAttribute('aria-busy', 'true')
   })
 
+  it('keeps scrolling locked until the final overlapping dialog closes', () => {
+    const first = render(
+      <BilimiModal title="第一层确认" actions={<button type="button">确认</button>}>
+        <p>第一层内容。</p>
+      </BilimiModal>
+    )
+    const second = render(
+      <BilimiModal title="第二层确认" actions={<button type="button">确认</button>}>
+        <p>第二层内容。</p>
+      </BilimiModal>
+    )
+
+    expect(document.documentElement.style.overflow).toBe('hidden')
+    first.unmount()
+    expect(document.documentElement.style.overflow).toBe('hidden')
+    second.unmount()
+    expect(document.documentElement.style.overflow).toBe('')
+  })
+
   it('uses the header close button for the same cancellable close path', () => {
     const onClose = vi.fn()
     render(

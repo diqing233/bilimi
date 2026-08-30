@@ -1,4 +1,5 @@
 ﻿import { describe, expect, it, vi } from 'vitest'
+import { afterEach } from 'vitest'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import {
   buildFavoriteApiAdjustmentScript,
@@ -22,6 +23,11 @@ function installBilibiliPageState() {
     }
   })
 }
+
+afterEach(() => {
+  Reflect.deleteProperty(document, 'cookie')
+  Reflect.deleteProperty(window, '__INITIAL_STATE__')
+})
 
 describe('buildFavoriteApiFallbackScript', () => {
   const favoriteLedgers = createDefaultFavoriteLedgers()

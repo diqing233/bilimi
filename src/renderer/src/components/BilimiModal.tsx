@@ -1,6 +1,36 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
+type ModalScrollLock = {
+  count: number
+  previousOverflow: string
+}
+
+const modalScrollLocks = new WeakMap<Document, ModalScrollLock>()
+
+function lockDocumentScroll(document: Document) {
+  let lock = modalScrollLocks.get(document)
+  if (!lock) {
+    lock = {
+      count: 0,
+      previousOverflow: document.documentElement.style.overflow
+    }
+    modalScrollLocks.set(document, lock)
+  }
+  if (lock.count === 0) {
+    lock.previousOverflow = document.documentElement.style.overflow
+    document.documentElement.style.overflow = 'hidden'
+  }
+  lock.count += 1
+
+  return () => {
+    lock!.count -= 1
+    if (lock!.count > 0) return
+    document.documentElement.style.overflow = lock!.previousOverflow
+    modalScrollLocks.delete(document)
+  }
+}
+
 type BilimiModalProps = {
   title: string
   children: ReactNode
@@ -31,9 +61,8 @@ export function BilimiModal({
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const previousOverflow = document.documentElement.style.overflow
     const previousScrollY = window.scrollY
-    document.documentElement.style.overflow = 'hidden'
+    const releaseScrollLock = lockDocumentScroll(document)
 
     const focusFirstControl = () => dialogRef.current
       ?.querySelector<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')
@@ -65,7 +94,7 @@ export function BilimiModal({
     return () => {
       document.removeEventListener('keydown', onKeyDown)
       window.cancelAnimationFrame(focusFrame)
-      document.documentElement.style.overflow = previousOverflow
+      releaseScrollLock()
       previousFocus?.focus()
       if (previousScrollY !== 0) window.scrollTo?.(0, previousScrollY)
     }
