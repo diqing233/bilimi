@@ -2865,7 +2865,7 @@ body[data-floating-window="true"],
 .assistant-settings__transcription-model-action--danger:hover, .assistant-settings__transcription-model-action--danger:focus-visible { border-color: var(--porcelain-primary); background: var(--porcelain-ice); color: var(--porcelain-deep); }
 .assistant-settings__transcription-model-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .assistant-settings__transcription-cpu-divider { width: 100%; border-top: var(--bilimi-divider); }
-.assistant-settings__transcription-model-chevron { display: inline-flex; align-items: center; justify-content: center; font-size: 16px; line-height: 1; transition: transform 160ms ease; }
+.assistant-settings__transcription-model-chevron { width: 14px; height: 14px; flex: none; transition: transform 160ms ease; }
 .assistant-settings__transcription-model-trigger[aria-expanded='true'] .assistant-settings__transcription-model-chevron { transform: rotate(180deg); }
 .assistant-settings__transcription-model-menu { position: fixed; z-index: 1000; width: min(480px, calc(100vw - 16px)); max-height: none; overflow: visible; padding: 6px; border: 1px solid #8ab1db; border-radius: 6px; background: #f7fbff; box-shadow: 0 8px 24px rgb(35 84 130 / .18); }
 .assistant-settings__transcription-model-menu [role='group'] { display: grid; gap: 3px; padding: 5px; }

@@ -23,7 +23,7 @@ const LABELS: Record<TranscriptionModelId, string> = {
   'sensevoice-small': 'SenseVoiceSmall',
   'whisper-small': 'Whisper small',
   'faster-whisper-large-v3-turbo': 'faster-whisper large-v3-turbo',
-  'faster-whisper-large-v3': 'faster-whisper large-v3'
+  'faster-whisper-large-v3': 'faster-whisper large-v3（推荐）'
 }
 
 const PURPOSES: Record<TranscriptionModelId, string> = {
@@ -153,7 +153,7 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
         focusFirstOptionOnOpenRef.current = true
         setMenuOpen(true)
       }
-    }}><span>{LABELS[candidate]}{currentSuffix(candidate)}</span><span className="assistant-settings__transcription-model-chevron" aria-hidden="true">⌄</span></button>
+    }}><span>{LABELS[candidate]}{currentSuffix(candidate)}</span><svg className="assistant-settings__transcription-model-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
     {menuOpen ? createPortal(<div {...menuScope} ref={menuRef} className="assistant-settings__transcription-model-menu" style={{ ...(menuPosition ?? { top: 8, left: 8, maxHeight: 360 }), boxSizing: 'border-box' }} role="listbox" aria-label="转写模型选项" tabIndex={-1}>{installedModels.length ? <div role="group" aria-label="已安装"><strong>已安装</strong>{installedModels.map(renderOption)}</div> : null}{downloadableModels.length ? <div role="group" aria-label="可下载"><strong>可下载</strong>{downloadableModels.map(renderOption)}</div> : null}</div>, document.body) : null}
     {selected?.runtimeFamily === 'faster-whisper' && selected.installed ? <div className="assistant-settings__transcription-gpu-status">
       <p aria-live="polite">{gpuProbe?.status === 'available'
