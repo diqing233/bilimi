@@ -265,7 +265,8 @@ export function ControlledFavoriteLedgerPanel({
     return workspace.reclassifyFavoriteConfiguration()
   }, [accountKey, workspace.reclassifyFavoriteConfiguration, workspace.snapshot])
   const saveLedgersAndRefreshWorkspace = useCallback(async (nextLedgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => {
-    const result = await onSaveLedgers(nextLedgers, options)
+    const result = await onSaveLedgers(nextLedgers, options) as { ok?: boolean } | undefined
+    if (result?.ok === false) return result
     if (options?.recommendationOnly) await workspace.refresh(true)
     else await reclassifySavedLedgerDirectory()
     return result

@@ -1216,7 +1216,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getAllByText(/未保存/).length).toBeGreaterThan(0)
   })
 
-  it('opens the full legacy editor only from new ledger, validates names, and saves a normal local draft without reclassifying', () => {
+  it('opens the full legacy editor only from new ledger, validates names, and saves a normal local draft without reclassifying', async () => {
     const save = vi.fn()
     const command = vi.fn()
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
@@ -1254,8 +1254,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
       })
     ]), { deleteDisabled: false })
     expect(command).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: '舞蹈' })).toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: '舞蹈' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument())
   })
 
   it('saves a normal ledger rule immediately while its active-workspace analysis continues in the background', async () => {

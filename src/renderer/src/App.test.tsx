@@ -1887,6 +1887,44 @@ describe('App runtime integration', () => {
     expect(savedMusic).toMatchObject({ bilibiliFolderId: 'new-music', bindingState: 'bound' })
   })
 
+  it('persists an ordinary local favorite-rule save without requiring a Bilibili page script', async () => {
+    const accountMid = '100'
+    const initialLedgers = createDefaultFavoriteLedgers()
+    const localLedger = {
+      id: 'custom-local-save', displayName: 'bilimi·本地规则', keywords: ['本地'], ruleType: 'keyword' as const,
+      enabled: false, priority: 90, bindingState: 'unbacked' as const, ruleOrigin: 'saved-rule' as const, isDefault: false
+    }
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: initialLedgers }
+        }
+      })),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      savePreferences
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn().mockRejectedValue(new Error('Bilibili page is unavailable'))
+    Object.assign(webview, { executeJavaScript })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await expect(requestRuntime({
+      id: 'local-rule-save-without-page', type: 'save-ledgers', ledgers: [...initialLedgers, localLedger],
+      options: { deleteDisabled: false }
+    })).resolves.toMatchObject({ ok: true, ledgers: expect.arrayContaining([
+      expect.objectContaining({ id: 'custom-local-save', displayName: 'bilimi·本地规则' })
+    ]) })
+
+    const persistedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers
+    expect(persistedLedgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'custom-local-save', displayName: 'bilimi·本地规则', bindingState: 'unbacked' })
+    ]))
+    expect(executeJavaScript).not.toHaveBeenCalled()
+  })
+
   it('keeps locally deleted and manually dismissed remote drafts suppressed during the pet full backup', async () => {
     const accountMid = '100'
     const getFavoriteLedgerRemoteDraftReminderDismissals = vi.fn().mockResolvedValue(['manual-dismissal'])

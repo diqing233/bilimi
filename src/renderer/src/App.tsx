@@ -2329,6 +2329,64 @@ export default function App() {
     nextLedgers: FavoriteLedger[],
     options?: FavoriteLedgerSaveOptions
   ): Promise<AssistantAutomationResult> {
+    const hasRemoteSaveOptions = Boolean(
+      options?.backupTargetLedgerIds?.length ||
+      options?.rediscoverDeletedRemoteDrafts ||
+      options?.lightweightBackup ||
+      options?.confirmCreateAndBind ||
+      Object.keys(options?.rebindRemoteFolderIds ?? {}).length ||
+      Object.keys(options?.rebindRemoteFolders ?? {}).length
+    )
+
+    if (!hasRemoteSaveOptions) {
+      const accountMid = assistantSnapshotCacheRef.current.accountMid || await (async () => {
+        if (!window.bilimiDesktop?.readBilibiliAccountMid) return ''
+        try {
+          return setObservedBilibiliAccount(await window.bilimiDesktop.readBilibiliAccountMid())
+        } catch {
+          return ''
+        }
+      })()
+      const nextPreferences = createInitialAssistantPreferences({
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, nextLedgers)
+      })
+      try {
+        const saved = window.bilimiDesktop?.savePreferences
+          ? await window.bilimiDesktop.savePreferences(nextPreferences)
+          : nextPreferences
+        const persistedPreferences = createInitialAssistantPreferences(saved)
+        const persistedLedgers = favoriteLedgersForAccount(persistedPreferences, accountMid)
+        const persistedMatches = JSON.stringify(persistedLedgers) === JSON.stringify(nextLedgers)
+        if (!persistedMatches) {
+          return {
+            ok: false,
+            steps: ['favorite-ledgers:local-save'],
+            missingTargets: ['favorite-ledgers:local-save'],
+            message: '收藏夹规则未能持久化，请稍后重试。'
+          }
+        }
+        preferencesRef.current = persistedPreferences
+        setPreferences(persistedPreferences)
+        favoriteLedgerStatusCacheRef.current = null
+        assistantSnapshotCacheRef.current.favoriteLedgerStatus = null
+        window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+        return {
+          ok: true,
+          steps: ['favorite-ledgers:local-save'],
+          missingTargets: [],
+          message: '收藏夹规则已保存。',
+          ledgers: persistedLedgers
+        } as AssistantAutomationResult & { ledgers: FavoriteLedger[] }
+      } catch {
+        return {
+          ok: false,
+          steps: ['favorite-ledgers:local-save'],
+          missingTargets: ['favorite-ledgers:local-save'],
+          message: '收藏夹规则未能持久化，请稍后重试。'
+        }
+      }
+    }
+
     const loginFailure = await requireBilibiliLogin()
     if (loginFailure) {
       return loginFailure

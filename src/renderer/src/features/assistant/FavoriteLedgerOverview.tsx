@@ -390,6 +390,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const [deletionExecuting, setDeletionExecuting] = useState(false)
   const [deletionError, setDeletionError] = useState<string | null>(null)
   const [draftDeletionError, setDraftDeletionError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [backupSkipNotice, setBackupSkipNotice] = useState<string | null>(null)
   const [deletionModeActive, setDeletionModeActive] = useState(false)
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
@@ -814,11 +815,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const add = () => {
     const ledger: FavoriteLedger = { id: idFor('new-ledger'), displayName: BILIMI_LEDGER_PREFIX, keywords: [], ruleType: 'keyword', enabled: false, priority: (draftLedgers.length + 1) * 10, syncState: 'local-draft', ruleOrigin: 'saved-rule', isDefault: false }
     enableStore.reconcile(enableEntries([...draftLedgers, ledger]))
-    setDraftLedgers((current) => [...current, ledger]); setActiveLedgerId(ledger.id); setNewLedger(true); setDraftDeletionError(null)
+    setDraftLedgers((current) => [...current, ledger]); setActiveLedgerId(ledger.id); setNewLedger(true); setDraftDeletionError(null); setSaveError(null)
   }
   const close = () => {
     if (newLedger && activeLedgerId) setDraftLedgers((current) => current.filter((ledger) => ledger.id !== activeLedgerId))
-    setActiveLedgerId(null); setNewLedger(false); setDraftDeletionError(null)
+    setActiveLedgerId(null); setNewLedger(false); setDraftDeletionError(null); setSaveError(null)
   }
   const resetLedgers = () => {
     const defaults = createDefaultFavoriteLedgers()
@@ -851,6 +852,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setLocallyUnsavedLedgerIds(new Set())
     setActiveLedgerId(null)
     setNewLedger(false)
+    setSaveError(null)
     void Promise.resolve(onSaveLedgers(next, { deleteDisabled: false })).catch(() => {
       if (persistVersionRef.current !== persistVersion) return
       setDraftLedgers(previous)
@@ -889,16 +891,28 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setSavedLedgerSnapshots(nextSavedLedgerSnapshots)
     setLocallyUnsavedLedgerIds(nextUnsavedLedgerIds)
     const savedLedger = next.find((ledger) => ledger.id === savingLedgerId)
-    void Promise.resolve(onSaveLedgers(next, { deleteDisabled: false })).then(() => {
+    setSaveError(null)
+    try {
+      const result = await onSaveLedgers(next, { deleteDisabled: false }) as { ok?: boolean; message?: string } | undefined
+      if (result?.ok === false) {
+        if (persistVersionRef.current !== persistVersion) return
+        const restoredUnsavedLedgerIds = new Set(nextUnsavedLedgerIds)
+        restoredUnsavedLedgerIds.add(savingLedgerId)
+        setLocallyUnsavedLedgerIds(restoredUnsavedLedgerIds)
+        setSaveError(result.message ?? '收藏夹规则未能持久化，请稍后重试。')
+        return
+      }
+      setActiveLedgerId((current) => current === savingLedgerId ? null : current)
+      setNewLedger(false)
       if (!organizationActive || !savedLedger || savedLedger.ruleType === 'deepseek' || !onAnalyzeLedgerRule) return
-      return onAnalyzeLedgerRule(savedLedger)
-    }).catch(() => {
+      await onAnalyzeLedgerRule(savedLedger)
+    } catch {
       if (persistVersionRef.current !== persistVersion) return
-      setDraftLedgers(previous)
-      setSavedLedgerSnapshots(Object.fromEntries(previous.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
-    })
-    setActiveLedgerId((current) => current === savingLedgerId ? null : current)
-    setNewLedger(false)
+      const restoredUnsavedLedgerIds = new Set(nextUnsavedLedgerIds)
+      restoredUnsavedLedgerIds.add(savingLedgerId)
+      setLocallyUnsavedLedgerIds(restoredUnsavedLedgerIds)
+      setSaveError('收藏夹规则未能持久化，请稍后重试。')
+    }
   }
   const requestBackup = async (options?: {
     targetLedgerIds?: readonly string[]
@@ -1510,6 +1524,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
              ...(active.bilibiliFolderIds ?? []), active.bilibiliFolderId!
            ])])}>不再提醒</button> : null}
           </p> : null}
+         {saveError ? <p className="favorite-ledger-panel__notice" role="alert">{saveError}</p> : null}
          {draftDeletionError ? <p className="favorite-ledger-panel__notice" role="alert">{draftDeletionError}</p> : null}
          {draftRuleAnalysis ? <div className="favorite-ledger-panel__rule-analysis" role="status">
           <span>{draftRuleAnalysis.status === 'canceling' ? '正在取消分析…' : `正在分析 ${draftRuleAnalysis.completedItemCount} / ${draftRuleAnalysis.totalItemCount} 条`}</span>

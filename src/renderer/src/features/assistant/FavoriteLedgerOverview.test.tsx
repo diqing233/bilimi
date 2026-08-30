@@ -1597,6 +1597,26 @@ describe('FavoriteLedgerOverview', () => {
     ])
   })
 
+  it('keeps a new local ledger editor open when persistence resolves with a failure result', async () => {
+    const save = vi.fn().mockResolvedValue({
+      ok: false,
+      steps: [],
+      missingTargets: ['favorite-api-user'],
+      message: 'B 站页面暂不可用，本地规则尚未保存。'
+    })
+    render(<FavoriteLedgerOverview ledgers={[]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '册名' }), { target: { value: '本地草稿' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '册名' })).toHaveValue('本地草稿')
+    expect(screen.getByRole('alert')).toHaveTextContent('B 站页面暂不可用，本地规则尚未保存。')
+    expect(screen.getByTestId(/favorite-ledger-chip-custom-new-ledger-/)).toHaveTextContent('本地草稿')
+  })
+
   it('does not add a pending-sync label to a local recommendation', () => {
     render(<FavoriteLedgerOverview
       ledgers={[{ id: 'recommended-up', displayName: 'bilimi·影视飓风', keywords: ['影视飓风'], enabled: true, priority: 10, isDefault: false, syncState: 'local-draft' }]}
@@ -1655,7 +1675,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(editorTitle).not.toHaveTextContent('（未保存）')
   })
 
-  it('restores the last saved rule when an explicit local save fails', async () => {
+  it('keeps the edited rule open when an explicit local save fails', async () => {
     let rejectSave!: (reason?: unknown) => void
     const save = vi.fn(() => new Promise((_resolve, reject) => { rejectSave = reject }))
     render(<FavoriteLedgerOverview
@@ -1669,8 +1689,9 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await act(async () => { rejectSave(new Error('local write failed')); await Promise.resolve() })
 
-    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
-    expect(screen.getByRole('textbox', { name: '关键词' })).toHaveValue('old')
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '关键词' })).toHaveValue('new')
+    expect(screen.getByRole('alert')).toHaveTextContent('收藏夹规则未能持久化，请稍后重试。')
   })
 
   it('keeps an edited ledger marked as unsaved after selecting another ledger', () => {
