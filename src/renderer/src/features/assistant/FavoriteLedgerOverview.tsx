@@ -1176,7 +1176,15 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const persisted = draftLedgers.filter((ledger) => ids.has(ledger.id) && ledgers.some((item) => item.id === ledger.id))
     if (!persisted.length) return
     if (!window.bilimiDesktop?.deleteFavoriteLedgerDraft) throw new Error('Draft deletion is unavailable.')
-    for (const ledger of persisted) await window.bilimiDesktop.deleteFavoriteLedgerDraft(accountMid, ledger.id)
+    let firstError: unknown
+    for (const ledger of persisted) {
+      try {
+        await window.bilimiDesktop.deleteFavoriteLedgerDraft(accountMid, ledger.id)
+      } catch (error) {
+        firstError ??= error
+      }
+    }
+    if (firstError) throw firstError
   }
   const deletePersistedCustomLedgers = async (accountMid: string, ledgerIds: readonly string[]) => {
     const ids = new Set(ledgerIds)
@@ -1185,7 +1193,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     if (!window.bilimiDesktop?.deleteFavoriteLedgersLocal) throw new Error('Local favorite ledger deletion is unavailable.')
     await window.bilimiDesktop.deleteFavoriteLedgersLocal(accountMid, persisted.map((ledger) => ledger.id))
   }
-  const finalizeManagedDeletionPlan = async (plan: ManagedDeletionPlan, accountMid = '') => {
+  const finalizeManagedDeletionPlan = async (
+    plan: ManagedDeletionPlan,
+    accountMid = '',
+    options: { localCleanupFailed?: boolean } = {}
+  ) => {
     for (const ledgerId of plan.recommendationCancellationLedgerIds) {
       const result = await onOrganizationRecommendationToggle?.(ledgerId, false)
       if (result === false) throw new Error('Recommendation cancellation failed.')
@@ -1217,30 +1229,53 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       : [], plan.candidates).map((ledger) => locallyResetDefaultIds.has(ledger.id)
       ? restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger)
       : ledger)
+    let localCleanupFailed = Boolean(options.localCleanupFailed)
     if (locallyResetDefaultIds.size || remotelyDeletedDefaultIds.size) {
       try {
         await onSaveLedgers(next, { deleteDisabled: false })
       } catch {
         // The remote result is already confirmed. Retry only the idempotent
         // local snapshot write; never repeat a Bilibili deletion.
-        await Promise.resolve()
-        await onSaveLedgers(next, { deleteDisabled: false })
+        try {
+          await Promise.resolve()
+          await onSaveLedgers(next, { deleteDisabled: false })
+        } catch {
+          localCleanupFailed = true
+        }
       }
+    }
+    let refreshAttempted = false
+    let refreshFailed = false
+    // The local projection above is already the confirmed remote result. A
+    // follow-up refresh is best-effort: a renderer/workspace refresh failure
+    // must not turn an already completed deletion into a stale error dialog.
+    for (const ledger of draftLedgers) {
+      if (!deletedCustomIds.has(ledger.id) || !ledgers.some((item) => item.id === ledger.id)) continue
+      if (!onDeleteLedger) continue
+      refreshAttempted = true
+      try {
+        const result = await onDeleteLedger(ledger.id)
+        if (result === false) refreshFailed = true
+      } catch {
+        refreshFailed = true
+        // Keep the confirmed local projection and let the next authoritative
+        // snapshot refresh reconcile any parent state that was unavailable.
+      }
+    }
+    if (localCleanupFailed && (!refreshAttempted || refreshFailed)) {
+      setDeletionError('B 站已删除，本地状态待保存，请刷新或重试。')
+      return false
     }
     setDraftLedgers(next)
     enableStore.reset(enableEntries(next, false))
     deletionStore.reset(enableEntries(next, true))
     setSavedLedgerSnapshots(Object.fromEntries(next.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
-    for (const ledger of draftLedgers) {
-      if (!deletedCustomIds.has(ledger.id) || !ledgers.some((item) => item.id === ledger.id)) continue
-      const result = await onDeleteLedger?.(ledger.id)
-      if (result === false) throw new Error('Recommendation cancellation failed.')
-    }
     setDeletionModeActive(false)
     setDeletionPlan(null)
     setDeletionConfirmed(false)
     setDeletionAcknowledgedUnbound(false)
     setDeletionError(null)
+    return true
   }
   const confirmManagedDeletion = async () => {
     if (!deletionPlan || !deletionConfirmed || destructiveActionLocked || deletionExecuting) return
@@ -1331,12 +1366,22 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         }
         if (!managedFavoriteFolderDeletionSucceeded(remoteDeletionResult)) throw new Error('Remote folder deletion failed.')
       }
-      await deletePersistedDraftLedgers(accountMid, deletionPlan.draftLedgerIds)
-      await deletePersistedCustomLedgers(accountMid, [...deletionPlan.remoteCustomLedgerIds, ...deletionPlan.localCustomLedgerIds])
+      let localCleanupFailed = false
+      try {
+        await deletePersistedDraftLedgers(accountMid, deletionPlan.draftLedgerIds)
+      } catch {
+        localCleanupFailed = true
+      }
+      try {
+        await deletePersistedCustomLedgers(accountMid, [...deletionPlan.remoteCustomLedgerIds, ...deletionPlan.localCustomLedgerIds])
+      } catch {
+        localCleanupFailed = true
+      }
       const confirmedRemoteFolderIds = deletionScope === 'bilibili'
         ? confirmedRemoteFolderIdsFromDeletionResult(remoteDeletionResult)
         : []
-      await finalizeManagedDeletionPlan({ ...deletionPlan, confirmedRemoteFolderIds }, accountMid)
+      const finalized = await finalizeManagedDeletionPlan({ ...deletionPlan, confirmedRemoteFolderIds }, accountMid, { localCleanupFailed })
+      if (!finalized) return
     } catch {
       const confirmedRemoteFolderIds = confirmedRemoteFolderIdsFromDeletionResult(remoteDeletionResult)
       const unknownRemoteFolderIds = isManagedRemoteDeletionResult(remoteDeletionResult)

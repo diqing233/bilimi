@@ -805,6 +805,89 @@ describe('FavoriteLedgerOverview', () => {
     }
   })
 
+  it('does not keep a stale deletion checkpoint when the post-cleanup refresh callback fails', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'default', remoteFolderId: 'default-remote', title: 'bilimi·默认', memberCount: 4, state: 'bound', requiresUnboundAcknowledgement: false },
+      { logicalLedgerId: 'custom', remoteFolderId: '9', title: 'bilimi·自建', memberCount: 12, state: 'bound', requiresUnboundAcknowledgement: false }
+    ])
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
+      status: 'succeeded', succeededRemoteFolderIds: ['default-remote', '9'], failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+    })
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['custom'] })
+    const onDeleteLedger = vi.fn().mockRejectedValue(new Error('workspace refresh failed'))
+    const defaultLedger = { id: 'default', displayName: 'bilimi·默认', keywords: [], enabled: true, priority: 1, isDefault: true,
+      bilibiliFolderId: 'default-remote', bilibiliFolderIds: ['default-remote'], bindingState: 'bound' as const }
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion,
+        deleteManagedRemoteFolders,
+        deleteFavoriteLedgersLocal
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[defaultLedger, {
+      id: 'custom', displayName: 'bilimi·自建', keywords: ['自建'], enabled: true, priority: 10,
+      bilibiliFolderId: '9', bilibiliFolderIds: ['9'], bindingState: 'bound', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onDeleteLedger={onDeleteLedger} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·默认' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·自建' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteManagedRemoteFolders).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(onDeleteLedger).toHaveBeenCalledWith('custom'))
+    expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '自建' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByTestId('favorite-ledger-chip-default')).toHaveTextContent('未备册')
+  })
+
+  it('converges a remote draft when its local deletion response fails after persistence', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'remote-draft', remoteFolderId: '88', title: 'bilimi·远端草稿', memberCount: 0, state: 'unbound-name-match', requiresUnboundAcknowledgement: true }
+    ])
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
+      status: 'succeeded', succeededRemoteFolderIds: ['88'], failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+    })
+    const deleteFavoriteLedgerDraft = vi.fn().mockRejectedValue(new Error('relationship refresh failed after save'))
+    const onDeleteLedger = vi.fn().mockResolvedValue(true)
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion,
+        deleteManagedRemoteFolders,
+        deleteFavoriteLedgerDraft
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'remote-draft', displayName: 'bilimi·远端草稿', keywords: [], enabled: false, priority: 10,
+      syncState: 'local-draft', bindingState: 'unbound', bilibiliFolderId: '88', isDefault: false
+    }]} remoteOnlyDraftLedgerIds={['remote-draft']} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onDeleteLedger={onDeleteLedger} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·远端草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /已检测到未绑定的 bilimi 收藏夹/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteManagedRemoteFolders).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(deleteFavoriteLedgerDraft).toHaveBeenCalledWith('100', 'remote-draft'))
+    await waitFor(() => expect(onDeleteLedger).toHaveBeenCalledWith('remote-draft'))
+    expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '远端草稿' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('does not label an unresolved remote deletion as a confirmed local failure', async () => {
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'custom', remoteFolderId: '9', title: 'bilimi·自建', memberCount: 12, state: 'bound', requiresUnboundAcknowledgement: false }
