@@ -185,8 +185,10 @@ import { classifyVideoContent } from '../../src/shared/recommendation/videoClass
 import { createNotePosterText } from '../../src/shared/videoNoteArchive'
 import { normalizeAssistantPreferencePatchMeta } from '../../src/shared/assistantPreferencePatchMeta'
 import {
+  createVideoNoteBatchExportFolderName,
   exportVideoNoteArchiveBatch
 } from './videoNoteExportService'
+import { chooseVideoNoteExportDestination } from './videoNoteExportDestinationPicker'
 import { registerVideoNoteBatchExportIpc } from './videoNoteExportIpc'
 import { configureAppIdentity, configureDevelopmentRuntimeSwitches, configureDevelopmentUserData } from './appIdentity'
 import { installSingleInstanceGuard } from './singleInstance'
@@ -1738,10 +1740,16 @@ function registerAssistantPreferenceHandlers() {
     isTrustedSender: (senderId) => isTrustedOldFavoriteAssistantSender({ sender: { id: senderId } } as never),
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
     archives: () => loadVideoNoteArchives(getDesktopStore()),
-    chooseParentDirectory: async () => {
-      const result = await dialog.showOpenDialog({ title: '选择文稿导出目录', properties: ['openDirectory', 'createDirectory'] })
-      return result.canceled ? undefined : result.filePaths[0]
-    },
+    chooseParentDirectory: (suggestedFolderName) => chooseVideoNoteExportDestination({
+      desktopDirectory: app.getPath('desktop'),
+      suggestedFolderName,
+      chooseDestination: (defaultPath) => dialog.showSaveDialog({
+        title: '选择文稿导出目录',
+        buttonLabel: '选择文件夹',
+        defaultPath,
+        properties: ['createDirectory']
+      })
+    }),
     start: exportVideoNoteArchiveBatch,
     openFolder: (path) => shell.openPath(path),
     send: (senderId, channel, value) => webContents.fromId(senderId)?.send(channel, value)

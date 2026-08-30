@@ -13,6 +13,25 @@ class FakeIpcMain {
 }
 
 describe('video note batch export IPC', () => {
+  it('passes a local-time suggested final folder to the chooser and forwards the selected destination', async () => {
+    const ipcMain = new FakeIpcMain()
+    const chooseParentDirectory = vi.fn().mockResolvedValue('C:\\chosen\\bilimi文稿_2026-07-27_1234')
+    const start = vi.fn(async () => ({ folderPath: 'C:\\chosen\\bilimi文稿_2026-07-27_1234', succeededCount: 1, skippedCount: 0, failedCount: 0 }))
+    registerVideoNoteBatchExportIpc({
+      ipcMain, isTrustedSender: () => true, getCurrentAccountMid: async () => '100',
+      chooseParentDirectory, start, openFolder: vi.fn(),
+      archives: () => [{ id: 'a1', source: { accountMid: '100', title: 'Saved', tags: [], url: '' }, versions: [{ id: 'v1' }] }]
+    })
+
+    await ipcMain.invoke('video-note-archives:batch-start', {
+      batchId: 'destination', accountMid: '100', selections: [{ archiveId: 'a1', versionId: 'v1' }], formats: ['markdown']
+    })
+
+    expect(chooseParentDirectory).toHaveBeenCalledWith(expect.stringMatching(/^bilimi文稿_\d{4}-\d{2}-\d{2}_\d{4}$/))
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ destinationDirectory: 'C:\\chosen\\bilimi文稿_2026-07-27_1234' }))
+    expect(start.mock.calls[0]?.[0]).not.toHaveProperty('destinationDirectoryPrecreated')
+  })
+
   it('accepts a full-result archive selection beyond one visible page', async () => {
     const ipcMain = new FakeIpcMain()
     const selections = Array.from({ length: 501 }, (_, index) => ({ archiveId: `a${index}`, versionId: `v${index}` }))
@@ -59,7 +78,7 @@ describe('video note batch export IPC', () => {
     await expect(ipcMain.invoke('video-note-archives:batch-start', { accountMid: '100', selections: [{ archiveId: 'a1', versionId: 'v1' }], formats: [] })).rejects.toThrow('format')
     const result = await ipcMain.invoke('video-note-archives:batch-start', { batchId: 'batch-1', accountMid: '100', selections: [{ archiveId: 'a1', versionId: 'v1' }], formats: ['markdown', 'word'] })
     expect(result).toMatchObject({ succeededCount: 1, batchId: 'batch-1' })
-    expect(start).toHaveBeenCalledWith(expect.objectContaining({ parentDirectory: 'C:\\chosen', selections: [{ archiveId: 'a1', versionId: 'v1' }] }))
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ destinationDirectory: 'C:\\chosen', selections: [{ archiveId: 'a1', versionId: 'v1' }] }))
     expect(ipcMain.handlers.has('video-note-archives:batch-cancel')).toBe(true)
     await ipcMain.invoke('video-note-archives:batch-open-folder', { accountMid: '100', batchId: (result as { batchId: string }).batchId })
     expect(openFolder).toHaveBeenCalledWith('C:\\chosen\\bilimi文稿')

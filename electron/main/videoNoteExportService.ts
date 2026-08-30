@@ -56,12 +56,11 @@ type FileExportInternals = { openFile?: typeof open }
 export type VideoNoteBatchExportRequest = {
   archives: VideoNoteArchiveEntry[]
   selections: Array<Pick<VideoNoteArchiveExportSelection, 'archiveId' | 'versionId'>>
-  parentDirectory: string
+  destinationDirectory: string
   formats: VideoNoteBatchExportFormat[]
   scope: VideoNoteExportScope
   currentContent?: VideoNoteCurrentContent
   includeNotes?: boolean
-  now?: () => Date
   signal?: AbortSignal
   /** Checked between sequential items so account changes cannot continue an old batch. */
   isCurrentAccount?: () => Promise<boolean>
@@ -97,12 +96,14 @@ function safeFileStem(archive: VideoNoteArchiveEntry) {
   return `${title.slice(0, 120)}_${identity}`
 }
 
-function timestampFolderName(now: Date) {
+export function createVideoNoteBatchExportFolderName(now: Date) {
   const pad = (value: number) => String(value).padStart(2, '0')
-  return `bilimi文稿_${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}_${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`
+  return `bilimi文稿_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`
 }
 
-async function createNumberedFolder(parentDirectory: string, baseName: string) {
+async function createNumberedFolder(destinationDirectory: string) {
+  const parentDirectory = dirname(destinationDirectory)
+  const baseName = basename(destinationDirectory)
   for (let index = 1; index < 10_000; index++) {
     const candidate = join(parentDirectory, index === 1 ? baseName : `${baseName} (${index})`)
     try {
@@ -137,7 +138,7 @@ export async function exportVideoNoteArchiveBatch(request: VideoNoteBatchExportR
     request.onProgress?.({ selectedCount: request.selections.length, completedCount: request.selections.length, succeededCount: 0, skippedCount: request.selections.length, failedCount: 0 })
     return { folderPath: undefined, selectedCount: request.selections.length, exportableCount: 0, succeededCount: 0, skippedCount: request.selections.length, failedCount: 0, canceled: false, files: [] as string[], items }
   }
-  const folderPath = await createNumberedFolder(request.parentDirectory, timestampFolderName(request.now?.() ?? new Date()))
+  const folderPath = await createNumberedFolder(request.destinationDirectory)
   const result = { folderPath, selectedCount: request.selections.length, exportableCount: 0, succeededCount: 0, skippedCount: 0, failedCount: 0, canceled: false, files: [] as string[], items: [] as VideoNoteBatchExportItemResult[] }
   const publish = () => request.onProgress?.({ selectedCount: result.selectedCount, completedCount: result.succeededCount + result.skippedCount + result.failedCount, succeededCount: result.succeededCount, skippedCount: result.skippedCount, failedCount: result.failedCount })
   for (let index = 0; index < request.selections.length; index++) {

@@ -5,6 +5,7 @@ type ArchiveIdentity = {
 }
 import { randomUUID } from 'node:crypto'
 import type { VideoNoteArchiveEntry } from '../../src/shared/types'
+import { createVideoNoteBatchExportFolderName } from './videoNoteExportService'
 
 type Sender = { id: number; once?: (event: 'destroyed', listener: () => void) => void }
 type IpcMain = { handle(channel: string, handler: (event: { sender: Sender }, ...args: never[]) => unknown): void }
@@ -34,8 +35,8 @@ export function registerVideoNoteBatchExportIpc(options: {
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   archives: () => ArchiveIdentity[]
-  chooseParentDirectory: () => Promise<string | undefined>
-  start: (request: { archives: VideoNoteArchiveEntry[]; parentDirectory: string; selections: Array<{ archiveId: string; versionId: string }>; formats: Array<'markdown' | 'word'>; scope: 'current' | 'complete'; currentContent?: import('../../src/shared/videoNoteBatchExport').VideoNoteBatchExportCurrentContent; includeNotes: boolean; signal: AbortSignal; isCurrentAccount: () => Promise<boolean>; onProgress: (event: unknown) => void }) => Promise<unknown>
+  chooseParentDirectory: (suggestedFolderName: string) => Promise<string | undefined>
+  start: (request: { archives: VideoNoteArchiveEntry[]; destinationDirectory: string; selections: Array<{ archiveId: string; versionId: string }>; formats: Array<'markdown' | 'word'>; scope: 'current' | 'complete'; currentContent?: import('../../src/shared/videoNoteBatchExport').VideoNoteBatchExportCurrentContent; includeNotes: boolean; signal: AbortSignal; isCurrentAccount: () => Promise<boolean>; onProgress: (event: unknown) => void }) => Promise<unknown>
   openFolder: (path: string) => Promise<unknown> | unknown
   send?: (senderId: number, channel: string, value: unknown) => void
   completedFolderLimit?: number
@@ -109,14 +110,14 @@ export function registerVideoNoteBatchExportIpc(options: {
     const activeBatch = { batchId, accountMid: request.accountMid as string, controller }
     active.set(event.sender.id, activeBatch); bindSenderSession(event.sender)
     try {
-      const parentDirectory = await options.chooseParentDirectory()
-      if (!parentDirectory || controller.signal.aborted) return undefined
+      const selectedDestination = await options.chooseParentDirectory(createVideoNoteBatchExportFolderName(new Date()))
+      if (!selectedDestination || controller.signal.aborted) return undefined
       try { await assertCurrentAccount(activeBatch.accountMid) } catch (reason) { controller.abort(); throw reason }
       // The native directory chooser is asynchronous; use the current saved archive set for writes.
       const currentArchives = options.archives()
       // Revalidate against the refreshed snapshot: a reused ID must never cross accounts.
       const refreshed = parse(request, currentArchives)
-      const result = await options.start({ archives: currentArchives as VideoNoteArchiveEntry[], parentDirectory, ...refreshed, signal: controller.signal,
+      const result = await options.start({ archives: currentArchives as VideoNoteArchiveEntry[], destinationDirectory: selectedDestination, ...refreshed, signal: controller.signal,
         isCurrentAccount: async () => !controller.signal.aborted && await options.getCurrentAccountMid() === activeBatch.accountMid,
         onProgress: (value) => options.send?.(event.sender.id, 'video-note-archives:batch-progress', { batchId, ...(value as object) }) })
       const folderPath = (result as { folderPath?: unknown } | undefined)?.folderPath

@@ -1,10 +1,11 @@
-import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import JSZip from 'jszip'
 import { describe, expect, it, vi } from 'vitest'
 import type { VideoNoteArchiveEntry } from '../../src/shared/types'
 import {
+  createVideoNoteBatchExportFolderName,
   exportVideoNoteArchiveBatch,
   resolveSavedVideoNoteArchiveExport,
   writeVideoNoteMarkdownExport,
@@ -16,22 +17,65 @@ const archive: VideoNoteArchiveEntry = {
   versions: [{ id: 'v1', createdAt: '2026-07-27T00:00:00.000Z', plainTranscript: 'Saved transcript', summaryText: '', note: { id: 'note-1', source: { title: 'Export', tags: [], url: 'https://www.bilibili.com/video/BV1export' }, transcriptSource: 'audio', transcript: [], chapters: [], overview: { shortSummary: [], keywords: [], timeline: [], highlights: [] }, annotations: [], userMemo: '', createdAt: '2026-07-27T00:00:00.000Z', updatedAt: '2026-07-27T00:00:00.000Z' } }]
 }
 
+function selectedDestination(parentDirectory: string) {
+  return join(parentDirectory, 'bilimi文稿_2026-07-27_1234')
+}
+
 describe('video note export service', () => {
-  it('exports one saved archive as Markdown and Word into a new timestamped child folder', async () => {
-    const parentDirectory = await mkdtemp(join(tmpdir(), 'bilimi-export-parent-'))
+  it('formats the suggested batch folder with local calendar time', () => {
+    expect(createVideoNoteBatchExportFolderName(new Date(2026, 6, 27, 12, 34, 56))).toBe('bilimi文稿_2026-07-27_1234')
+  })
+
+  it('writes into the selected final folder without nesting another timestamp folder', async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), 'bilimi-export-destination-'))
+    const destinationDirectory = join(parentDirectory, 'bilimi文稿_2026-07-27_1234')
 
     const result = await exportVideoNoteArchiveBatch({
       archives: [archive],
       selections: [{ archiveId: 'archive-1', versionId: 'v1' }],
-      parentDirectory,
+      destinationDirectory,
+      formats: ['markdown'],
+      scope: 'complete'
+    })
+
+    expect(result.folderPath).toBe(destinationDirectory)
+    expect(await readdir(destinationDirectory)).toEqual(['Export_AVunknown.md'])
+    expect(await readdir(parentDirectory)).toEqual(['bilimi文稿_2026-07-27_1234'])
+  })
+
+  it('exports one saved archive as Markdown and Word into the selected final folder', async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), 'bilimi-export-parent-'))
+    const destinationDirectory = selectedDestination(parentDirectory)
+
+    const result = await exportVideoNoteArchiveBatch({
+      archives: [archive],
+      selections: [{ archiveId: 'archive-1', versionId: 'v1' }],
+      destinationDirectory,
       formats: ['markdown', 'word'],
-      scope: 'complete',
-      now: () => new Date('2026-07-27T12:34:56.000Z')
+      scope: 'complete'
     })
 
     expect(result).toMatchObject({ selectedCount: 1, exportableCount: 1, succeededCount: 1, skippedCount: 0, failedCount: 0 })
-    expect(result.folderPath).toMatch(/bilimi文稿_2026-07-27_1234/)
+    expect(result.folderPath).toBe(destinationDirectory)
     expect(await readdir(result.folderPath!)).toEqual(['Export_AVunknown.docx', 'Export_AVunknown.md'])
+  })
+
+  it('preserves a selected export folder by creating a numbered sibling on collision', async () => {
+    const parentDirectory = await mkdtemp(join(tmpdir(), 'bilimi-export-folder-collision-'))
+    const destinationDirectory = selectedDestination(parentDirectory)
+    await writeFile(destinationDirectory, 'reserved by another export', 'utf8')
+
+    const result = await exportVideoNoteArchiveBatch({
+      archives: [archive],
+      selections: [{ archiveId: 'archive-1', versionId: 'v1' }],
+      destinationDirectory,
+      formats: ['markdown'],
+      scope: 'complete'
+    })
+
+    expect(result.folderPath).toBe(`${destinationDirectory} (2)`)
+    expect(await readFile(destinationDirectory, 'utf8')).toBe('reserved by another export')
+    expect(await readdir(result.folderPath!)).toEqual(['Export_AVunknown.md'])
   })
 
   it('skips unresolved archives and cancels remaining sequential exports while retaining completed files', async () => {
@@ -41,7 +85,7 @@ describe('video note export service', () => {
     const result = await exportVideoNoteArchiveBatch({
       archives: [archive],
       selections: [{ archiveId: 'missing', versionId: 'v1' }, { archiveId: 'archive-1', versionId: 'v1' }, { archiveId: 'archive-1', versionId: 'v1' }],
-      parentDirectory, formats: ['markdown'], scope: 'complete', signal: controller.signal,
+      destinationDirectory: selectedDestination(parentDirectory), formats: ['markdown'], scope: 'complete', signal: controller.signal,
       onProgress: (event) => { progress.push(`${event.completedCount}/${event.selectedCount}`); if (event.succeededCount === 1) controller.abort() }
     })
 
@@ -56,7 +100,7 @@ describe('video note export service', () => {
     const result = await exportVideoNoteArchiveBatch({
       archives: [archive],
       selections: [{ archiveId: 'archive-1', versionId: 'v1' }, { archiveId: 'archive-1', versionId: 'v1' }],
-      parentDirectory, formats: ['markdown'], scope: 'complete', signal: controller.signal
+      destinationDirectory: selectedDestination(parentDirectory), formats: ['markdown'], scope: 'complete', signal: controller.signal
     }, { writeItem: vi.fn().mockImplementation(async () => { controller.abort(); return ['C:\\exports\\first.md'] }) })
 
     expect(result).toMatchObject({ canceled: true, succeededCount: 1, files: ['C:\\exports\\first.md'] })
@@ -76,7 +120,7 @@ describe('video note export service', () => {
 
     const result = await exportVideoNoteArchiveBatch({
       archives: [archive], selections: [{ archiveId: 'archive-1', versionId: 'v1' }, { archiveId: 'archive-1', versionId: 'v1' }],
-      parentDirectory, formats: ['markdown'], scope: 'complete', isCurrentAccount: async () => current
+      destinationDirectory: selectedDestination(parentDirectory), formats: ['markdown'], scope: 'complete', isCurrentAccount: async () => current
     }, { writeItem })
 
     expect(writeItem).toHaveBeenCalledTimes(1)
@@ -92,7 +136,7 @@ describe('video note export service', () => {
     })
 
     const result = await exportVideoNoteArchiveBatch({
-      archives: [archive], selections: [{ archiveId: 'archive-1', versionId: 'v1' }], parentDirectory,
+      archives: [archive], selections: [{ archiveId: 'archive-1', versionId: 'v1' }], destinationDirectory: selectedDestination(parentDirectory),
       formats: ['markdown', 'word'], scope: 'complete', isCurrentAccount: async () => current
     }, { writeFormat })
 
@@ -104,7 +148,7 @@ describe('video note export service', () => {
   it('does not create an output folder when the account is stale before work begins', async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), 'bilimi-export-stale-before-folder-'))
     const result = await exportVideoNoteArchiveBatch({
-      archives: [archive], selections: [{ archiveId: 'archive-1', versionId: 'v1' }], parentDirectory,
+      archives: [archive], selections: [{ archiveId: 'archive-1', versionId: 'v1' }], destinationDirectory: selectedDestination(parentDirectory),
       formats: ['markdown'], scope: 'complete', isCurrentAccount: async () => false
     })
 
@@ -115,7 +159,7 @@ describe('video note export service', () => {
   it('returns all stale selections as skips without leaving an empty output folder', async () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), 'bilimi-export-stale-selections-'))
     const result = await exportVideoNoteArchiveBatch({
-      archives: [], selections: [{ archiveId: 'missing', versionId: 'v1' }], parentDirectory,
+      archives: [], selections: [{ archiveId: 'missing', versionId: 'v1' }], destinationDirectory: selectedDestination(parentDirectory),
       formats: ['markdown'], scope: 'complete'
     })
 
@@ -132,7 +176,7 @@ describe('video note export service', () => {
     const result = await exportVideoNoteArchiveBatch({
       archives: [archive],
       selections: [{ archiveId: 'archive-1', versionId: 'v1' }, { archiveId: 'archive-1', versionId: 'v1' }],
-      parentDirectory, formats: ['markdown'], scope: 'complete'
+      destinationDirectory: selectedDestination(parentDirectory), formats: ['markdown'], scope: 'complete'
     }, { writeItem })
 
     expect(result).toMatchObject({ selectedCount: 2, exportableCount: 2, succeededCount: 1, skippedCount: 0, failedCount: 1, canceled: false })
@@ -144,7 +188,7 @@ describe('video note export service', () => {
     const parentDirectory = await mkdtemp(join(tmpdir(), 'bilimi-export-partial-'))
     const result = await exportVideoNoteArchiveBatch({
       archives: [archive], selections: [{ archiveId: 'archive-1', versionId: 'v1' }],
-      parentDirectory, formats: ['markdown', 'word'], scope: 'complete'
+      destinationDirectory: selectedDestination(parentDirectory), formats: ['markdown', 'word'], scope: 'complete'
     }, { writeItem: vi.fn().mockResolvedValue({ files: ['C:\\exports\\first.md'], errors: [{ format: 'word', message: 'disk full' }] } as never) })
 
     expect(result).toMatchObject({ succeededCount: 0, failedCount: 1, files: ['C:\\exports\\first.md'] })
