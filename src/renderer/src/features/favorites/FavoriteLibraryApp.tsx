@@ -73,6 +73,20 @@ type ManagedFavoriteFolderDeletionCandidate = {
   requiresUnboundAcknowledgement: boolean
 }
 
+function workspaceBackupFolders(folders: readonly FavoriteRepositoryFolder[]) {
+  const logicalFolders = folders.filter((folder) => folder.kind === 'bilimi-logical' && Boolean(folder.logicalLedgerId))
+  if (!logicalFolders.some((folder) => folder.logicalLedgerId === 'inbox') && folders.some((folder) => folder.id === 'local:inbox')) {
+    return [{
+      id: 'bilimi-logical:inbox',
+      title: FAVORITE_LIBRARY_STAGING_TITLE,
+      kind: 'bilimi-logical',
+      logicalLedgerId: 'inbox',
+      syncState: 'local-only'
+    }, ...logicalFolders]
+  }
+  return logicalFolders
+}
+
 function managedRemoteDeletionSummary(candidates: ManagedFavoriteFolderDeletionCandidate[]) {
   const groups = new Map<string, { title: string; count: number }>()
   for (const candidate of candidates) {
@@ -1197,6 +1211,7 @@ export function FavoriteLibraryApp({
   const logicalFolders = useMemo(() => folders
     .filter((folder) => folder.kind === 'bilimi-logical')
     .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id)), [folders])
+  const backupFolders = useMemo(() => workspaceBackupFolders(folders), [folders])
   const folderTitleById = useMemo(() => new Map(folders.map((folder) => [folder.id, folder.title])), [folders])
   const rows = useMemo(() => page ? pageRows(page) : [], [page])
   const activeRow = selected && page?.items.find((item) => item.video.aid === selected.aid)
@@ -1735,7 +1750,7 @@ export function FavoriteLibraryApp({
       let succeeded = 0
       let failed = 0
       const bindingCandidates: LightweightBackupBindingCandidate[] = []
-      for (const folder of folders.filter((folder) => folder.kind === 'bilimi-logical' && workspaceSyncSelection.includes(folder.id))) {
+      for (const folder of backupFolders.filter((folder) => workspaceSyncSelection.includes(folder.id))) {
         try {
           const result = await api.ensureFavoriteLedger(folder.id, { lightweightBackup: true }) as LightweightBackupResult
           const unbound = result.unboundCandidates?.find((entry) => entry.ledgerId === folder.logicalLedgerId)
@@ -2245,8 +2260,8 @@ export function FavoriteLibraryApp({
       </FavoriteLibraryConfirmationDialog> : null}
       {workspaceSyncConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="备册 bilimi 工作夹" busy={workspaceSyncExecuting} onClose={() => { if (!workspaceSyncExecuting) setWorkspaceSyncConfirmationOpen(false) }}>
         <p>请选择要备册的 bilimi 工作夹。备册只会为所选工作夹创建或绑定 B 站收藏夹，不会同步视频或修改其他收藏夹。</p>
-        <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceSyncSelection(folders.filter((folder) => folder.kind === 'bilimi-logical').map((folder) => folder.id))}>全选</button></div>
-        <ul className="favorite-library__managed-folder-preview">{folders.filter((folder) => folder.kind === 'bilimi-logical').map((folder) => <li key={folder.id}><label><input type="checkbox" aria-label={`选择 ${folder.title}`} checked={workspaceSyncSelection.includes(folder.id)} disabled={workspaceSyncExecuting} onChange={(event) => setWorkspaceSyncSelection((current) => event.currentTarget.checked ? [...new Set([...current, folder.id])] : current.filter((id) => id !== folder.id))} /><span>{folder.title}</span></label></li>)}</ul>
+        <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceSyncSelection(backupFolders.map((folder) => folder.id))}>全选</button></div>
+        <ul className="favorite-library__managed-folder-preview">{backupFolders.map((folder) => <li key={folder.id}><label><input type="checkbox" aria-label={`选择 ${folder.title}`} checked={workspaceSyncSelection.includes(folder.id)} disabled={workspaceSyncExecuting} onChange={(event) => setWorkspaceSyncSelection((current) => event.currentTarget.checked ? [...new Set([...current, folder.id])] : current.filter((id) => id !== folder.id))} /><span>{folder.title}</span></label></li>)}</ul>
         <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceSyncConfirmationOpen(false)}>取消</button><button type="button" disabled={workspaceSyncExecuting || !workspaceSyncSelection.length} onClick={() => void runAction(confirmWorkspaceSync)}>开始备册</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       {workspaceBindingCandidates ? <FavoriteLibraryConfirmationDialog label="确认绑定 bilimi 收藏夹" busy={workspaceSyncExecuting} onClose={() => {

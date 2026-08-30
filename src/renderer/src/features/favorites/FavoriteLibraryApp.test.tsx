@@ -1004,6 +1004,35 @@ describe('FavoriteLibraryApp', () => {
     expect(synchronizeFavoriteLibraryPlacements).not.toHaveBeenCalled()
   })
 
+  it('backs up the unmaterialized staging ledger through its stable rule ID without synchronizing videos', async () => {
+    const ensureFavoriteLedger = vi.fn().mockResolvedValue({ ok: true })
+    const synchronizeFavoriteLibraryPlacements = vi.fn()
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-31T00:00:00.000Z', videoCount: 84, folderCount: 2,
+        folders: [
+          { id: 'local:inbox', title: 'bilimi·暂存', kind: 'local', syncState: 'local-only' },
+          { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'local-only' }
+        ], folderCounts: { 'local:inbox': 84 }, physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      ensureFavoriteLedger,
+      synchronizeFavoriteLibraryPlacements,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '备册工作夹' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: '备册 bilimi 工作夹' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '选择 bilimi·暂存' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '开始备册' }))
+
+    await waitFor(() => expect(ensureFavoriteLedger).toHaveBeenCalledWith('bilimi-logical:inbox', { lightweightBackup: true }))
+    expect(synchronizeFavoriteLibraryPlacements).not.toHaveBeenCalled()
+  })
+
   it('backs up only explicitly selected managed folders without synchronizing videos', async () => {
     const ensureFavoriteLedger = vi.fn().mockResolvedValue({ ok: true })
     const synchronizeFavoriteLibraryPlacements = vi.fn()
