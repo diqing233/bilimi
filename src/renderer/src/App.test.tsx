@@ -9,7 +9,7 @@ import type {
 import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import App, { VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS } from './App'
+import App, { shouldMountBrowserTab, VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS } from './App'
 import type {
   AssistantRuntimeRequest,
   AssistantRuntimeResponsePayload
@@ -382,6 +382,13 @@ describe('App runtime integration', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('defers only the production home webview until its initial activation', () => {
+    expect(shouldMountBrowserTab('home', false, false)).toBe(false)
+    expect(shouldMountBrowserTab('home', true, false)).toBe(true)
+    expect(shouldMountBrowserTab('video-1', false, false)).toBe(true)
+    expect(shouldMountBrowserTab('home', false, true)).toBe(true)
   })
 
   it('returns an explicit target descriptor only when binding the active Bilibili page', async () => {

@@ -1645,6 +1645,7 @@ export function ControlledFavoriteLedgerPanel({
         </ul> : null}
         {bilibiliBackupUnmatchedCount > 0 ? <label><input type="checkbox" checked={bilibiliBackupIncludeInbox} disabled={confirmationPreparing} onChange={(event) => void updateBilibiliBackupIncludeInbox(event.currentTarget.checked)} />同步 bilimi·暂存（{bilibiliBackupUnmatchedCount} 条）</label> : null}
         <p>实际发现未绑定的 B 站收藏夹时，仍会要求你按具体 ID 确认绑定；创建前会再次读取清单。</p>
+        {confirmationPreparationStatus ? <p role="status">{confirmationPreparationStatus}</p> : null}
         {confirmationPreparationError ? <p role="alert">{confirmationPreparationError}</p> : null}
       </OldFavoriteModal> : null}
       {resumeDialogOpen && recoveryPreparationError ? <OldFavoriteModal title="整理收藏"
@@ -1687,7 +1688,7 @@ export function ControlledFavoriteLedgerPanel({
         mutationLocked={Boolean(workspace.draftRuleAnalysis || activeSnapshot?.executionIntent ||
           (activeSnapshot && ['frozen', 'executing', 'reconciling'].includes(activeSnapshot.status)))}
         reconciling={workspace.reconciling}
-        preparationStatus={confirmationPreparationStatus}
+        preparationStatus={bilibiliBackupPreflight ? null : confirmationPreparationStatus}
         executionError={bilibiliBackupPreflight ? workspace.executionError : confirmationPreparationError ?? workspace.executionError}
         scanStarting={scanStarting}
         scanStartFailure={scanStartFailure}

@@ -3272,6 +3272,47 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeEnabled()
   })
 
+  it('shows backup preparation inside the single sync confirmation dialog', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['honker233'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 },
+      history: { cursor: 1, length: 1 }
+    }
+    const preflight = {
+      accountMid: '100', workspaceId: 'workspace-100',
+      missingLedgers: [{ logicalLedgerId: 'honker233', logicalTitle: 'bilimi·honker233', reason: 'unbacked' as const }],
+      requiredPhysicalShards: []
+    }
+    const backup = deferred<{ ok: true }>()
+    const sync = vi.fn(() => backup.promise)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      getOldFavoriteWorkspaceBilibiliExecutionPreflightV1: vi.fn().mockResolvedValue(preflight),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      ledgers={[{ id: 'honker233', displayName: 'bilimi·honker233', keywords: [], enabled: true, priority: 20, isDefault: false, bindingState: 'unbacked' }]}
+      onEnsureLedgers={vi.fn()} onSyncLedgers={sync} onSaveLedgers={vi.fn()} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+    const confirmation = await screen.findByRole('dialog', { name: '同步前备册确认' })
+    fireEvent.click(within(confirmation).getByRole('button', { name: '确认备册并继续' }))
+
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
+    expect(await within(confirmation).findByRole('status')).toHaveTextContent('正在按确认范围备册收藏夹。')
+
+    await act(async () => backup.resolve({ ok: true }))
+  })
+
   it('rechecks logical backup gaps before provisioning a required Bilibili shard', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

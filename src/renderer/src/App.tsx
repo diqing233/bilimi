@@ -95,6 +95,15 @@ const DAILY_DEEPSEEK_PRE_ACTION_WAIT_MS = IS_TEST_RUNTIME ? 0 : 1200
 const DAILY_DEEPSEEK_BACKGROUND_TIMEOUT_MS = IS_TEST_RUNTIME ? 50 : 60_000
 const AUTOMATED_PAGE_HINT_COOLDOWN_MS = 750
 let browserTabIdIndex = 0
+
+export function shouldMountBrowserTab(
+  tabId: string,
+  homeWebviewActivated: boolean,
+  isTestRuntime: boolean
+): boolean {
+  return isTestRuntime || tabId !== HOME_TAB_ID || homeWebviewActivated
+}
+
 const NO_CURRENT_VIDEO_RESULT: AssistantAutomationResult = {
   ok: false,
   steps: [],
@@ -819,6 +828,7 @@ export default function App() {
     favoriteLedgerEnabledIndexRef.current = createFavoriteLedgerEnabledIndex(preferences)
   }
   const [preferencesLoaded, setPreferencesLoaded] = useState(IS_TEST_RUNTIME)
+  const [homeWebviewActivated, setHomeWebviewActivated] = useState(IS_TEST_RUNTIME)
   const activeWebview = useMemo(() => webviews[activeTabId] ?? null, [activeTabId, webviews])
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
@@ -846,6 +856,9 @@ export default function App() {
   )
 
   const selectActiveTab = useCallback((nextActiveTabId: string) => {
+    if (nextActiveTabId === HOME_TAB_ID) {
+      setHomeWebviewActivated(true)
+    }
     if (activeTabIdRef.current !== nextActiveTabId) {
       assistantSnapshotCacheRef.current.accountMid = ''
     }
@@ -917,6 +930,36 @@ export default function App() {
       setPreferences(normalized)
     })
   }, [])
+
+  useEffect(() => {
+    if (
+      IS_TEST_RUNTIME ||
+      homeWebviewActivated ||
+      !preferencesLoaded ||
+      !preferences.permissionOnboardingCompleted
+    ) {
+      return
+    }
+
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number
+      cancelIdleCallback?: (handle: number) => void
+    }
+    const activate = () => setHomeWebviewActivated(true)
+    const idleHandle = idleWindow.requestIdleCallback?.(activate, { timeout: 1200 })
+    const timeoutHandle = idleHandle === undefined
+      ? window.setTimeout(activate, 320)
+      : undefined
+
+    return () => {
+      if (idleHandle !== undefined) {
+        idleWindow.cancelIdleCallback?.(idleHandle)
+      }
+      if (timeoutHandle !== undefined) {
+        window.clearTimeout(timeoutHandle)
+      }
+    }
+  }, [homeWebviewActivated, preferences.permissionOnboardingCompleted, preferencesLoaded])
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencePatchChanged?.((patch) => {
@@ -1306,6 +1349,10 @@ export default function App() {
   }
 
   function refreshActiveTab() {
+    if (activeTabIdRef.current === HOME_TAB_ID && !homeWebviewActivated) {
+      setHomeWebviewActivated(true)
+      return
+    }
     getCurrentActiveWebview()?.reload?.()
   }
 
@@ -3798,8 +3845,8 @@ export default function App() {
             <span className="browser-tabs__collapse-slot" aria-hidden="true" />
           </div>
         </div>
-        <div className="browser-stack">
-          {tabs.map((tab) => (
+        <div className="browser-stack" onPointerDown={() => setHomeWebviewActivated(true)}>
+          {tabs.filter((tab) => shouldMountBrowserTab(tab.id, homeWebviewActivated, IS_TEST_RUNTIME)).map((tab) => (
             <BiliWebview
               key={tab.id}
               active={tab.id === activeTabId}

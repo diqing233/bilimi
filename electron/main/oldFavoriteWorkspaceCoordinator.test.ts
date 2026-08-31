@@ -210,6 +210,35 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     }])
   })
 
+  it('runs the same confirmed-deletion projection after remote draft deletion', async () => {
+    const root = await createRoot()
+    const onManagedFolderDeletion = vi.fn().mockResolvedValue(undefined)
+    const syncService = createSyncService({
+      deleteManagedRemoteFolders: vi.fn().mockResolvedValue({
+        status: 'partial-failed',
+        candidates: [
+          { logicalLedgerId: 'draft', remoteFolderId: '9001', title: 'bilimi·草稿', memberCount: 2, state: 'unbound', requiresUnboundAcknowledgement: true },
+          { logicalLedgerId: 'draft', remoteFolderId: '9002', title: 'bilimi·草稿·2', memberCount: 1, state: 'unbound', requiresUnboundAcknowledgement: true }
+        ],
+        succeededRemoteFolderIds: ['9001'], failedRemoteFolderIds: ['9002'], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+      })
+    })
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false, syncService, onManagedFolderDeletion }
+    )
+
+    await expect(coordinator.deleteManagedRemoteFolderCandidates(
+      '100', ['draft'], true, undefined, undefined,
+      { draft: { remoteFolderId: '9001', title: 'bilimi·草稿' } }
+    )).resolves.toMatchObject({ status: 'partial-failed', succeededRemoteFolderIds: ['9001'] })
+
+    expect(onManagedFolderDeletion).toHaveBeenCalledWith('100', [{
+      logicalLedgerId: 'draft', remoteFolderIds: ['9001'], remoteDeleted: true
+    }])
+  })
+
   it('publishes one canonical inventory projection for duplicate sources, protected managed members, and unavailable videos', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -10792,6 +10821,62 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('keeps the active segment when refreshing relationships before freezing the workspace', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 0, isBilimiWorkFolder: false }]
+    })
+    await coordinator.completeScan('100', { revision: 1, aids: Array.from({ length: 2_001 }, (_value, index) => index + 1) })
+    await coordinator.selectSegment('100', 'segment-2')
+
+    await coordinator.refreshRelationshipProjection('100')
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({ status: 'frozen' })
+    expect((await repository.getSnapshot('100')).workspace?.workspaceRef.currentSegmentId).toBe('segment-2')
+  })
+
+  it('does not return a cached workspace after the manifest overlay changes', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const workspaceId = (await repository.getSnapshot('100')).workspace!.id
+    await store.appendOverlay('100', workspaceId, {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      scanMetadata: {
+        sourceFolders: [{ id: 'fresh', title: 'Fresh', itemCount: 1, isBilimiWorkFolder: false }]
+      }
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      sourceFolders: [{ id: 'fresh', title: 'Fresh' }]
+    })
+  })
+
+  it('keeps its in-memory workspace after its own overlay write', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    const recover = vi.spyOn(store, 'recover')
+    recover.mockClear()
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      sourceFolders: [{ id: 'source', title: 'Source' }]
+    })
+    expect(recover).not.toHaveBeenCalled()
+  })
+
   it('repairs a persisted marker when a checked journal recovers its empty active segment', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -11095,7 +11180,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     )) as { segments: Array<{ id: string; file: string }> }
     const currentSegmentFile = manifest.segments.find((segment) => segment.id === 'segment-2')!.file
     await expect(recoveredStore.readWorkspaceReads('100', workspaceId))
-      .resolves.toEqual(['manifest.json', 'overlay.journal.jsonl', currentSegmentFile])
+      .resolves.toEqual(['manifest.json', 'overlay.journal.jsonl', currentSegmentFile, 'manifest.json'])
   })
 
   it('creates a scanning workspace and persists only its lightweight repository marker', async () => {

@@ -54,7 +54,7 @@ import type { FavoriteLedger, FavoriteLedgerRuleType } from '../../src/shared/ty
 import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
 import { REMOTE_FAVORITE_SHARD_CAPACITY } from '../../src/shared/favoriteRepositoryPlanning'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
-import type { FavoriteRepositorySyncRun, FavoriteRepositorySyncService, ManagedFavoriteHistoricalBindingDeletionTargets } from './favoriteRepositorySyncService'
+import type { FavoriteRepositorySyncRun, FavoriteRepositorySyncService, ManagedFavoriteHistoricalBindingDeletionTargets, ManagedFavoriteRemoteFolderDeletionResult } from './favoriteRepositorySyncService'
 import { favoriteRepositoryManagedShardTitleForDisplay, type FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { analyzeOldFavoriteLedgerRule } from './oldFavoriteLedgerRuleAnalysis'
@@ -1213,6 +1213,8 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly executionIntentRuns = new Map<string, Promise<boolean>>()
   private readonly recommendationPreviewGenerations = new Map<string, number>()
   private readonly draftLedgerRuleAnalysisIds = new Map<string, string>()
+  private readonly knownWorkspaceStoreRefs = new Map<string, FavoriteRepositoryWorkspace['workspaceRef']>()
+  private activeOperationInitialRefs: Map<string, FavoriteRepositoryWorkspace['workspaceRef']> | null = null
   private operationTail = Promise.resolve()
 
   constructor(private readonly options: {
@@ -1326,6 +1328,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.executionIntentRuns.clear()
     this.recommendationPreviewGenerations.clear()
     this.draftLedgerRuleAnalysisIds.clear()
+    this.knownWorkspaceStoreRefs.clear()
   }
 
   resetAfterAccountLocalDataClear(accountMid: string): void {
@@ -4049,21 +4052,7 @@ export class OldFavoriteWorkspaceCoordinator {
   ) {
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
     const deletion = await this.options.syncService.deleteManagedFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
-    const succeededRemoteFolderIds = new Set(deletion.succeededRemoteFolderIds)
-    const remoteFolderIdsByLedgerId = new Map<string, Set<string>>()
-    for (const candidate of deletion.candidates) {
-      if (!candidate.remoteFolderId || !succeededRemoteFolderIds.has(candidate.remoteFolderId)) continue
-      const remoteFolderIds = remoteFolderIdsByLedgerId.get(candidate.logicalLedgerId) ?? new Set<string>()
-      remoteFolderIds.add(candidate.remoteFolderId)
-      remoteFolderIdsByLedgerId.set(candidate.logicalLedgerId, remoteFolderIds)
-    }
-    const confirmedDeletions = [...remoteFolderIdsByLedgerId]
-      .map(([logicalLedgerId, remoteFolderIds]) => ({
-        logicalLedgerId,
-        remoteFolderIds: [...remoteFolderIds].sort(),
-        remoteDeleted: true
-      }))
-      .sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId))
+    const confirmedDeletions = this.confirmedManagedFolderDeletions(deletion)
     if (confirmedDeletions.length) await this.options.onManagedFolderDeletion?.(accountMid, confirmedDeletions)
     return deletion
   }
@@ -4078,9 +4067,30 @@ export class OldFavoriteWorkspaceCoordinator {
     historicalBindingTargets?: ManagedFavoriteHistoricalBindingDeletionTargets
   ) {
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
-    return remoteDraftTargets || historicalBindingTargets
+    const deletion = remoteDraftTargets || historicalBindingTargets
       ? this.options.syncService.deleteManagedRemoteFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds, remoteDraftTargets, historicalBindingTargets)
       : this.options.syncService.deleteManagedRemoteFolders(accountMid, logicalLedgerIds, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds)
+    const confirmedDeletions = this.confirmedManagedFolderDeletions(await deletion)
+    if (confirmedDeletions.length) await this.options.onManagedFolderDeletion?.(accountMid, confirmedDeletions)
+    return deletion
+  }
+
+  private confirmedManagedFolderDeletions(deletion: ManagedFavoriteRemoteFolderDeletionResult) {
+    const succeededRemoteFolderIds = new Set(deletion.succeededRemoteFolderIds)
+    const remoteFolderIdsByLedgerId = new Map<string, Set<string>>()
+    for (const candidate of deletion.candidates) {
+      if (!candidate.remoteFolderId || !succeededRemoteFolderIds.has(candidate.remoteFolderId)) continue
+      const remoteFolderIds = remoteFolderIdsByLedgerId.get(candidate.logicalLedgerId) ?? new Set<string>()
+      remoteFolderIds.add(candidate.remoteFolderId)
+      remoteFolderIdsByLedgerId.set(candidate.logicalLedgerId, remoteFolderIds)
+    }
+    return [...remoteFolderIdsByLedgerId]
+      .map(([logicalLedgerId, remoteFolderIds]) => ({
+        logicalLedgerId,
+        remoteFolderIds: [...remoteFolderIds].sort(),
+        remoteDeleted: true
+      }))
+      .sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId))
   }
 
   private async autoClassifyCurrentSegmentUnsafe(
@@ -6098,7 +6108,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const snapshot = await this.options.repository.getSnapshot(accountMid)
     const account = snapshot.accountMid
     const cached = this.workspaces.get(account)
-    if (cached && snapshot.workspace && this.matchesMarker(cached, snapshot.workspace)) return clone(cached)
+    if (cached && snapshot.workspace && await this.matchesMarker(cached, snapshot.workspace)) return clone(cached)
 
     if (snapshot.workspace) {
       const restored = await this.restoreFromStore(snapshot.workspace, snapshot.updatedAt, snapshot)
@@ -6630,7 +6640,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private async requireWorkspace(accountMid: string): Promise<OldFavoriteWorkspace> {
     const snapshot = await this.options.repository.getSnapshot(accountMid)
     const workspace = this.workspaces.get(snapshot.accountMid)
-    if (workspace && snapshot.workspace && this.matchesMarker(workspace, snapshot.workspace)) return workspace
+    if (workspace && snapshot.workspace && await this.matchesMarker(workspace, snapshot.workspace)) return workspace
     const opened = await this.openUnsafe(snapshot.accountMid)
     if (isRecoveryRequired(opened)) throw new Error('Old favorite workspace requires rebuild.')
     if (!opened) throw new Error('Old favorite workspace has not been started.')
@@ -6701,6 +6711,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.deepSeekOrganizationProjections.delete(accountMid)
     this.executionIntents.delete(accountMid)
     this.executionIntentRuns.delete(accountMid)
+    this.knownWorkspaceStoreRefs.delete(accountMid)
   }
 
   private async appendEvents(
@@ -7555,7 +7566,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const inventoryMetrics = this.projectInventoryMetrics(sourceFolders, repository, authority)
     const refreshedOverview: ScanOverview = { ...overview, sourceFolders, localWorkspaceFolders }
     await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
-      currentSegmentId: '', classifications: [], history: [],
+      currentSegmentId: this.currentSegment(workspace), classifications: [], history: [],
       scanMetadata: { sourceFolders, localWorkspaceFolders, ...overview.scan, inventoryMetrics }
     })
     this.scanOverviews.set(workspace.accountMid, refreshedOverview)
@@ -8050,10 +8061,84 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.options.now?.() ?? new Date().toISOString()
   }
 
-  private matchesMarker(workspace: OldFavoriteWorkspace, marker: FavoriteRepositoryWorkspace) {
-    return workspace.id === marker.id && marker.workspaceRef.workspaceId === marker.id &&
-      workspace.accountMid === marker.accountMid &&
-      workspace.status === marker.status && (workspace.baseline?.revision ?? 0) === marker.baselineRevision
+  private async matchesMarker(workspace: OldFavoriteWorkspace, marker: FavoriteRepositoryWorkspace) {
+    if (workspace.id !== marker.id || marker.workspaceRef.workspaceId !== marker.id ||
+      workspace.accountMid !== marker.accountMid || workspace.status !== marker.status ||
+      (workspace.baseline?.revision ?? 0) !== marker.baselineRevision) return false
+    try {
+      const recovered = await this.options.workspaceStore.readRecoverySummary(workspace.accountMid, workspace.id)
+      if ('recovery' in recovered) return false
+      const recoveredRef = this.recoverySummaryRef(recovered, marker.workspaceRef)
+      if (this.matchesRecoveryRef(recoveredRef, marker.workspaceRef)) {
+        this.knownWorkspaceStoreRefs.set(workspace.accountMid, recoveredRef)
+        this.rememberOperationInitialRef(workspace.accountMid, recoveredRef)
+        return true
+      }
+      const knownRef = this.knownWorkspaceStoreRefs.get(workspace.accountMid)
+      if (knownRef !== undefined && this.matchesRecoveryRef(recoveredRef, knownRef)) {
+        this.rememberOperationInitialRef(workspace.accountMid, recoveredRef)
+        return true
+      }
+      return this.activeOperationInitialRefs?.has(workspace.accountMid) === true
+    } catch {
+      return false
+    }
+  }
+
+  private recoverySummaryRef(
+    recovered: Exclude<Awaited<ReturnType<OldFavoriteWorkspaceStore['readRecoverySummary']>>, { recovery: string }>,
+    marker: FavoriteRepositoryWorkspace['workspaceRef']
+  ): FavoriteRepositoryWorkspace['workspaceRef'] {
+    return {
+      ...marker,
+      workspaceId: recovered.workspaceId,
+      accountMid: recovered.accountMid,
+      baselineRevision: recovered.baselineRevision,
+      currentSegmentId: recovered.currentSegmentId,
+      overlayRevision: recovered.overlayRevision,
+      journalCursor: recovered.journalCursor,
+      checksum: recovered.manifestChecksum
+    }
+  }
+
+  private matchesRecoveryRef(
+    left: FavoriteRepositoryWorkspace['workspaceRef'],
+    right: FavoriteRepositoryWorkspace['workspaceRef']
+  ) {
+    return left.workspaceId === right.workspaceId &&
+      left.accountMid === right.accountMid &&
+      left.baselineRevision === right.baselineRevision &&
+      left.currentSegmentId === right.currentSegmentId &&
+      left.overlayRevision === right.overlayRevision &&
+      left.journalCursor === right.journalCursor &&
+      left.checksum === right.checksum
+  }
+
+  private rememberOperationInitialRef(accountMid: string, ref: FavoriteRepositoryWorkspace['workspaceRef']) {
+    if (!this.activeOperationInitialRefs?.has(accountMid)) {
+      this.activeOperationInitialRefs?.set(accountMid, ref)
+    }
+  }
+
+  private async captureKnownWorkspaceStoreRefs() {
+    await Promise.all([...this.workspaces.values()].map(async (workspace) => {
+      try {
+        const recovered = await this.options.workspaceStore.readRecoverySummary(workspace.accountMid, workspace.id)
+        if ('recovery' in recovered) {
+          this.knownWorkspaceStoreRefs.delete(workspace.accountMid)
+          return
+        }
+        const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
+        const marker = snapshot.workspace
+        if (!marker || marker.id !== workspace.id) {
+          this.knownWorkspaceStoreRefs.delete(workspace.accountMid)
+          return
+        }
+        this.knownWorkspaceStoreRefs.set(workspace.accountMid, this.recoverySummaryRef(recovered, marker.workspaceRef))
+      } catch {
+        this.knownWorkspaceStoreRefs.delete(workspace.accountMid)
+      }
+    }))
   }
 
   /**
@@ -8172,7 +8257,19 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   private queue<T>(operation: () => Promise<T>) {
-    const run = this.operationTail.then(operation, operation)
+    const execute = async () => {
+      this.activeOperationInitialRefs = new Map()
+      try {
+        return await operation()
+      } finally {
+        try {
+          await this.captureKnownWorkspaceStoreRefs()
+        } finally {
+          this.activeOperationInitialRefs = null
+        }
+      }
+    }
+    const run = this.operationTail.then(execute, execute)
     this.operationTail = run.then(() => undefined, () => undefined)
     return run
   }
