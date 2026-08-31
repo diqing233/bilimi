@@ -46,6 +46,13 @@ describe('favorite ledger configuration refresh IPC', () => {
     expect(callback).not.toContain('reclassifyFavoriteWorkspaceIfPreviewing(accountMid)')
   })
 
+  it('does not erase the user-deleted default marker during ordinary projection', () => {
+    const reconcileStart = mainSource.indexOf('async function reconcileFavoriteLedgerBindingProjection(accountMid: string)')
+    const reconcileEnd = mainSource.indexOf('\n}\n\n/** Refreshes the account rule projection', reconcileStart)
+    const reconcile = mainSource.slice(reconcileStart, reconcileEnd)
+    expect(reconcile).not.toContain('managedFolderDeletedByUser: _deletedByUser')
+  })
+
   it('uses the same single-flight local projection after automatic capacity provisioning', () => {
     const syncServiceStart = mainSource.indexOf('favoriteRepositorySyncService = new FavoriteRepositorySyncService({')
     const syncServiceEnd = mainSource.indexOf('\n  })', syncServiceStart)

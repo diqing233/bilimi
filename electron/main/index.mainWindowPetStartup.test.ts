@@ -29,4 +29,23 @@ describe('main-window first pet startup wiring', () => {
     expect(yieldIndex).toBeGreaterThan(createIndex)
     expect(yieldIndex).toBeLessThan(proxyIndex)
   })
+
+  it('separates pet creation, Windows native polish, and mouse recovery into later event-loop tasks', () => {
+    const petStart = mainSource.indexOf('function createFloatingSealWindow()')
+    const petEnd = mainSource.indexOf('\n}\n\nconst floatingSealWakeController', petStart)
+    const petCreation = mainSource.slice(petStart, petEnd)
+    const nativePolishStart = mainSource.indexOf('function scheduleFloatingSealNativePolish(')
+    const nativePolishEnd = mainSource.indexOf('\n}\n\nfunction createFloatingSealWindow()', nativePolishStart)
+    const nativePolish = mainSource.slice(nativePolishStart, nativePolishEnd)
+
+    expect(petCreation).toContain('scheduleFloatingSealNativePolish(seal')
+    expect(petCreation).not.toContain('installFloatingSealWhiteStripFix(seal')
+    expect(petCreation).not.toContain('installFloatingSealCaptionStrip(seal')
+    expect(petCreation).toContain("seal.webContents.once('did-finish-load'")
+    expect(petCreation).toContain('setImmediate(() => {')
+    expect(nativePolish).toContain('setImmediate(() => {')
+    expect(nativePolish).toContain('installFloatingSealWhiteStripFix(seal')
+    expect(nativePolish).toContain('installFloatingSealCaptionStrip(seal')
+    expect(nativePolish).toContain('setImmediate(() => {')
+  })
 })

@@ -394,88 +394,113 @@ function positionFloatingAssistantWindow(
   assistant.setBounds(getFloatingAssistantBounds(anchor))
 }
 
+function scheduleFloatingSealNativePolish(
+  seal: BrowserWindow,
+  onWhiteStripFixReady: (
+    dispose: ReturnType<typeof installFloatingSealWhiteStripFix>,
+    handleDisplayChange: () => void
+  ) => void
+) {
+  if (process.platform !== 'win32') return
+
+  // BrowserWindow creation is already native work. Give the main loop a turn
+  // before installing the Windows repaint workaround, then defer the
+  // PowerShell title-bar adjustment one more turn.
+  setImmediate(() => {
+    if (seal.isDestroyed() || floatingSealWindow !== seal) return
+    const disposeWhiteStripFix = installFloatingSealWhiteStripFix(seal, {
+      getWorkArea: (bounds) =>
+        createFloatingHostMovementArea({
+          visualWorkArea: screen.getDisplayMatching(bounds).workArea,
+          padding: FLOATING_SEAL_HOST_PADDING
+        })
+    })
+    const handleFloatingSealDisplayChange = () => disposeWhiteStripFix.recomposite()
+    onWhiteStripFixReady(disposeWhiteStripFix, handleFloatingSealDisplayChange)
+
+    setImmediate(() => {
+      if (seal.isDestroyed() || floatingSealWindow !== seal) return
+      // Strip WS_CAPTION and disable DWM non-client rendering to avoid the
+      // inactive-frame path. The nudge remains as the fallback.
+      installFloatingSealCaptionStrip(seal, {
+        spawn: spawn as unknown as NonNullable<
+          Parameters<typeof installFloatingSealCaptionStrip>[1]
+        >['spawn'],
+        logger: (message, error) => {
+          if (error) {
+            console.warn('[floatingSeal]', message, error)
+          } else {
+            console.warn('[floatingSeal]', message)
+          }
+        }
+      })
+    })
+  })
+}
+
 function createFloatingSealWindow() {
   const seal = new BrowserWindow(
     createFloatingSealWindowOptions(getFloatingSealBounds(), createPreloadScriptPath(__dirname))
   )
   const enforceSealBounds = installFixedFloatingSealBoundsGuard(seal)
+  let disposeWhiteStripFix: ReturnType<typeof installFloatingSealWhiteStripFix> | null = null
+  let handleFloatingSealDisplayChange: (() => void) | null = null
 
   seal.setAlwaysOnTop(true, 'floating')
   seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   setFloatingSealMouseTransparency(seal, true)
   seal.removeMenu()
 
-  // Moving the transparent window forces Windows DWM to recompose stale inactive frames.
-  const disposeWhiteStripFix =
-    process.platform === 'win32'
-      ? installFloatingSealWhiteStripFix(seal, {
-          getWorkArea: (bounds) =>
-            createFloatingHostMovementArea({
-              visualWorkArea: screen.getDisplayMatching(bounds).workArea,
-              padding: FLOATING_SEAL_HOST_PADDING
-            })
-        })
-      : null
-  const handleFloatingSealDisplayChange = () => disposeWhiteStripFix?.recomposite()
-
-  if (disposeWhiteStripFix) {
-    recompositeFloatingSealWindow = disposeWhiteStripFix.recomposite
-    screen.on('display-metrics-changed', handleFloatingSealDisplayChange)
-    screen.on('display-added', handleFloatingSealDisplayChange)
-    screen.on('display-removed', handleFloatingSealDisplayChange)
-  }
-
-  // Strip WS_CAPTION and disable DWM non-client rendering to avoid the inactive-frame path.
-  // The pet window does not rely on title-bar behavior; the nudge remains as a fallback.
-  if (process.platform === 'win32') {
-    installFloatingSealCaptionStrip(seal, {
-      // Erase overloaded child_process.spawn signatures for the narrow caption-strip interface.
-      spawn: spawn as unknown as NonNullable<
-        Parameters<typeof installFloatingSealCaptionStrip>[1]
-      >['spawn'],
-      // Keep diagnostics visible while the PowerShell caption-strip path is validated.
-      logger: (message, error) => {
-        if (error) {
-          console.warn('[floatingSeal]', message, error)
-        } else {
-          console.warn('[floatingSeal]', message)
-        }
-      }
-    })
-  }
-
   seal.on('closed', () => {
     floatingSealMouseRecovery?.dispose()
     floatingSealMouseRecovery = null
     floatingSealInteractiveRegions = []
     disposeWhiteStripFix?.()
-    screen.off('display-metrics-changed', handleFloatingSealDisplayChange)
-    screen.off('display-added', handleFloatingSealDisplayChange)
-    screen.off('display-removed', handleFloatingSealDisplayChange)
+    if (handleFloatingSealDisplayChange) {
+      screen.off('display-metrics-changed', handleFloatingSealDisplayChange)
+      screen.off('display-added', handleFloatingSealDisplayChange)
+      screen.off('display-removed', handleFloatingSealDisplayChange)
+    }
     floatingSealWindow = null
     enforceFloatingSealWindowBounds = null
     recompositeFloatingSealWindow = null
   })
 
+  floatingSealWindow = seal
+  enforceFloatingSealWindowBounds = enforceSealBounds
+  scheduleFloatingSealNativePolish(seal, (dispose, handleDisplayChange) => {
+    if (seal.isDestroyed() || floatingSealWindow !== seal) {
+      dispose()
+      return
+    }
+    disposeWhiteStripFix = dispose
+    handleFloatingSealDisplayChange = handleDisplayChange
+    recompositeFloatingSealWindow = dispose.recomposite
+    screen.on('display-metrics-changed', handleDisplayChange)
+    screen.on('display-added', handleDisplayChange)
+    screen.on('display-removed', handleDisplayChange)
+  })
+
   loadRendererWindow(seal, FLOATING_SEAL_QUERY)
   seal.webContents.once('did-finish-load', () => {
     if (seal.isDestroyed() || floatingSealWindow !== seal) return
-    floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
-      getCursorPoint: () => screen.getCursorScreenPoint(),
-      schedulePoll: (callback, delayMs) => setTimeout(callback, delayMs),
-      cancelPoll: (handle) => clearTimeout(handle as NodeJS.Timeout),
-      window: seal
+    setImmediate(() => {
+      if (seal.isDestroyed() || floatingSealWindow !== seal) return
+      floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
+        getCursorPoint: () => screen.getCursorScreenPoint(),
+        schedulePoll: (callback, delayMs) => setTimeout(callback, delayMs),
+        cancelPoll: (handle) => clearTimeout(handle as NodeJS.Timeout),
+        window: seal
+      })
+      floatingSealMouseRecovery.setVisible(false)
+      floatingSealMouseRecovery.updateInteractiveRegions(floatingSealInteractiveRegions)
+      floatingSealMouseRecovery.setTransparent(true)
+      sendAssistantPetState()
+      enforceSealBounds()
+      floatingSealWakeController.showWhenReady(seal)
+      floatingSealMouseRecovery.setVisible(seal.isVisible())
     })
-    floatingSealMouseRecovery.setVisible(false)
-    floatingSealMouseRecovery.updateInteractiveRegions(floatingSealInteractiveRegions)
-    floatingSealMouseRecovery.setTransparent(true)
-    sendAssistantPetState()
-    enforceSealBounds()
-    floatingSealWakeController.showWhenReady(seal)
-    floatingSealMouseRecovery.setVisible(seal.isVisible())
   })
-  floatingSealWindow = seal
-  enforceFloatingSealWindowBounds = enforceSealBounds
 
   return seal
 }
@@ -814,11 +839,7 @@ async function reconcileFavoriteLedgerBindingProjection(accountMid: string) {
   const repositorySnapshot = await favoriteRepositoryService?.getSnapshot(accountMid).catch(() => null)
   if (!repositorySnapshot) return false
   const projectedLedgers = projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, repositorySnapshot.physicalShards)
-  const favoriteLedgers = projectedLedgers.map((ledger) => {
-    if (!ledger.isDefault || !ledger.managedFolderDeletedByUser) return ledger
-    const { managedFolderDeletedByUser: _deletedByUser, ...rest } = ledger
-    return rest
-  })
+  const favoriteLedgers = projectedLedgers
   if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return false
   saveFavoriteAccountPreferences(store, accountMid, { ...current, favoriteLedgers })
   sendAssistantPreferencesChanged(loadAssistantPreferences(store))

@@ -1231,7 +1231,6 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const locallyResetDefaultIds = new Set(deletionScope === 'local-only'
       ? [...plan.remoteDefaultLedgerIds, ...plan.localDefaultLedgerIds]
       : [])
-    const remotelyDeletedDefaultIds = new Set(deletionScope === 'bilibili' ? plan.remoteDefaultLedgerIds : [])
     const retained = draftLedgers
       .filter((ledger) => !deletedCustomIds.has(ledger.id))
       .map((ledger) => ({
@@ -1246,7 +1245,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       ? restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger)
       : ledger)
     let localCleanupFailed = Boolean(options.localCleanupFailed)
-    if (locallyResetDefaultIds.size || remotelyDeletedDefaultIds.size) {
+    // Remote deletion already persists the default-rule reset through the
+    // main-process deletion callback. Re-saving that same snapshot here can
+    // race with the authoritative write and turn a confirmed deletion into a
+    // stale "local state pending" dialog. Local-only resets still need this
+    // renderer save because they do not go through the remote deletion path.
+    if (locallyResetDefaultIds.size) {
       try {
         await onSaveLedgers(next, { deleteDisabled: false })
       } catch {

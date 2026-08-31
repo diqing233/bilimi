@@ -764,8 +764,6 @@ describe('FavoriteLedgerOverview', () => {
     })
     const deleteFavoriteLedgerDraft = vi.fn().mockResolvedValue(undefined)
     const save = vi.fn()
-      .mockRejectedValueOnce(new Error('transient local preference failure'))
-      .mockResolvedValue({ ok: true })
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
@@ -791,9 +789,9 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(within(dialog).getByRole('checkbox', { name: /已检测到未绑定的 bilimi 收藏夹/ }))
     fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
 
-    await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
-    expect(deleteManagedRemoteFolders).toHaveBeenCalledTimes(1)
-    expect(deleteFavoriteLedgerDraft).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(deleteManagedRemoteFolders).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(deleteFavoriteLedgerDraft).toHaveBeenCalledTimes(2))
+    expect(save).not.toHaveBeenCalled()
     expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '远端草稿1' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '远端草稿2' })).not.toBeInTheDocument()
@@ -843,6 +841,41 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '自建' })).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByTestId('favorite-ledger-chip-default')).toHaveTextContent('未备册')
+  })
+
+  it('closes after a confirmed default remote deletion without repeating the renderer ledger save', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'default', remoteFolderId: 'default-remote', title: 'bilimi·默认', memberCount: 4, state: 'bound', requiresUnboundAcknowledgement: false }
+    ])
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
+      status: 'succeeded', succeededRemoteFolderIds: ['default-remote'], failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+    })
+    const save = vi.fn().mockRejectedValue(new Error('renderer duplicate save must not run'))
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion,
+        deleteManagedRemoteFolders
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'default', displayName: 'bilimi·默认', keywords: [], enabled: true, priority: 1, isDefault: true,
+      bilibiliFolderId: 'default-remote', bilibiliFolderIds: ['default-remote'], bindingState: 'bound'
+    }]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·默认' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteManagedRemoteFolders).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument())
+    expect(save).not.toHaveBeenCalled()
     expect(screen.getByTestId('favorite-ledger-chip-default')).toHaveTextContent('未备册')
   })
 
@@ -2521,12 +2554,7 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(deleteManagedRemoteFolders).toHaveBeenCalledWith(
       '100', ['music'], false, { music: 'bilimi·音乐' }, { music: ['remote-music'] }
     ))
-    await waitFor(() => expect(save).toHaveBeenCalledWith([
-      expect.objectContaining({
-        id: 'music', displayName: 'bilimi·音乐舞台', bindingState: 'unbacked',
-        confirmedDeletedRemoteFolderIds: ['remote-music']
-      })
-    ], { deleteDisabled: false }))
+    expect(save).not.toHaveBeenCalled()
     expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未备册')
   })
 
@@ -2565,12 +2593,7 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(deleteManagedRemoteFolders).toHaveBeenCalledWith(
       '100', ['music'], true, { music: 'bilimi·音乐' }, { music: ['bound-music', 'unbound-music'] }
     ))
-    await waitFor(() => expect(save).toHaveBeenCalledWith([
-      expect.objectContaining({
-        id: 'music', bindingState: 'unbacked',
-        confirmedDeletedRemoteFolderIds: ['bound-music', 'unbound-music']
-      })
-    ], { deleteDisabled: false }))
+    expect(save).not.toHaveBeenCalled()
   })
 
   it('passes a missing-formal-shard history id as an exact deletion target', async () => {
