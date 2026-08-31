@@ -166,6 +166,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }
     const open = vi.fn().mockResolvedValue(workspace)
     const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['local-tech'] })
+    const refreshOrganizationState = vi.fn().mockResolvedValue(undefined)
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: open,
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -174,7 +175,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
-      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onRefreshOrganizationState={refreshOrganizationState}
       ledgers={[{ id: 'local-tech', displayName: 'bilimi·本地技术', keywords: ['技术'], ruleType: 'keyword', enabled: true, priority: 10, isDefault: false }]} />)
 
     await waitFor(() => expect(open).toHaveBeenCalled())
@@ -184,6 +185,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['local-tech']))
     await waitFor(() => expect(open.mock.calls.length).toBeGreaterThan(readsBeforeDeletion))
+    await waitFor(() => expect(refreshOrganizationState).toHaveBeenCalledOnce())
   })
 
   it('keeps a promoted recommendation draft and cancels its exact lower adoption when its upper card is unchecked', async () => {

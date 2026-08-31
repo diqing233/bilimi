@@ -85,6 +85,7 @@ import type { OldFavoriteWorkspaceBilibiliSyncPreflight, OldFavoriteWorkspaceDee
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
+  notifyMainWindowInteractive: () => ipcRenderer.send('main-window:interactive-ready'),
   closeAssistantPet: () => ipcRenderer.send('assistant-pet:close'),
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),

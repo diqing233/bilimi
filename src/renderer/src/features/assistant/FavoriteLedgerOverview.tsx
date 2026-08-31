@@ -593,9 +593,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     bindingLabelForLedger(ledger)
   ].filter(Boolean).join(' · ')
   const statusLabelForLedger = (ledger: FavoriteLedger) => {
-    const unsaved = ledgerHasUnsavedChanges(ledger)
-    if (hasExpandedOrganizationGuide) return unsaved ? '未保存' : ''
-    return combinedStatusLabel(ledger)
+    const label = combinedStatusLabel(ledger)
+    if (hasExpandedOrganizationGuide && !label.includes('未备册')) {
+      return ledgerHasUnsavedChanges(ledger) ? '未保存' : ''
+    }
+    return label
   }
   const editorStatusLabelForLedger = (ledger: FavoriteLedger) => combinedStatusLabel(ledger)
   const recoveredRemoteUnsavedCount = recoveredRemoteLedgers.filter((ledger) => ledgerHasUnsavedChanges(ledger)).length

@@ -492,6 +492,26 @@ const floatingSealWakeController = createFloatingSealWakeController({
   cancelCreate: (handle) => clearImmediate(handle as NodeJS.Immediate)
 })
 
+let automaticFloatingSealWakeScheduled = false
+let automaticFloatingSealWakeHandle: NodeJS.Immediate | undefined
+
+function scheduleAutomaticFloatingSealWake() {
+  if (automaticFloatingSealWakeScheduled || appQuitting) return
+  automaticFloatingSealWakeScheduled = true
+  automaticFloatingSealWakeHandle = setImmediate(() => {
+    automaticFloatingSealWakeScheduled = false
+    automaticFloatingSealWakeHandle = undefined
+    if (appQuitting) return
+    void floatingSealWakeController.wake()
+  })
+}
+
+function cancelAutomaticFloatingSealWake() {
+  if (automaticFloatingSealWakeHandle) clearImmediate(automaticFloatingSealWakeHandle)
+  automaticFloatingSealWakeHandle = undefined
+  automaticFloatingSealWakeScheduled = false
+}
+
 function sendAssistantPetState() {
   if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
     return
@@ -1296,6 +1316,12 @@ function registerAssistantPreferenceHandlers() {
       return
     }
     markAssistantRuntimeReady(event.sender.id)
+  })
+  ipcMain.on('main-window:interactive-ready', (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
+      return
+    }
+    scheduleAutomaticFloatingSealWake()
   })
   ipcMain.handle('bilibili-session:retry-direct', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
@@ -2874,7 +2900,6 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   })
   getVideoTranscriptionQueue()
   if (singleInstanceGuard.hasPendingFocus()) singleInstanceGuard.focusMainWindow()
-  void floatingSealWakeController.wake()
 })
 
 const favoriteRepositoryQuitBarrier = createFavoriteRepositoryQuitBarrier({
@@ -2886,6 +2911,7 @@ const favoriteRepositoryQuitBarrier = createFavoriteRepositoryQuitBarrier({
   quit: () => app.quit()
 })
 app.on('before-quit', favoriteRepositoryQuitBarrier)
+app.on('before-quit', cancelAutomaticFloatingSealWake)
 app.on('before-quit', disposeDefaultFasterWhisperHelperSessions)
 app.on('before-quit', disposeFasterWhisperGpuProbes)
 

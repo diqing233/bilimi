@@ -832,9 +832,10 @@ export function ControlledFavoriteLedgerPanel({
   // succeeds, replace the renderer's prior selection with the main-process
   // transaction snapshot before any recommendation promotion effect can run.
   const handleDeleteLedger = useCallback(async () => {
-    await workspace.refresh()
+    await workspace.refresh().catch(() => undefined)
+    await onRefreshOrganizationState?.()
     return true
-  }, [workspace.refresh])
+  }, [onRefreshOrganizationState, workspace.refresh])
   const waitForRecommendationLedgerSave = useCallback(async (ledgerId: string) => {
     await pendingRecommendationSavesRef.current.get(ledgerId)
   }, [])

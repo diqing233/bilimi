@@ -3685,6 +3685,20 @@ export default function App() {
   }
 
   useEffect(() => {
+    let firstFrame: number | undefined
+    let secondFrame: number | undefined
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        window.bilimiDesktop?.notifyMainWindowInteractive?.()
+      })
+    })
+    return () => {
+      if (firstFrame !== undefined) window.cancelAnimationFrame(firstFrame)
+      if (secondFrame !== undefined) window.cancelAnimationFrame(secondFrame)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!window.bilimiDesktop?.registerAssistantRuntime) {
       return
     }
