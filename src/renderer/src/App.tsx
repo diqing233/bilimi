@@ -3703,14 +3703,28 @@ export default function App() {
   useEffect(() => {
     let firstFrame: number | undefined
     let secondFrame: number | undefined
+    let idleHandle: number | undefined
+    let fallbackHandle: number | undefined
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number
+      cancelIdleCallback?: (handle: number) => void
+    }
+    const notifyInteractive = () => {
+      window.bilimiDesktop?.notifyMainWindowInteractive?.()
+    }
     firstFrame = window.requestAnimationFrame(() => {
       secondFrame = window.requestAnimationFrame(() => {
-        window.bilimiDesktop?.notifyMainWindowInteractive?.()
+        idleHandle = idleWindow.requestIdleCallback?.(notifyInteractive)
+        if (idleHandle === undefined) {
+          fallbackHandle = window.setTimeout(notifyInteractive, 0)
+        }
       })
     })
     return () => {
       if (firstFrame !== undefined) window.cancelAnimationFrame(firstFrame)
       if (secondFrame !== undefined) window.cancelAnimationFrame(secondFrame)
+      if (idleHandle !== undefined) idleWindow.cancelIdleCallback?.(idleHandle)
+      if (fallbackHandle !== undefined) window.clearTimeout(fallbackHandle)
     }
   }, [])
 

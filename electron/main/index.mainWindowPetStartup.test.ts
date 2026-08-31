@@ -19,6 +19,14 @@ describe('main-window first pet startup wiring', () => {
     expect(rendererSource).toContain('window.bilimiDesktop?.notifyMainWindowInteractive?.()')
   })
 
+  it('reports interactivity from a browser idle task so pet creation cannot compete with first-frame input', () => {
+    const notifyIndex = rendererSource.indexOf('window.bilimiDesktop?.notifyMainWindowInteractive?.()')
+    const interactiveEffect = rendererSource.slice(rendererSource.lastIndexOf('useEffect(() => {', notifyIndex), notifyIndex + 120)
+
+    expect(interactiveEffect).toContain('requestIdleCallback')
+    expect(interactiveEffect).toContain('cancelIdleCallback')
+  })
+
   it('yields the event loop after creating the visible shell before startup session work', () => {
     const startup = mainSource.slice(mainSource.indexOf('if (singleInstanceGuard) app.whenReady()'))
     const createIndex = startup.indexOf('createMainWindow()')

@@ -801,6 +801,45 @@ describe('FavoriteLedgerOverview', () => {
     }
   })
 
+  it('keeps an unbound default rule as unbacked after remote deletion confirms the folder is already absent', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      {
+        logicalLedgerId: 'game', title: 'bilimi·游戏', memberCount: 0,
+        state: 'local-only', requiresUnboundAcknowledgement: false
+      }
+    ])
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
+      status: 'succeeded', succeededRemoteFolderIds: [], failedRemoteFolderIds: [],
+      unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+    })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion,
+        deleteManagedRemoteFolders
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'game', displayName: 'bilimi·游戏', keywords: ['游戏'], enabled: true, priority: 10,
+      bindingState: 'unbound', isDefault: true
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·游戏' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteManagedRemoteFolders).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByTestId('favorite-ledger-chip-game')).toHaveTextContent('未备册'))
+    fireEvent.click(screen.getByRole('button', { name: '游戏专区' }))
+    expect(screen.getByRole('region', { name: '当前收藏夹' })
+      .querySelector('.favorite-ledger-panel__binding-status')).toHaveTextContent('未备册')
+  })
+
   it('does not keep a stale deletion checkpoint when the post-cleanup refresh callback fails', async () => {
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'default', remoteFolderId: 'default-remote', title: 'bilimi·默认', memberCount: 4, state: 'bound', requiresUnboundAcknowledgement: false },

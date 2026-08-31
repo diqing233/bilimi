@@ -1233,6 +1233,18 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const locallyResetDefaultIds = new Set(deletionScope === 'local-only'
       ? [...plan.remoteDefaultLedgerIds, ...plan.localDefaultLedgerIds]
       : [])
+    // A remote-scope deletion can legitimately have no remote folder id: the
+    // fresh inventory already confirmed that an unbound default rule has no
+    // exact historical id or same-title candidate.  The main process persists
+    // that fact as `unbacked`; mirror it in the renderer projection instead of
+    // reusing the stale `unbound` draft that opened the dialog.
+    const confirmedAbsentDefaultIds = new Set(deletionScope === 'bilibili'
+      ? plan.candidates
+        .filter((candidate) => candidate.state === 'local-only' && !candidate.remoteFolderId)
+        .map((candidate) => candidate.logicalLedgerId)
+        .filter((ledgerId) => draftLedgers.some((ledger) => ledger.id === ledgerId && ledger.isDefault))
+      : [])
+    const defaultIdsToReset = new Set([...locallyResetDefaultIds, ...confirmedAbsentDefaultIds])
     const retained = draftLedgers
       .filter((ledger) => !deletedCustomIds.has(ledger.id))
       .map((ledger) => ({
@@ -1243,9 +1255,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       }))
     const next = removeConfirmedRemoteBindings(retained, deletionScope === 'bilibili'
       ? plan.confirmedRemoteFolderIds ?? []
-      : [], plan.candidates).map((ledger) => locallyResetDefaultIds.has(ledger.id)
-      ? restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger)
-      : ledger)
+      : [], plan.candidates).map((ledger) => {
+      if (!defaultIdsToReset.has(ledger.id)) return ledger
+      const restored = restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger)
+      return confirmedAbsentDefaultIds.has(ledger.id)
+        ? { ...restored, bindingState: 'unbacked' as const }
+        : restored
+    })
     let localCleanupFailed = Boolean(options.localCleanupFailed)
     // Remote deletion already persists the default-rule reset through the
     // main-process deletion callback. Re-saving that same snapshot here can
