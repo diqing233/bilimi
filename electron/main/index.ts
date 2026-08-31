@@ -2085,6 +2085,10 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   // while the native window remains movable and closable during startup.
   registerAssistantPreferenceHandlers()
   createMainWindow()
+  // Give Chromium one event-loop turn to commit the visible shell before
+  // applying session/proxy settings and constructing the remaining services.
+  // This keeps launch-time native work from monopolizing mouse input.
+  await new Promise<void>((resolve) => setImmediate(resolve))
   await bilibiliSessionProxy.applyPreference(readBilibiliConnectionMode()).catch(() => undefined)
   favoriteRepositoryService = new FavoriteRepositoryService({
     root: join(app.getPath('userData'), 'favorites', 'repository-v1'),
@@ -2689,6 +2693,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getArchiveSummary: (accountMid, aid) => createFavoriteLibraryArchiveSummary(accountMid, aid, loadVideoNoteArchives(getDesktopStore())),
     getTranscriptionSummary: (accountMid, aid) =>
       createFavoriteLibraryTranscriptionSummary(accountMid, aid, getVideoTranscriptionQueue().getSnapshot().items),
+    // Project durable physical shards before returning the first drawer summary.
+    // Remote inventory reconciliation remains in onAccountOpen's deferred path.
+    onAccountOpenLocal: async (accountMid) => {
+      await reconcileFavoriteLedgerBindingProjection(accountMid)
+    },
     onAccountOpen: async (accountMid) => {
       // Validate pending/migrated bindings against the current remote inventory
       // before any persisted scan projection is allowed to restore them.

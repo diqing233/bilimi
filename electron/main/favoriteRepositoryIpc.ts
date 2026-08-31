@@ -420,6 +420,8 @@ export function registerFavoriteRepositoryIpc(options: {
   /** Clears a default user-deleted marker only after formal repository adoption commits. */
   onLedgerBindingAdopted?: (accountMid: string, logicalLedgerId: string) => Promise<unknown> | unknown
   /** Performs safe main-process reconciliation before the drawer reads a summary. */
+  onAccountOpenLocal?: (accountMid: string) => Promise<void>
+  /** Performs optional remote/account recovery after the first local summary is readable. */
   onAccountOpen?: (accountMid: string) => Promise<void>
   /** Returns persisted local ledger identities that are still unbound drafts. */
   getLocalDraftLedgerIds?: (accountMid: string) => readonly string[]
@@ -611,6 +613,11 @@ export function registerFavoriteRepositoryIpc(options: {
     }
     if (options.service.repairLegacyConfirmedReviewFavorites) {
       await options.service.repairLegacyConfirmedReviewFavorites(accountMid)
+    }
+    // The first summary must include the latest local physical-shard projection,
+    // while remote inventory recovery remains deferred so startup stays responsive.
+    if (options.onAccountOpenLocal) {
+      await options.onAccountOpenLocal(accountMid)
     }
     // Reconciliation enriches the local projection but must not block reading
     // an already usable library when the page runtime is unavailable.

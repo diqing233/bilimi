@@ -3827,6 +3827,40 @@ describe('App runtime integration', () => {
     expect(executeJavaScript.mock.calls.filter(([script]) => isLedgerStatusScript(String(script)))).toHaveLength(0)
   })
 
+  it('invalidates the recent status cache when the local repository revision changes', async () => {
+    const accountMid = '100'
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1)
+    let revision = 1
+    const repositorySummary = () => ({
+      version: 1, accountMid, revision, updatedAt: '2026-08-31T00:00:00.000Z',
+      videoCount: 0, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 0,
+      syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, physicalShards: []
+    })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: { [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: ledgers } }
+      })),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockImplementation(async () => repositorySummary()),
+      getFavoriteRepositorySnapshot: vi.fn().mockImplementation(async () => repositorySummary())
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) return { ok: true, ledgers, missingLedgerIds: [], message: '册目查验已毕。' }
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await requestRuntime({ id: 'revision-status-1', type: 'snapshot' })
+    executeJavaScript.mockClear()
+    revision = 2
+    await requestRuntime({ id: 'revision-status-2', type: 'snapshot' })
+
+    expect(executeJavaScript.mock.calls.filter(([script]) => isLedgerStatusScript(String(script)))).toHaveLength(1)
+  })
+
   it('shares an in-flight backup for concurrent requests from the same account', async () => {
     let resolveBackup: ((result: unknown) => void) | undefined
     const readBilibiliAccountMid = vi.fn().mockResolvedValue('100')

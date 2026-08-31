@@ -235,6 +235,28 @@ describe('registerFavoriteRepositoryIpc', () => {
     await expect(opened).resolves.toEqual({ accountMid: '100', revision: 1 })
   })
 
+  it('waits for local binding projection before the first summary while remote recovery stays deferred', async () => {
+    const ipcMain = new FakeIpcMain()
+    const recovery = deferred<void>()
+    const onAccountOpenLocal = vi.fn().mockResolvedValue(undefined)
+    const onAccountOpen = vi.fn().mockReturnValue(recovery.promise)
+    const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 7 })
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: { getLibrarySummary } as never,
+      isTrustedSender: (senderId) => senderId === 7,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      onAccountOpenLocal,
+      onAccountOpen
+    })
+
+    const opened = ipcMain.invoke('favorite-repository:open-account', 7, '100')
+    await expect(opened).resolves.toEqual({ accountMid: '100', revision: 7 })
+    expect(onAccountOpenLocal).toHaveBeenCalledWith('100')
+    expect(onAccountOpenLocal).toHaveBeenCalledBefore(getLibrarySummary)
+    expect(onAccountOpen).toHaveBeenCalledWith('100')
+    recovery.resolve()
+  })
+
   it('coalesces repeated account opens into one in-flight recovery', async () => {
     const ipcMain = new FakeIpcMain()
     const recovery = deferred<void>()

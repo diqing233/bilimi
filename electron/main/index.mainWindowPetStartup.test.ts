@@ -18,4 +18,15 @@ describe('main-window first pet startup wiring', () => {
     expect(preloadSource).toContain("notifyMainWindowInteractive: () => ipcRenderer.send('main-window:interactive-ready')")
     expect(rendererSource).toContain('window.bilimiDesktop?.notifyMainWindowInteractive?.()')
   })
+
+  it('yields the event loop after creating the visible shell before startup session work', () => {
+    const startup = mainSource.slice(mainSource.indexOf('if (singleInstanceGuard) app.whenReady()'))
+    const createIndex = startup.indexOf('createMainWindow()')
+    const proxyIndex = startup.indexOf('await bilibiliSessionProxy.applyPreference')
+    const yieldIndex = startup.indexOf('await new Promise<void>((resolve) => setImmediate(resolve))')
+
+    expect(createIndex).toBeGreaterThanOrEqual(0)
+    expect(yieldIndex).toBeGreaterThan(createIndex)
+    expect(yieldIndex).toBeLessThan(proxyIndex)
+  })
 })

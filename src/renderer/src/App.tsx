@@ -798,6 +798,7 @@ export default function App() {
   const favoriteLedgerStatusCacheRef = useRef<{
     accountMid: string
     ledgerSignature: string
+    repositoryRevision?: number
     checkedAt: number
     status: FavoriteLedgerStatus
   } | null>(null)
@@ -1652,6 +1653,7 @@ export default function App() {
     return {
       trustedRemoteFolderIds,
       trustedRemoteShardNumbers,
+      repositoryRevision: typeof repositorySummary?.revision === 'number' ? repositorySummary.revision : undefined,
       ledgers: favoriteLedgers.map((ledger) => {
         // A right-side local deletion deliberately resets a default rule while
         // preserving its Bilibili folder. Until a later backup explicitly
@@ -1994,10 +1996,21 @@ export default function App() {
     })))
     const cached = favoriteLedgerStatusCacheRef.current
     if (!options.force && cached?.accountMid === accountMid && Date.now() - cached.checkedAt < 30_000) {
-      assistantSnapshotCacheRef.current.favoriteLedgerStatus = cached.status
-      return cached.status
+      if (window.bilimiDesktop?.getFavoriteRepositorySnapshot && cached.repositoryRevision !== undefined) {
+        const currentSummary = await window.bilimiDesktop.getFavoriteRepositorySnapshot(accountMid).catch(() => null)
+        const currentRevision = typeof currentSummary?.revision === 'number' ? currentSummary.revision : undefined
+        if (currentRevision !== undefined && currentRevision !== cached.repositoryRevision) {
+          favoriteLedgerStatusCacheRef.current = null
+        } else {
+          assistantSnapshotCacheRef.current.favoriteLedgerStatus = cached.status
+          return cached.status
+        }
+      } else {
+        assistantSnapshotCacheRef.current.favoriteLedgerStatus = cached.status
+        return cached.status
+      }
     }
-    const { ledgers: ledgersWithRepositoryCandidates } = await projectFavoriteLedgersToFormalBindings(
+    const { ledgers: ledgersWithRepositoryCandidates, repositoryRevision } = await projectFavoriteLedgersToFormalBindings(
       accountMid,
       favoriteLedgers
     )
@@ -2090,6 +2103,7 @@ export default function App() {
           bindingState: ledger.bindingState,
           bilibiliFolderId: ledger.bilibiliFolderId
         }))),
+        repositoryRevision,
         checkedAt: Date.now(),
         status: recoveredStatus
       }
@@ -2108,6 +2122,7 @@ export default function App() {
     favoriteLedgerStatusCacheRef.current = {
       accountMid,
       ledgerSignature,
+      repositoryRevision,
       checkedAt: Date.now(),
       status: fallbackStatus
     }
@@ -2137,7 +2152,7 @@ export default function App() {
     const favoriteLedgers = accountMid
       ? effectiveFavoriteLedgersForAccount(preferencesRef.current, accountMid)
       : favoriteLedgersForActiveAccount(accountMid)
-    const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers } = await projectFavoriteLedgersToFormalBindings(
+    const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers, repositoryRevision } = await projectFavoriteLedgersToFormalBindings(
       accountMid,
       favoriteLedgers
     )
@@ -2237,6 +2252,7 @@ export default function App() {
           bindingState: ledger.bindingState,
           bilibiliFolderId: ledger.bilibiliFolderId
         }))),
+        repositoryRevision,
         checkedAt: Date.now(),
         status: favoriteLedgerStatus
       }
