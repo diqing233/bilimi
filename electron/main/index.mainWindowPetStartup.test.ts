@@ -30,7 +30,7 @@ describe('main-window first pet startup wiring', () => {
     expect(yieldIndex).toBeLessThan(proxyIndex)
   })
 
-  it('separates pet creation, Windows native polish, and mouse recovery into later event-loop tasks', () => {
+  it('keeps the pet hidden until renderer loading, DWM recomposition, caption repair, and mouse recovery initialization finish in order', () => {
     const petStart = mainSource.indexOf('function createFloatingSealWindow()')
     const petEnd = mainSource.indexOf('\n}\n\nconst floatingSealWakeController', petStart)
     const petCreation = mainSource.slice(petStart, petEnd)
@@ -38,14 +38,16 @@ describe('main-window first pet startup wiring', () => {
     const nativePolishEnd = mainSource.indexOf('\n}\n\nfunction createFloatingSealWindow()', nativePolishStart)
     const nativePolish = mainSource.slice(nativePolishStart, nativePolishEnd)
 
-    expect(petCreation).toContain('scheduleFloatingSealNativePolish(seal')
+    expect(petCreation).toContain('await scheduleFloatingSealNativePolish(seal')
     expect(petCreation).not.toContain('installFloatingSealWhiteStripFix(seal')
     expect(petCreation).not.toContain('installFloatingSealCaptionStrip(seal')
     expect(petCreation).toContain("seal.webContents.once('did-finish-load'")
-    expect(petCreation).toContain('setImmediate(() => {')
-    expect(nativePolish).toContain('setImmediate(() => {')
+    expect(petCreation).toContain('floatingSealMouseRecovery = createFloatingSealMouseRecoveryController')
+    expect(petCreation).toContain('floatingSealWakeController.showWhenReady(seal)')
+    expect(nativePolish).toContain('await new Promise<void>((resolve) => setImmediate(resolve))')
     expect(nativePolish).toContain('installFloatingSealWhiteStripFix(seal')
     expect(nativePolish).toContain('installFloatingSealCaptionStrip(seal')
-    expect(nativePolish).toContain('setImmediate(() => {')
+    expect(nativePolish).toContain('await disposeWhiteStripFix.recomposite()')
+    expect(nativePolish).toContain('await installFloatingSealCaptionStrip(seal')
   })
 })

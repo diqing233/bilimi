@@ -57,6 +57,8 @@ export type PersistedManagedFolderDeletion = {
   remoteFolderIds: string[]
   /** True only after the corresponding Bilibili folder removal succeeded. */
   remoteDeleted: boolean
+  /** A fresh directory read found neither an exact historical ID nor a same-title remote candidate. */
+  remoteConfirmedAbsent?: boolean
 }
 
 class ManagedFolderRemotePreconditionError extends Error {}

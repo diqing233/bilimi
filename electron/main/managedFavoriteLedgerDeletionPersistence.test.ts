@@ -29,6 +29,29 @@ describe('persistConfirmedManagedFolderDeletion', () => {
     expect(publish).toHaveBeenCalledOnce()
   })
 
+  it('persists a default unbound rule as unbacked after a fresh directory confirms no remote candidate exists', async () => {
+    const current = preferences([{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      isDefault: true, bindingState: 'unbound'
+    }])
+    const save = vi.fn()
+    const publish = vi.fn()
+    const confirmedAbsence = {
+      logicalLedgerId: 'music', remoteFolderIds: [], remoteDeleted: false, remoteConfirmedAbsent: true
+    } as never
+
+    await expect(persistConfirmedManagedFolderDeletion('100', [confirmedAbsence], {
+      load: () => current, save, publish
+    })).resolves.toBe(true)
+
+    expect(save).toHaveBeenCalledWith('100', expect.objectContaining({
+      favoriteLedgers: [expect.objectContaining({
+        id: 'music', bindingState: 'unbacked', managedFolderDeletedByUser: true
+      })]
+    }))
+    expect(publish).toHaveBeenCalledOnce()
+  })
+
   it('keeps a custom right-side rule when left-side deletion also removed its Bilibili folder', async () => {
     const current = preferences([{
       id: 'custom-work', displayName: 'bilimi·工作', keywords: [], enabled: true, priority: 20,

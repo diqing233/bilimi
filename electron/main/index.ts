@@ -394,7 +394,7 @@ function positionFloatingAssistantWindow(
   assistant.setBounds(getFloatingAssistantBounds(anchor))
 }
 
-function scheduleFloatingSealNativePolish(
+async function scheduleFloatingSealNativePolish(
   seal: BrowserWindow,
   onWhiteStripFixReady: (
     dispose: ReturnType<typeof installFloatingSealWhiteStripFix>,
@@ -403,38 +403,40 @@ function scheduleFloatingSealNativePolish(
 ) {
   if (process.platform !== 'win32') return
 
-  // BrowserWindow creation is already native work. Give the main loop a turn
-  // before installing the Windows repaint workaround, then defer the
-  // PowerShell title-bar adjustment one more turn.
-  setImmediate(() => {
-    if (seal.isDestroyed() || floatingSealWindow !== seal) return
-    const disposeWhiteStripFix = installFloatingSealWhiteStripFix(seal, {
-      getWorkArea: (bounds) =>
-        createFloatingHostMovementArea({
-          visualWorkArea: screen.getDisplayMatching(bounds).workArea,
-          padding: FLOATING_SEAL_HOST_PADDING
-        })
-    })
-    const handleFloatingSealDisplayChange = () => disposeWhiteStripFix.recomposite()
-    onWhiteStripFixReady(disposeWhiteStripFix, handleFloatingSealDisplayChange)
-
-    setImmediate(() => {
-      if (seal.isDestroyed() || floatingSealWindow !== seal) return
-      // Strip WS_CAPTION and disable DWM non-client rendering to avoid the
-      // inactive-frame path. The nudge remains as the fallback.
-      installFloatingSealCaptionStrip(seal, {
-        spawn: spawn as unknown as NonNullable<
-          Parameters<typeof installFloatingSealCaptionStrip>[1]
-        >['spawn'],
-        logger: (message, error) => {
-          if (error) {
-            console.warn('[floatingSeal]', message, error)
-          } else {
-            console.warn('[floatingSeal]', message)
-          }
-        }
+  // BrowserWindow creation is already native work. Yield before each Windows
+  // task and keep the host hidden until both repairs have settled.
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  if (seal.isDestroyed() || floatingSealWindow !== seal) return
+  const disposeWhiteStripFix = installFloatingSealWhiteStripFix(seal, {
+    getWorkArea: (bounds) =>
+      createFloatingHostMovementArea({
+        visualWorkArea: screen.getDisplayMatching(bounds).workArea,
+        padding: FLOATING_SEAL_HOST_PADDING
       })
-    })
+  })
+  const handleFloatingSealDisplayChange = () => { void disposeWhiteStripFix.recomposite() }
+  await disposeWhiteStripFix.recomposite()
+  if (seal.isDestroyed() || floatingSealWindow !== seal) {
+    disposeWhiteStripFix()
+    return
+  }
+  onWhiteStripFixReady(disposeWhiteStripFix, handleFloatingSealDisplayChange)
+
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  if (seal.isDestroyed() || floatingSealWindow !== seal) return
+  // Strip WS_CAPTION and disable DWM non-client rendering to avoid the
+  // inactive-frame path. The nudge remains as the fallback.
+  await installFloatingSealCaptionStrip(seal, {
+    spawn: spawn as unknown as NonNullable<
+      Parameters<typeof installFloatingSealCaptionStrip>[1]
+    >['spawn'],
+    logger: (message, error) => {
+      if (error) {
+        console.warn('[floatingSeal]', message, error)
+      } else {
+        console.warn('[floatingSeal]', message)
+      }
+    }
   })
 }
 
@@ -468,23 +470,28 @@ function createFloatingSealWindow() {
 
   floatingSealWindow = seal
   enforceFloatingSealWindowBounds = enforceSealBounds
-  scheduleFloatingSealNativePolish(seal, (dispose, handleDisplayChange) => {
-    if (seal.isDestroyed() || floatingSealWindow !== seal) {
-      dispose()
-      return
-    }
-    disposeWhiteStripFix = dispose
-    handleFloatingSealDisplayChange = handleDisplayChange
-    recompositeFloatingSealWindow = dispose.recomposite
-    screen.on('display-metrics-changed', handleDisplayChange)
-    screen.on('display-added', handleDisplayChange)
-    screen.on('display-removed', handleDisplayChange)
-  })
 
   loadRendererWindow(seal, FLOATING_SEAL_QUERY)
   seal.webContents.once('did-finish-load', () => {
     if (seal.isDestroyed() || floatingSealWindow !== seal) return
-    setImmediate(() => {
+    void (async () => {
+      try {
+        await scheduleFloatingSealNativePolish(seal, (dispose, handleDisplayChange) => {
+          if (seal.isDestroyed() || floatingSealWindow !== seal) {
+            dispose()
+            return
+          }
+          disposeWhiteStripFix = dispose
+          handleFloatingSealDisplayChange = handleDisplayChange
+          recompositeFloatingSealWindow = dispose.recomposite
+          screen.on('display-metrics-changed', handleDisplayChange)
+          screen.on('display-added', handleDisplayChange)
+          screen.on('display-removed', handleDisplayChange)
+        })
+      } catch (error) {
+        console.warn('[floatingSeal] native startup polish failed', error)
+      }
+      await new Promise<void>((resolve) => setImmediate(resolve))
       if (seal.isDestroyed() || floatingSealWindow !== seal) return
       floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
         getCursorPoint: () => screen.getCursorScreenPoint(),
@@ -499,7 +506,7 @@ function createFloatingSealWindow() {
       enforceSealBounds()
       floatingSealWakeController.showWhenReady(seal)
       floatingSealMouseRecovery.setVisible(seal.isVisible())
-    })
+    })()
   })
 
   return seal

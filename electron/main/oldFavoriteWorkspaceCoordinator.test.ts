@@ -163,6 +163,29 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     }])
   })
 
+  it('reports a fresh no-candidate result for an unbound default rule without attempting a remote folder deletion', async () => {
+    const root = await createRoot()
+    const onManagedFolderDeletion = vi.fn().mockResolvedValue(undefined)
+    const syncService = createSyncService({
+      deleteManagedRemoteFolders: vi.fn().mockResolvedValue({
+        status: 'succeeded',
+        candidates: [{ logicalLedgerId: 'music', title: 'bilimi·音乐', memberCount: 0, state: 'local-only', requiresUnboundAcknowledgement: false }],
+        succeededRemoteFolderIds: [], failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+      })
+    })
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false, syncService, onManagedFolderDeletion }
+    )
+
+    await expect(coordinator.deleteManagedRemoteFolderCandidates('100', ['music'])).resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(onManagedFolderDeletion).toHaveBeenCalledWith('100', [{
+      logicalLedgerId: 'music', remoteFolderIds: [], remoteDeleted: false, remoteConfirmedAbsent: true
+    }])
+  })
+
   it('does not clear matching ledger rules when no managed folder deletion succeeds', async () => {
     const root = await createRoot()
     const onManagedFolderDeletion = vi.fn().mockResolvedValue(undefined)

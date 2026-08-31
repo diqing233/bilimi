@@ -1007,7 +1007,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       .filter((ledger) => ledger.bindingState === 'bound' && remoteBindingIdsForLedger(ledger).length > 0)
       .map((ledger) => ledger.id)
     const remoteDefaultLedgerIds = selectedDefaultLedgers
-      .filter((ledger) => remoteBindingIdsForLedger(ledger).length > 0 || Object.prototype.hasOwnProperty.call(historicalBindingTargets, ledger.id))
+      .filter((ledger) => remoteBindingIdsForLedger(ledger).length > 0 ||
+        Object.prototype.hasOwnProperty.call(historicalBindingTargets, ledger.id) ||
+        ledger.bindingState === 'unbound')
       .map((ledger) => ledger.id)
     const localCustomLedgerIds = selectedCustomLedgers
       .filter((ledger) => !remoteCustomLedgerIds.includes(ledger.id))
@@ -1116,7 +1118,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       : {}
     const plan: Omit<ManagedDeletionPlan, 'candidates'> = {
       remoteCustomLedgerIds: !ledger.isDefault && remoteBindingIds.length && !remoteDraftFolderId ? [ledger.id] : [],
-      remoteDefaultLedgerIds: ledger.isDefault && (remoteBindingIds.length || historicalIds.length) ? [ledger.id] : [],
+      remoteDefaultLedgerIds: ledger.isDefault && (remoteBindingIds.length || historicalIds.length || ledger.bindingState === 'unbound') ? [ledger.id] : [],
       remoteDraftTargets,
       historicalBindingTargets: ledger.isDefault && !remoteBindingIds.length && historicalIds.length
         ? {

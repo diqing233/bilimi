@@ -2558,6 +2558,32 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未备册')
   })
 
+  it('previews an unbound default folder without remote ids before allowing its confirmed absence to be deleted', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'music', title: 'bilimi·音乐', memberCount: 0, state: 'local-only', requiresUnboundAcknowledgement: false }
+    ])
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion
+      }
+    })
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      isDefault: true, bindingState: 'unbound'
+    }]} missingLedgerIds={[]} unboundLedgerIds={['music']} onSaveLedgers={vi.fn()} onSyncLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    await waitFor(() => expect(previewManagedFavoriteFolderDeletion).toHaveBeenCalledWith(
+      '100', ['music'], { music: 'bilimi·音乐' }
+    ))
+    expect(screen.getByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).toBeInTheDocument()
+  })
+
   it('requires the existing acknowledgement and records every confirmed same-title remote id beside a bound default folder', async () => {
     const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
       status: 'succeeded', succeededRemoteFolderIds: ['bound-music', 'unbound-music'], failedRemoteFolderIds: [],

@@ -4084,12 +4084,27 @@ export class OldFavoriteWorkspaceCoordinator {
       remoteFolderIds.add(candidate.remoteFolderId)
       remoteFolderIdsByLedgerId.set(candidate.logicalLedgerId, remoteFolderIds)
     }
+    const confirmedAbsentLedgerIds = new Set(
+      deletion.status === 'failed' || deletion.status === 'result-unknown'
+        ? []
+        : deletion.candidates
+          .filter((candidate) => candidate.state === 'local-only' && !candidate.remoteFolderId)
+          .map((candidate) => candidate.logicalLedgerId)
+    )
     return [...remoteFolderIdsByLedgerId]
       .map(([logicalLedgerId, remoteFolderIds]) => ({
         logicalLedgerId,
         remoteFolderIds: [...remoteFolderIds].sort(),
         remoteDeleted: true
       }))
+      .concat([...confirmedAbsentLedgerIds]
+        .filter((logicalLedgerId) => !remoteFolderIdsByLedgerId.has(logicalLedgerId))
+        .map((logicalLedgerId) => ({
+          logicalLedgerId,
+          remoteFolderIds: [],
+          remoteDeleted: false,
+          remoteConfirmedAbsent: true
+        })))
       .sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId))
   }
 

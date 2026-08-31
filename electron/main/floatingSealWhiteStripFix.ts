@@ -35,7 +35,7 @@ type WhiteStripFixOptions = RecompositeShape & {
 }
 
 export type FloatingSealRecomposition = (() => void) & {
-  recomposite: () => void
+  recomposite: () => Promise<void>
 }
 
 const DEFAULT_ATTEMPTS = 3
@@ -102,12 +102,24 @@ export function installFloatingSealWhiteStripFix(
   let pendingTimers: unknown[] = []
   let anchor: Point | null = null
   let nudgeDeltaX: -1 | 1 = 1
+  let settlePendingRecomposition: (() => void) | null = null
 
   const clearPending = () => {
     for (const timer of pendingTimers) {
       cancel(timer)
     }
     pendingTimers = []
+  }
+
+  const settleRecomposition = () => {
+    const settle = settlePendingRecomposition
+    settlePendingRecomposition = null
+    settle?.()
+  }
+
+  const cancelPendingRecomposition = () => {
+    clearPending()
+    settleRecomposition()
   }
 
   const moveTo = (offset: 0 | 1) => {
@@ -118,11 +130,11 @@ export function installFloatingSealWhiteStripFix(
     target.setPosition(anchor.x + offset * nudgeDeltaX, anchor.y)
   }
 
-  const recomposite = () => {
-    clearPending()
+  const recomposite = (): Promise<void> => {
+    cancelPendingRecomposition()
 
     if (target.isDestroyed()) {
-      return
+      return Promise.resolve()
     }
 
     const bounds = target.getBounds()
@@ -130,16 +142,26 @@ export function installFloatingSealWhiteStripFix(
     anchor = positions.restored
     nudgeDeltaX = positions.nudged.x < positions.restored.x ? -1 : 1
 
-    for (const step of createRecompositeSteps(options)) {
-      const timer = schedule(() => {
-        moveTo(step.offset)
-      }, step.delayMs)
-      pendingTimers.push(timer)
-    }
+    const steps = createRecompositeSteps(options)
+    return new Promise((resolve) => {
+      settlePendingRecomposition = resolve
+      let pendingStepCount = steps.length
+      for (const step of steps) {
+        const timer = schedule(() => {
+          moveTo(step.offset)
+          pendingStepCount -= 1
+          if (pendingStepCount === 0) {
+            pendingTimers = []
+            settleRecomposition()
+          }
+        }, step.delayMs)
+        pendingTimers.push(timer)
+      }
+    })
   }
 
   const settle = () => {
-    clearPending()
+    cancelPendingRecomposition()
     moveTo(0)
   }
 

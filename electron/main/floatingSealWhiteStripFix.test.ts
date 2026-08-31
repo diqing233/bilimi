@@ -114,6 +114,17 @@ describe('createRecompositeSteps', () => {
 })
 
 describe('installFloatingSealWhiteStripFix', () => {
+  it('returns a completion promise after an explicit recomposition restores the final position', async () => {
+    const harness = createHarness({ x: 120, y: 240, width: 336, height: 380 })
+
+    const completion = harness.dispose.recomposite()
+
+    expect(completion).toBeInstanceOf(Promise)
+    harness.flushAll()
+    await expect(completion).resolves.toBeUndefined()
+    expect(harness.target.setPosition).toHaveBeenLastCalledWith(120, 240)
+  })
+
   it('nudges the window position and restores it, retrying a few times, on blur', () => {
     const harness = createHarness({ x: 120, y: 240, width: 336, height: 380 })
 

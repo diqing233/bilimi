@@ -127,6 +127,21 @@ type StubChild = {
 type SpawnStub = (command: string, args: string[], options?: unknown) => StubChild
 
 describe('installFloatingSealCaptionStrip', () => {
+  it('returns a completion promise that settles only after the spawned native repair exits', async () => {
+    const target = makeTarget()
+    const listeners = new Map<string, (...args: never[]) => void>()
+    const childOn = vi.fn((event: string, listener: (...args: never[]) => void) => {
+      listeners.set(event, listener)
+    })
+    const spawn = vi.fn<SpawnStub>(() => ({ on: childOn }))
+
+    const completion = installFloatingSealCaptionStrip(target, { spawn })
+
+    expect(completion).toBeInstanceOf(Promise)
+    listeners.get('close')?.()
+    await expect(completion).resolves.toBeUndefined()
+  })
+
   it('spawns powershell with piped stdio and the encoded caption-strip script', () => {
     const target = makeTarget()
     const spawn = vi.fn<SpawnStub>(() => ({ on: vi.fn() }))
