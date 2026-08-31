@@ -66,6 +66,6 @@
 ### I002（R003、R004）
 
 - **代码位置：** `electron/main/index.ts:2056-2059` 现在先注册助手 readiness IPC 并创建主窗口，再异步执行代理偏好、本地服务和可恢复事务初始化；移除末尾重复创建。`electron/main/floatingSealWindowOptions.ts` 保持 `show:false` 与 `paintWhenInitiallyHidden:false`，`floatingSealWakeController.ts` 继续在 renderer ready 后才 `showInactive()`，透明/鼠标恢复控制器和小咪 renderer 的既有交互区域逻辑未改。
-- **自动化测试：** `electron/main/index.favoriteHistoryWiring.test.ts` 新增启动顺序回归；`floatingSealWindowOptions.test.ts` 1/1、`floatingSealWakeController.test.ts` 6/6、`floatingSealMouseRecovery.test.ts` 5/5、`floatingSealMouseTransparency.test.ts` 3/3 通过。
+- **自动化测试：** `electron/main/index.favoriteHistoryWiring.test.ts` 新增启动顺序回归；`floatingSealWindowOptions.test.ts` 1/1、`floatingSealWakeController.test.ts` 6/6、`floatingSealMouseRecovery.test.ts` 5/5、`floatingSealMouseTransparency.test.ts` 3/3 通过（小咪相关 15 项）。
 - **真实界面验收：** 尚未启动本轮开发版或重新构建安装版进行鼠标移动、点击、滚动、最小化、恢复、关闭的真实验收；当前旧安装包不能作为修复后证据。需在重新构建后按发布清单记录截图/结果。
 - **远端副作用边界：** 启动时序修复不调用 B 站创建、绑定、删除、移动、同步或视频写入，也不改变 DeepSeek、转写和整理收藏数据。
