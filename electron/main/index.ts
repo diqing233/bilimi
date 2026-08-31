@@ -2054,6 +2054,11 @@ function isTrustedFavoriteLibraryReader(senderId: number): boolean {
 }
 
 if (singleInstanceGuard) app.whenReady().then(async () => {
+  // Create the responsive shell before disk/network recovery. The renderer
+  // readiness gate keeps actions queued until the services below are ready,
+  // while the native window remains movable and closable during startup.
+  registerAssistantPreferenceHandlers()
+  createMainWindow()
   await bilibiliSessionProxy.applyPreference(readBilibiliConnectionMode()).catch(() => undefined)
   favoriteRepositoryService = new FavoriteRepositoryService({
     root: join(app.getPath('userData'), 'favorites', 'repository-v1'),
@@ -2130,6 +2135,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         save: (targetAccountMid, preferences) => saveFavoriteAccountPreferences(getDesktopStore(), targetAccountMid, preferences),
         publish: () => sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore())),
       })
+      notifyFloatingAssistantSnapshotChanged()
     },
     remote: {
       async removeRemoteFolder(accountMid, remoteFolderId) {
@@ -2395,6 +2401,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         save: (targetAccountMid, preferences) => saveFavoriteAccountPreferences(getDesktopStore(), targetAccountMid, preferences),
         publish: () => sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
       })
+      notifyFloatingAssistantSnapshotChanged()
     },
     classifyCurrentItems: (items, recommendedLedgers = [], accountMid, options) => {
       // Capture the saved rules once per workspace command, then classify its segment in memory.
@@ -2866,8 +2873,6 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     return readCurrentBilibiliAccountMid()
   })
   getVideoTranscriptionQueue()
-  registerAssistantPreferenceHandlers()
-  createMainWindow()
   if (singleInstanceGuard.hasPendingFocus()) singleInstanceGuard.focusMainWindow()
   void floatingSealWakeController.wake()
 })
