@@ -3680,6 +3680,13 @@ export default function App() {
       cancelIdleCallback?: (handle: number) => void
     }
     const notifyInteractive = () => {
+      // The production home guest must become visible after the first
+      // interactive frame, but never in the same synchronous startup work
+      // that creates the main window. Keeping this in the cancellable idle
+      // task preserves an interactive shell even when the idle task is
+      // cancelled, while ensuring a normal launch does not leave the home
+      // workspace blank indefinitely.
+      if (!IS_TEST_RUNTIME) setHomeWebviewActivated(true)
       window.bilimiDesktop?.notifyMainWindowInteractive?.()
     }
     firstFrame = window.requestAnimationFrame(() => {

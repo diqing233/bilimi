@@ -159,7 +159,18 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByText('部分 Bilimi 收藏夹尚未备册。')).toBeInTheDocument()
   })
 
-  it('keeps an unbacked default card and detail visibly unbacked while the organize guide is visible', () => {
+  it('hides the missing-backup warning while the organize guide is open', () => {
+    render(<FavoriteLedgerOverview
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], priority: 10, enabled: true, isDefault: false }]}
+      missingLedgerIds={['music']}
+      hasExpandedOrganizationGuide
+      onSaveLedgers={vi.fn()}
+    />)
+
+    expect(screen.queryByText('部分 Bilimi 收藏夹尚未备册。')).not.toBeInTheDocument()
+  })
+
+  it('hides an unbacked default card and detail while organizing, then restores it afterward', () => {
     const props = {
       ledgers: [{
         id: 'default', displayName: 'bilimi·默认', keywords: [], enabled: true, priority: 10,
@@ -171,17 +182,22 @@ describe('FavoriteLedgerOverview', () => {
     }
     const view = render(<FavoriteLedgerOverview {...props} />)
 
-    expect(screen.getByTestId('favorite-ledger-chip-default')).toHaveTextContent('未备册')
+    expect(screen.getByTestId('favorite-ledger-chip-default')).not.toHaveTextContent('未备册')
     fireEvent.click(screen.getByRole('button', { name: '默认' }))
 
     view.rerender(<FavoriteLedgerOverview {...props} hasExpandedOrganizationGuide />)
 
+    expect(screen.getByTestId('favorite-ledger-chip-default')).not.toHaveTextContent('未备册')
+    expect(screen.getByRole('region', { name: '当前收藏夹' })
+      .querySelector('.favorite-ledger-panel__binding-status')).toBeNull()
+
+    view.rerender(<FavoriteLedgerOverview {...props} organizationActive={false} hasExpandedOrganizationGuide={false} />)
     expect(screen.getByTestId('favorite-ledger-chip-default')).toHaveTextContent('未备册')
     expect(screen.getByRole('region', { name: '当前收藏夹' })
       .querySelector('.favorite-ledger-panel__binding-status')).toHaveTextContent('未备册')
   })
 
-  it('keeps the actual backup state in a requested detail editor while organizing', async () => {
+  it('hides the actual backup state in a requested detail editor while organizing', async () => {
     const initialLedger = {
       id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
       bindingState: 'bound' as const, bilibiliFolderId: 'remote-music', isDefault: false
@@ -198,13 +214,13 @@ describe('FavoriteLedgerOverview', () => {
     const view = render(<FavoriteLedgerOverview {...props} />)
 
     const editor = await waitFor(() => screen.getByRole('region', { name: '当前收藏夹' }))
-    expect(editor.querySelector('.favorite-ledger-panel__binding-status')).toHaveTextContent('已备册')
+    expect(editor.querySelector('.favorite-ledger-panel__binding-status')).toBeNull()
     expect(screen.getByTestId('favorite-ledger-chip-music')).not.toHaveTextContent('已备册')
 
     view.rerender(<FavoriteLedgerOverview {...props} ledgers={[{ ...props.ledgers[0], bilibiliFolderTitle: 'bilimi·音乐（远端）' }]} />)
     await waitFor(() => expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument())
     expect(screen.getByRole('region', { name: '当前收藏夹' })
-      .querySelector('.favorite-ledger-panel__binding-status')).toHaveTextContent('已备册')
+      .querySelector('.favorite-ledger-panel__binding-status')).toBeNull()
   })
 
   it('shows the remote-only binding reminder beside the editor status with one dismissal action', () => {
@@ -1848,7 +1864,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(toggle).toBeDisabled()
   })
 
-  it('shows an edited backed default as unsaved while the organization card hides only its backup state', () => {
+  it('shows only the local unsaved state while the organization card and editor hide backup state', () => {
     render(<FavoriteLedgerOverview hasExpandedOrganizationGuide defaultFavoriteSystemEnabled ledgers={[{
       id: 'music', displayName: 'bilimi·音乐', keywords: ['旧规则'], enabled: true, priority: 10,
       isDefault: true, bindingState: 'bound', bilibiliFolderId: '9001'
@@ -1861,7 +1877,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByTestId('favorite-ledger-chip-music')).not.toHaveTextContent('已备册')
     expect(screen.getByRole('region', { name: '当前收藏夹' })
       .querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status'))
-      .toHaveTextContent('未保存 · 已备册')
+      .toHaveTextContent('未保存')
   })
 
   it('skips an unsaved default during backup while backing up another saved selected ledger', async () => {

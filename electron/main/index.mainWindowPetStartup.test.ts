@@ -25,6 +25,7 @@ describe('main-window first pet startup wiring', () => {
 
     expect(interactiveEffect).toContain('requestIdleCallback')
     expect(interactiveEffect).toContain('cancelIdleCallback')
+    expect(interactiveEffect).toContain('setHomeWebviewActivated(true)')
   })
 
   it('does not auto-mount the home guest webview on a startup timeout', () => {

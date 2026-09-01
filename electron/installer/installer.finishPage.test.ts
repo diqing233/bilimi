@@ -15,6 +15,7 @@ describe('NSIS finish page window controls', () => {
     expect(installerSource).toContain('GetSystemMenu')
     expect(installerSource).toContain('EnableMenuItem')
     expect(installerSource).toContain('SC_CLOSE')
+    expect(installerSource).toContain('MUI_FINISHPAGE_CANCEL_ENABLED')
   })
 
   it('hides only the disabled finish-page back and cancel buttons', () => {

@@ -33,6 +33,10 @@ Var bilimiInstallDirectoryText
     !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
   !endif
 
+  ; Enable the finish-page abort channel so the requested title-bar close
+  ; button is wired to NSIS's normal dialog-close handling. The bottom
+  ; Cancel button is still hidden in bilimiFinishPageShow below.
+  !define MUI_FINISHPAGE_CANCEL_ENABLED
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW bilimiFinishPageShow
   !insertmacro MUI_PAGE_FINISH
 !macroend
