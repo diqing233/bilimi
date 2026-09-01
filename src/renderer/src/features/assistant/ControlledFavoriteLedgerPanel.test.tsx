@@ -4527,6 +4527,48 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(save.mock.calls[0]?.[0][0]).not.toHaveProperty('syncState')
   })
 
+  it('retains a promoted recommendation while the parent still returns its pre-save ledger snapshot', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [{ id: 'author-race-save', displayName: 'bilimi·竞态保存', kind: 'author' as const, count: 2, reason: '竞态' }],
+        adoptedCandidateIds: [] as string[]
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    const save = deferred<unknown>()
+    let openCount = 0
+    const open = vi.fn(() => {
+      openCount += 1
+      return Promise.resolve(preview)
+    })
+    const command = vi.fn((_accountMid: string, input: { type: string; candidateIds?: string[] }) =>
+      Promise.resolve(input.type === 'set-recommended-candidates'
+        ? { ...preview, recommendations: { ...preview.recommendations, adoptedCandidateIds: input.candidateIds ?? [] } }
+        : preview))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    const { rerender } = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={() => save.promise} />)
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '竞态保存' }))
+
+    expect(await screen.findByRole('button', { name: '竞态保存' })).toBeInTheDocument()
+    rerender(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={() => save.promise} />)
+    await act(async () => { save.resolve(undefined); await save.promise })
+
+    expect(await screen.findByRole('button', { name: '竞态保存' })).toBeInTheDocument()
+    expect(open).toHaveBeenCalled()
+  })
+
   it('removes a promoted recommendation cache entry after history restores a ledger directory without it', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

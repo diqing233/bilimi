@@ -837,6 +837,8 @@ export default function App() {
   const [homeWebviewActivated, setHomeWebviewActivated] = useState(IS_TEST_RUNTIME)
   const homeWebviewLoadSettledRef = useRef(IS_TEST_RUNTIME)
   const homeWebviewLoadSettleTimeoutRef = useRef<number | undefined>(undefined)
+  const homeWebviewIdleNotificationHandleRef = useRef<number | undefined>(undefined)
+  const homeWebviewIdleNotificationFallbackHandleRef = useRef<number | undefined>(undefined)
   const activeWebview = useMemo(() => webviews[activeTabId] ?? null, [activeTabId, webviews])
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
@@ -3726,7 +3728,36 @@ export default function App() {
       window.clearTimeout(homeWebviewLoadSettleTimeoutRef.current)
       homeWebviewLoadSettleTimeoutRef.current = undefined
     }
-    window.bilimiDesktop?.notifyHomeWebviewLoadSettled?.()
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number
+      cancelIdleCallback?: (handle: number) => void
+    }
+    const notifyHomeWebviewLoadSettledWhenIdle = () => {
+      homeWebviewIdleNotificationHandleRef.current = undefined
+      homeWebviewIdleNotificationFallbackHandleRef.current = undefined
+      window.bilimiDesktop?.notifyHomeWebviewLoadSettled?.()
+    }
+    homeWebviewIdleNotificationHandleRef.current = idleWindow.requestIdleCallback?.(
+      notifyHomeWebviewLoadSettledWhenIdle,
+      { timeout: 1000 }
+    )
+    if (homeWebviewIdleNotificationHandleRef.current === undefined) {
+      homeWebviewIdleNotificationFallbackHandleRef.current = window.setTimeout(notifyHomeWebviewLoadSettledWhenIdle, 0)
+    }
+  }, [])
+
+  useEffect(() => () => {
+    const idleWindow = window as typeof window & {
+      cancelIdleCallback?: (handle: number) => void
+    }
+    if (homeWebviewIdleNotificationHandleRef.current !== undefined) {
+      idleWindow.cancelIdleCallback?.(homeWebviewIdleNotificationHandleRef.current)
+      homeWebviewIdleNotificationHandleRef.current = undefined
+    }
+    if (homeWebviewIdleNotificationFallbackHandleRef.current !== undefined) {
+      window.clearTimeout(homeWebviewIdleNotificationFallbackHandleRef.current)
+      homeWebviewIdleNotificationFallbackHandleRef.current = undefined
+    }
   }, [])
 
   useEffect(() => {

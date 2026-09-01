@@ -1943,7 +1943,7 @@ body[data-floating-window="true"],
 .floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-message {
   text-overflow: clip;
 }
-.floating-assistant-global-status__feedback[data-expanded="true"][data-continuation-visible="true"] .floating-assistant-global-status__feedback-message {
+.floating-assistant-global-status__feedback[data-expanded="true"] .floating-assistant-global-status__feedback-message {
   display: block;
   overflow: visible;
   -webkit-line-clamp: unset;

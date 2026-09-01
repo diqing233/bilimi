@@ -3245,7 +3245,7 @@ export function FloatingAssistantApp({
   }
 
   function showTemporaryGlobalFeedback(feedback: { tone: 'success' | 'error'; message: string }, durationMs = 3_000) {
-    const message = feedback.message.trim()
+    const message = formatAssistantFeedbackMessage(feedback.message, '操作失败，请重试。')
     if (!message) return
 
     if (temporaryGlobalFeedbackTimerRef.current !== null) {

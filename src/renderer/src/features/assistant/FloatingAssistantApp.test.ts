@@ -492,6 +492,14 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).toContain("openSettingsSection('transcription')")
   })
 
+  it('normalizes transient renderer feedback before showing it globally', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const start = source.indexOf('function showTemporaryGlobalFeedback')
+    const end = source.indexOf('\n  function showCopyFeedback', start)
+    const implementation = source.slice(start, end)
+    expect(implementation).toContain('formatAssistantFeedbackMessage(feedback.message')
+  })
+
   it('starts the global feedback scrollbar at background tasks, below the fixed continuation', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const menuStart = source.indexOf('className="floating-assistant-global-status__menu"')

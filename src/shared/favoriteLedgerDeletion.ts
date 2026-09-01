@@ -42,6 +42,18 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
           ...deleted
         ].map((id) => id.trim()).filter(Boolean))]
       : undefined
+    // An explicitly acknowledged same-title candidate can be deleted even
+    // when the local rule never held that remote ID (the normal unbound case).
+    // There is then no formal binding for the generic remaining-ID checks to
+    // clear, so converge the default rule to the same unbacked state as an
+    // exact binding deletion instead of leaving it perpetually “未绑定”.
+    if (ledger.isDefault && !remoteFolderIds.length && deleted.size) {
+      return {
+        ...restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger),
+        bindingState: 'unbacked',
+        ...(confirmedDeletedRemoteFolderIds ? { confirmedDeletedRemoteFolderIds } : {})
+      }
+    }
     if (remainingRemoteFolderIds.length === remoteFolderIds.length) {
       return confirmedDeletedRemoteFolderIds
         ? { ...ledger, confirmedDeletedRemoteFolderIds }

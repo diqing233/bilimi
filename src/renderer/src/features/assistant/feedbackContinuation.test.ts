@@ -32,7 +32,7 @@ describe('feedback continuation presentation contract', () => {
     expect(source).toMatch(/\.floating-assistant-global-status__menu\s*\{[^}]*border-top:\s*0/u)
     expect(source).toMatch(/\.floating-assistant-global-status__menu\s*>\s*\.floating-assistant-global-status__menu-feedback-continuation\s*\{[^}]*font:\s*inherit/u)
     expect(source).toMatch(/\.floating-assistant-global-status__menu\s*>\s*\.floating-assistant-global-status__menu-feedback-continuation\s*\{[^}]*font-size:\s*inherit/u)
-    expect(source).toMatch(/\.floating-assistant-global-status__feedback\[data-expanded="true"\]\[data-continuation-visible="true"\][^}]*\.floating-assistant-global-status__feedback-message\s*\{[^}]*-webkit-line-clamp:\s*unset/u)
+    expect(source).toMatch(/\.floating-assistant-global-status__feedback\[data-expanded="true"\][^}]*\.floating-assistant-global-status__feedback-message\s*\{[^}]*-webkit-line-clamp:\s*unset/u)
     expect(source).toMatch(/\.floating-assistant-global-status__menu-scroll\s*\{[^}]*overflow:\s*auto/u)
   })
 })

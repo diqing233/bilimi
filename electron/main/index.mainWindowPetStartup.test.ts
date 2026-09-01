@@ -138,8 +138,27 @@ describe('main-window first pet startup wiring', () => {
     expect(startup).not.toContain('setImmediate(() =>')
   })
 
-  it('keeps an explicit cancellable grace window before native pet creation', () => {
-    expect(idleTaskSource).toContain('FLOATING_SEAL_IDLE_GRACE_MS')
+  it('keeps the main-process pet task cancellable before native pet creation', () => {
+    expect(idleTaskSource).toContain('setImmediate(callback)')
+    expect(idleTaskSource).toContain('clearImmediate(handle')
     expect(idleTaskSource).not.toContain('setTimeout(callback, 0)')
+  })
+
+  it('releases pet creation through a cancellable event-loop turn after renderer idle instead of a fixed grace delay', () => {
+    expect(idleTaskSource).not.toContain('FLOATING_SEAL_IDLE_GRACE_MS')
+    expect(idleTaskSource).toContain('setImmediate(callback)')
+    expect(idleTaskSource).toContain('clearImmediate(handle')
+    expect(idleTaskSource).not.toContain('setTimeout(')
+  })
+
+  it('waits for a browser idle boundary after the home page settles before releasing the pet gate', () => {
+    const notifyStart = rendererSource.indexOf('const notifyHomeWebviewLoadSettled = useCallback')
+    const notifyEnd = rendererSource.indexOf('\n\n  useEffect(() => {', notifyStart)
+    const notification = rendererSource.slice(notifyStart, notifyEnd)
+
+    expect(notification).toContain('idleWindow.requestIdleCallback?.(')
+    expect(notification).toContain('notifyHomeWebviewLoadSettledWhenIdle')
+    expect(notification).toContain('cancelIdleCallback')
+    expect(notification).toContain('homeWebviewIdleNotificationHandleRef')
   })
 })

@@ -299,10 +299,14 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     ? '已创建 · 待正式确认'
     : ledger.bindingState === 'bound'
       ? '已备册'
-      : ledger.bindingState === 'unbound' || unboundLedgerIds.includes(ledger.id)
-        ? '未绑定'
-        : missingLedgerIds.includes(ledger.id) || ledger.bindingState === 'unbacked'
+      // A confirmed deletion can update the local authoritative rule before
+      // the parent account snapshot drops its stale unbound id.  Prefer the
+      // explicit unbacked state (and missing snapshot) so that stale metadata
+      // cannot keep rendering “未绑定” after the remote folder is gone.
+      : ledger.bindingState === 'unbacked' || missingLedgerIds.includes(ledger.id)
           ? '未备册'
+        : ledger.bindingState === 'unbound' || unboundLedgerIds.includes(ledger.id)
+          ? '未绑定'
           : ledger.bilibiliFolderId
             ? '已备册'
             : ''

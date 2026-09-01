@@ -64,6 +64,20 @@ describe('applyManagedFavoriteLedgerDeletion', () => {
     }))
   })
 
+  it('marks an unbound default rule unbacked after its acknowledged same-title folder is deleted', () => {
+    const [next] = applyConfirmedManagedFavoriteRemoteFolderDeletion([{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: true,
+      bindingState: 'unbound'
+    }], new Map([['music', new Set(['unbound-music'])]]))
+
+    expect(next).toEqual(expect.objectContaining({
+      id: 'music', bindingState: 'unbacked', managedFolderDeletedByUser: true,
+      confirmedDeletedRemoteFolderIds: ['unbound-music']
+    }))
+    expect(next).not.toHaveProperty('bilibiliFolderId')
+    expect(next).not.toHaveProperty('bilibiliFolderIds')
+  })
+
   it('clears a historical id after the authoritative inventory confirms it is already missing', () => {
     const [next] = applyConfirmedManagedFavoriteRemoteFolderDeletion([{
       id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10, isDefault: true,

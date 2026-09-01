@@ -322,6 +322,11 @@ export function ControlledFavoriteLedgerPanel({
   const promotedRecommendationHistoryCursorRef = useRef<string | null>(null)
   const [dismissedGeneratedRecommendationLedgerIds, setDismissedGeneratedRecommendationLedgerIds] = useState<ReadonlySet<string>>(() => new Set())
   const pendingRecommendationSavesRef = useRef(new Map<string, Promise<unknown>>())
+  // A successful local save can be acknowledged by the parent preference
+  // projection one render later. Keep the renderer bridge alive until that
+  // stable rule id appears in the authoritative props instead of letting a
+  // stale empty snapshot make the card disappear.
+  const awaitingPromotedRecommendationAcknowledgementRef = useRef(new Set<string>())
   const pendingRecommendationCancellationLedgerIdsRef = useRef(new Set<string>())
   const [recommendationPromotionSaving, setRecommendationPromotionSaving] = useState(false)
   const organizationRecommendationIdsRef = useRef<string[]>(workspace.recommendedCandidateIds)
@@ -389,6 +394,7 @@ export function ControlledFavoriteLedgerPanel({
     if (promotedRecommendationAccountKey === accountKey) return
     promotedRecommendationLedgersRef.current = []
     promotedRecommendationHistoryCursorRef.current = null
+    awaitingPromotedRecommendationAcknowledgementRef.current.clear()
     setPromotedRecommendationLedgers([])
     setDismissedGeneratedRecommendationLedgerIds(new Set())
     organizationRecommendationIdsRef.current = []
@@ -410,6 +416,9 @@ export function ControlledFavoriteLedgerPanel({
       promotedRecommendationHistoryCursorRef.current !== historyCursorKey
     promotedRecommendationHistoryCursorRef.current = historyCursorKey
     const durableLedgerIds = new Set(ledgers.map((ledger) => ledger.id))
+    for (const ledgerId of awaitingPromotedRecommendationAcknowledgementRef.current) {
+      if (durableLedgerIds.has(ledgerId)) awaitingPromotedRecommendationAcknowledgementRef.current.delete(ledgerId)
+    }
     const retainedCandidateIds = new Set(historyCursorChanged
       ? snapshot.recommendations.adoptedCandidateIds
       : [
@@ -418,7 +427,8 @@ export function ControlledFavoriteLedgerPanel({
           ...snapshot.recommendations.adoptedCandidateIds
         ])
     const nextPromoted = promotedRecommendationLedgersRef.current.filter((ledger) =>
-      durableLedgerIds.has(ledger.id) || retainedCandidateIds.has(ledger.id))
+      durableLedgerIds.has(ledger.id) || retainedCandidateIds.has(ledger.id) ||
+      (!historyCursorChanged && awaitingPromotedRecommendationAcknowledgementRef.current.has(ledger.id)))
     if (nextPromoted.length === promotedRecommendationLedgersRef.current.length || pendingRecommendationCancellationLedgerIdsRef.current.size) return
     promotedRecommendationLedgersRef.current = nextPromoted
     setPromotedRecommendationLedgers(nextPromoted)
@@ -485,13 +495,23 @@ export function ControlledFavoriteLedgerPanel({
     if (options.persist === false) return true
     setRecommendationPromotionSaving(true)
     const nextLedgers = mergePromotedRecommendationLedgers(ledgers, nextPromoted)
-    const saveOperation = Promise.resolve().then(() => saveLedgersAndRefreshWorkspace(nextLedgers, {
-      deleteDisabled: false,
-      recommendationOnly: true
-    }))
+    const saveOperation = Promise.resolve().then(async () => {
+      const result = await saveLedgersAndRefreshWorkspace(nextLedgers, {
+        deleteDisabled: false,
+        recommendationOnly: true
+      })
+      if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
+        throw new Error('Recommendation ledger save failed.')
+      }
+      return result
+    })
     for (const addition of additions) pendingRecommendationSavesRef.current.set(addition.id, saveOperation)
-    return saveOperation.then(() => true).catch(() => {
+    return saveOperation.then(() => {
+      additions.forEach((addition) => awaitingPromotedRecommendationAcknowledgementRef.current.add(addition.id))
+      return true
+    }).catch(() => {
       const failedIds = new Set(additions.map((ledger) => ledger.id))
+      additions.forEach((addition) => awaitingPromotedRecommendationAcknowledgementRef.current.delete(addition.id))
       const restoredPromoted = promotedRecommendationLedgersRef.current.filter((ledger) => !failedIds.has(ledger.id))
       promotedRecommendationLedgersRef.current = restoredPromoted
       setPromotedRecommendationLedgers(restoredPromoted)

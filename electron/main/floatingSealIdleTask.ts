@@ -1,23 +1,17 @@
-export type FloatingSealIdleTaskHandle = ReturnType<typeof setTimeout>
-
-// This grace window is only entered after the main renderer and the home
-// Bilibili guest have settled. It gives Windows one additional input turn
-// before Chromium/native pet work begins, while remaining cancellable.
-export const FLOATING_SEAL_IDLE_GRACE_MS = 250
+export type FloatingSealIdleTaskHandle = NodeJS.Immediate
 
 /**
- * Schedule non-critical floating-seal work on a later event-loop turn.
+ * Schedule non-critical floating-seal work on the next event-loop turn.
  *
- * Keeping this behind a small cancellable adapter makes the startup gate
- * explicit and prevents a stale interactive-ready notification from creating
- * a native window after shutdown or a subsequent close request.
+ * The renderer releases the gate only from a browser idle callback.  The main
+ * process then gets one independent turn of its own before creating or
+ * polishing the native pet window.  Keeping the handle cancellable prevents a
+ * stale readiness notification from creating a window after shutdown.
  */
 export function scheduleFloatingSealIdleTask(callback: () => void): FloatingSealIdleTaskHandle {
-  const handle = setTimeout(callback, FLOATING_SEAL_IDLE_GRACE_MS)
-  handle.unref?.()
-  return handle
+  return setImmediate(callback)
 }
 
 export function cancelFloatingSealIdleTask(handle: FloatingSealIdleTaskHandle) {
-  clearTimeout(handle)
+  clearImmediate(handle)
 }
