@@ -72,20 +72,38 @@ function favoriteSuccessMessage(args: ExecuteAssistantActionArgs): string {
   return `已归类存入 ${targetLabel}。`
 }
 
+function favoritePetHint(args: ExecuteAssistantActionArgs): string | undefined {
+  if (args.favoriteProvisioned !== false || !usesFavorite(args.action)) {
+    return undefined
+  }
+
+  const targetLabel = favoriteTargetLabel(args)
+  const actionPrefix =
+    args.action === '赏'
+      ? '已点赞'
+      : args.action === '赐'
+        ? '已一键三连'
+        : '本次操作未写入收藏夹'
+
+  return `主人，${actionPrefix}；当前收藏夹尚未备册或未绑定，本次仅完成预分类，未创建或写入 B 站收藏夹；请先去掌库收藏夹备册或重新绑定，完成后可归类到 ${targetLabel}。`
+}
+
 function formatActionResultMessage(
   args: ExecuteAssistantActionArgs,
   result: AssistantAutomationResult
 ): AssistantAutomationResult {
   const message = result.ok && usesFavorite(args.action) ? favoriteSuccessMessage(args) : result.message
   const prefix = args.resultMessagePrefix?.trim()
+  const petHint = result.ok ? favoritePetHint(args) : result.petHint
 
   if (!prefix) {
-    return { ...result, message }
+    return { ...result, message, petHint }
   }
 
   return {
     ...result,
-    message: message ? `${prefix}\n${message}` : prefix
+    message: message ? `${prefix}\n${message}` : prefix,
+    petHint
   }
 }
 

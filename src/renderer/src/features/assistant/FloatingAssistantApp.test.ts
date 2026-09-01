@@ -461,9 +461,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).toContain('data-continuation-visible')
     expect(source).toContain('const layoutFrame = window.requestAnimationFrame(updateContinuation)')
     expect(source).toContain('resizeObserver?.observe(globalFeedbackMessageRef.current)')
-    expect(source).toContain('className="floating-assistant-global-status__feedback-continuation"')
-    expect(source).toContain('className="floating-assistant-global-status__feedback-continuation"')
-    expect(source).toContain('globalFeedbackExpanded && globalFeedbackContinuation')
+    expect(source).not.toContain('className="floating-assistant-global-status__feedback-continuation"')
+    expect(source).toContain('globalFeedbackExpanded || globalFeedbackContinuationVisible')
     expect(source).toContain('splitFeedbackContinuationByLines')
     expect(source).toContain('if (!split.suffix)')
     expect(source).toContain('setGlobalFeedbackContinuationVisible(false)')
@@ -481,8 +480,20 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(toggle).toContain('globalFeedbackExpanded')
     expect(toggle).toContain('globalFeedbackContinuation')
+    expect(toggle).toContain('floating-assistant-global-status__feedback-full-continuation')
     expect(menuContinuationIndex).toBe(-1)
     expect(scrollIndex).toBeGreaterThan(toggleEnd)
+  })
+
+  it('keeps the掌库悬浮文案完整且由同一个按钮承载', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const toggleStart = source.indexOf('className="floating-assistant-global-status__feedback-toggle"')
+    const toggleEnd = source.indexOf('</button>', toggleStart)
+    const toggle = source.slice(toggleStart, toggleEnd)
+
+    expect(toggle).toContain('displayedGlobalFeedbackMessage')
+    expect(toggle).toContain('globalFeedbackContinuation')
+    expect(source).not.toContain('floating-assistant-global-status__feedback-continuation')
   })
 
   it('repositions a visible status-light tooltip after its panel finishes resizing', () => {

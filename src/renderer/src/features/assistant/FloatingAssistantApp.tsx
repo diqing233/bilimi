@@ -366,7 +366,12 @@ const ACTION_SUCCESS_HINTS: Record<AssistantAction, string> = {
   阅: '已阅登记完成，主人可以继续看下一支啦。'
 }
 
-function createActionSuccessHint(action: AssistantAction, resultMessage: string): string {
+function createActionSuccessHint(action: AssistantAction, result: AssistantAutomationResult): string {
+  if (result.petHint) {
+    return result.petHint
+  }
+
+  const resultMessage = result.message
   const agreedTarget = resultMessage.match(/与本地判断一致，保留在「([^」]+)」/)?.[1]
   if (agreedTarget) {
     return `主人，DeepSeek复核过啦～与原建议一致，存入「${agreedTarget}」。`
@@ -4580,7 +4585,7 @@ export function FloatingAssistantApp({
       tellPet(
         result.ok ? 'done' : 'error',
         result.ok
-          ? createActionSuccessHint(action, result.message)
+          ? createActionSuccessHint(action, result)
           : createActionErrorHint(action, result)
       )
       window.bilimiDesktop?.setAssistantPetState?.(result.ok ? 'done' : 'error')
@@ -5443,15 +5448,11 @@ export function FloatingAssistantApp({
                   setGlobalFeedbackContinuationVisible(!nextExpanded)
                 }}
               >
-                 <span ref={globalFeedbackMessageRef} className="floating-assistant-global-status__feedback-message">
-                   {globalFeedbackExpanded
-                     ? (globalFeedbackContinuation
-                       ? <><span>{globalFeedbackVisiblePrefix}</span><span className="floating-assistant-global-status__feedback-full-continuation">{globalFeedbackContinuation}</span></>
-                       : displayedGlobalFeedbackMessage)
-                     : (globalFeedbackContinuationVisible && globalFeedbackContinuation
-                       ? globalFeedbackVisiblePrefix
-                       : displayedGlobalFeedbackMessage)}
-                 </span>
+                <span ref={globalFeedbackMessageRef} className="floating-assistant-global-status__feedback-message">
+                  {(globalFeedbackExpanded || globalFeedbackContinuationVisible) && globalFeedbackContinuation
+                    ? <><span>{globalFeedbackVisiblePrefix}</span><span className="floating-assistant-global-status__feedback-full-continuation">{globalFeedbackContinuation}</span></>
+                    : displayedGlobalFeedbackMessage}
+                </span>
                 <svg
                   className="floating-assistant-global-status__feedback-chevron"
                   viewBox="0 0 16 16"
@@ -5468,11 +5469,6 @@ export function FloatingAssistantApp({
                   />
                 </svg>
               </button>
-              {!globalFeedbackExpanded && globalFeedbackContinuationVisible && globalFeedbackContinuation ? (
-                <div className="floating-assistant-global-status__feedback-continuation" role="tooltip">
-                  {globalFeedbackContinuation}
-                </div>
-              ) : null}
                {globalFeedbackExpanded ? (
                  <div className="floating-assistant-global-status__menu" aria-label="全局提示详情">
                    <div className="floating-assistant-global-status__menu-scroll">

@@ -153,10 +153,12 @@ describe('main-window first pet startup wiring', () => {
   })
 
   it('releases pet creation through a cancellable event-loop turn after renderer idle instead of a fixed grace delay', () => {
-    expect(idleTaskSource).toContain('FLOATING_SEAL_IDLE_GRACE_MS')
-    expect(idleTaskSource).toContain('setTimeout(')
     expect(idleTaskSource).toContain('setImmediate(() =>')
     expect(idleTaskSource).toContain('clearTimeout(handle')
+    expect(idleTaskSource).toContain('setTimeout(() =>')
+    expect(idleTaskSource).toMatch(/setTimeout\(\(\) =>[\s\S]*?, 0\)/u)
+    expect(idleTaskSource).not.toContain('FLOATING_SEAL_IDLE_GRACE_MS')
+    expect(idleTaskSource).not.toContain('}, 250)')
   })
 
   it('waits for a browser idle boundary after the home page settles before releasing the pet gate', () => {

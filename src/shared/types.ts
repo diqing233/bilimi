@@ -385,6 +385,8 @@ export type AssistantAutomationResult = {
   steps: string[]
   missingTargets: string[]
   message: string
+  /** Optional structured pet feedback derived from the same action result. */
+  petHint?: string
   resultUnknown?: boolean
   /** Remote-only Bilimi drafts observed during the operation and projected locally. */
   remoteOnlyDraftLedgerIds?: FavoriteLedgerId[]

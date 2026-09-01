@@ -81,6 +81,33 @@ describe('executeAssistantAction', () => {
     expect(result.message).toContain('备册或重新绑定')
   })
 
+  it.each([
+    ['赏', '已点赞'],
+    ['藏', '本次操作未写入收藏夹'],
+    ['赐', '已一键三连']
+  ] as const)('returns a structured Chinese pet hint for unprovisioned %s', async (action, prefix) => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: action === '赐' ? ['like', 'coin:confirm'] : action === '赏' ? ['like'] : [],
+      missingTargets: [],
+      message: '页面动作已完成。'
+    })
+
+    const result = await executeAssistantAction({
+      action,
+      runScript,
+      favoritesFolderName: 'bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'movie-tv',
+      favoriteProvisioned: false
+    })
+
+    expect(result.petHint).toContain(prefix)
+    expect(result.petHint).toContain('尚未备册或未绑定')
+    expect(result.petHint).toContain('未创建或写入 B 站收藏夹')
+    expect(result.petHint).toContain('请先去掌库收藏夹备册或重新绑定')
+  })
+
   it('runs favorite-only automation for 藏', async () => {
     const runScript = vi.fn().mockResolvedValueOnce({
       ok: true,
