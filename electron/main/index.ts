@@ -267,6 +267,14 @@ let floatingSealMouseRecovery: ReturnType<typeof createFloatingSealMouseRecovery
 let floatingSealInteractiveRegions: unknown[] = []
 let assistantPetState: AssistantPetState = 'idle'
 let floatingAssistantSide: FloatingAssistantSide | undefined
+const startupTraceStartedAt = Date.now()
+function traceStartupPhase(phase: string) {
+  if (process.env.BILIMI_STARTUP_DIAGNOSTICS !== '1') return
+  console.info(`[startup] ${phase} +${Date.now() - startupTraceStartedAt}ms`)
+}
+function yieldStartupEventLoop() {
+  return new Promise<void>((resolve) => setImmediate(resolve))
+}
 const bilibiliSessionProxy = new BilibiliSessionProxy(() => session.fromPartition(BILIMI_SESSION_PARTITION))
 
 function normalizeBilibiliConnectionMode(value: unknown): 'auto' | 'direct' {
@@ -407,6 +415,7 @@ async function scheduleFloatingSealNativePolish(
   ) => void
 ) {
   if (process.platform !== 'win32') return
+  traceStartupPhase('pet-native-polish:start')
 
   // BrowserWindow creation is already native work. Yield before each Windows
   // task and keep the host hidden until both repairs have settled.
@@ -421,6 +430,7 @@ async function scheduleFloatingSealNativePolish(
   })
   const handleFloatingSealDisplayChange = () => { void disposeWhiteStripFix.recomposite() }
   await disposeWhiteStripFix.recomposite()
+  traceStartupPhase('pet-native-polish:white-strip-ready')
   if (seal.isDestroyed() || floatingSealWindow !== seal) {
     disposeWhiteStripFix()
     return
@@ -443,9 +453,11 @@ async function scheduleFloatingSealNativePolish(
       }
     }
   })
+  traceStartupPhase('pet-native-polish:caption-ready')
 }
 
 function createFloatingSealWindow() {
+  traceStartupPhase('pet-window:create')
   const seal = new BrowserWindow(
     createFloatingSealWindowOptions(getFloatingSealBounds(), createPreloadScriptPath(__dirname))
   )
@@ -480,6 +492,7 @@ function createFloatingSealWindow() {
   seal.webContents.once('did-finish-load', () => {
     if (seal.isDestroyed() || floatingSealWindow !== seal) return
     void (async () => {
+      traceStartupPhase('pet-renderer:ready')
       try {
         await scheduleFloatingSealNativePolish(seal, (dispose, handleDisplayChange) => {
           if (seal.isDestroyed() || floatingSealWindow !== seal) {
@@ -511,6 +524,7 @@ function createFloatingSealWindow() {
       enforceSealBounds()
       floatingSealWakeController.showWhenReady(seal)
       floatingSealMouseRecovery.setVisible(seal.isVisible())
+      traceStartupPhase('pet-window:shown')
     })()
   })
 
@@ -531,6 +545,8 @@ const floatingSealWakeController = createFloatingSealWakeController({
 
 let automaticFloatingSealWakeScheduled = false
 let automaticFloatingSealWakeHandle: FloatingSealIdleTaskHandle | undefined
+let mainRendererInteractiveReady = false
+let startupServicesReady = false
 
 function scheduleAutomaticFloatingSealWake() {
   if (automaticFloatingSealWakeScheduled || appQuitting) return
@@ -541,6 +557,11 @@ function scheduleAutomaticFloatingSealWake() {
     if (appQuitting) return
     void floatingSealWakeController.wake()
   })
+}
+
+function maybeScheduleAutomaticFloatingSealWake() {
+  if (!mainRendererInteractiveReady || !startupServicesReady) return
+  scheduleAutomaticFloatingSealWake()
 }
 
 function cancelAutomaticFloatingSealWake() {
@@ -1354,7 +1375,8 @@ function registerAssistantPreferenceHandlers() {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
       return
     }
-    scheduleAutomaticFloatingSealWake()
+    mainRendererInteractiveReady = true
+    maybeScheduleAutomaticFloatingSealWake()
   })
   ipcMain.handle('bilibili-session:retry-direct', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
@@ -2118,17 +2140,22 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   // while the native window remains movable and closable during startup.
   registerAssistantPreferenceHandlers()
   createMainWindow()
+  traceStartupPhase('main-window:create')
   // Give Chromium one event-loop turn to commit the visible shell before
   // applying session/proxy settings and constructing the remaining services.
   // This keeps launch-time native work from monopolizing mouse input.
-  await new Promise<void>((resolve) => setImmediate(resolve))
+  await yieldStartupEventLoop()
+  traceStartupPhase('main-window:first-yield')
   await bilibiliSessionProxy.applyPreference(readBilibiliConnectionMode()).catch(() => undefined)
+  traceStartupPhase('session:preference-ready')
+  await yieldStartupEventLoop()
   favoriteRepositoryService = new FavoriteRepositoryService({
     root: join(app.getPath('userData'), 'favorites', 'repository-v1'),
     getTranscriptionRevision: () => queuePublishGeneration,
     getTranscriptionItems: () => getVideoTranscriptionQueue().getSnapshot().items,
     getTranscriptionArchives: () => loadVideoNoteArchives(getDesktopStore())
   })
+  traceStartupPhase('repository:create')
   const recoveredPortableImport = await favoriteRepositoryService.recoverPortableImportTransaction()
   if (recoveredPortableImport) {
     const recovery = recoveredPortableImport.recoveryState as Partial<{
@@ -2146,6 +2173,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     patchAssistantPreferences(store, portableSharedSettings(recovery.preferences))
     await favoriteRepositoryService.finalizePortableImportRecovery()
   }
+  traceStartupPhase('repository:recovery-ready')
+  await yieldStartupEventLoop()
   favoriteRepositoryPageBridgeManager = new FavoriteRepositoryRuntimePageBridgeManager(
     (request) => requestMainAssistantRuntime<FavoriteRepositoryPageOperationResult>(request)
   )
@@ -2228,6 +2257,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       }
     }
   })
+  traceStartupPhase('repository-services:ready')
+  await yieldStartupEventLoop()
   localDataService = new LocalDataService({
     root: app.getPath('userData'),
     appVersion: app.getVersion(),
@@ -2361,6 +2392,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       }
     })
   })
+  traceStartupPhase('local-data:ready')
+  await yieldStartupEventLoop()
   localDataService.setDestructiveHooks({
     stopActiveWork: async () => {
       // Do not clear state while a task can still publish durable local or remote results.
@@ -2626,6 +2659,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       root: join(app.getPath('userData'), 'favorites', 'repository-v1')
     })
   })
+  traceStartupPhase('workspace-coordinator:ready')
+  await yieldStartupEventLoop()
   oldFavoriteWorkspaceScanService = new OldFavoriteWorkspaceScanService({
     coordinator: oldFavoriteWorkspaceCoordinator,
     requestRuntime: (request) => requestMainAssistantRuntime(request),
@@ -2941,6 +2976,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     return readCurrentBilibiliAccountMid()
   })
   getVideoTranscriptionQueue()
+  // Do not create the non-critical pet while account/session recovery and
+  // service registration are still occupying startup. The renderer may report
+  // interactivity earlier; the two gates converge here without blocking it.
+  startupServicesReady = true
+  maybeScheduleAutomaticFloatingSealWake()
   if (singleInstanceGuard.hasPendingFocus()) singleInstanceGuard.focusMainWindow()
 })
 

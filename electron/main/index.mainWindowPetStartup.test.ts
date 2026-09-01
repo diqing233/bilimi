@@ -13,10 +13,13 @@ describe('main-window first pet startup wiring', () => {
     const readyHandler = mainSource.slice(readyHandlerStart, mainSource.indexOf("ipcMain.handle('", readyHandlerStart))
 
     expect(startup).not.toContain('void floatingSealWakeController.wake()')
-    expect(readyHandler).toContain('scheduleAutomaticFloatingSealWake()')
+    expect(readyHandler).toContain('maybeScheduleAutomaticFloatingSealWake()')
     expect(readyHandler).toContain('event.sender.id !== mainWindow.webContents.id')
     expect(preloadSource).toContain("notifyMainWindowInteractive: () => ipcRenderer.send('main-window:interactive-ready')")
     expect(rendererSource).toContain('window.bilimiDesktop?.notifyMainWindowInteractive?.()')
+    expect(readyHandler).toContain('mainRendererInteractiveReady = true')
+    expect(readyHandler).toContain('maybeScheduleAutomaticFloatingSealWake()')
+    expect(startup).toContain('startupServicesReady = true')
   })
 
   it('reports interactivity from a browser idle task so pet creation cannot compete with first-frame input', () => {
@@ -38,7 +41,7 @@ describe('main-window first pet startup wiring', () => {
     const startup = mainSource.slice(mainSource.indexOf('if (singleInstanceGuard) app.whenReady()'))
     const createIndex = startup.indexOf('createMainWindow()')
     const proxyIndex = startup.indexOf('await bilibiliSessionProxy.applyPreference')
-    const yieldIndex = startup.indexOf('await new Promise<void>((resolve) => setImmediate(resolve))')
+    const yieldIndex = startup.indexOf('await yieldStartupEventLoop()')
 
     expect(createIndex).toBeGreaterThanOrEqual(0)
     expect(yieldIndex).toBeGreaterThan(createIndex)

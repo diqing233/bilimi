@@ -14,6 +14,7 @@ describe('NSIS finish page window controls', () => {
     expect(installerSource).toContain('SWP_FRAMECHANGED')
     expect(installerSource).toContain('GetSystemMenu')
     expect(installerSource).toContain('EnableMenuItem')
+    expect(installerSource).toContain('user32::EnableWindow(i r0, i 1)')
     expect(installerSource).toContain('SC_CLOSE')
     expect(installerSource).toContain('MUI_FINISHPAGE_CANCEL_ENABLED')
   })

@@ -4828,8 +4828,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByTestId('favorite-ledger-chip-author-alice')).not.toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: 'Alice精选' }))
     expect(screen.getByLabelText('册名')).toHaveValue('Alice精选')
-    expect(screen.queryByText('已备册')).not.toBeInTheDocument()
-    expect(screen.queryByText('B站绑定：2 个收藏夹，共 7 个视频')).not.toBeInTheDocument()
+    expect(screen.getByText('已备册')).toBeInTheDocument()
+    expect(screen.getByText('B站绑定：2 个收藏夹，共 7 个视频')).toBeInTheDocument()
   })
 
   it('maps a lower recommendation toggle back to its saved top rule by stable id', async () => {

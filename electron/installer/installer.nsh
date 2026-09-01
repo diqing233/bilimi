@@ -52,6 +52,10 @@ Function bilimiFinishPageShow
   IntOp $r1 $r1 | ${BILIMI_WS_THICKFRAME}
   System::Call 'user32::SetWindowLong(i r0, i ${BILIMI_GWL_STYLE}, i r1)'
   System::Call 'user32::SetWindowPos(i r0, i 0, i 0, i 0, i 0, i ${BILIMI_SWP_NOMOVE}|${BILIMI_SWP_NOSIZE}|${BILIMI_SWP_NOZORDER}|${BILIMI_SWP_FRAMECHANGED})'
+  ; The outer NSIS dialog can be left disabled while the finish page child
+  ; dialog is rebuilt. Re-enable it before touching the system menu so the
+  ; caption buttons receive WM_SYSCOMMAND, including SC_CLOSE.
+  System::Call 'user32::EnableWindow(i r0, i 1)'
   System::Call 'user32::GetSystemMenu(i r0, i 0) i .r2'
   System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_CLOSE}, i 0)'
   System::Call 'user32::DrawMenuBar(i r0)'
