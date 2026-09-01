@@ -84,5 +84,5 @@
 - 生产构建：`npm run build` 通过；主进程、预加载和渲染器产物均生成。
 - 预览启动：`npm run preview` 可启动 Electron；观测到的 B 站网络握手错误属于运行环境网络状态，不改变本地构建结果。
 - I004 的最终调度实现位于 `electron/main/floatingSealIdleTask.ts`：250ms 可取消宽限计时器后再让出一个 `setImmediate`，取消同时清理两个阶段；主窗口启动测试已覆盖创建顺序与取消。
-- 安装包：将在本次最终提交后重新执行 `npm run dist:win`，不得复用旧包。
+- 安装包：`npm run dist:win` 已成功生成 `dist/bilimi.Setup.1.1.0.exe`（392,693,288 bytes）及对应 `dist/bilimi.Setup.1.1.0.exe.blockmap`（406,348 bytes）；账本更新后将再次生成以对应最终提交。
 - 仍需真实界面验收：开发版、预览版和安装版分别连续移动鼠标并点击/滚动/缩放/最小化/恢复/关闭；同时验收新建收藏夹保存、无备册中文批阅提示、提示展开完整行数及滚动边界。
