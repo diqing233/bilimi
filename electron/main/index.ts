@@ -555,8 +555,8 @@ const floatingSealWakeController = createFloatingSealWakeController({
     floatingSealMouseRecovery?.setVisible(true)
     setFloatingSealWindowMouseTransparent(false)
   },
-  scheduleCreate: (callback) => setImmediate(callback),
-  cancelCreate: (handle) => clearImmediate(handle as NodeJS.Immediate)
+  scheduleCreate: (callback) => scheduleFloatingSealIdleTask(callback),
+  cancelCreate: (handle) => cancelFloatingSealIdleTask(handle as FloatingSealIdleTaskHandle)
 })
 
 let automaticFloatingSealWakeScheduled = false

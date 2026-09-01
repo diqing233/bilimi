@@ -43,7 +43,6 @@ import { describeVideoClassificationRecommendation } from '../recommendation/rec
 import {
   applyImmediatePreferencePatch,
   createInitialAssistantPreferences,
-  recordAssistantPreferenceFeedback,
   withFavoriteLedgersForAccount
 } from '../state/assistantState'
 import {
@@ -4480,11 +4479,6 @@ export function FloatingAssistantApp({
     }
   }
 
-  async function persistFeedback(action: AssistantAction, kind: RecommendationKind) {
-    const nextPreferences = recordAssistantPreferenceFeedback(preferencesRef.current, kind, action)
-    await persistPreferences(nextPreferences)
-  }
-
   async function generateCommentDrafts(intent = '') {
     setCommentIntentBusy(true)
     setCommentIntentError('')
@@ -4574,10 +4568,6 @@ export function FloatingAssistantApp({
 
       if (!result.ok && result.missingTargets.some((target) => target.startsWith('favorite-shard-confirmation:'))) {
         setPendingFavoriteShardAction({ action, options, message: result.message })
-      }
-
-      if (result.ok && action !== '阅') {
-        await persistFeedback(action, currentKind)
       }
 
       setFeedback({
@@ -5453,7 +5443,15 @@ export function FloatingAssistantApp({
                   setGlobalFeedbackContinuationVisible(!nextExpanded)
                 }}
               >
-                 <span ref={globalFeedbackMessageRef} className="floating-assistant-global-status__feedback-message">{(globalFeedbackContinuationVisible || globalFeedbackExpanded) && globalFeedbackContinuation ? globalFeedbackVisiblePrefix : displayedGlobalFeedbackMessage}</span>
+                 <span ref={globalFeedbackMessageRef} className="floating-assistant-global-status__feedback-message">
+                   {globalFeedbackExpanded
+                     ? (globalFeedbackContinuation
+                       ? <><span>{globalFeedbackVisiblePrefix}</span><span className="floating-assistant-global-status__feedback-full-continuation">{globalFeedbackContinuation}</span></>
+                       : displayedGlobalFeedbackMessage)
+                     : (globalFeedbackContinuationVisible && globalFeedbackContinuation
+                       ? globalFeedbackVisiblePrefix
+                       : displayedGlobalFeedbackMessage)}
+                 </span>
                 <svg
                   className="floating-assistant-global-status__feedback-chevron"
                   viewBox="0 0 16 16"
@@ -5477,7 +5475,6 @@ export function FloatingAssistantApp({
               ) : null}
                {globalFeedbackExpanded ? (
                  <div className="floating-assistant-global-status__menu" aria-label="全局提示详情">
-                   {globalFeedbackContinuation ? <p className="floating-assistant-global-status__menu-feedback-continuation">{globalFeedbackContinuation}</p> : null}
                    <div className="floating-assistant-global-status__menu-scroll">
                      <section>
                       <strong>后台任务</strong>

@@ -444,6 +444,15 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(feedbackToggle).toContain('displayedGlobalFeedbackMessage')
   })
 
+  it('does not persist action feedback a second time after the main page runtime responds', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const runActionStart = source.indexOf('async function runAction(')
+    const runActionEnd = source.indexOf('\n  function ', runActionStart)
+    const runAction = source.slice(runActionStart, runActionEnd > runActionStart ? runActionEnd : runActionStart + 8000)
+
+    expect(runAction).not.toContain('persistFeedback(')
+  })
+
   it('keeps the two-line prefix and puts the remaining text before expanded background tasks', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 
@@ -453,13 +462,27 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).toContain('const layoutFrame = window.requestAnimationFrame(updateContinuation)')
     expect(source).toContain('resizeObserver?.observe(globalFeedbackMessageRef.current)')
     expect(source).toContain('className="floating-assistant-global-status__feedback-continuation"')
-    expect(source).toContain('className="floating-assistant-global-status__menu-feedback-continuation"')
+    expect(source).toContain('className="floating-assistant-global-status__feedback-continuation"')
     expect(source).toContain('globalFeedbackExpanded && globalFeedbackContinuation')
     expect(source).toContain('splitFeedbackContinuationByLines')
     expect(source).toContain('if (!split.suffix)')
     expect(source).toContain('setGlobalFeedbackContinuationVisible(false)')
     expect(source).toContain('setGlobalFeedbackContinuationVisible(!nextExpanded)')
     expect(source).not.toContain('title={globalFeedbackExpanded ? undefined : displayedGlobalFeedbackMessage}')
+  })
+
+  it('keeps the expanded continuation inside the same toggle and starts scrolling after it', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const toggleStart = source.indexOf('className="floating-assistant-global-status__feedback-toggle"')
+    const toggleEnd = source.indexOf('</button>', toggleStart)
+    const toggle = source.slice(toggleStart, toggleEnd)
+    const scrollIndex = source.indexOf('className="floating-assistant-global-status__menu-scroll"')
+    const menuContinuationIndex = source.indexOf('menu-feedback-continuation')
+
+    expect(toggle).toContain('globalFeedbackExpanded')
+    expect(toggle).toContain('globalFeedbackContinuation')
+    expect(menuContinuationIndex).toBe(-1)
+    expect(scrollIndex).toBeGreaterThan(toggleEnd)
   })
 
   it('repositions a visible status-light tooltip after its panel finishes resizing', () => {
@@ -476,7 +499,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(light).toContain('resizeObserver.disconnect()')
   })
 
-  it('keeps the feedback row clamped and places only the continuation before menu sections', () => {
+  it('keeps the feedback row clamped and places background tasks after the full prompt', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 
     expect(source).toContain('createPersistentStatusTasks({')
@@ -485,7 +508,8 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).not.toContain('recentGlobalFeedbackHistory')
     expect(source).not.toContain('className="floating-assistant-global-status__menu-message"')
     expect(source).not.toContain('<strong>当前提示</strong>')
-    expect(source).toContain('className="floating-assistant-global-status__menu-feedback-continuation"')
+    expect(source).not.toContain('className="floating-assistant-global-status__menu-feedback-continuation"')
+    expect(source).toContain('className="floating-assistant-global-status__feedback-full-continuation"')
     expect(source).toContain('后台任务')
     expect(source).toContain('当前没有后台任务')
     expect(source).toContain('最近提示')
@@ -505,7 +529,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     const menuStart = source.indexOf('className="floating-assistant-global-status__menu"')
     const menuEnd = source.indexOf('</div>', source.indexOf('className="floating-assistant-global-status__menu-scroll"', menuStart))
     const menu = source.slice(menuStart, menuEnd)
-    expect(menu.indexOf('menu-feedback-continuation')).toBeLessThan(menu.indexOf('menu-scroll'))
+    expect(menu.indexOf('menu-feedback-continuation')).toBe(-1)
     expect(menu).toContain('className="floating-assistant-global-status__menu-scroll"')
     expect(menu).toContain('<strong>后台任务</strong>')
     expect(menu).toContain('<strong>最近提示</strong>')

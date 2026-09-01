@@ -14,4 +14,15 @@ describe('favorite ledger history wiring', () => {
 
     expect(record).toHaveBeenCalledWith('100', { before, after })
   })
+
+  it('does not block a local save when the organize workspace has not started', async () => {
+    const get = vi.fn().mockRejectedValue(new Error('Old favorite workspace has not been started.'))
+    const record = vi.fn().mockResolvedValue(undefined)
+    const mutate = vi.fn().mockResolvedValue('saved')
+
+    await expect(recordFavoriteLedgerHistoryAroundMutation('100', { get, record }, mutate)).resolves.toBe('saved')
+
+    expect(mutate).toHaveBeenCalledTimes(1)
+    expect(record).not.toHaveBeenCalled()
+  })
 })

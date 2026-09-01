@@ -138,17 +138,25 @@ describe('main-window first pet startup wiring', () => {
     expect(startup).not.toContain('setImmediate(() =>')
   })
 
+  it('routes native pet creation through the same cancellable grace scheduler', () => {
+    const controller = mainSource.slice(mainSource.indexOf('const floatingSealWakeController'))
+    expect(controller).toContain('scheduleCreate: (callback) => scheduleFloatingSealIdleTask(callback)')
+    expect(controller).toContain('cancelCreate: (handle) => cancelFloatingSealIdleTask(handle as FloatingSealIdleTaskHandle)')
+  })
+
   it('keeps the main-process pet task cancellable before native pet creation', () => {
-    expect(idleTaskSource).toContain('setImmediate(callback)')
-    expect(idleTaskSource).toContain('clearImmediate(handle')
-    expect(idleTaskSource).not.toContain('setTimeout(callback, 0)')
+    expect(idleTaskSource).toContain('setTimeout(() =>')
+    expect(idleTaskSource).toContain('clearTimeout(handle')
+    expect(idleTaskSource).toContain('handle.timer.unref?.()')
+    expect(idleTaskSource).toContain('setImmediate(() =>')
+    expect(idleTaskSource).toContain('clearImmediate(handle.immediate)')
   })
 
   it('releases pet creation through a cancellable event-loop turn after renderer idle instead of a fixed grace delay', () => {
-    expect(idleTaskSource).not.toContain('FLOATING_SEAL_IDLE_GRACE_MS')
-    expect(idleTaskSource).toContain('setImmediate(callback)')
-    expect(idleTaskSource).toContain('clearImmediate(handle')
-    expect(idleTaskSource).not.toContain('setTimeout(')
+    expect(idleTaskSource).toContain('FLOATING_SEAL_IDLE_GRACE_MS')
+    expect(idleTaskSource).toContain('setTimeout(')
+    expect(idleTaskSource).toContain('setImmediate(() =>')
+    expect(idleTaskSource).toContain('clearTimeout(handle')
   })
 
   it('waits for a browser idle boundary after the home page settles before releasing the pet gate', () => {

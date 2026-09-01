@@ -1943,6 +1943,12 @@ body[data-floating-window="true"],
 .floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-message {
   text-overflow: clip;
 }
+.floating-assistant-global-status__feedback-full-continuation {
+  display: inline;
+  white-space: pre-wrap;
+  font: inherit;
+  color: inherit;
+}
 .floating-assistant-global-status__feedback[data-expanded="true"] .floating-assistant-global-status__feedback-message {
   display: block;
   overflow: visible;
@@ -1996,16 +2002,6 @@ body[data-floating-window="true"],
   line-height: 18px;
   overflow-wrap: anywhere;
 }
-.floating-assistant-global-status__menu-feedback-continuation {
-  margin: 0;
-  padding: 0 10px 6px;
-  color: var(--porcelain-deep);
-  font: inherit;
-  font-size: inherit;
-  font-weight: inherit;
-  line-height: inherit;
-  overflow-wrap: anywhere;
-}
 .floating-assistant-global-status__menu {
   position: absolute;
   top: 100%;
@@ -2034,16 +2030,6 @@ body[data-floating-window="true"],
 .floating-assistant-global-status__menu button:hover, .floating-assistant-global-status__menu button:focus-visible { color: var(--porcelain-primary); outline: none; }
 .floating-assistant-global-status__menu-task-label { width: fit-content; color: var(--porcelain-primary); font-size: 12px; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .floating-assistant-global-status__menu small { color: var(--porcelain-muted); font-size: 12px; font-weight: 500; line-height: 1.45; }
-.floating-assistant-global-status__menu > .floating-assistant-global-status__menu-feedback-continuation {
-  margin: 0;
-  padding: 0 10px 6px;
-  color: var(--porcelain-deep);
-  font: inherit;
-  font-size: inherit;
-  font-weight: inherit;
-  line-height: inherit;
-  overflow-wrap: anywhere;
-}
 .floating-assistant-global-status__menu-scroll {
   max-height: min(260px, calc(100vh - 210px));
   overflow: auto;

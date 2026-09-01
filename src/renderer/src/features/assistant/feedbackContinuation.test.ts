@@ -30,8 +30,8 @@ describe('feedback continuation presentation contract', () => {
   it('uses the same typography and no separator for the inline continuation', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
     expect(source).toMatch(/\.floating-assistant-global-status__menu\s*\{[^}]*border-top:\s*0/u)
-    expect(source).toMatch(/\.floating-assistant-global-status__menu\s*>\s*\.floating-assistant-global-status__menu-feedback-continuation\s*\{[^}]*font:\s*inherit/u)
-    expect(source).toMatch(/\.floating-assistant-global-status__menu\s*>\s*\.floating-assistant-global-status__menu-feedback-continuation\s*\{[^}]*font-size:\s*inherit/u)
+    expect(source).toMatch(/\.floating-assistant-global-status__feedback-full-continuation\s*\{[^}]*font:\s*inherit/u)
+    expect(source).toMatch(/\.floating-assistant-global-status__feedback-full-continuation\s*\{[^}]*font:\s*inherit/u)
     expect(source).toMatch(/\.floating-assistant-global-status__feedback\[data-expanded="true"\][^}]*\.floating-assistant-global-status__feedback-message\s*\{[^}]*-webkit-line-clamp:\s*unset/u)
     expect(source).toMatch(/\.floating-assistant-global-status__menu-scroll\s*\{[^}]*overflow:\s*auto/u)
   })

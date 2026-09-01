@@ -1226,7 +1226,7 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('.floating-assistant-global-status__feedback-continuation {\n  box-shadow:')
     expectStyleSnippet('.floating-assistant-global-status__feedback[data-continuation-visible="true"], .floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-continuation { background: rgba(247, 251, 255, 0.98);')
     expectStyleSnippet('.floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-message { text-overflow: clip;')
-    expectStyleSnippet('.floating-assistant-global-status__menu-feedback-continuation { margin: 0; padding: 0 10px 6px; color: var(--porcelain-deep); font: inherit; font-size: inherit; font-weight: inherit; line-height: inherit; overflow-wrap: anywhere;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-full-continuation { display: inline; white-space: pre-wrap; font: inherit; color: inherit;')
   })
 
   it('uses distinct compact colors for saved, draft, unbacked, and unbound folder states', () => {
