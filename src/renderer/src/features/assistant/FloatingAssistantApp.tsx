@@ -5478,23 +5478,25 @@ export function FloatingAssistantApp({
                {globalFeedbackExpanded ? (
                  <div className="floating-assistant-global-status__menu" aria-label="全局提示详情">
                    {globalFeedbackContinuation ? <p className="floating-assistant-global-status__menu-feedback-continuation">{globalFeedbackContinuation}</p> : null}
-                   <section>
-                    <strong>后台任务</strong>
-                    {persistentStatusTasks.length > 0 ? persistentStatusTasks.map((task) => <button key={task.id} type="button" onClick={() => {
-                      setGlobalFeedbackExpanded(false)
-                      if (task.destination === 'transcription') openSettingsSection('transcription')
-                      else if (task.destination === 'deepseek') openSettingsSection('deepseek')
-                      else setActiveTab('ledger')
-                    }}><span className="floating-assistant-global-status__menu-task-label">{task.label}</span><small>{task.detail}</small></button>) : <p>当前没有后台任务。</p>}
-                  </section>
-                  <section>
-                    <strong>最近提示</strong>
-                    {globalFeedbackHistory.length > 0 ? globalFeedbackHistory.map((item) => (
-                      <p key={`${item.occurredAt}:${item.message}`}><time>{new Date(item.occurredAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time><span>{item.message}{item.count > 1 ? ` ×${item.count}` : ''}</span></p>
-                    )) : <p>本次启动暂无其他提示。</p>}
-                  </section>
-                </div>
-              ) : null}
+                   <div className="floating-assistant-global-status__menu-scroll">
+                     <section>
+                      <strong>后台任务</strong>
+                      {persistentStatusTasks.length > 0 ? persistentStatusTasks.map((task) => <button key={task.id} type="button" onClick={() => {
+                        setGlobalFeedbackExpanded(false)
+                        if (task.destination === 'transcription') openSettingsSection('transcription')
+                        else if (task.destination === 'deepseek') openSettingsSection('deepseek')
+                        else setActiveTab('ledger')
+                      }}><span className="floating-assistant-global-status__menu-task-label">{task.label}</span><small>{task.detail}</small></button>) : <p>当前没有后台任务。</p>}
+                    </section>
+                    <section>
+                      <strong>最近提示</strong>
+                      {globalFeedbackHistory.length > 0 ? globalFeedbackHistory.map((item) => (
+                        <p key={`${item.occurredAt}:${item.message}`}><time>{new Date(item.occurredAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time><span>{item.message}{item.count > 1 ? ` ×${item.count}` : ''}</span></p>
+                      )) : <p>本次启动暂无其他提示。</p>}
+                    </section>
+                   </div>
+                 </div>
+               ) : null}
             </div>
             <div className="floating-assistant-global-status__lights" aria-label="后台状态灯">
               {[

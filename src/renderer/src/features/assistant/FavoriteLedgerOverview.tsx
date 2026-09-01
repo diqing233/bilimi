@@ -594,7 +594,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   ].filter(Boolean).join(' · ')
   const statusLabelForLedger = (ledger: FavoriteLedger) => {
     const label = combinedStatusLabel(ledger)
-    if (organizationActive || hasExpandedOrganizationGuide) {
+    if (hasExpandedOrganizationGuide) {
       return ledgerHasUnsavedChanges(ledger) ? '未保存' : ''
     }
     return label
@@ -612,7 +612,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const activeVideoCount = active ? videoCountForLedger(active) : undefined
   const activeRemoteBindingIds = active ? remoteBindingIdsForLedger(active) : []
   const activePendingRemoteBinding = Boolean(active?.pendingRemoteBinding && (active.pendingRemoteFolderId ?? active.bilibiliFolderId)?.trim())
-  const hideRemoteLifecycleStatus = organizationActive || hasExpandedOrganizationGuide
+  // A paused or recoverable organization workspace can remain mounted while
+  // the guide itself is closed.  Only the actually visible guide hides the
+  // card-level remote lifecycle labels; the detail editor always shows them.
+  const hideRemoteLifecycleStatus = hasExpandedOrganizationGuide
   const activeRules = active ? parseFavoriteLedgerRules(active) : { localKeywords: [] }
   const title = active ? displayTitle(active.displayName) : ''
   const validation = favoriteLedgerNameValidation(active?.displayName ?? '')

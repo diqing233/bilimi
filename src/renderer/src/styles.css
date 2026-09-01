@@ -2013,7 +2013,7 @@ body[data-floating-window="true"],
   left: 0;
   z-index: 5;
   max-height: min(320px, calc(100vh - 140px));
-  overflow: auto;
+  overflow: hidden;
   border-top: 0;
   background: rgba(247, 251, 255, 0.99);
   box-shadow: 0 8px 18px rgba(45, 94, 139, 0.16);
@@ -2044,6 +2044,16 @@ body[data-floating-window="true"],
   line-height: inherit;
   overflow-wrap: anywhere;
 }
+.floating-assistant-global-status__menu-scroll {
+  max-height: min(260px, calc(100vh - 210px));
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(93, 143, 200, .72) rgba(222, 239, 255, .42);
+}
+.floating-assistant-global-status__menu-scroll::-webkit-scrollbar { width: 6px; }
+.floating-assistant-global-status__menu-scroll::-webkit-scrollbar-track { background: rgba(222, 239, 255, .42); border-radius: 999px; }
+.floating-assistant-global-status__menu-scroll::-webkit-scrollbar-thumb { border-radius: 999px; background: rgba(93, 143, 200, .72); }
+.floating-assistant-global-status__menu-scroll::-webkit-scrollbar-thumb:hover { background: rgba(55, 112, 176, .82); }
 .floating-assistant-global-status__lights {
   min-width: 0;
   display: grid;

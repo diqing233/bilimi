@@ -492,6 +492,17 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).toContain("openSettingsSection('transcription')")
   })
 
+  it('starts the global feedback scrollbar at background tasks, below the fixed continuation', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const menuStart = source.indexOf('className="floating-assistant-global-status__menu"')
+    const menuEnd = source.indexOf('</div>', source.indexOf('className="floating-assistant-global-status__menu-scroll"', menuStart))
+    const menu = source.slice(menuStart, menuEnd)
+    expect(menu.indexOf('menu-feedback-continuation')).toBeLessThan(menu.indexOf('menu-scroll'))
+    expect(menu).toContain('className="floating-assistant-global-status__menu-scroll"')
+    expect(menu).toContain('<strong>后台任务</strong>')
+    expect(menu).toContain('<strong>最近提示</strong>')
+  })
+
   it('merges a transcription DeepSeek-summary phase into the transcription task instead of duplicating it', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 
