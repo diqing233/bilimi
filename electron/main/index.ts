@@ -92,6 +92,11 @@ import { installFloatingSealCaptionStrip } from './floatingSealCaptionStrip'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
 import { createFloatingSealMouseRecoveryController } from './floatingSealMouseRecovery'
 import { createFloatingSealWakeController } from './floatingSealWakeController'
+import {
+  cancelFloatingSealIdleTask,
+  scheduleFloatingSealIdleTask,
+  type FloatingSealIdleTaskHandle
+} from './floatingSealIdleTask'
 import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
@@ -525,12 +530,12 @@ const floatingSealWakeController = createFloatingSealWakeController({
 })
 
 let automaticFloatingSealWakeScheduled = false
-let automaticFloatingSealWakeHandle: NodeJS.Immediate | undefined
+let automaticFloatingSealWakeHandle: FloatingSealIdleTaskHandle | undefined
 
 function scheduleAutomaticFloatingSealWake() {
   if (automaticFloatingSealWakeScheduled || appQuitting) return
   automaticFloatingSealWakeScheduled = true
-  automaticFloatingSealWakeHandle = setImmediate(() => {
+  automaticFloatingSealWakeHandle = scheduleFloatingSealIdleTask(() => {
     automaticFloatingSealWakeScheduled = false
     automaticFloatingSealWakeHandle = undefined
     if (appQuitting) return
@@ -539,7 +544,7 @@ function scheduleAutomaticFloatingSealWake() {
 }
 
 function cancelAutomaticFloatingSealWake() {
-  if (automaticFloatingSealWakeHandle) clearImmediate(automaticFloatingSealWakeHandle)
+  if (automaticFloatingSealWakeHandle) cancelFloatingSealIdleTask(automaticFloatingSealWakeHandle)
   automaticFloatingSealWakeHandle = undefined
   automaticFloatingSealWakeScheduled = false
 }

@@ -933,36 +933,6 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (
-      IS_TEST_RUNTIME ||
-      homeWebviewActivated ||
-      !preferencesLoaded ||
-      !preferences.permissionOnboardingCompleted
-    ) {
-      return
-    }
-
-    const idleWindow = window as typeof window & {
-      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number
-      cancelIdleCallback?: (handle: number) => void
-    }
-    const activate = () => setHomeWebviewActivated(true)
-    const idleHandle = idleWindow.requestIdleCallback?.(activate, { timeout: 1200 })
-    const timeoutHandle = idleHandle === undefined
-      ? window.setTimeout(activate, 320)
-      : undefined
-
-    return () => {
-      if (idleHandle !== undefined) {
-        idleWindow.cancelIdleCallback?.(idleHandle)
-      }
-      if (timeoutHandle !== undefined) {
-        window.clearTimeout(timeoutHandle)
-      }
-    }
-  }, [homeWebviewActivated, preferences.permissionOnboardingCompleted, preferencesLoaded])
-
-  useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencePatchChanged?.((patch) => {
       if (patch.favoriteLedgers !== undefined || patch.favoriteAccountPreferences !== undefined) {
         favoriteLedgerStatusGenerationRef.current += 1

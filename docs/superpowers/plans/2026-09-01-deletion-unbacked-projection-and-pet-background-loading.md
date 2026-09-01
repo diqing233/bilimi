@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 远端已清空后删除未绑定默认收藏夹立即投影为`未备册`，并使小咪只在后台预热和 Windows 原生修补完成后显示，避免启动期鼠标卡顿。
+**Goal:** 远端已清空后删除未绑定默认收藏夹立即投影为`未备册`，并使小咪只在后台预热和 Windows 原生修补完成后显示，避免启动期鼠标卡顿；同时让 NSIS 完成页的窗口控制与有效操作符合最新确认。
 
-**Architecture:** 删除链路把“新鲜目录确认无精确 ID、无同名候选”的结果作为独立的主进程确认事实，沿用现有删除回调持久化并广播同一账号快照；仍有候选时保持原有未绑定知情同意。小咪链路由主窗口交互就绪信号触发，但将 hidden 创建、renderer 就绪、原生修补、鼠标恢复初始化和显示拆成可等待的异步阶段；可见前不启动恢复轮询。
+**Architecture:** 删除链路把“新鲜目录确认无精确 ID、无同名候选”的结果作为独立的主进程确认事实，沿用现有删除回调持久化并广播同一账号快照；仍有候选时保持原有未绑定知情同意。小咪链路由主窗口交互就绪信号触发，但将 hidden 创建、renderer 就绪、原生修补、鼠标恢复初始化和显示拆成可等待的异步阶段；可见前不启动恢复轮询。首页 guest WebView 只在用户明确浏览动作后挂载。NSIS 完成页通过专用显示回调启用最小化/最大化/关闭并隐藏无效的上一步/取消，保留完成与运行行为。
 
 **Tech Stack:** Electron main/preload、React + TypeScript、Vitest、Windows `BrowserWindow`/DWM 原生修补。
 
@@ -88,16 +88,19 @@
 - Modify: `docs/项目功能项目书.md:50-52,273-274,631`
 - Modify: `docs/contracts/favorites.md:12-15,91-97`
 - Modify: `docs/requirement-ledgers/2026-09-01-deletion-unbacked-projection-and-pet-background-loading.md`
+- Modify: `electron/installer/installer.nsh`
+- Test: `electron/installer/installer.finishPage.test.ts`
 - Create: `.codex-artifacts/2026-09-01-*.png`
 
 - [x] **Step 1: 更新账本索引。**
 
   为 I001、I002 分别记录代码位置、上述自动化测试命令与结果、Electron 只读验收截图路径；明确没有执行 B 站创建、绑定、删除、同步或视频写入。
 
-- [ ] **Step 2: Electron 只读验收。**
+- [ ] **Step 2: Electron/NSIS 只读验收。**
 
   - 使用可复现的本地状态/自动化 mock进入删除后的页面，只读确认默认规则卡片显示红色`未备册`，底部显示`部分 Bilimi 收藏夹尚未备册。`，不通过重启获得结果；截图保存 `.codex-artifacts/`。
   - 启动开发版，在不执行 B 站写入的前提下观察主窗口先可交互、小咪随后出现；验证鼠标移动、点击、滚动、最小化、恢复和关闭可响应；截图保存 `.codex-artifacts/`。无法在自动化环境证明“不卡”时据实写入未验证项。
+  - 安装包完成页验证右上角最小化、最大化、关闭可用，底部仅保留完成按钮和运行 bilimi 复选框；不点击任何 B 站写入入口。
 
 - [x] **Step 3: 运行提交前验证。**
 

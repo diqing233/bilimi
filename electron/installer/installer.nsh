@@ -1,10 +1,64 @@
 !include FileFunc.nsh
 !include LogicLib.nsh
 !include nsDialogs.nsh
+!include WinMessages.nsh
 
 !ifndef BUILD_UNINSTALLER
 Var bilimiInstallDirectoryDialog
 Var bilimiInstallDirectoryText
+
+!define BILIMI_GWL_STYLE -16
+!define BILIMI_WS_MAXIMIZEBOX 0x00010000
+!define BILIMI_WS_MINIMIZEBOX 0x00020000
+!define BILIMI_WS_THICKFRAME 0x00040000
+!define BILIMI_WS_SYSMENU 0x00080000
+!define BILIMI_SC_CLOSE 0xF060
+!define BILIMI_SWP_FRAMECHANGED 0x0020
+!define BILIMI_SWP_NOZORDER 0x0004
+!define BILIMI_SWP_NOSIZE 0x0001
+!define BILIMI_SWP_NOMOVE 0x0002
+
+!macro customFinishPage
+  !ifndef HIDE_RUN_AFTER_FINISH
+    Function StartApp
+      ${if} ${isUpdated}
+        StrCpy $1 "--updated"
+      ${else}
+        StrCpy $1 ""
+      ${endif}
+      ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
+    FunctionEnd
+
+    !define MUI_FINISHPAGE_RUN
+    !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
+  !endif
+
+  !define MUI_PAGE_CUSTOMFUNCTION_SHOW bilimiFinishPageShow
+  !insertmacro MUI_PAGE_FINISH
+!macroend
+
+Function bilimiFinishPageShow
+  ; The stock NSIS finish dialog is a fixed dialog, so its caption buttons
+  ; are disabled. Add all three requested caption styles only for this page.
+  StrCpy $0 $HWNDPARENT
+  System::Call 'user32::GetWindowLong(i r0, i ${BILIMI_GWL_STYLE}) i .r1'
+  IntOp $r1 $r1 | ${BILIMI_WS_SYSMENU}
+  IntOp $r1 $r1 | ${BILIMI_WS_MINIMIZEBOX}
+  IntOp $r1 $r1 | ${BILIMI_WS_MAXIMIZEBOX}
+  IntOp $r1 $r1 | ${BILIMI_WS_THICKFRAME}
+  System::Call 'user32::SetWindowLong(i r0, i ${BILIMI_GWL_STYLE}, i r1)'
+  System::Call 'user32::SetWindowPos(i r0, i 0, i 0, i 0, i 0, i ${BILIMI_SWP_NOMOVE}|${BILIMI_SWP_NOSIZE}|${BILIMI_SWP_NOZORDER}|${BILIMI_SWP_FRAMECHANGED})'
+  System::Call 'user32::GetSystemMenu(i r0, i 0) i .r2'
+  System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_CLOSE}, i 0)'
+  System::Call 'user32::DrawMenuBar(i r0)'
+
+  ; Back (3) and Cancel (2) are disabled on the finish page and have no
+  ; meaningful action after installation. Keep Finish (1) unchanged.
+  GetDlgItem $0 $HWNDPARENT 3
+  ShowWindow $0 ${SW_HIDE}
+  GetDlgItem $0 $HWNDPARENT 2
+  ShowWindow $0 ${SW_HIDE}
+FunctionEnd
 
 !macro customInit
   Call bilimiEnsureInstallSubfolder

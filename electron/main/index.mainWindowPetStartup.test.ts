@@ -27,6 +27,12 @@ describe('main-window first pet startup wiring', () => {
     expect(interactiveEffect).toContain('cancelIdleCallback')
   })
 
+  it('does not auto-mount the home guest webview on a startup timeout', () => {
+    expect(rendererSource).not.toContain('const activate = () => setHomeWebviewActivated(true)')
+    expect(rendererSource).not.toContain('requestIdleCallback?.(activate, { timeout: 1200 })')
+    expect(rendererSource).not.toContain('window.setTimeout(activate, 320)')
+  })
+
   it('yields the event loop after creating the visible shell before startup session work', () => {
     const startup = mainSource.slice(mainSource.indexOf('if (singleInstanceGuard) app.whenReady()'))
     const createIndex = startup.indexOf('createMainWindow()')
@@ -57,5 +63,12 @@ describe('main-window first pet startup wiring', () => {
     expect(nativePolish).toContain('installFloatingSealCaptionStrip(seal')
     expect(nativePolish).toContain('await disposeWhiteStripFix.recomposite()')
     expect(nativePolish).toContain('await installFloatingSealCaptionStrip(seal')
+  })
+
+  it('schedules automatic pet wake through a cancellable idle task', () => {
+    const startup = mainSource.slice(mainSource.indexOf('function scheduleAutomaticFloatingSealWake()'))
+    expect(startup).toContain('scheduleFloatingSealIdleTask')
+    expect(startup).toContain('cancelFloatingSealIdleTask')
+    expect(startup).not.toContain('setImmediate(() =>')
   })
 })
