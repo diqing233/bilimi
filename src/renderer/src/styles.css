@@ -1943,6 +1943,12 @@ body[data-floating-window="true"],
 .floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-message {
   text-overflow: clip;
 }
+.floating-assistant-global-status__feedback[data-expanded="true"][data-continuation-visible="true"] .floating-assistant-global-status__feedback-message {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
 .floating-assistant-global-status__feedback-toggle {
   appearance: none;
   border: 0;
@@ -1994,8 +2000,10 @@ body[data-floating-window="true"],
   margin: 0;
   padding: 0 10px 6px;
   color: var(--porcelain-deep);
-  font-weight: 700;
-  line-height: 18px;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
   overflow-wrap: anywhere;
 }
 .floating-assistant-global-status__menu {
@@ -2006,7 +2014,7 @@ body[data-floating-window="true"],
   z-index: 5;
   max-height: min(320px, calc(100vh - 140px));
   overflow: auto;
-  border-top: 1px dashed #d1e6fb;
+  border-top: 0;
   background: rgba(247, 251, 255, 0.99);
   box-shadow: 0 8px 18px rgba(45, 94, 139, 0.16);
   font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
@@ -2026,6 +2034,16 @@ body[data-floating-window="true"],
 .floating-assistant-global-status__menu button:hover, .floating-assistant-global-status__menu button:focus-visible { color: var(--porcelain-primary); outline: none; }
 .floating-assistant-global-status__menu-task-label { width: fit-content; color: var(--porcelain-primary); font-size: 12px; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .floating-assistant-global-status__menu small { color: var(--porcelain-muted); font-size: 12px; font-weight: 500; line-height: 1.45; }
+.floating-assistant-global-status__menu > .floating-assistant-global-status__menu-feedback-continuation {
+  margin: 0;
+  padding: 0 10px 6px;
+  color: var(--porcelain-deep);
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  overflow-wrap: anywhere;
+}
 .floating-assistant-global-status__lights {
   min-width: 0;
   display: grid;

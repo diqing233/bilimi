@@ -15,8 +15,11 @@ Var bilimiFinishWindowTimer
 !define BILIMI_GWL_STYLE -16
 !define BILIMI_WS_MINIMIZEBOX 0x00020000
 !define BILIMI_WS_SYSMENU 0x00080000
+!define BILIMI_WS_MAXIMIZEBOX 0x00010000
+!define BILIMI_WS_THICKFRAME 0x00040000
 !define BILIMI_SC_CLOSE 0xF060
 !define BILIMI_SC_MINIMIZE 0xF020
+!define BILIMI_SC_MAXIMIZE 0xF030
 !define BILIMI_SWP_FRAMECHANGED 0x0020
 !define BILIMI_SWP_NOZORDER 0x0004
 !define BILIMI_SWP_NOSIZE 0x0001
@@ -91,6 +94,17 @@ Function bilimiApplyFinishWindowControls
     StrCpy $0 $r3
   ${EndIf}
   System::Call 'user32::GetWindowLong(i r0, i ${BILIMI_GWL_STYLE}) i .r1'
+  ; Remove maximize and resize affordances rather than merely disabling them.
+  ; NSIS IntOp has no complement operator, so clear each low-bit style only
+  ; when it is present before adding the requested system/minimize styles.
+  IntOp $r3 $r1 & ${BILIMI_WS_MAXIMIZEBOX}
+  ${If} $r3 != 0
+    IntOp $r1 $r1 - ${BILIMI_WS_MAXIMIZEBOX}
+  ${EndIf}
+  IntOp $r3 $r1 & ${BILIMI_WS_THICKFRAME}
+  ${If} $r3 != 0
+    IntOp $r1 $r1 - ${BILIMI_WS_THICKFRAME}
+  ${EndIf}
   IntOp $r1 $r1 | ${BILIMI_WS_SYSMENU}
   IntOp $r1 $r1 | ${BILIMI_WS_MINIMIZEBOX}
   System::Call 'user32::SetWindowLong(i r0, i ${BILIMI_GWL_STYLE}, i r1)'
@@ -100,6 +114,7 @@ Function bilimiApplyFinishWindowControls
   ; caption buttons receive WM_SYSCOMMAND, including SC_CLOSE.
   System::Call 'user32::EnableWindow(i r0, i 1)'
   System::Call 'user32::GetSystemMenu(i r0, i 0) i .r2'
+  System::Call 'user32::DeleteMenu(i r2, i ${BILIMI_SC_MAXIMIZE}, i 0)'
   System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_CLOSE}, i 0)'
   System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_MINIMIZE}, i 0)'
   System::Call 'user32::DrawMenuBar(i r0)'

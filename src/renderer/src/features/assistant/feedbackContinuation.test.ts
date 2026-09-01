@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { feedbackContinuationSuffix, splitFeedbackContinuation, splitFeedbackContinuationByLines } from './feedbackContinuation'
 
@@ -21,6 +23,16 @@ describe('feedbackContinuationSuffix', () => {
       visible: '批阅：可以一键三连、自动分类收',
       suffix: '藏、发送弹幕。'
     })
+  })
+})
+
+describe('feedback continuation presentation contract', () => {
+  it('uses the same typography and no separator for the inline continuation', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+    expect(source).toMatch(/\.floating-assistant-global-status__menu\s*\{[^}]*border-top:\s*0/u)
+    expect(source).toMatch(/\.floating-assistant-global-status__menu\s*>\s*\.floating-assistant-global-status__menu-feedback-continuation\s*\{[^}]*font:\s*inherit/u)
+    expect(source).toMatch(/\.floating-assistant-global-status__menu\s*>\s*\.floating-assistant-global-status__menu-feedback-continuation\s*\{[^}]*font-size:\s*inherit/u)
+    expect(source).toMatch(/\.floating-assistant-global-status__feedback\[data-expanded="true"\]\[data-continuation-visible="true"\][^}]*\.floating-assistant-global-status__feedback-message\s*\{[^}]*-webkit-line-clamp:\s*unset/u)
   })
 })
 

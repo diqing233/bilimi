@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDeepSeekErrorMessage } from './deepSeekErrorMessage'
+import { formatAssistantFeedbackMessage, formatDeepSeekErrorMessage } from './deepSeekErrorMessage'
 
 describe('formatDeepSeekErrorMessage', () => {
   it('removes the Electron remote method wrapper from DeepSeek errors', () => {
@@ -36,5 +36,30 @@ describe('formatDeepSeekErrorMessage', () => {
         'DeepSeek 总结生成失败。'
       )
     ).toBe('DeepSeek 请求超时，请检查服务地址或网络后重试。')
+  })
+
+  it('maps preference IPC and unopened workspace errors to Chinese feedback', () => {
+    expect(
+      formatDeepSeekErrorMessage(
+        new Error("Error invoking remote method 'assistant:patch-preferences': Error: Old favorite workspace has not been started."),
+        '保存失败，请重试。'
+      )
+    ).toBe('整理收藏尚未开始，请返回整理收藏后重试。')
+
+    expect(
+      formatDeepSeekErrorMessage(
+        new Error('Old favorite workspace has not been started.'),
+        '保存失败，请重试。'
+      )
+    ).toBe('整理收藏尚未开始，请返回整理收藏后重试。')
+  })
+
+  it('normalizes raw global feedback strings without exposing IPC English', () => {
+    expect(
+      formatAssistantFeedbackMessage(
+        "Error invoking remote method 'assistant:patch-preferences': Error: Old favorite workspace has not been started.",
+        '操作失败，请重试。'
+      )
+    ).toBe('整理收藏尚未开始，请返回整理收藏后重试。')
   })
 })

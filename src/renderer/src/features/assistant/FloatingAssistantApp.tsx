@@ -91,7 +91,7 @@ import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 import { appendGlobalFeedbackHistory, createPersistentStatusTasks, transcriptionModelLabel, type GlobalFeedbackHistoryItem } from './assistantGlobalStatusCenter'
 import { createDefaultLayoutRestoreController } from './defaultLayoutRestoreController'
 import { acknowledgeOldFavoriteWorkspace, loadAcknowledgedOldFavoriteWorkspaces, saveAcknowledgedOldFavoriteWorkspaces } from './acknowledgedOldFavoriteWorkspace'
-import { formatDeepSeekErrorMessage } from './deepSeekErrorMessage'
+import { formatAssistantFeedbackMessage, formatDeepSeekErrorMessage } from './deepSeekErrorMessage'
 import { projectFavoriteLedgerDraft } from './favoriteLedgerDraftProjection'
 import { buildMultipartPartUrl, type MultipartVideoPart, type MultipartVideoSnapshot } from '../notes/videoNoteMultipart'
 
@@ -3203,7 +3203,9 @@ export function FloatingAssistantApp({
   }
 
   function setGlobalFeedback(message: string) {
-    const trimmed = message.trim()
+    const raw = message.trim()
+    if (!raw) return
+    const trimmed = formatAssistantFeedbackMessage(raw, '操作失败，请重试。')
     if (trimmed) {
       setGlobalFeedbackMessage(trimmed)
       setGlobalFeedbackHistory((history) => appendGlobalFeedbackHistory(history, trimmed))

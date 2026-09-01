@@ -461,16 +461,20 @@ function createFloatingSealWindow() {
   const seal = new BrowserWindow(
     createFloatingSealWindowOptions(getFloatingSealBounds(), createPreloadScriptPath(__dirname))
   )
-  const enforceSealBounds = installFixedFloatingSealBoundsGuard(seal)
+  let enforceSealBounds: (() => void) | null = null
   let disposeWhiteStripFix: ReturnType<typeof installFloatingSealWhiteStripFix> | null = null
   let handleFloatingSealDisplayChange: (() => void) | null = null
+  let postShowSetupHandle: FloatingSealIdleTaskHandle | undefined
+  let nativePolishHandle: FloatingSealIdleTaskHandle | undefined
 
-  seal.setAlwaysOnTop(true, 'floating')
-  seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  // A cold pet window must use only the click-through setup required for its
+  // first visible frame. Window bounds, workspace visibility and recovery
+  // polling are native work and are deliberately deferred until after show.
   setFloatingSealMouseTransparency(seal, true)
-  seal.removeMenu()
 
   seal.on('closed', () => {
+    if (postShowSetupHandle) cancelFloatingSealIdleTask(postShowSetupHandle)
+    if (nativePolishHandle) cancelFloatingSealIdleTask(nativePolishHandle)
     floatingSealMouseRecovery?.dispose()
     floatingSealMouseRecovery = null
     floatingSealInteractiveRegions = []
@@ -486,14 +490,26 @@ function createFloatingSealWindow() {
   })
 
   floatingSealWindow = seal
-  enforceFloatingSealWindowBounds = enforceSealBounds
 
   loadRendererWindow(seal, FLOATING_SEAL_QUERY)
   seal.webContents.once('did-finish-load', () => {
     if (seal.isDestroyed() || floatingSealWindow !== seal) return
-    void (async () => {
-      traceStartupPhase('pet-renderer:ready')
+    traceStartupPhase('pet-renderer:ready')
+    sendAssistantPetState()
+    floatingSealWakeController.showWhenReady(seal)
+    traceStartupPhase('pet-window:shown')
+
+    // Give the shown window an entire cancellable idle slice before doing
+    // bounds, workspace, menu or hit-testing work. `showInactive()` must not
+    // be followed by a concentrated batch of native calls in the same turn.
+    postShowSetupHandle = scheduleFloatingSealIdleTask(() => {
+      postShowSetupHandle = undefined
       if (seal.isDestroyed() || floatingSealWindow !== seal) return
+      enforceSealBounds = installFixedFloatingSealBoundsGuard(seal)
+      enforceFloatingSealWindowBounds = enforceSealBounds
+      seal.setAlwaysOnTop(true, 'floating')
+      seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+      seal.removeMenu()
       floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
         getCursorPoint: () => screen.getCursorScreenPoint(),
         schedulePoll: (callback, delayMs) => setTimeout(callback, delayMs),
@@ -503,31 +519,29 @@ function createFloatingSealWindow() {
       floatingSealMouseRecovery.setVisible(false)
       floatingSealMouseRecovery.updateInteractiveRegions(floatingSealInteractiveRegions)
       floatingSealMouseRecovery.setTransparent(true)
-      sendAssistantPetState()
-      enforceSealBounds()
-      floatingSealWakeController.showWhenReady(seal)
       floatingSealMouseRecovery.setVisible(seal.isVisible())
-      traceStartupPhase('pet-window:shown')
 
-      // The optional Win32/DWM repairs can spawn PowerShell and trigger several
-      // native repaints. They must never delay the first visible frame or the
-      // first mouse input turn. Start them only after the window is already
-      // visible and yield once more before touching native APIs.
-      void scheduleFloatingSealNativePolish(seal, (dispose, handleDisplayChange) => {
-        if (seal.isDestroyed() || floatingSealWindow !== seal) {
-          dispose()
-          return
-        }
-        disposeWhiteStripFix = dispose
-        handleFloatingSealDisplayChange = handleDisplayChange
-        recompositeFloatingSealWindow = dispose.recomposite
-        screen.on('display-metrics-changed', handleDisplayChange)
-        screen.on('display-added', handleDisplayChange)
-        screen.on('display-removed', handleDisplayChange)
-      }).catch((error) => {
-        console.warn('[floatingSeal] native startup polish failed', error)
+      // DWM/PowerShell repair gets a second idle slice: composition work can
+      // still be expensive even after the pet's first frame is visible.
+      nativePolishHandle = scheduleFloatingSealIdleTask(() => {
+        nativePolishHandle = undefined
+        if (seal.isDestroyed() || floatingSealWindow !== seal) return
+        void scheduleFloatingSealNativePolish(seal, (dispose, handleDisplayChange) => {
+          if (seal.isDestroyed() || floatingSealWindow !== seal) {
+            dispose()
+            return
+          }
+          disposeWhiteStripFix = dispose
+          handleFloatingSealDisplayChange = handleDisplayChange
+          recompositeFloatingSealWindow = dispose.recomposite
+          screen.on('display-metrics-changed', handleDisplayChange)
+          screen.on('display-added', handleDisplayChange)
+          screen.on('display-removed', handleDisplayChange)
+        }).catch((error) => {
+          console.warn('[floatingSeal] native startup polish failed', error)
+        })
       })
-    })()
+    })
   })
 
   return seal

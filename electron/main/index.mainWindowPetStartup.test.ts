@@ -115,6 +115,22 @@ describe('main-window first pet startup wiring', () => {
     expect(nativePolish).toContain('await installFloatingSealCaptionStrip(seal')
   })
 
+  it('keeps the cold pet show path to click-through and display before post-show native setup', () => {
+    const petStart = mainSource.indexOf('function createFloatingSealWindow()')
+    const petEnd = mainSource.indexOf('\n}\n\nconst floatingSealWakeController', petStart)
+    const petCreation = mainSource.slice(petStart, petEnd)
+    const showIndex = petCreation.indexOf('floatingSealWakeController.showWhenReady(seal)')
+
+    expect(showIndex).toBeGreaterThanOrEqual(0)
+    expect(petCreation.indexOf('setFloatingSealMouseTransparency(seal, true)')).toBeLessThan(showIndex)
+    expect(petCreation.indexOf('installFixedFloatingSealBoundsGuard(seal)')).toBeGreaterThan(showIndex)
+    expect(petCreation.indexOf('createFloatingSealMouseRecoveryController({')).toBeGreaterThan(showIndex)
+    expect(petCreation.indexOf('seal.setVisibleOnAllWorkspaces')).toBeGreaterThan(showIndex)
+    expect(petCreation.indexOf('seal.removeMenu()')).toBeGreaterThan(showIndex)
+    expect(petCreation).toContain('postShowSetupHandle = scheduleFloatingSealIdleTask')
+    expect(petCreation).toContain('cancelFloatingSealIdleTask(postShowSetupHandle)')
+  })
+
   it('schedules automatic pet wake through a cancellable idle task', () => {
     const startup = mainSource.slice(mainSource.indexOf('function scheduleAutomaticFloatingSealWake()'))
     expect(startup).toContain('scheduleFloatingSealIdleTask')
