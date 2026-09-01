@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { feedbackContinuationSuffix, splitFeedbackContinuation } from './feedbackContinuation'
+import { feedbackContinuationSuffix, splitFeedbackContinuation, splitFeedbackContinuationByLines } from './feedbackContinuation'
 
 describe('feedbackContinuationSuffix', () => {
   const measure = (value: string) => Array.from(value).length
@@ -20,6 +20,24 @@ describe('feedbackContinuationSuffix', () => {
     expect(splitFeedbackContinuation('批阅：可以一键三连、自动分类收藏、发送弹幕。', 15, measure)).toEqual({
       visible: '批阅：可以一键三连、自动分类收',
       suffix: '藏、发送弹幕。'
+    })
+  })
+})
+
+describe('splitFeedbackContinuationByLines', () => {
+  const measure = (value: string) => Array.from(value).length
+
+  it('keeps two wrapped lines in the visible prefix before returning a third-line suffix', () => {
+    expect(splitFeedbackContinuationByLines('一二三四五六七八九十', 4, 2, measure)).toEqual({
+      visible: '一二三四五六七八',
+      suffix: '九十'
+    })
+  })
+
+  it('returns an empty suffix when the complete message fits in two lines', () => {
+    expect(splitFeedbackContinuationByLines('一二三四五六七', 4, 2, measure)).toEqual({
+      visible: '一二三四五六七',
+      suffix: ''
     })
   })
 })

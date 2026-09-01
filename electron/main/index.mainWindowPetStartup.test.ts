@@ -90,7 +90,7 @@ describe('main-window first pet startup wiring', () => {
     expect(yieldIndex).toBeLessThan(proxyIndex)
   })
 
-  it('keeps the pet hidden until renderer loading, DWM recomposition, caption repair, and mouse recovery initialization finish in order', () => {
+  it('shows the pet before optional native polish so caption repair cannot block input', () => {
     const petStart = mainSource.indexOf('function createFloatingSealWindow()')
     const petEnd = mainSource.indexOf('\n}\n\nconst floatingSealWakeController', petStart)
     const petCreation = mainSource.slice(petStart, petEnd)
@@ -98,12 +98,16 @@ describe('main-window first pet startup wiring', () => {
     const nativePolishEnd = mainSource.indexOf('\n}\n\nfunction createFloatingSealWindow()', nativePolishStart)
     const nativePolish = mainSource.slice(nativePolishStart, nativePolishEnd)
 
-    expect(petCreation).toContain('await scheduleFloatingSealNativePolish(seal')
+    expect(petCreation).not.toContain('await scheduleFloatingSealNativePolish(seal')
     expect(petCreation).not.toContain('installFloatingSealWhiteStripFix(seal')
     expect(petCreation).not.toContain('installFloatingSealCaptionStrip(seal')
     expect(petCreation).toContain("seal.webContents.once('did-finish-load'")
     expect(petCreation).toContain('floatingSealMouseRecovery = createFloatingSealMouseRecoveryController')
     expect(petCreation).toContain('floatingSealWakeController.showWhenReady(seal)')
+    expect(petCreation).toContain('void scheduleFloatingSealNativePolish(seal')
+    expect(petCreation.indexOf('floatingSealWakeController.showWhenReady(seal)')).toBeLessThan(
+      petCreation.indexOf('void scheduleFloatingSealNativePolish(seal')
+    )
     expect(nativePolish).toContain('await new Promise<void>((resolve) => setImmediate(resolve))')
     expect(nativePolish).toContain('installFloatingSealWhiteStripFix(seal')
     expect(nativePolish).toContain('installFloatingSealCaptionStrip(seal')

@@ -418,7 +418,7 @@ async function scheduleFloatingSealNativePolish(
   traceStartupPhase('pet-native-polish:start')
 
   // BrowserWindow creation is already native work. Yield before each Windows
-  // task and keep the host hidden until both repairs have settled.
+  // task; the host is already visible, so these optional repairs cannot gate input.
   await new Promise<void>((resolve) => setImmediate(resolve))
   if (seal.isDestroyed() || floatingSealWindow !== seal) return
   const disposeWhiteStripFix = installFloatingSealWhiteStripFix(seal, {
@@ -493,23 +493,6 @@ function createFloatingSealWindow() {
     if (seal.isDestroyed() || floatingSealWindow !== seal) return
     void (async () => {
       traceStartupPhase('pet-renderer:ready')
-      try {
-        await scheduleFloatingSealNativePolish(seal, (dispose, handleDisplayChange) => {
-          if (seal.isDestroyed() || floatingSealWindow !== seal) {
-            dispose()
-            return
-          }
-          disposeWhiteStripFix = dispose
-          handleFloatingSealDisplayChange = handleDisplayChange
-          recompositeFloatingSealWindow = dispose.recomposite
-          screen.on('display-metrics-changed', handleDisplayChange)
-          screen.on('display-added', handleDisplayChange)
-          screen.on('display-removed', handleDisplayChange)
-        })
-      } catch (error) {
-        console.warn('[floatingSeal] native startup polish failed', error)
-      }
-      await new Promise<void>((resolve) => setImmediate(resolve))
       if (seal.isDestroyed() || floatingSealWindow !== seal) return
       floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
         getCursorPoint: () => screen.getCursorScreenPoint(),
@@ -525,6 +508,25 @@ function createFloatingSealWindow() {
       floatingSealWakeController.showWhenReady(seal)
       floatingSealMouseRecovery.setVisible(seal.isVisible())
       traceStartupPhase('pet-window:shown')
+
+      // The optional Win32/DWM repairs can spawn PowerShell and trigger several
+      // native repaints. They must never delay the first visible frame or the
+      // first mouse input turn. Start them only after the window is already
+      // visible and yield once more before touching native APIs.
+      void scheduleFloatingSealNativePolish(seal, (dispose, handleDisplayChange) => {
+        if (seal.isDestroyed() || floatingSealWindow !== seal) {
+          dispose()
+          return
+        }
+        disposeWhiteStripFix = dispose
+        handleFloatingSealDisplayChange = handleDisplayChange
+        recompositeFloatingSealWindow = dispose.recomposite
+        screen.on('display-metrics-changed', handleDisplayChange)
+        screen.on('display-added', handleDisplayChange)
+        screen.on('display-removed', handleDisplayChange)
+      }).catch((error) => {
+        console.warn('[floatingSeal] native startup polish failed', error)
+      })
     })()
   })
 

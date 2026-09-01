@@ -8,15 +8,15 @@ Var bilimiInstallDirectoryDialog
 Var bilimiInstallDirectoryText
 Var bilimiFinishWindowHandle
 Var bilimiFinishPageActive
+!ifndef UNINSTALLER_OUT_FILE
+Var bilimiFinishWindowTimer
+!endif
 
 !define BILIMI_GWL_STYLE -16
-!define BILIMI_WS_MAXIMIZEBOX 0x00010000
 !define BILIMI_WS_MINIMIZEBOX 0x00020000
-!define BILIMI_WS_THICKFRAME 0x00040000
 !define BILIMI_WS_SYSMENU 0x00080000
 !define BILIMI_SC_CLOSE 0xF060
 !define BILIMI_SC_MINIMIZE 0xF020
-!define BILIMI_SC_MAXIMIZE 0xF030
 !define BILIMI_SWP_FRAMECHANGED 0x0020
 !define BILIMI_SWP_NOZORDER 0x0004
 !define BILIMI_SWP_NOSIZE 0x0001
@@ -60,6 +60,12 @@ Function bilimiFinishPageShow
   StrCpy $bilimiFinishWindowHandle $HWNDPARENT
   StrCpy $bilimiFinishPageActive "1"
   Call bilimiApplyFinishWindowControls
+  ; MUI reapplies its fixed-dialog style after this callback returns. Schedule
+  ; one short-lived event so the final caption controls are restored after
+  ; that pass without blocking the installer's message loop.
+  !ifndef UNINSTALLER_OUT_FILE
+    ${StdUtils.TimerCreate} $bilimiFinishWindowTimer bilimiApplyFinishWindowControls 500
+  !endif
 
   ; Back (3) and Cancel (2) are disabled on the finish page and have no
   ; meaningful action after installation. Keep Finish (1) unchanged.
@@ -74,7 +80,10 @@ FunctionEnd
 
 Function bilimiApplyFinishWindowControls
   ; The stock NSIS finish dialog is a fixed dialog, so its caption buttons
-  ; are disabled. Add all three requested caption styles only for this page.
+  ; are disabled. Add only the requested minimize and close styles on this page.
+  ; This callback is invoked periodically while the finish page is visible:
+  ; MUI may rebuild the dialog style after SHOW returns, so one-shot setup is
+  ; not sufficient. Each pass is tiny and never blocks the message loop.
   StrCpy $0 $bilimiFinishWindowHandle
   ; Resolve the actual top-level owner in case MUI supplied the page child.
   System::Call 'user32::GetAncestor(i r0, i 2) i .r3'
@@ -84,8 +93,6 @@ Function bilimiApplyFinishWindowControls
   System::Call 'user32::GetWindowLong(i r0, i ${BILIMI_GWL_STYLE}) i .r1'
   IntOp $r1 $r1 | ${BILIMI_WS_SYSMENU}
   IntOp $r1 $r1 | ${BILIMI_WS_MINIMIZEBOX}
-  IntOp $r1 $r1 | ${BILIMI_WS_MAXIMIZEBOX}
-  IntOp $r1 $r1 | ${BILIMI_WS_THICKFRAME}
   System::Call 'user32::SetWindowLong(i r0, i ${BILIMI_GWL_STYLE}, i r1)'
   System::Call 'user32::SetWindowPos(i r0, i 0, i 0, i 0, i 0, i ${BILIMI_SWP_NOMOVE}|${BILIMI_SWP_NOSIZE}|${BILIMI_SWP_NOZORDER}|${BILIMI_SWP_FRAMECHANGED})'
   ; The outer NSIS dialog can be left disabled while the finish page child
@@ -95,7 +102,6 @@ Function bilimiApplyFinishWindowControls
   System::Call 'user32::GetSystemMenu(i r0, i 0) i .r2'
   System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_CLOSE}, i 0)'
   System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_MINIMIZE}, i 0)'
-  System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_MAXIMIZE}, i 0)'
   System::Call 'user32::DrawMenuBar(i r0)'
 FunctionEnd
 

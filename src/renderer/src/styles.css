@@ -1990,6 +1990,14 @@ body[data-floating-window="true"],
   line-height: 18px;
   overflow-wrap: anywhere;
 }
+.floating-assistant-global-status__menu-feedback-continuation {
+  margin: 0;
+  padding: 0 10px 6px;
+  color: var(--porcelain-deep);
+  font-weight: 700;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
 .floating-assistant-global-status__menu {
   position: absolute;
   top: 100%;

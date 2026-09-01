@@ -444,7 +444,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(feedbackToggle).toContain('displayedGlobalFeedbackMessage')
   })
 
-  it('uses an overflow-only hover continuation without changing the existing click-expanded menu', () => {
+  it('keeps the two-line prefix and puts the remaining text before expanded background tasks', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 
     expect(source).toContain('globalFeedbackContinuationVisible')
@@ -453,8 +453,10 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).toContain('const layoutFrame = window.requestAnimationFrame(updateContinuation)')
     expect(source).toContain('resizeObserver?.observe(globalFeedbackMessageRef.current)')
     expect(source).toContain('className="floating-assistant-global-status__feedback-continuation"')
-    expect(source).toContain("style.whiteSpace !== 'nowrap'")
-    expect(source).toContain('measure(displayedGlobalFeedbackMessage) <= messageElement.clientWidth')
+    expect(source).toContain('className="floating-assistant-global-status__menu-feedback-continuation"')
+    expect(source).toContain('globalFeedbackExpanded && globalFeedbackContinuation')
+    expect(source).toContain('splitFeedbackContinuationByLines')
+    expect(source).toContain('if (!split.suffix)')
     expect(source).toContain('setGlobalFeedbackContinuationVisible(false)')
     expect(source).toContain('setGlobalFeedbackContinuationVisible(!nextExpanded)')
     expect(source).not.toContain('title={globalFeedbackExpanded ? undefined : displayedGlobalFeedbackMessage}')
@@ -474,7 +476,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(light).toContain('resizeObserver.disconnect()')
   })
 
-  it('keeps the feedback row clamped and removes only the menu current-feedback section', () => {
+  it('keeps the feedback row clamped and places only the continuation before menu sections', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 
     expect(source).toContain('createPersistentStatusTasks({')
@@ -483,6 +485,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(source).not.toContain('recentGlobalFeedbackHistory')
     expect(source).not.toContain('className="floating-assistant-global-status__menu-message"')
     expect(source).not.toContain('<strong>当前提示</strong>')
+    expect(source).toContain('className="floating-assistant-global-status__menu-feedback-continuation"')
     expect(source).toContain('后台任务')
     expect(source).toContain('当前没有后台任务')
     expect(source).toContain('最近提示')

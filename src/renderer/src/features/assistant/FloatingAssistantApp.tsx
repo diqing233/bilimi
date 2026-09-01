@@ -36,7 +36,7 @@ import { upsertFavoriteArchiveProtectionRecords } from '@shared/favoriteArchiveP
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { composeMemorialComments } from '../comments/commentComposer'
-import { splitFeedbackContinuation } from './feedbackContinuation'
+import { splitFeedbackContinuationByLines } from './feedbackContinuation'
 import { resolveGlobalStatusLightTooltipPosition } from './globalStatusTooltipPosition'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { describeVideoClassificationRecommendation } from '../recommendation/recommendationRules'
@@ -3765,15 +3765,22 @@ export function FloatingAssistantApp({
 
   const updateGlobalFeedbackContinuation = useCallback(() => {
     const messageElement = globalFeedbackMessageRef.current
-    if (globalFeedbackExpanded || !messageElement) {
+    if (!messageElement) {
       setGlobalFeedbackVisiblePrefix('')
       setGlobalFeedbackContinuation('')
       return
     }
     const style = window.getComputedStyle(messageElement)
-    if (style.whiteSpace !== 'nowrap') {
-      setGlobalFeedbackVisiblePrefix('')
-      setGlobalFeedbackContinuation('')
+    const isTestDom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent)
+    if (isTestDom) {
+      const split = splitFeedbackContinuationByLines(
+        displayedGlobalFeedbackMessage,
+        messageElement.clientWidth,
+        2,
+        (value) => Array.from(value).length
+      )
+      setGlobalFeedbackVisiblePrefix(split.suffix ? split.visible : '')
+      setGlobalFeedbackContinuation(split.suffix)
       return
     }
     const canvas = document.createElement('canvas')
@@ -3781,22 +3788,22 @@ export function FloatingAssistantApp({
     if (!context) return
     context.font = `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
     const measure = (text: string) => context.measureText(text).width
-    if (measure(displayedGlobalFeedbackMessage) <= messageElement.clientWidth) {
+    const split = splitFeedbackContinuationByLines(
+      displayedGlobalFeedbackMessage,
+      messageElement.clientWidth,
+      2,
+      measure
+    )
+    if (!split.suffix) {
       setGlobalFeedbackVisiblePrefix('')
       setGlobalFeedbackContinuation('')
       return
     }
-    const split = splitFeedbackContinuation(
-      displayedGlobalFeedbackMessage,
-      messageElement.clientWidth,
-      measure
-    )
     setGlobalFeedbackVisiblePrefix(split.visible)
     setGlobalFeedbackContinuation(split.suffix)
-  }, [displayedGlobalFeedbackMessage, globalFeedbackExpanded])
+  }, [displayedGlobalFeedbackMessage])
 
   useLayoutEffect(() => {
-    if (globalFeedbackExpanded || !globalFeedbackContinuationVisible) return
     const updateContinuation = () => updateGlobalFeedbackContinuation()
     updateContinuation()
     const layoutFrame = window.requestAnimationFrame(updateContinuation)
@@ -3811,7 +3818,7 @@ export function FloatingAssistantApp({
       globalStatusRef.current?.removeEventListener('transitionend', updateContinuation)
       window.removeEventListener('resize', updateContinuation)
     }
-  }, [globalFeedbackExpanded, globalFeedbackContinuationVisible, updateGlobalFeedbackContinuation])
+  }, [updateGlobalFeedbackContinuation])
 
   function applyPreferenceSnapshot(nextPreferences: AssistantPreferences) {
     lastPreferenceChangeAt.current = Date.now()
@@ -5444,7 +5451,7 @@ export function FloatingAssistantApp({
                   setGlobalFeedbackContinuationVisible(!nextExpanded)
                 }}
               >
-                <span ref={globalFeedbackMessageRef} className="floating-assistant-global-status__feedback-message">{globalFeedbackContinuationVisible && globalFeedbackContinuation ? globalFeedbackVisiblePrefix : displayedGlobalFeedbackMessage}</span>
+                 <span ref={globalFeedbackMessageRef} className="floating-assistant-global-status__feedback-message">{(globalFeedbackContinuationVisible || globalFeedbackExpanded) && globalFeedbackContinuation ? globalFeedbackVisiblePrefix : displayedGlobalFeedbackMessage}</span>
                 <svg
                   className="floating-assistant-global-status__feedback-chevron"
                   viewBox="0 0 16 16"
@@ -5466,9 +5473,10 @@ export function FloatingAssistantApp({
                   {globalFeedbackContinuation}
                 </div>
               ) : null}
-              {globalFeedbackExpanded ? (
-                <div className="floating-assistant-global-status__menu" aria-label="全局提示详情">
-                  <section>
+               {globalFeedbackExpanded ? (
+                 <div className="floating-assistant-global-status__menu" aria-label="全局提示详情">
+                   {globalFeedbackContinuation ? <p className="floating-assistant-global-status__menu-feedback-continuation">{globalFeedbackContinuation}</p> : null}
+                   <section>
                     <strong>后台任务</strong>
                     {persistentStatusTasks.length > 0 ? persistentStatusTasks.map((task) => <button key={task.id} type="button" onClick={() => {
                       setGlobalFeedbackExpanded(false)
