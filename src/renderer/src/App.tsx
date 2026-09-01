@@ -94,6 +94,11 @@ const IS_TEST_RUNTIME = import.meta.env.MODE === 'test'
 const DAILY_DEEPSEEK_PRE_ACTION_WAIT_MS = IS_TEST_RUNTIME ? 0 : 1200
 const DAILY_DEEPSEEK_BACKGROUND_TIMEOUT_MS = IS_TEST_RUNTIME ? 50 : 60_000
 const AUTOMATED_PAGE_HINT_COOLDOWN_MS = 750
+// The home guest normally settles through dom-ready/did-stop-loading/did-fail-load.
+// Some Chromium/network combinations can leave all three silent; bound that
+// startup gate so the non-critical pet cannot wait forever while the main shell
+// remains interactive.
+export const HOME_WEBVIEW_LOAD_SETTLE_TIMEOUT_MS = IS_TEST_RUNTIME ? 250 : 8_000
 let browserTabIdIndex = 0
 
 export function shouldMountBrowserTab(
@@ -830,6 +835,8 @@ export default function App() {
   }
   const [preferencesLoaded, setPreferencesLoaded] = useState(IS_TEST_RUNTIME)
   const [homeWebviewActivated, setHomeWebviewActivated] = useState(IS_TEST_RUNTIME)
+  const homeWebviewLoadSettledRef = useRef(IS_TEST_RUNTIME)
+  const homeWebviewLoadSettleTimeoutRef = useRef<number | undefined>(undefined)
   const activeWebview = useMemo(() => webviews[activeTabId] ?? null, [activeTabId, webviews])
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
@@ -3675,23 +3682,28 @@ export default function App() {
     let secondFrame: number | undefined
     let idleHandle: number | undefined
     let fallbackHandle: number | undefined
+    let homeActivationHandle: number | undefined
+    let homeActivationFallbackHandle: number | undefined
     const idleWindow = window as typeof window & {
       requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number
       cancelIdleCallback?: (handle: number) => void
     }
-    const notifyInteractive = () => {
-      // The production home guest must become visible after the first
-      // interactive frame, but never in the same synchronous startup work
-      // that creates the main window. Keeping this in the cancellable idle
-      // task preserves an interactive shell even when the idle task is
-      // cancelled, while ensuring a normal launch does not leave the home
-      // workspace blank indefinitely.
+    const activateHomeWebview = () => {
       if (!IS_TEST_RUNTIME) setHomeWebviewActivated(true)
+    }
+    const notifyInteractive = () => {
+      // Report the interactive shell first. Home Bilibili guest mounting is a
+      // separate cancellable task so its Chromium/GPU work cannot overlap the
+      // IPC notification that releases background startup work.
       window.bilimiDesktop?.notifyMainWindowInteractive?.()
+      homeActivationHandle = idleWindow.requestIdleCallback?.(activateHomeWebview, { timeout: 3000 })
+      if (homeActivationHandle === undefined) {
+        homeActivationFallbackHandle = window.setTimeout(activateHomeWebview, 0)
+      }
     }
     firstFrame = window.requestAnimationFrame(() => {
       secondFrame = window.requestAnimationFrame(() => {
-        idleHandle = idleWindow.requestIdleCallback?.(notifyInteractive)
+        idleHandle = idleWindow.requestIdleCallback?.(notifyInteractive, { timeout: 1000 })
         if (idleHandle === undefined) {
           fallbackHandle = window.setTimeout(notifyInteractive, 0)
         }
@@ -3702,8 +3714,44 @@ export default function App() {
       if (secondFrame !== undefined) window.cancelAnimationFrame(secondFrame)
       if (idleHandle !== undefined) idleWindow.cancelIdleCallback?.(idleHandle)
       if (fallbackHandle !== undefined) window.clearTimeout(fallbackHandle)
+      if (homeActivationHandle !== undefined) idleWindow.cancelIdleCallback?.(homeActivationHandle)
+      if (homeActivationFallbackHandle !== undefined) window.clearTimeout(homeActivationFallbackHandle)
     }
   }, [])
+
+  const notifyHomeWebviewLoadSettled = useCallback(() => {
+    if (homeWebviewLoadSettledRef.current) return
+    homeWebviewLoadSettledRef.current = true
+    if (homeWebviewLoadSettleTimeoutRef.current !== undefined) {
+      window.clearTimeout(homeWebviewLoadSettleTimeoutRef.current)
+      homeWebviewLoadSettleTimeoutRef.current = undefined
+    }
+    window.bilimiDesktop?.notifyHomeWebviewLoadSettled?.()
+  }, [])
+
+  useEffect(() => {
+    if (IS_TEST_RUNTIME || !homeWebviewActivated || homeWebviewLoadSettledRef.current ||
+      homeWebviewLoadSettleTimeoutRef.current !== undefined) {
+      return
+    }
+
+    homeWebviewLoadSettleTimeoutRef.current = window.setTimeout(() => {
+      homeWebviewLoadSettleTimeoutRef.current = undefined
+      notifyHomeWebviewLoadSettled()
+    }, HOME_WEBVIEW_LOAD_SETTLE_TIMEOUT_MS)
+
+    return () => {
+      if (homeWebviewLoadSettleTimeoutRef.current !== undefined) {
+        window.clearTimeout(homeWebviewLoadSettleTimeoutRef.current)
+        homeWebviewLoadSettleTimeoutRef.current = undefined
+      }
+    }
+  }, [homeWebviewActivated, notifyHomeWebviewLoadSettled])
+
+  const handleInitialWebviewLoadSettled = useCallback((tabId: string) => {
+    if (tabId !== HOME_TAB_ID) return
+    notifyHomeWebviewLoadSettled()
+  }, [notifyHomeWebviewLoadSettled])
 
   useEffect(() => {
     if (!window.bilimiDesktop?.registerAssistantRuntime) {
@@ -3878,6 +3926,7 @@ export default function App() {
               seekCid={archiveSeekByTabId[tab.id]?.cid}
               onLocationChange={updateTabUrl}
               onOpenInTab={openInternalTab}
+              onInitialLoadSettled={tab.id === HOME_TAB_ID ? handleInitialWebviewLoadSettled : undefined}
               onHtmlFullscreenChange={handleHtmlFullscreenChange}
               onPageInteractionHint={handlePageInteractionHint}
               hostResizePaused={favoriteLibraryResizing || assistantSidebarResizing}

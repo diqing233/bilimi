@@ -3,6 +3,24 @@ import { describe, expect, it, vi } from 'vitest'
 import { BiliWebview } from './BiliWebview'
 
 describe('BiliWebview', () => {
+  it('reports initial home load settlement for success and failure without blocking the host', () => {
+    const onInitialLoadSettled = vi.fn()
+    render(
+      <BiliWebview
+        active
+        tabId="home"
+        url="https://www.bilibili.com"
+        onInitialLoadSettled={onInitialLoadSettled}
+      />
+    )
+
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    act(() => webview.dispatchEvent(new Event('did-stop-loading')))
+    act(() => webview.dispatchEvent(Object.assign(new Event('did-fail-load'), { isMainFrame: true })))
+
+    expect(onInitialLoadSettled).toHaveBeenCalledTimes(2)
+  })
+
   it('waits for dom-ready before reading the guest webContents id', () => {
     const onTargetState = vi.fn()
     const getWebContentsId = vi.fn(() => {

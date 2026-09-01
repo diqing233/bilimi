@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const mainSource = readFileSync(resolve(process.cwd(), 'electron/main/index.ts'), 'utf8')
+const idleTaskSource = readFileSync(resolve(process.cwd(), 'electron/main/floatingSealIdleTask.ts'), 'utf8')
 const preloadSource = readFileSync(resolve(process.cwd(), 'electron/preload/index.ts'), 'utf8')
 const rendererSource = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
 
@@ -25,10 +26,51 @@ describe('main-window first pet startup wiring', () => {
   it('reports interactivity from a browser idle task so pet creation cannot compete with first-frame input', () => {
     const notifyIndex = rendererSource.indexOf('window.bilimiDesktop?.notifyMainWindowInteractive?.()')
     const interactiveEffect = rendererSource.slice(rendererSource.lastIndexOf('useEffect(() => {', notifyIndex), notifyIndex + 120)
+    const notifyFunctionStart = rendererSource.lastIndexOf('const notifyInteractive =', notifyIndex)
+    const notifyFunction = rendererSource.slice(notifyFunctionStart, notifyIndex)
 
     expect(interactiveEffect).toContain('requestIdleCallback')
     expect(interactiveEffect).toContain('cancelIdleCallback')
-    expect(interactiveEffect).toContain('setHomeWebviewActivated(true)')
+    expect(notifyFunction).not.toContain('setHomeWebviewActivated(true)')
+    expect(rendererSource).toContain('onInitialLoadSettled')
+    expect(rendererSource).toContain('notifyHomeWebviewLoadSettled')
+  })
+
+  it('releases automatic pet wake only after the home Bilibili guest settles', () => {
+    const gateSource = mainSource.slice(mainSource.indexOf('let mainRendererInteractiveReady'))
+    const readyHandlerStart = mainSource.indexOf("ipcMain.on('main-window:interactive-ready'")
+    const readyHandler = mainSource.slice(readyHandlerStart, mainSource.indexOf("ipcMain.handle('", readyHandlerStart))
+
+    expect(gateSource).toContain('homeWebviewLoadSettled')
+    expect(gateSource).toContain('if (!mainRendererInteractiveReady || !startupServicesReady || !homeWebviewLoadSettled) return')
+    expect(readyHandler).toContain('mainRendererInteractiveReady = true')
+    expect(mainSource).toContain("ipcMain.on('home-webview:load-settled'")
+    expect(mainSource).toContain('homeWebviewLoadSettled = true')
+  })
+
+  it('keeps home guest loading independent from the main interactive notification', () => {
+    const notifyIndex = rendererSource.indexOf('window.bilimiDesktop?.notifyMainWindowInteractive?.()')
+    const notifyFunctionStart = rendererSource.lastIndexOf('const notifyInteractive =', notifyIndex)
+    const notifyFunction = rendererSource.slice(notifyFunctionStart, notifyIndex)
+
+    expect(notifyFunction).not.toContain('setHomeWebviewActivated(true)')
+    expect(rendererSource).toContain('const activateHomeWebview')
+    expect(rendererSource).toContain('onInitialLoadSettled={')
+  })
+
+  it('bounds renderer idle waits so startup interactivity cannot be postponed indefinitely', () => {
+    const notifyIndex = rendererSource.indexOf('window.bilimiDesktop?.notifyMainWindowInteractive?.()')
+    const effectStart = rendererSource.lastIndexOf('useEffect(() => {', notifyIndex)
+    const startupEffect = rendererSource.slice(effectStart, rendererSource.indexOf('}, [])', notifyIndex) + 6)
+
+    expect(startupEffect).toContain('requestIdleCallback?.(notifyInteractive, { timeout: 1000 })')
+    expect(startupEffect).toContain('requestIdleCallback?.(activateHomeWebview, { timeout: 3000 })')
+  })
+
+  it('settles a stalled home guest through a bounded network fallback', () => {
+    expect(rendererSource).toContain('HOME_WEBVIEW_LOAD_SETTLE_TIMEOUT_MS')
+    expect(rendererSource).toContain('notifyHomeWebviewLoadSettled')
+    expect(rendererSource).toContain('homeWebviewLoadSettledRef.current')
   })
 
   it('does not auto-mount the home guest webview on a startup timeout', () => {
@@ -74,5 +116,10 @@ describe('main-window first pet startup wiring', () => {
     expect(startup).toContain('scheduleFloatingSealIdleTask')
     expect(startup).toContain('cancelFloatingSealIdleTask')
     expect(startup).not.toContain('setImmediate(() =>')
+  })
+
+  it('keeps an explicit cancellable grace window before native pet creation', () => {
+    expect(idleTaskSource).toContain('FLOATING_SEAL_IDLE_GRACE_MS')
+    expect(idleTaskSource).not.toContain('setTimeout(callback, 0)')
   })
 })

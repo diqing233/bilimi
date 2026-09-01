@@ -6,6 +6,8 @@
 !ifndef BUILD_UNINSTALLER
 Var bilimiInstallDirectoryDialog
 Var bilimiInstallDirectoryText
+Var bilimiFinishWindowHandle
+Var bilimiFinishPageActive
 
 !define BILIMI_GWL_STYLE -16
 !define BILIMI_WS_MAXIMIZEBOX 0x00010000
@@ -13,6 +15,8 @@ Var bilimiInstallDirectoryText
 !define BILIMI_WS_THICKFRAME 0x00040000
 !define BILIMI_WS_SYSMENU 0x00080000
 !define BILIMI_SC_CLOSE 0xF060
+!define BILIMI_SC_MINIMIZE 0xF020
+!define BILIMI_SC_MAXIMIZE 0xF030
 !define BILIMI_SWP_FRAMECHANGED 0x0020
 !define BILIMI_SWP_NOZORDER 0x0004
 !define BILIMI_SWP_NOSIZE 0x0001
@@ -37,14 +41,46 @@ Var bilimiInstallDirectoryText
   ; button is wired to NSIS's normal dialog-close handling. The bottom
   ; Cancel button is still hidden in bilimiFinishPageShow below.
   !define MUI_FINISHPAGE_CANCEL_ENABLED
+  !define MUI_CUSTOMFUNCTION_ABORT bilimiFinishAbort
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW bilimiFinishPageShow
   !insertmacro MUI_PAGE_FINISH
 !macroend
 
+Function bilimiFinishAbort
+  ; NSIS routes the title-bar × through .onUserAbort. Keep the override
+  ; scoped to the visible finish page so earlier pages retain their behavior.
+  ${If} $bilimiFinishPageActive == "1"
+    Quit
+  ${EndIf}
+FunctionEnd
+
 Function bilimiFinishPageShow
+  ; MUI applies its fixed-dialog style after the page callback returns. Store
+  ; the top-level handle and mark the finish page active for the abort hook.
+  StrCpy $bilimiFinishWindowHandle $HWNDPARENT
+  StrCpy $bilimiFinishPageActive "1"
+  Call bilimiApplyFinishWindowControls
+
+  ; Back (3) and Cancel (2) are disabled on the finish page and have no
+  ; meaningful action after installation. Keep Finish (1) unchanged.
+  GetDlgItem $0 $HWNDPARENT 3
+  ShowWindow $0 ${SW_HIDE}
+  ; Re-enable the hidden Cancel/abort control through its real dialog handle;
+  ; this keeps the normal NSIS close path available for the title-bar ×.
+  GetDlgItem $0 $HWNDPARENT 2
+  System::Call 'user32::EnableWindow(i r0, i 1)'
+  ShowWindow $0 ${SW_HIDE}
+FunctionEnd
+
+Function bilimiApplyFinishWindowControls
   ; The stock NSIS finish dialog is a fixed dialog, so its caption buttons
   ; are disabled. Add all three requested caption styles only for this page.
-  StrCpy $0 $HWNDPARENT
+  StrCpy $0 $bilimiFinishWindowHandle
+  ; Resolve the actual top-level owner in case MUI supplied the page child.
+  System::Call 'user32::GetAncestor(i r0, i 2) i .r3'
+  ${If} $r3 != 0
+    StrCpy $0 $r3
+  ${EndIf}
   System::Call 'user32::GetWindowLong(i r0, i ${BILIMI_GWL_STYLE}) i .r1'
   IntOp $r1 $r1 | ${BILIMI_WS_SYSMENU}
   IntOp $r1 $r1 | ${BILIMI_WS_MINIMIZEBOX}
@@ -58,14 +94,9 @@ Function bilimiFinishPageShow
   System::Call 'user32::EnableWindow(i r0, i 1)'
   System::Call 'user32::GetSystemMenu(i r0, i 0) i .r2'
   System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_CLOSE}, i 0)'
+  System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_MINIMIZE}, i 0)'
+  System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_MAXIMIZE}, i 0)'
   System::Call 'user32::DrawMenuBar(i r0)'
-
-  ; Back (3) and Cancel (2) are disabled on the finish page and have no
-  ; meaningful action after installation. Keep Finish (1) unchanged.
-  GetDlgItem $0 $HWNDPARENT 3
-  ShowWindow $0 ${SW_HIDE}
-  GetDlgItem $0 $HWNDPARENT 2
-  ShowWindow $0 ${SW_HIDE}
 FunctionEnd
 
 !macro customInit

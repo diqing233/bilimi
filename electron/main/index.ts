@@ -547,9 +547,11 @@ let automaticFloatingSealWakeScheduled = false
 let automaticFloatingSealWakeHandle: FloatingSealIdleTaskHandle | undefined
 let mainRendererInteractiveReady = false
 let startupServicesReady = false
+let homeWebviewLoadSettled = false
 
 function scheduleAutomaticFloatingSealWake() {
   if (automaticFloatingSealWakeScheduled || appQuitting) return
+  traceStartupPhase('pet-wake:scheduled')
   automaticFloatingSealWakeScheduled = true
   automaticFloatingSealWakeHandle = scheduleFloatingSealIdleTask(() => {
     automaticFloatingSealWakeScheduled = false
@@ -560,7 +562,7 @@ function scheduleAutomaticFloatingSealWake() {
 }
 
 function maybeScheduleAutomaticFloatingSealWake() {
-  if (!mainRendererInteractiveReady || !startupServicesReady) return
+  if (!mainRendererInteractiveReady || !startupServicesReady || !homeWebviewLoadSettled) return
   scheduleAutomaticFloatingSealWake()
 }
 
@@ -1134,6 +1136,7 @@ function requestMainAssistantRuntime<TPayload>(request: AssistantRuntimeRequestI
 
 function createMainWindow() {
   const { workAreaSize } = screen.getPrimaryDisplay()
+  homeWebviewLoadSettled = false
   const win = new BrowserWindow(
     createMainWindowOptions(createPreloadScriptPath(__dirname), workAreaSize)
   )
@@ -1376,6 +1379,15 @@ function registerAssistantPreferenceHandlers() {
       return
     }
     mainRendererInteractiveReady = true
+    traceStartupPhase('main-window:interactive-ready')
+    maybeScheduleAutomaticFloatingSealWake()
+  })
+  ipcMain.on('home-webview:load-settled', (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
+      return
+    }
+    homeWebviewLoadSettled = true
+    traceStartupPhase('home-webview:load-settled')
     maybeScheduleAutomaticFloatingSealWake()
   })
   ipcMain.handle('bilibili-session:retry-direct', (event) => {

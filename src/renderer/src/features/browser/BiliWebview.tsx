@@ -20,6 +20,7 @@ type BiliWebviewProps = {
   onLocationChange?: (tabId: string, url: string) => void
   onOpenInTab?: (url: string) => void
   onReady?: (tabId: string, webview: Electron.WebviewTag) => void
+  onInitialLoadSettled?: (tabId: string, outcome: 'success' | 'failure') => void
   onPageInteractionHint?: (message: string) => void
   hostResizePaused?: boolean
   onHtmlFullscreenChange?: (tabId: string, fullscreen: boolean) => void
@@ -132,6 +133,7 @@ export const BiliWebview = memo(function BiliWebview({
   hostResizePaused = false,
   onPageInteractionHint,
   onReady,
+  onInitialLoadSettled,
   onTitleChange,
   onTargetState,
   seekSeconds,
@@ -156,6 +158,7 @@ export const BiliWebview = memo(function BiliWebview({
     onOpenInTab,
     onPageInteractionHint,
     onReady,
+    onInitialLoadSettled,
     onTargetState,
     onTitleChange
   })
@@ -165,6 +168,7 @@ export const BiliWebview = memo(function BiliWebview({
     onOpenInTab,
     onPageInteractionHint,
     onReady,
+    onInitialLoadSettled,
     onTargetState,
     onTitleChange
   }
@@ -303,6 +307,7 @@ export const BiliWebview = memo(function BiliWebview({
     const handleLoadFailure = (event: Event) => {
       const failure = event as WebviewLoadFailureEvent
       if (failure.isMainFrame === false) return
+      hostCallbacks.current.onInitialLoadSettled?.(tabId, 'failure')
       if (failure.errorCode === -130) {
         setProxyConnectionFailed(true)
         setLoadFailure(null)
@@ -314,6 +319,7 @@ export const BiliWebview = memo(function BiliWebview({
     }
 
     const handleLoadSuccess = () => {
+      hostCallbacks.current.onInitialLoadSettled?.(tabId, 'success')
       hasFinishedInitialLoad.current = true
       setProxyConnectionFailed(false)
       setLoadFailure(null)
