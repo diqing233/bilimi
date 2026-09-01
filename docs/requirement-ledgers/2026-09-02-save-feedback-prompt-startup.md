@@ -77,3 +77,12 @@
 - I003：`FloatingAssistantApp.tsx` 将展开态完整提示放入同一反馈按钮，`styles.css` 新增同继承字体的 inline continuation 并移除菜单续文卡片；相关 DOM/CSS 测试通过。真实多行展开、点击区和滚动位置仍待用户验收。
 - I004：`floatingSealIdleTask.ts` 恢复 250ms 可取消 grace，并在 timer 后再让出一个 `setImmediate`；`index.ts` 的自动唤醒和创建均走该句柄。启动测试 15/15 通过；鼠标连续移动、点击、滚动、最小化、恢复、关闭必须在开发版/安装版由用户实测。
 - 聚焦回归：5 个相关测试文件、185 个测试全部通过；`npm test` 245 个测试文件、4228 个测试全部通过；`npm run build` 通过。`npm run dist:win` 待干净提交后执行。
+
+## 最终验证补充（2026-09-02）
+
+- 全量自动化回归：`npm test -- --reporter=dot`，245 个测试文件、4228 个测试全部通过（退出码 0）。
+- 生产构建：`npm run build` 通过；主进程、预加载和渲染器产物均生成。
+- 预览启动：`npm run preview` 可启动 Electron；观测到的 B 站网络握手错误属于运行环境网络状态，不改变本地构建结果。
+- I004 的最终调度实现位于 `electron/main/floatingSealIdleTask.ts`：250ms 可取消宽限计时器后再让出一个 `setImmediate`，取消同时清理两个阶段；主窗口启动测试已覆盖创建顺序与取消。
+- 安装包：将在本次最终提交后重新执行 `npm run dist:win`，不得复用旧包。
+- 仍需真实界面验收：开发版、预览版和安装版分别连续移动鼠标并点击/滚动/缩放/最小化/恢复/关闭；同时验收新建收藏夹保存、无备册中文批阅提示、提示展开完整行数及滚动边界。
