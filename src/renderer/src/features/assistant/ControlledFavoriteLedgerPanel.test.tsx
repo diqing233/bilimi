@@ -1231,7 +1231,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('combobox', { name: '收藏夹种类' })).toHaveTextContent('关键词收藏夹')
     expect(screen.getByLabelText('册名')).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '关键词' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '取消' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起' })).toBeInTheDocument()
 
     fireEvent.change(screen.getByRole('combobox', { name: '收藏夹种类' }), { target: { value: 'deepseek' } })
     expect(screen.getByRole('textbox', { name: 'DeepSeek约束' })).toBeInTheDocument()
@@ -1578,16 +1578,16 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'save-draft-ledger-rule' }))
   })
 
-  it('cancels a new local ledger editor without leaving a chip behind', () => {
+  it('collapses a new local ledger editor without deleting the local draft', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
     fireEvent.change(screen.getByLabelText('册名'), { target: { value: '舞蹈' } })
-    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起' }))
 
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '舞蹈' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '舞蹈' })).toBeInTheDocument()
   })
 
   it('deletes a right-side custom rule without touching its favorite-library work folder', async () => {
@@ -2043,6 +2043,33 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).toHaveBeenNthCalledWith(2, '100', { type: 'start-scan', mode: 'incremental' })
     await waitFor(() => expect(reportSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({ choice: 'rescan' })))
     await act(async () => { resolveScan?.(scanning) })
+  })
+
+  it('abandons the workspace when ending an active scan', async () => {
+    const scanning = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-scan', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [],
+      currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const abandoned = { ...scanning, status: 'completed' as const }
+    const command = vi.fn().mockImplementation(async (_accountMid: string, input: { type: string }) =>
+      input.type === 'pause-scan' ? scanning : input.type === 'abandon-current-workspace' ? abandoned : null)
+    window.bilimiDesktop = {
+      prepareOldFavoriteWorkspaceRecoveryV1: vi.fn().mockResolvedValue(null),
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '结束整理' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'pause-scan' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'abandon-current-workspace' }))
   })
 
   it('shows an explicit recovery choice before loading an unfinished persisted workspace', async () => {

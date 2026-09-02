@@ -94,6 +94,62 @@ describe('FavoriteLedgerOverview', () => {
       .toEqual(['favorite-ledger-chip-a', 'favorite-ledger-chip-b', 'favorite-ledger-chip-c', 'favorite-ledger-chip-recommended']))
   })
 
+  it('keeps a just-saved local rule until the parent acknowledges its stable id', async () => {
+    const save = vi.fn().mockResolvedValue({ ok: true })
+    const view = render(<FavoriteLedgerOverview ledgers={[]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+    fireEvent.change(screen.getByLabelText('册名'), { target: { value: '本地新建' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith([
+      expect.objectContaining({ displayName: 'bilimi·本地新建' })
+    ], { deleteDisabled: false }))
+    const savedLedger = save.mock.calls[0]![0][0]
+
+    view.rerender(<FavoriteLedgerOverview ledgers={[{
+      id: 'other', displayName: 'bilimi·其他', keywords: [], enabled: true, priority: 10, isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    expect(screen.getByTestId(`favorite-ledger-chip-${savedLedger.id}`)).toBeInTheDocument()
+
+    view.rerender(<FavoriteLedgerOverview ledgers={[savedLedger]} missingLedgerIds={[]} onSaveLedgers={save} />)
+    await waitFor(() => expect(screen.getByTestId(`favorite-ledger-chip-${savedLedger.id}`)).toBeInTheDocument())
+  })
+
+  it('keeps a newly saved rule when the parent snapshot updates before save resolves', async () => {
+    let releaseSave!: () => void
+    const existingLedger: FavoriteLedger = {
+      id: 'existing', displayName: 'bilimi·已有', keywords: [], enabled: true, priority: 10, isDefault: false
+    }
+    const staleLedger: FavoriteLedger = {
+      id: 'stale', displayName: 'bilimi·过渡', keywords: [], enabled: false, priority: 20, isDefault: false
+    }
+    let parentLedgers: FavoriteLedger[] = [existingLedger, staleLedger]
+    const save = vi.fn((_nextLedgers: FavoriteLedger[]) => {
+      // The parent may publish an intermediate account/workspace projection
+      // before the persistence command resolves.
+      parentLedgers = [existingLedger]
+      return new Promise<{ ok: true }>((resolve) => {
+        releaseSave = () => resolve({ ok: true })
+      })
+    })
+    const view = render(<FavoriteLedgerOverview ledgers={parentLedgers} missingLedgerIds={[]} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+    fireEvent.change(screen.getByLabelText('册名'), { target: { value: '补取期间新建' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(save).toHaveBeenCalled())
+
+    view.rerender(<FavoriteLedgerOverview ledgers={[existingLedger]} missingLedgerIds={[]} onSaveLedgers={save} />)
+    const savedLedger = save.mock.calls[0]![0].find((ledger) => ledger.displayName.includes('补取期间新建'))
+    expect(savedLedger).toBeDefined()
+    await waitFor(() => expect(screen.getByTestId(`favorite-ledger-chip-${savedLedger!.id}`)).toBeInTheDocument())
+    expect(screen.queryByTestId('favorite-ledger-chip-stale')).not.toBeInTheDocument()
+    releaseSave()
+    await waitFor(() => expect(screen.getByText('补取期间新建')).toBeInTheDocument())
+  })
+
   it('keeps same-named folders saveable, labels each copy, and shows the video count only while editing', () => {
     render(<FavoriteLedgerOverview ledgers={[
       {
@@ -1325,7 +1381,7 @@ describe('FavoriteLedgerOverview', () => {
       ]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} openLedgerId="music" />)
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1))
 
-      fireEvent.click(screen.getByRole('button', { name: '取消' }))
+      fireEvent.click(screen.getByRole('button', { name: '收起' }))
       expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
       view.rerender(<FavoriteLedgerOverview ledgers={[
         { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }

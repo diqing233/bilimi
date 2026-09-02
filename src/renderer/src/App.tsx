@@ -1791,11 +1791,12 @@ export default function App() {
       // owner confirms it in the rebind dialog. Older successful create
       // responses may omit bindingState, so only an explicit unbound state is
       // excluded here.
-      if (ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup) continue
-      const remoteFolderId = ledger.bilibiliFolderId?.trim()
-      if (!remoteFolderId) continue
       const explicitlySelectedFolderId = rebindRemoteFolderIds?.[ledger.id]?.trim()
       const selectedFolders = rebindRemoteFolders?.[ledger.id]?.filter((folder) => folder.id.trim()) ?? []
+      if (ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup &&
+        !explicitlySelectedFolderId && !selectedFolders.length) continue
+      const remoteFolderId = ledger.bilibiliFolderId?.trim()
+      if (!remoteFolderId) continue
       // A newly created remote folder has no matching input ID, even if a
       // locally deleted default rule still carries its former ID for display.
       // It must be registered in the same backup operation; otherwise the

@@ -272,14 +272,16 @@ function partialManagedRemoteDeletionMessage(result: ManagedRemoteDeletionResult
 /** External refreshes may rebuild their array; existing cards must not jump. */
 export function preserveFavoriteLedgerOrder(
   currentLedgers: readonly FavoriteLedger[],
-  incomingLedgers: readonly FavoriteLedger[]
+  incomingLedgers: readonly FavoriteLedger[],
+  retainedMissingIds: Iterable<string> = []
 ): FavoriteLedger[] {
   const incomingById = new Map(incomingLedgers.map((ledger) => [ledger.id, ledger]))
   const currentIds = new Set(currentLedgers.map((ledger) => ledger.id))
+  const retainedIds = new Set(retainedMissingIds)
   return [
     ...currentLedgers.flatMap((ledger) => {
       const incoming = incomingById.get(ledger.id)
-      return incoming ? [incoming] : []
+      return incoming ? [incoming] : retainedIds.has(ledger.id) ? [ledger] : []
     }),
     ...incomingLedgers.filter((ledger) => !currentIds.has(ledger.id))
   ]
@@ -361,6 +363,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const ledgerHintTooltipRef = useRef<HTMLDivElement>(null)
   const [draftLedgers, setDraftLedgers] = useState(ledgers)
   const draftLedgersRef = useRef(draftLedgers)
+  const awaitingParentLedgerIdsRef = useRef<Set<string>>(new Set())
   const [savedLedgerSnapshots, setSavedLedgerSnapshots] = useState<Record<string, ReturnType<typeof ledgerEditorSnapshot>>>(() =>
     Object.fromEntries(ledgers.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)]))
   )
@@ -441,7 +444,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     toggleSaveTimerRef.current = null
     pendingToggleSaveRef.current.clear()
     pendingBulkSaveRef.current = null
-    const nextLedgers = preserveFavoriteLedgerOrder(draftLedgersRef.current, ledgers)
+    const awaitingParentLedgerIds = awaitingParentLedgerIdsRef.current
+    for (const ledgerId of awaitingParentLedgerIds) {
+      if (persistedLedgerIds.has(ledgerId)) awaitingParentLedgerIds.delete(ledgerId)
+    }
+    const nextLedgers = preserveFavoriteLedgerOrder(draftLedgersRef.current, ledgers, awaitingParentLedgerIds)
     enableStore.reset(enableEntries(nextLedgers, false))
     deletionStore.reset(enableEntries(nextLedgers, true))
     setDraftLedgers(nextLedgers)
@@ -827,11 +834,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   }
   const add = () => {
     const ledger: FavoriteLedger = { id: idFor('new-ledger'), displayName: BILIMI_LEDGER_PREFIX, keywords: [], ruleType: 'keyword', enabled: false, priority: (draftLedgers.length + 1) * 10, syncState: 'local-draft', ruleOrigin: 'saved-rule', isDefault: false }
+    awaitingParentLedgerIdsRef.current.add(ledger.id)
     enableStore.reconcile(enableEntries([...draftLedgers, ledger]))
     setDraftLedgers((current) => [...current, ledger]); setActiveLedgerId(ledger.id); setNewLedger(true); setDraftDeletionError(null); setSaveError(null)
   }
   const close = () => {
-    if (newLedger && activeLedgerId) setDraftLedgers((current) => current.filter((ledger) => ledger.id !== activeLedgerId))
     setActiveLedgerId(null); setNewLedger(false); setDraftDeletionError(null); setSaveError(null)
   }
   const resetLedgers = () => {
@@ -915,6 +922,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         setSaveError(result.message ?? '收藏夹规则未能持久化，请稍后重试。')
         return
       }
+      awaitingParentLedgerIdsRef.current.add(savingLedgerId)
       setActiveLedgerId((current) => current === savingLedgerId ? null : current)
       setNewLedger(false)
       if (!organizationActive || !savedLedger || savedLedger.ruleType === 'deepseek' || !onAnalyzeLedgerRule) return
@@ -1035,6 +1043,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const deletedIds = new Set(ledgerIds)
     const selectedLedgers = draftLedgers.filter((ledger) => deletedIds.has(ledger.id) && !ledger.isDefault)
     if (!selectedLedgers.length) return true
+    for (const ledgerId of deletedIds) awaitingParentLedgerIdsRef.current.delete(ledgerId)
     const persistedLedgers = selectedLedgers.filter((ledger) => ledgers.some((item) => item.id === ledger.id))
     if (persistedLedgers.length) {
       try {
@@ -1077,6 +1086,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const deleteUnsavedDraft = async (ledger: FavoriteLedger) => {
     if (destructiveActionLocked || !isDraftDirectlyDeletable(ledger)) return
     const wasPersisted = ledgers.some((item) => item.id === ledger.id)
+    awaitingParentLedgerIdsRef.current.delete(ledger.id)
     if (wasPersisted) {
       try {
         const accountMid = window.bilimiDesktop?.readBilibiliAccountMid
@@ -1557,7 +1567,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       </section>
       {backupSkipNotice ? <p className="favorite-ledger-panel__notice" role="alert">{backupSkipNotice}</p> : null}
       {missingLedgerIds.length && !hideRemoteLifecycleStatus ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
-      {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid} onClick={() => void save()}>保存</button><button type="button" onClick={close}>取消</button>{!active.isDefault ? <button type="button" disabled={destructiveActionLocked} onClick={() => requestSingleLedgerDeletion(active)}>删除</button> : null}</div></div>
+        {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid} onClick={() => void save()}>保存</button><button type="button" onClick={close}>收起</button>{!active.isDefault ? <button type="button" disabled={destructiveActionLocked} onClick={() => requestSingleLedgerDeletion(active)}>删除</button> : null}</div></div>
          {remoteOnlyDraftLedgerIds.includes(active.id) && active.bilibiliFolderId ? <p className="favorite-ledger-panel__remote-draft-notice">
            发现 B 站疑似 bilimi 收藏夹，本地尚未建立绑定，可编辑保存好之后备册；更换电脑时建议先迁移数据。
            {onDismissRemoteDraftReminder ? <button type="button" onClick={() => void onDismissRemoteDraftReminder(active.id, [...new Set([

@@ -4121,6 +4121,41 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('allows stable-id recommendation cancellation after a completed round remains open', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, {
+      initializeOnOpen: false,
+      classifyCurrentItem: () => ({ targetLedgerIds: [], confidence: 'low' as const }),
+      saveRecommendedLedgers: vi.fn()
+    })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Video', tags: ['TypeScript'], sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.createLocalLedgerAndReclassify('100', '候选')
+    const preview = requireSnapshot(await coordinator.getSnapshot('100'))
+    const candidate = preview.recommendations.candidates.find((item) => item.id === 'custom-local-候选') ?? preview.recommendations.candidates[0]
+    if (!candidate) throw new Error('recommendation unexpectedly unavailable')
+    await coordinator.setRecommendedCandidates('100', [candidate.id])
+    const marker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'mark-completed', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        ...marker, status: 'completed', workspaceRef: { ...marker.workspaceRef, status: 'completed' }
+      }
+    })
+    const restarted = createCoordinator(repository, store, { initializeOnOpen: false, classifyCurrentItem: () => ({ targetLedgerIds: [], confidence: 'low' as const }) })
+    await restarted.open('100')
+    await expect(restarted.setRecommendedCandidates('100', [])).resolves.toBeDefined()
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({ recommendations: { adoptedCandidateIds: [] } })
+  })
+
   it('reclassifies when an adopted recommendation is submitted again after its classification became stale', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -5536,6 +5571,43 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       '2': { targetLedgerIds: ['music'], source: 'system-high' },
       '3': { targetLedgerIds: ['music'], source: 'system-high' }
     } })
+  })
+
+  it('reclassifies a completed round after a saved rule configuration change', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      classifyCurrentItem: (item) => ({
+        targetLedgerIds: [item.title === 'Move me' ? 'updated-rule' : 'other-rule'],
+        confidence: 'high'
+      })
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', { folderId: 'source', page: 1, items: [
+      { aid: 1, title: 'Move me', sourceFolderIds: ['source'] }
+    ] })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    const marker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'complete-reclassification-regression', accountMid: '100',
+      issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...marker, status: 'completed', workspaceRef: { ...marker.workspaceRef, status: 'completed' } }
+    })
+    const reopened = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      classifyCurrentItem: () => ({ targetLedgerIds: ['updated-rule'], confidence: 'high' })
+    })
+
+    await reopened.open('100')
+    await expect(reopened.reclassifyForFavoriteConfiguration('100')).resolves.toMatchObject({ status: 'completed' })
+    await expect(reopened.getSnapshot('100')).resolves.toMatchObject({
+      status: 'completed', classifications: { '1': { targetLedgerIds: ['updated-rule'], source: 'system-high' } },
+      overview: { archiveTargets: expect.arrayContaining([expect.objectContaining({ ledgerId: 'updated-rule', itemCount: 1 })]) }
+    })
   })
 
   it('withdraws an adopted recommendation by the deleted saved rule semantics before reclassifying the preview', async () => {

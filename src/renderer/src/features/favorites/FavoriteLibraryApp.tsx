@@ -90,7 +90,7 @@ function workspaceBackupFolders(folders: readonly FavoriteRepositoryFolder[]) {
 function managedRemoteDeletionSummary(candidates: ManagedFavoriteFolderDeletionCandidate[]) {
   const groups = new Map<string, { title: string; count: number }>()
   for (const candidate of candidates) {
-    if (!candidate.remoteFolderId) continue
+    if (!candidate.remoteFolderId || candidate.state === 'missing-remote') continue
     const current = groups.get(candidate.logicalLedgerId) ?? { title: candidate.title, count: 0 }
     current.count += 1
     groups.set(candidate.logicalLedgerId, current)

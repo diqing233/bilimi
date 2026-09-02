@@ -858,6 +858,33 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(deleteManagedFavoriteFolders).toHaveBeenCalledWith('100', ['music', 'ideas'], false, { music: 'Music', ideas: 'Ideas' }, { music: ['9'], ideas: ['10'] }))
   })
 
+  it('counts only remote-present shards in the managed-folder deletion summary', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'honker', remoteFolderId: '9', title: 'honker233', memberCount: 3, state: 'bound', requiresUnboundAcknowledgement: false },
+      { logicalLedgerId: 'honker', remoteFolderId: '10', title: 'honker233', memberCount: 0, state: 'missing-remote', requiresUnboundAcknowledgement: false },
+      { logicalLedgerId: 'honker', remoteFolderId: '11', title: 'honker233', memberCount: 0, state: 'missing-remote', requiresUnboundAcknowledgement: false }
+    ])
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-09T00:00:00.000Z', videoCount: 0, folderCount: 1,
+        folders: [{ id: 'bilimi-logical:honker', title: 'honker233', kind: 'bilimi-logical', logicalLedgerId: 'honker', syncState: 'bound' }], physicalShardCount: 3, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      previewManagedFavoriteFolderDeletion,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除工作夹' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '全选' }))
+    fireEvent.click(within(dialog).getByRole('radio', { name: '同时从 B 站删除收藏夹（保留右侧规则）' }))
+
+    expect(dialog).toHaveTextContent('删除“honker233”时，会同时从 B 站删除 1 个实际收藏夹及其中分类视频。')
+    expect(dialog).not.toHaveTextContent('删除“honker233”时，会同时从 B 站删除 3 个实际收藏夹及其中分类视频。')
+  })
+
   it('deletes local-only managed folders without the unbound acknowledgement', async () => {
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'ideas', title: 'Ideas', memberCount: 0, state: 'local-only', requiresUnboundAcknowledgement: false }

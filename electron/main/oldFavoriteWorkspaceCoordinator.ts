@@ -480,6 +480,13 @@ value is OldFavoriteWorkspaceRecoveryRequired {
   return value !== null && 'recovery' in value
 }
 
+function isOrganizationSelectionEditable(workspace: OldFavoriteWorkspace) {
+  // A completed round keeps its immutable scan facts and may still be edited
+  // through the stable-ID recommendation/participation controls. Execution
+  // states remain locked because they own a frozen remote plan.
+  return workspace.status === 'previewing' || workspace.status === 'completed'
+}
+
 function replayClassificationJournal(overlays: Array<{ currentSegmentId: string; history: Array<{ kind: string }> }>) {
   const entriesBySegment = new Map<string, OldFavoriteWorkspaceHistoryEntry[]>()
   const cursorBySegment = new Map<string, number>()
@@ -2355,7 +2362,7 @@ export class OldFavoriteWorkspaceCoordinator {
   async setRecommendedCandidates(accountMid: string, candidateIds: string[]) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
-      if (workspace.status !== 'previewing') throw new Error('Old favorite workspace recommendations are not ready.')
+      if (!isOrganizationSelectionEditable(workspace)) throw new Error('Old favorite workspace recommendations are not ready.')
       this.assertCurrentSegmentTagReady(workspace)
       const state = await this.loadAuthoritativeRecommendationStateUnsafe(workspace)
       const beforeHistoryState = await this.captureFavoriteLedgerHistoryStateUnsafe(
@@ -3568,7 +3575,7 @@ export class OldFavoriteWorkspaceCoordinator {
   ) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
-      if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for round selection.')
+      if (!isOrganizationSelectionEditable(workspace)) throw new Error('Old favorite workspace is not ready for round selection.')
       const recommendations = await this.ensureRecommendations(workspace)
       const beforeHistoryState = await this.captureFavoriteLedgerHistoryStateUnsafe(
         workspace,
@@ -3985,7 +3992,7 @@ export class OldFavoriteWorkspaceCoordinator {
   async reclassifyForFavoriteConfiguration(accountMid: string): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
-      if (workspace.status !== 'previewing') return clone(workspace)
+      if (!isOrganizationSelectionEditable(workspace)) return clone(workspace)
       const reclassified = await this.autoClassifyAllSegmentsUnsafe(workspace, true, true, true)
       await this.advanceRecoveryBaselineForAcceptedFavoriteConfiguration(workspace)
       return reclassified
@@ -4285,7 +4292,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const visibleHistory = [...workspace.history.slice(0, workspace.historyCursor), ...visibleEntries]
     const visibleUpdated: OldFavoriteWorkspace = {
       ...workspace,
-      status: visibleEntries.length ? 'previewing' : workspace.status,
+      status: workspace.status === 'completed' ? 'completed' : visibleEntries.length ? 'previewing' : workspace.status,
       segments: workspace.segments.map((segment) => visibleEntries.length && segment.id === visibleSegmentId
         ? { ...segment, status: 'previewing' as const }
         : segment),
@@ -4513,7 +4520,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const visibleHistory = [...workspace.history.slice(0, workspace.historyCursor), ...visibleEntries]
     const visibleUpdated: OldFavoriteWorkspace = {
       ...workspace,
-      status: visibleEntries.length ? 'previewing' : workspace.status,
+      status: workspace.status === 'completed' ? 'completed' : visibleEntries.length ? 'previewing' : workspace.status,
       segments: workspace.segments.map((segment) => visibleEntries.length && segment.id === visibleSegmentId
         ? { ...segment, status: 'previewing' as const }
         : segment),
@@ -7239,6 +7246,8 @@ export class OldFavoriteWorkspaceCoordinator {
     const segmentAidsBySegment = new Map(workspace.segments.map((segment) => [segment.id, new Set(segment.aids)]))
     const sourceCountsBySegment = new Map(workspace.segments.map((segment) => [segment.id, new Map<string, number>()]))
     const selectedAidsBySegment = new Map(workspace.segments.map((segment) => [segment.id, new Set<number>()]))
+    const hasSelectableSources = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
+      .some(scanSourceIsEligible)
     const selectedSourceFolderIds = new Set((this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
       .filter((folder) => scanSourceIsEligible(folder) && folder.selected !== false)
       .map((folder) => folder.id))
@@ -7250,7 +7259,7 @@ export class OldFavoriteWorkspaceCoordinator {
         sourceCounts.set(sourceFolderId, (sourceCounts.get(sourceFolderId) ?? 0) + 1)
       }
       sourceCountsBySegment.set(segmentId, sourceCounts)
-      if (item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))) {
+      if (!hasSelectableSources || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))) {
         const selectedAids = selectedAidsBySegment.get(segmentId) ?? new Set<number>()
         selectedAids.add(item.aid)
         selectedAidsBySegment.set(segmentId, selectedAids)
@@ -7316,6 +7325,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const selectedSourceFolderIds = new Set(sourceFolders
       .filter((folder) => scanSourceIsEligible(folder) && folder.selected !== false)
       .map((folder) => folder.id))
+    const hasSelectableSources = sourceFolders.some(scanSourceIsEligible)
     const allSelectableSourcesSelected = sourceFolders
       .filter(scanSourceIsEligible)
       .every((folder) => folder.selected !== false)
@@ -7325,7 +7335,7 @@ export class OldFavoriteWorkspaceCoordinator {
     for (const descriptor of descriptors) {
       if (descriptor.id === currentSegmentId) {
         const selectedAids = new Set(currentSegmentItems
-          .filter((item) => !isUnavailableScanItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+          .filter((item) => !isUnavailableScanItem(item) && (!hasSelectableSources || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))))
           .map((item) => item.aid))
         selectedAidsBySegment.set(descriptor.id, selectedAids)
         selectedItemCountsBySegment.set(descriptor.id, selectedAids.size)
@@ -7345,7 +7355,7 @@ export class OldFavoriteWorkspaceCoordinator {
         ? currentSegmentItems
         : (await this.options.workspaceStore.loadSegment(accountMid, workspaceId, descriptor.id)).items ?? []
       const selectedAids = new Set(items
-        .filter((item) => !isUnavailableScanItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+        .filter((item) => !isUnavailableScanItem(item) && (!hasSelectableSources || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))))
         .map((item) => item.aid))
       selectedAidsBySegment.set(descriptor.id, selectedAids)
       selectedItemCountsBySegment.set(descriptor.id, selectedAids.size)
@@ -7374,7 +7384,7 @@ export class OldFavoriteWorkspaceCoordinator {
     }
     if (!selectedAidsBySegment.has(currentSegmentId)) {
       const selectedAids = new Set(currentSegmentItems
-        .filter((item) => !isUnavailableScanItem(item) && item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+        .filter((item) => !isUnavailableScanItem(item) && (!hasSelectableSources || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))))
         .map((item) => item.aid))
       selectedAidsBySegment.set(currentSegmentId, selectedAids)
       selectedItemCountsBySegment.set(currentSegmentId, selectedAids.size)
@@ -7413,7 +7423,6 @@ export class OldFavoriteWorkspaceCoordinator {
     segments: OldFavoriteWorkspaceSnapshot['segments']
   ): OldFavoriteWorkspaceSnapshot['overview'] {
     const scan = this.scanOverviews.get(workspace.accountMid)?.scan
-    if (segments.length < 2 && scan?.phase === 'complete') return undefined
     const runtime = this.overviewRuntimes.get(workspace.accountMid)
     const completedSegmentIds = new Set(segments
       .filter((segment) => segment.readiness === 'ready' || segment.readiness === 'saved')
