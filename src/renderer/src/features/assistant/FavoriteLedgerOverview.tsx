@@ -339,9 +339,6 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     !hasRemoteDeletionFacts(ledger) &&
     !isRemoteOnlyDraft(ledger)
   const isRecommendationCancellationOnly = (ledger: FavoriteLedger) =>
-    // A recommendation draft may have gained a real remote binding, but
-    // cancelling its recommendation still only changes this round's adopted
-    // state. Its saved/local or remote folder is never a deletion target here.
     ledger.ruleOrigin === 'recommendation-draft' &&
     (organizationRecommendationEnabledById?.get(ledger.id) === true ||
       (organizationRecommendationEnabledById?.get(ledger.id) === undefined && ledger.enabled)) &&
@@ -917,9 +914,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setLocallyUnsavedLedgerIds(nextUnsavedLedgerIds)
     const savedLedger = next.find((ledger) => ledger.id === savingLedgerId)
     setSaveError(null)
+    awaitingParentLedgerIdsRef.current.add(savingLedgerId)
     try {
       const result = await onSaveLedgers(next, { deleteDisabled: false }) as { ok?: boolean; message?: string } | undefined
       if (result?.ok === false) {
+        awaitingParentLedgerIdsRef.current.delete(savingLedgerId)
         if (persistVersionRef.current !== persistVersion) return
         const restoredUnsavedLedgerIds = new Set(nextUnsavedLedgerIds)
         restoredUnsavedLedgerIds.add(savingLedgerId)
@@ -927,12 +926,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         setSaveError(result.message ?? '收藏夹规则未能持久化，请稍后重试。')
         return
       }
-      awaitingParentLedgerIdsRef.current.add(savingLedgerId)
       setActiveLedgerId((current) => current === savingLedgerId ? null : current)
       setNewLedger(false)
       if (!organizationActive || !savedLedger || savedLedger.ruleType === 'deepseek' || !onAnalyzeLedgerRule) return
       await onAnalyzeLedgerRule(savedLedger)
     } catch {
+      awaitingParentLedgerIdsRef.current.delete(savingLedgerId)
       if (persistVersionRef.current !== persistVersion) return
       const restoredUnsavedLedgerIds = new Set(nextUnsavedLedgerIds)
       restoredUnsavedLedgerIds.add(savingLedgerId)
@@ -1123,10 +1122,6 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     }
   }
   const requestSingleLedgerDeletion = (ledger: FavoriteLedger) => {
-    if (isRecommendationCancellationOnly(ledger)) {
-      void cancelRecommendation(ledger.id)
-      return
-    }
     if (isDraftDirectlyDeletable(ledger)) {
       void deleteUnsavedDraft(ledger)
       return

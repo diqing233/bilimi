@@ -124,6 +124,7 @@ import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperation
 import { persistConfirmedManagedFolderDeletion } from './managedFavoriteLedgerDeletionPersistence'
 import { resolveFavoriteLibraryOperationSource } from './favoriteLibraryOperationSource'
 import {
+  removePureRecommendationLedgerDraft,
   isUnsavedFavoriteLedgerDraft,
   removeLocalFavoriteLedgers,
   removeUnsavedFavoriteLedgerDraft
@@ -1534,7 +1535,10 @@ function registerAssistantPreferenceHandlers() {
 
     const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
     const draft = current.favoriteLedgers.find((ledger) => ledger.id === ledgerId)
-    const favoriteLedgers = removeUnsavedFavoriteLedgerDraft(current.favoriteLedgers, ledgerId)
+    const remoteDraftRemoved = removeUnsavedFavoriteLedgerDraft(current.favoriteLedgers, ledgerId)
+    const favoriteLedgers = remoteDraftRemoved === current.favoriteLedgers
+      ? removePureRecommendationLedgerDraft(current.favoriteLedgers, ledgerId)
+      : remoteDraftRemoved
     if (favoriteLedgers === current.favoriteLedgers) {
       throw new Error('Favorite ledger draft is unavailable.')
     }
@@ -1601,17 +1605,27 @@ function registerAssistantPreferenceHandlers() {
       favoriteLedgers,
       ...(deletedRecords ? { deletedFavoriteLedgerRecords: deletedRecords } : {})
     })
+    let workspaceSnapshot: Awaited<ReturnType<NonNullable<typeof oldFavoriteWorkspaceCoordinator>['getSnapshot']>> | null = null
     try {
-      if (oldFavoriteWorkspaceCoordinator) {
-        await oldFavoriteWorkspaceCoordinator.reconcileDeletedFavoriteLedgerRules(accountMid, removedLedgers)
-      } else {
-        await reclassifyFavoriteWorkspaceIfPreviewing(accountMid)
+      workspaceSnapshot = await oldFavoriteWorkspaceCoordinator?.getSnapshot(accountMid) ?? null
+    } catch {
+      // A missing/unreadable workspace is not evidence of an active preview;
+      // the local deletion remains authoritative and must not be rolled back.
+    }
+    const previewingWorkspace = workspaceSnapshot && !('recovery' in workspaceSnapshot) && workspaceSnapshot.status === 'previewing'
+    if (previewingWorkspace) {
+      try {
+        if (oldFavoriteWorkspaceCoordinator) {
+          await oldFavoriteWorkspaceCoordinator.reconcileDeletedFavoriteLedgerRules(accountMid, removedLedgers)
+        } else {
+          await reclassifyFavoriteWorkspaceIfPreviewing(accountMid)
+        }
+      } catch (error) {
+        // The directory and preview are one user-visible rule change. Restore
+        // the exact pre-delete directory before reporting a failed reclassify.
+        saveFavoriteAccountPreferences(getDesktopStore(), accountMid, current)
+        throw error
       }
-    } catch (error) {
-      // The directory and preview are one user-visible rule change. Restore
-      // the exact pre-delete directory before reporting a failed reclassify.
-      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, current)
-      throw error
     }
     markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))

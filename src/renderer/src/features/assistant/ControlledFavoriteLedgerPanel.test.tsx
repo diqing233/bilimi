@@ -188,6 +188,53 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(refreshOrganizationState).toHaveBeenCalledOnce())
   })
 
+  it('persists a bound recommendation toggle without a workspace queue', async () => {
+    const saveLedgerEnabled = vi.fn().mockResolvedValue(undefined)
+    const commandOldFavoriteWorkspaceV1 = vi.fn()
+    window.bilimiDesktop = {
+      commandOldFavoriteWorkspaceV1,
+      writeFavoriteLedgerEnabled: vi.fn().mockResolvedValue(undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveLedgerEnabled}
+      ledgers={[{
+        id: 'recommended-bound-no-workspace', displayName: 'bilimi·无工作区推荐', keywords: ['无工作区'], ruleType: 'keyword',
+        enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'bound',
+        bilibiliFolderId: 'remote-no-workspace', isDefault: false
+      }]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '无工作区推荐' }))
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·无工作区推荐' }))
+
+    await waitFor(() => expect(saveLedgerEnabled).toHaveBeenCalledWith('recommended-bound-no-workspace', false))
+    expect(commandOldFavoriteWorkspaceV1).not.toHaveBeenCalled()
+  })
+
+  it('deletes a pure recommendation draft through its draft transaction without a workspace queue', async () => {
+    const deleteFavoriteLedgerDraft = vi.fn().mockResolvedValue(undefined)
+    const commandOldFavoriteWorkspaceV1 = vi.fn()
+    const saveLedgerEnabled = vi.fn()
+    window.bilimiDesktop = {
+      commandOldFavoriteWorkspaceV1,
+      deleteFavoriteLedgerDraft
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveLedgerEnabled}
+      ledgers={[{
+        id: 'recommended-draft-no-workspace', displayName: 'bilimi·无工作区草稿', keywords: ['草稿'], ruleType: 'keyword',
+        enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', syncState: 'local-draft', isDefault: false
+      }]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '无工作区草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·无工作区草稿' }))
+
+    await waitFor(() => expect(deleteFavoriteLedgerDraft).toHaveBeenCalledWith('100', 'recommended-draft-no-workspace'))
+    expect(saveLedgerEnabled).not.toHaveBeenCalled()
+    expect(commandOldFavoriteWorkspaceV1).not.toHaveBeenCalled()
+  })
+
   it('keeps a promoted recommendation draft and cancels its exact lower adoption when its upper card is unchecked', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
@@ -4784,7 +4831,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     ], { deleteDisabled: false, recommendationOnly: true }))
   })
 
-  it('waits for a promoted recommendation save before deleting its pure local draft', async () => {
+  it('waits for a promoted recommendation save before deleting its pure local draft from the detail editor', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -4815,22 +4862,24 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
     await act(async () => save.resolve(undefined))
-    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+    await waitFor(() => expect(screen.queryByRole('button', { name: '待保存' })).not.toBeInTheDocument())
+    expect(command).not.toHaveBeenCalledWith('100', {
       type: 'set-recommended-candidates', candidateIds: []
-    }))
-    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
-    expect(screen.queryByRole('button', { name: '待保存' })).not.toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: '待保存', checked: false })).toBeInTheDocument()
+    })
+    expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['author-pending'])
 
     rerender(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
       ledgers={[{ id: 'unrelated', displayName: 'bilimi·其他收藏', keywords: [], enabled: true, priority: 1, isDefault: false }]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={onSaveLedgers} />)
 
     expect(screen.getByRole('button', { name: '其他收藏' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '待保存' })).not.toBeInTheDocument()
+    // Detail deletion is independent from recommendation cancellation.  The
+    // adopted lower recommendation remains selected and may project a fresh
+    // upper draft on the next authoritative render.
+    expect(screen.getByRole('button', { name: '待保存' })).toBeInTheDocument()
   })
 
-  it('keeps a promoted recommendation and its selection when recommendation cancellation fails', async () => {
+  it('keeps a promoted recommendation when its detail deletion is independent of recommendation cancellation', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -4860,13 +4909,12 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '删除失败' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
-    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+    await waitFor(() => expect(screen.queryByRole('button', { name: '删除失败' })).not.toBeInTheDocument())
+    expect(command).not.toHaveBeenCalledWith('100', {
       type: 'set-recommended-candidates', candidateIds: []
-    }))
-    expect(await screen.findByText('删除未成功，请稍后重试。')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '删除失败' })).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: '删除失败' })).toBeChecked()
-    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
+    })
+    expect(screen.queryByText('删除未成功，请稍后重试。')).not.toBeInTheDocument()
+    expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['author-failed-delete'])
   })
 
   it('projects a recommendation onto the existing logical ledger and preserves its real binding details', async () => {

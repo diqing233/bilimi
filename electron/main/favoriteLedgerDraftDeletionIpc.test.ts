@@ -65,6 +65,7 @@ describe('favorite ledger draft deletion narrow IPC', () => {
     expect(handler).toContain('assertTrustedOldFavoriteAssistantSender(event)')
     expect(handler).toContain('accountMid !== await readCurrentBilibiliAccountMid()')
     expect(handler).toContain('removeUnsavedFavoriteLedgerDraft(current.favoriteLedgers, ledgerId)')
+    expect(handler).toContain('removePureRecommendationLedgerDraft(current.favoriteLedgers, ledgerId)')
     expect(handler).toContain('markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)')
     expect(handler).toContain('remoteFolderIds')
     expect(handler).toContain('saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {')

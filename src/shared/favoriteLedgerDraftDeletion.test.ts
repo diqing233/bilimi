@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isPureRecommendationLedgerDraft,
   isUnsavedFavoriteLedgerDraft,
   removeLocalFavoriteLedgers,
-  removeUnsavedFavoriteLedgerDraft
+  removeUnsavedFavoriteLedgerDraft,
+  removePureRecommendationLedgerDraft
 } from './favoriteLedgerDraftDeletion'
 
 describe('favorite ledger draft deletion', () => {
@@ -77,6 +79,23 @@ describe('favorite ledger draft deletion', () => {
     expect(isUnsavedFavoriteLedgerDraft(boundDraft)).toBe(false)
     expect(removeUnsavedFavoriteLedgerDraft(ledgers, 'recommended-up')).toBe(ledgers)
     expect(removeUnsavedFavoriteLedgerDraft(ledgers, 'bound-draft')).toBe(ledgers)
+  })
+
+  it('removes a persisted pure recommendation draft through its dedicated draft path', () => {
+    const recommendationDraft = {
+      id: 'recommended-pure', displayName: 'bilimi·推荐草稿', keywords: ['推荐'], enabled: true, priority: 10,
+      syncState: 'local-draft' as const, ruleOrigin: 'recommendation-draft' as const,
+      bindingState: 'unbacked' as const, isDefault: false
+    }
+    const savedRule = {
+      id: 'saved', displayName: 'bilimi·已保存', keywords: [], enabled: true, priority: 20,
+      ruleOrigin: 'saved-rule' as const, isDefault: false
+    }
+    const ledgers = [recommendationDraft, savedRule]
+
+    expect(isPureRecommendationLedgerDraft(recommendationDraft)).toBe(true)
+    expect(removePureRecommendationLedgerDraft(ledgers, 'recommended-pure')).toEqual([savedRule])
+    expect(removePureRecommendationLedgerDraft(ledgers, 'saved')).toBe(ledgers)
   })
 
   it('removes selected custom ledgers through the local configuration path while retaining defaults', () => {

@@ -321,3 +321,101 @@
 2. **失败用例**：构造同一逻辑规则三个正式 `physicalShards`（三个精确 ID），远端目录只返回其中一个；断言预检仍保留缺失历史证据，但当前实际分册计数为 1，且缺失项不进入远端删除调用列表。
 3. **最小实现**：主进程维持 `missing-remote` 候选以支持本地收敛；渲染器分组标题、`remoteDeletionCounts` 和实际远端数量只排除 `missing-remote`。现存精确 ID、同名候选和未绑定知情确认路径不改。
 4. **回归与发布**：运行主进程/渲染器定向测试和全量 `npm test`，检查 `git diff --check`、构建与预览；工作树只有本轮账本、项目书、测试和实现改动后提交，再执行 `npm run dist:win`。鼠标流畅性只能通过真实开发版/预览版/安装版界面验收，不以自动化测试替代。
+
+### R021
+
+时间：2026-09-03
+
+截图：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-07a375b0-0ad7-44af-b3d8-d95a05ce538f.png`（图一：未开始整理收藏时，详情页删除纯本地收藏夹失败；待界面验收）
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-ba785698-813f-4c5e-b847-97ffd726b7b6.png`（图二：补取标签期间保存新建收藏夹后的界面；待界面验收）
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-0d3b6669-8019-4b58-9ffb-88af26324e86.png`（图三：补取标签期间保存后收藏夹消失/状态回退；待界面验收）
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-232cc6ab-5bf6-4bb2-aab1-5784d83aad59.png`（图四：推荐收藏夹在不同草稿状态下取消勾选不一致；待界面验收）
+
+截图目标区域：图一详情页删除按钮及删除失败提示；图二、图三掌库收藏夹列表和补取标签中的保存结果；图四整理收藏推荐收藏夹勾选状态。截图无法替代真实 Electron/账号验收。
+
+原文：
+
+> 图一未开始整理收藏时，新建的纯本地收藏夹不能从详情页删除；整理期间、存在草稿、删除模式中却可以。
+> 图二补取标签期间新建收藏夹点击保存会消失变成图三；扫描基本信息、采用结束、补取结束时正常，不能破坏这些路径
+> 图四推荐收藏夹在不同草稿状态下取消勾选不一致。最终要求是：已备册、未备册、结束后都能按已有稳定规则 ID 取消；纯推荐草稿按既有语义删除采用草稿，已保存规则只取消勾选；下一轮仍能重新关联。
+
+## R021 逐项索引补充
+
+| 编号 | 原文 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| I025 | R021 | 未开始整理收藏时，详情页删除纯本地新建收藏夹必须成功；整理期间、存在草稿、删除模式中的既有删除行为保持。 | `FavoriteLedgerOverview`详情删除入口、主进程本地规则删除 IPC、账户偏好和工作区投影。 | 规则无远端删除事实、未绑定且非默认时走本地删除；远端绑定/历史分册仍走既有确认。 | 删除成功后卡片、详情、账户规则和当前工作区（若存在且正在预览）同步刷新；失败保留原规则并显示真实错误。 | 只删除本地规则/草稿；不删除 B 站收藏夹、视频或收藏库关系。 | 不改变删除模式、备册、绑定、远端删除和整理期间重分类。 | `assistant:delete-favorite-ledgers-local`、工作区协调器、账号偏好保存。 | 已确认，待“开始”后实施 | 只读根因已定位：主进程无工作区时误调用 `oldFavoriteWorkspaceCoordinator.reconcileDeletedFavoriteLedgerRules`，`requireWorkspace` 抛错并恢复偏好；待失败回归测试和真实界面验收。 |
+| I026 | R021 | 补取标签期间保存的新建收藏夹不得因父级旧快照或标签进度回推而消失；扫描基本信息、采用结束、补取结束的正常保存路径不变。 | `FavoriteLedgerOverview.save`、外部 `ledgers` 同步 effect、`ControlledFavoriteLedgerPanel.saveLedgersAndRefreshWorkspace`、`App.saveFavoriteLedgers`。 | 保存成功后立即保留新规则；保存失败保留可重试编辑态并显示错误。 | 在调用父级保存前登记待确认稳定规则 ID，父级短暂发布旧快照时保留本地规则；父级确认后清理等待标记并接管权威顺序。 | 只写本地账户规则并按现有整理工作区重分类；不自动备册、绑定、删除或写 B 站。 | 不修改标签扫描、采用、补取完成语义及推荐分类逻辑。 | `awaitingParentLedgerIdsRef`、`preserveFavoriteLedgerOrder`、偏好快照发布和外部同步 effect。 | 已确认，待“开始”后实施 | 代码证据：`awaitingParentLedgerIdsRef.current.add(savingLedgerId)` 位于 `await onSaveLedgers` 之后，存在父级旧快照先触发同步的时序窗口；待新增失败测试和修复后验证。 |
+| I027 | R021 | 推荐收藏夹已备册、未备册、草稿结束后均按稳定规则 ID执行取消；纯推荐草稿取消删除采用草稿，已保存规则仅取消本轮勾选，下一轮仍可重新关联。 | `ControlledFavoriteLedgerPanel.handleOrganizationRecommendationToggle`、`FavoriteLedgerOverview`操作资格和推荐投影。 | 整理草稿存在时保留现有采用/分类/上下联动；无活动工作区时只对仍存在的持久化规则处理，不对已清理规则凭空重建候选。 | 纯推荐本地草稿沿既有草稿删除事务；已保存规则沿账户级勾选持久化；所有路径按稳定 rule ID，不按名称。 | 不创建重复规则、不写 B 站、不影响自建收藏夹和整理期间流程；下一轮候选可重新映射同一稳定 ID。 | 不把上方已保存规则取消误当删除；不改变结束整理/放弃本轮语义。 | `organizationRecommendationEnabledById`、`organizationRecommendationIdsRef`、workspace snapshot 生命周期、`onSaveLedgerEnabled`/`setOrganizationRecommendedCandidates`。 | 已确认，待“开始”后实施 | 只读根因已定位：无活动 snapshot 时 handler 对非纯草稿仍调用需要 workspace 的推荐队列；映射缺失也使结束后资格依赖 `ledger.enabled` fallback；待失败回归测试、实现和真实 Electron 验收。 |
+
+## R021 实施前计划（用户明确“开始”后执行）
+
+1. 先把 I025-I027 的状态边界和“只按稳定 ID”约束同步到 `docs/项目功能项目书.md`，再通读本文件全部原文和索引。
+2. 为 I025-I027 各写一个当前失败的最小回归测试：无 workspace 本地删除不应抛错；父级旧快照在保存 Promise 未完成时不应移除新规则；结束/无 snapshot 时推荐取消分别走草稿删除或账户级勾选持久化。
+3. 逐项实施最小修改：删除统一调用安全的 `reclassifyFavoriteWorkspaceIfPreviewing`；保存在父级调用前登记等待 ID、失败清理；推荐无 snapshot 时按规则来源和持久化状态分流，不重建已清理工作区。
+4. 运行定向测试、`npm test`、`npm run build`、`git diff --check`，真实开发版完成三条界面验收后再提交；本轮不修改启动鼠标和安装器，也不打包。
+
+### R022
+
+时间：2026-09-03
+
+截图：`C:\Users\diqing\AppData\Local\Temp\codex-clipboard-4b52ca7d-3da6-4e3e-a6f2-86a38ae09d98.png`
+
+截图目标区域：上方“收藏夹”区域中当前编辑的 `bilimi·honker233` 卡片、其“删除”按钮、勾选控件和“收藏夹规则分析失败，请稍后重试。”提示；待界面验收。
+
+原文：
+
+> 推荐收藏夹当前状态无法正常删除，正常勾选，取消勾选
+
+<image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-4b52ca7d-3da6-4e3e-a6f2-86a38ae09d98.png"></image>
+
+## R022 逐项索引补充
+
+| 编号 | 原文 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| I028 | R022 | 推荐收藏夹在当前显示状态下，删除、勾选和取消勾选都必须按其稳定规则 ID 正常执行；规则分析失败提示不得阻断与推荐采用无关的删除或参与状态操作。 | 上方收藏夹卡片/详情页与下方推荐收藏夹采用状态的联动入口，`ControlledFavoriteLedgerPanel` 推荐回调及 `FavoriteLedgerOverview` 操作资格。 | 已备册、未备册、存在或已结束整理草稿时，均按规则来源和稳定 ID显示正确的可操作状态；纯推荐草稿取消沿既有删除采用草稿语义，已保存规则取消只改变本轮参与，不删除规则。 | 勾选、取消勾选、详情删除互不误触发；失败只保留真实状态并显示中文可重试错误，不把推荐取消误报为规则分析失败。 | 仅本地规则/采用状态或当前整理轮参与状态变更；不自动创建、绑定、删除或写入 B 站，不按名称猜测。 | 不改变整理期间已有分类、采用、上下联动、备册、同步、删除模式和纯本地删除语义。 | `handleOrganizationRecommendationToggle`、`onSaveLedgerEnabled`、推荐候选稳定 ID 投影、`isOperable`、规则分析任务状态与详情删除入口。 | 已确认，待“开始”后实施 | 截图显示当前详情删除被“收藏夹规则分析失败”状态阻断；与 R021/I027 同一推荐状态/操作资格链路，待失败测试和真实界面验收。 |
+
+## R022 实施前补充计划（用户明确“开始”后执行）
+
+1. 先从本文件原文区重新通读 R001-R022，并将 I028 与项目书中推荐取消、规则分析失败隔离和删除入口的条款逐项对照；R022 的“最终要求”继续覆盖早先关于结束后不可取消的旧讨论，旧原文永久保留。
+2. 增加失败回归测试：规则分析失败时推荐项仍可删除/勾选/取消；纯推荐草稿走草稿删除事务；已保存或已绑定规则走稳定 ID 的参与状态持久化；无活动工作区不进入需要工作区的推荐队列。
+3. 实施只隔离推荐操作与规则分析错误状态，不重写现有分类/备册/删除事务；随后运行定向测试、全量 `npm test`、`npm run build`、`git diff --check`，再做真实 Electron 开发版界面验收。本轮不处理启动鼠标和安装器。
+
+## R023
+
+时间：2026-09-03
+
+原文：
+
+> 1. 删除前只在确实存在 `previewing` 工作区时重分类；无工作区直接完成本地删除。
+> 2. 保存调用前登记等待 ID，成功后由权威快照接管，失败时清理等待标记。
+> 3. 有工作区时保留原推荐队列；无工作区时按稳定规则 ID分流：纯推荐草稿删除采用草稿，已有规则只更新勾选状态，不按名称猜测、不创建重复规则。
+> 4. 上方详情“删除”恢复独立删除语义；下方推荐项取消仍只处理采用状态。
+> 5. 无整理工作区时，按稳定规则 ID直接处理：纯推荐草稿删除草稿，已保存/已绑定规则保存启用状态，不调用工作区队列。
+> 6. 增加对应回归测试，保留整理期间原有分类和上下联动。
+>
+> 先迭代项目书，再按照项目书和账本改，开始
+
+## R023 逐项索引补充
+
+| 编号 | 原文 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| I029 | R023-1 | 仅 `previewing` 工作区执行删除后的重分类；无工作区本地删除直接成功。 | 主进程本地删除 IPC 与整理工作区协调器。 | 删除后存在活动预览工作区时重分类；其他状态跳过。 | 本地删除成功即广播最新规则快照，失败保留规则并报错。 | 不删除 B 站或视频；预览工作区仍按原流程重分类。 | 不改变删除模式和远端删除确认。 | `assistant:delete-favorite-ledgers-local`、`reconcileDeletedFavoriteLedgerRules`。 | 已实施待界面验收 | `electron/main/favoriteLedgerConfigurationRefreshIpc.test.ts`、`favoriteLedgerDraftDeletionIpc.test.ts`；handler 先读取快照，仅 `status === 'previewing'` 调协调器，无工作区直接通知并返回成功。真实 Electron 详情删除/刷新仍待验收。 |
+| I030 | R023-2 | 保存调用前登记等待规则 ID，避免补取标签旧快照覆盖；成功由权威快照接管，失败清理标记。 | `FavoriteLedgerOverview.save` 与父级规则快照同步 effect。 | 仅保存竞态期间保留本地规则；失败恢复编辑态。 | 等待 ID在保存调用前写入，失败/异常删除，成功等待父快照确认。 | 仅本地规则持久化；不产生 B 站副作用。 | 不改变其他保存阶段。 | `awaitingParentLedgerIdsRef`、`onSaveLedgers`。 | 已实施待界面验收 | `FavoriteLedgerOverview.test.tsx` 验证登记语句位于保存调用前；组件定向测试通过。补取标签真实界面竞态仍待验收。 |
+| I031 | R023-3/5 | 推荐状态按稳定规则 ID分流：有工作区复用推荐队列；无工作区纯草稿删草稿，已保存/已绑定仅保存勾选状态。 | `ControlledFavoriteLedgerPanel` 推荐回调与详情勾选。 | 规则仍存在即可操作；无工作区不调用工作区队列。 | 勾选/取消即时投影，失败回滚；下一轮可按同 ID重新关联。 | 仅本地规则/启用状态变更；不创建重复规则、不写 B 站。 | 不改整理期间分类和上下联动。 | `handleOrganizationRecommendationToggle`、`setOrganizationRecommendedCandidates`、`onSaveLedgerEnabled`。 | 已实施待界面验收 | `ControlledFavoriteLedgerPanel.test.tsx` 相关定向回归通过（无工作区绑定规则保存启用状态、纯推荐草稿走草稿删除、活动工作区仍走推荐队列）；稳定 ID与不重复规则由现有投影测试覆盖。真实 Electron 三态交互仍待验收。 |
+| I032 | R023-4 | 详情“删除”独立于推荐取消；分析错误不得阻断推荐删除/勾选。 | `FavoriteLedgerOverview` 详情删除按钮与分析提示。 | 详情删除始终走删除事务；推荐取消仅由推荐入口触发。 | 删除、勾选、取消互不误触发，错误显示中文可重试提示。 | 不改变 B 站副作用。 | 不改变分析任务本身、整理期间行为。 | `requestSingleLedgerDeletion`、`isRecommendationCancellationOnly`、`draftRuleAnalysisError`。 | 已实施待界面验收 | `FavoriteLedgerOverview.test.tsx` 验证详情删除打开独立删除确认且不调用推荐取消；`ControlledFavoriteLedgerPanel.test.tsx` 验证推荐队列取消失败/详情删除分流。真实错误提示与按钮可用性仍待验收。 |
+
+## R023 实施计划
+
+1. 仅修改项目书、账本、`electron/main/index.ts`、`FavoriteLedgerOverview.tsx`、`ControlledFavoriteLedgerPanel.tsx`及对应测试文件；不触碰启动和安装器。
+2. 先新增 I029-I032 的失败回归测试并确认因现有行为失败，再逐项做最小修复。
+3. 运行定向测试、全量 `npm test`、`npm run build` 与 `git diff --check`；未完成真实 Electron 界面验收时，只报告代码和自动化结果，不宣称完全修复。
+
+## R023 实施复核（2026-09-03）
+
+- I029：`electron/main/index.ts` 删除本地规则后先读取工作区快照，仅快照为 `previewing` 才调用 `reconcileDeletedFavoriteLedgerRules`；无工作区、恢复态、已完成或读取失败均保留本地删除结果并广播权威偏好。`electron/main/favoriteLedgerConfigurationRefreshIpc.test.ts` 与 `electron/main/favoriteLedgerDraftDeletionIpc.test.ts` 覆盖 IPC 契约；真实详情删除界面仍待用户账号验收。
+- I030：`src/renderer/src/features/assistant/FavoriteLedgerOverview.tsx` 在 `onSaveLedgers` 调用前登记 `awaitingParentLedgerIdsRef`，失败/异常清理，父级包含稳定 ID后由外部快照 effect 接管。组件定向测试覆盖登记顺序；补取标签竞态仍待真实界面验收。
+- I031：`src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.tsx` 保留活动工作区推荐队列；无活动工作区按稳定规则 ID处理。纯推荐本地草稿通过新增 `isPureRecommendationLedgerDraft`/`removePureRecommendationLedgerDraft` 进入窄化草稿 IPC，已保存/已绑定规则仅写启用状态。`ControlledFavoriteLedgerPanel.test.tsx` 覆盖无工作区两条分流；整理期间联动测试保持通过。
+- I032：`FavoriteLedgerOverview` 详情“删除”不再复用推荐取消；推荐取消仍只由推荐回调处理，规则分析错误不改变删除/勾选资格。`FavoriteLedgerOverview.test.tsx` 与 `ControlledFavoriteLedgerPanel.test.tsx` 覆盖独立入口和失败隔离。
+- 自动化证据（本次新鲜运行）：定向四文件共 325/325 通过；全量 `npm test` 245 个测试文件、4251 个测试通过；`npm run build` 成功；`git diff --check` 无错误。开发版已启动并可见主窗口/掌库入口；未执行破坏性账号操作，真实六条交互仍需用户账号验收。

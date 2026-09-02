@@ -492,14 +492,19 @@ describe('FavoriteLedgerOverview', () => {
     expect(onDeleteLedger).toHaveBeenCalledWith('recommended-up')
   })
 
-  it('cancels a selected bound recommendation from its editor without deleting the saved work folder', async () => {
+  it('deletes a selected bound recommendation through the independent deletion flow', async () => {
     const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-bound'] })
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([{
+      logicalLedgerId: 'recommended-bound', remoteFolderId: 'remote-recommended-bound', title: 'bilimi·已备册推荐', memberCount: 0,
+      state: 'bound', requiresUnboundAcknowledgement: false
+    }])
     const onOrganizationRecommendationToggle = vi.fn(() => true)
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
         readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-        deleteFavoriteLedgersLocal
+        deleteFavoriteLedgersLocal,
+        previewManagedFavoriteFolderDeletion
       }
     })
     render(<FavoriteLedgerOverview ledgers={[{
@@ -512,9 +517,21 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '已备册推荐' }))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
 
-    await waitFor(() => expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-bound', false))
-    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: '已备册推荐' })).toBeInTheDocument()
+    await waitFor(() => expect(previewManagedFavoriteFolderDeletion).toHaveBeenCalledWith('100', ['recommended-bound'], { 'recommended-bound': 'bilimi·已备册推荐' }))
+    expect(onOrganizationRecommendationToggle).not.toHaveBeenCalled()
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['recommended-bound']))
+  })
+
+  it('keeps recommendation save ordering ahead of the parent snapshot callback', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FavoriteLedgerOverview.tsx'), 'utf8')
+    const registration = source.indexOf('awaitingParentLedgerIdsRef.current.add(savingLedgerId)')
+    const saveCall = source.indexOf('const result = await onSaveLedgers(next, { deleteDisabled: false })')
+    expect(registration).toBeGreaterThan(-1)
+    expect(saveCall).toBeGreaterThan(-1)
+    expect(registration).toBeLessThan(saveCall)
   })
 
   it('confirms a selected unbound recommendation before cancelling it in bulk', async () => {

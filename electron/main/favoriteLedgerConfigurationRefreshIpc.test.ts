@@ -35,6 +35,13 @@ describe('favorite ledger configuration refresh IPC', () => {
     expect(handler).not.toContain('reclassifyFavoriteWorkspaceIfPreviewing(accountMid)')
   })
 
+  it('does not require a workspace when deleting a local rule outside previewing', () => {
+    const handler = handlerSource('assistant:delete-favorite-ledgers-local')
+    expect(handler).toContain("workspaceSnapshot = await oldFavoriteWorkspaceCoordinator?.getSnapshot(accountMid) ?? null")
+    expect(handler).toContain("workspaceSnapshot && !('recovery' in workspaceSnapshot) && workspaceSnapshot.status === 'previewing'")
+    expect(handler).toContain('A missing/unreadable workspace is not evidence of an active preview')
+  })
+
   it('reprojects all formal physical shards after a binding adoption', () => {
     const callbackStart = mainSource.indexOf('onLedgerBindingAdopted: async (accountMid, logicalLedgerId) => {')
     const callbackEnd = mainSource.indexOf('\n    },', callbackStart)

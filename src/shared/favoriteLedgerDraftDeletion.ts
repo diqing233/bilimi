@@ -24,6 +24,33 @@ export function removeUnsavedFavoriteLedgerDraft(
   return ledgers.filter((ledger) => ledger.id !== ledgerId)
 }
 
+/**
+ * Recommendation drafts are local adoption records, not remote-folder
+ * observations.  They use the same narrow draft-deletion IPC, but must not be
+ * classified as remote-only drafts because history and rediscovery deliberately
+ * preserve those remote observations separately.
+ */
+export function isPureRecommendationLedgerDraft(ledger: FavoriteLedger) {
+  const remoteFolderIds = [ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])]
+    .map((remoteFolderId) => remoteFolderId?.trim())
+    .filter((remoteFolderId): remoteFolderId is string => Boolean(remoteFolderId))
+  return ledger.ruleOrigin === 'recommendation-draft' &&
+    ledger.syncState === 'local-draft' &&
+    !ledger.isDefault &&
+    ledger.bindingState !== 'bound' &&
+    remoteFolderIds.length === 0
+}
+
+/** Removes one pure local recommendation draft without touching saved rules. */
+export function removePureRecommendationLedgerDraft(
+  ledgers: FavoriteLedger[],
+  ledgerId: string
+): FavoriteLedger[] {
+  const draft = ledgers.find((ledger) => ledger.id === ledgerId)
+  if (!draft || !isPureRecommendationLedgerDraft(draft)) return ledgers
+  return ledgers.filter((ledger) => ledger.id !== ledgerId)
+}
+
 /** Removes only user-created local configurations; default rules retain their protected lifecycle. */
 export function removeLocalFavoriteLedgers(
   ledgers: FavoriteLedger[],
