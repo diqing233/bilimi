@@ -786,6 +786,30 @@ describe('assistant preference store helpers', () => {
     expect(loadFavoriteAccountPreferences(store, '100', overrides).favoriteLedgers[0].enabled).toBe(false)
   })
 
+  it('does not let a stale full renderer save erase existing account favorite rules', () => {
+    const accountLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: ['music'], enabled: true, priority: 10, isDefault: true
+    }
+    const store = createFakeStore({
+      favoriteAccountPreferences: {
+        '100': { defaultFavoriteSystemEnabled: true, favoriteLedgers: [accountLedger], updatedAt: '2026-09-02T00:00:00.000Z' }
+      }
+    })
+
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      favoriteLedgers: DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
+      favoriteAccountPreferences: {}
+    })
+
+    expect(saved.favoriteAccountPreferences).toMatchObject({
+      '100': { favoriteLedgers: expect.arrayContaining([expect.objectContaining({ id: 'music', enabled: true })]) }
+    })
+    expect(store.snapshot.favoriteAccountPreferences).toMatchObject({
+      '100': { favoriteLedgers: expect.arrayContaining([expect.objectContaining({ id: 'music', enabled: true })]) }
+    })
+  })
+
   it('saves favorites folder name and preference counts and returns the persisted shape', () => {
     const store = createFakeStore()
 

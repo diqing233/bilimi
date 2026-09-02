@@ -2967,6 +2967,43 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '删除 bilimi 收藏夹' })).not.toBeInTheDocument())
   })
 
+  it('deletes a local-only ledger with the supplied account identity without reading Bilibili', async () => {
+    const readBilibiliAccountMid = vi.fn().mockRejectedValue(new Error('Bilibili page unavailable'))
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['local-only'] })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { readBilibiliAccountMid, deleteFavoriteLedgersLocal }
+    })
+
+    render(<FavoriteLedgerOverview {...({ currentAccountMid: '100' } as any)}
+      defaultFavoriteSystemEnabled={false}
+      ledgers={[{ id: 'local-only', displayName: 'bilimi·本地', keywords: [], enabled: true, priority: 10, bindingState: 'unbacked', isDefault: false }]}
+      missingLedgerIds={[]} openLedgerId="local-only" openLedgerRequestVersion={1} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['local-only']))
+    expect(readBilibiliAccountMid).not.toHaveBeenCalled()
+  })
+
+  it('allows a stable recommendation draft to be cancelled after the workspace is closed', async () => {
+    const onOrganizationRecommendationToggle = vi.fn().mockResolvedValue(true)
+    render(<FavoriteLedgerOverview
+      ledgers={[{
+        id: 'recommended-after-end', displayName: 'bilimi·结束后推荐', keywords: ['结束后'], enabled: true,
+        priority: 10, syncState: 'local-draft', ruleOrigin: 'recommendation-draft', isDefault: false
+      }]}
+      missingLedgerIds={[]}
+      organizationActive={false}
+      onOrganizationRecommendationToggle={onOrganizationRecommendationToggle}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·结束后推荐' }))
+
+    await waitFor(() => expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-after-end', false))
+  })
+
   it('confirms a remote draft and saved custom ledger together before local deletion', async () => {
     const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['remote-draft', 'saved'] })
     const previewManagedFavoriteFolderDeletion = vi.fn()

@@ -747,7 +747,27 @@ export function ControlledFavoriteLedgerPanel({
   }, [effectiveLedgers, organizationUpperLedgerIds, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.recommendedCandidateIds, workspace.snapshot])
   const handleOrganizationRecommendationToggle = useCallback(async (ledgerId: string, enabled: boolean) => {
     const snapshot = workspace.snapshot
-    if (!isOrganizationSelectionSnapshot(snapshot)) return false
+    if (!isOrganizationSelectionSnapshot(snapshot)) {
+      // Once the guide is closed there is no candidate index to project onto.
+      // A durable recommendation draft still has a stable rule ID, so cancel
+      // its local adoption through the existing draft transaction instead of
+      // disabling the control or guessing by title.
+      const ledger = effectiveLedgers.find((candidate) => candidate.id === ledgerId)
+      if (!ledger || ledger.ruleOrigin !== 'recommendation-draft') return false
+      if (!enabled && isPureRecommendedLocalDraft(ledger) && accountKey &&
+        ledgers.some((candidate) => candidate.id === ledgerId) &&
+        window.bilimiDesktop?.deleteFavoriteLedgerDraft) {
+        try {
+          await window.bilimiDesktop.deleteFavoriteLedgerDraft(accountKey, ledgerId)
+          await onRefreshOrganizationState?.()
+          return true
+        } catch {
+          return false
+        }
+      }
+      const committedIds = await setOrganizationRecommendedCandidates(enabled ? [ledgerId] : [])
+      return enabled ? committedIds.includes(ledgerId) : !committedIds.includes(ledgerId)
+    }
     const projection = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates)
     const candidateId = projection.ledgerToCandidateId.get(ledgerId) ??
       (snapshot.recommendations.candidates.some((candidate) => candidate.id === ledgerId) ? ledgerId : undefined)
@@ -766,7 +786,7 @@ export function ControlledFavoriteLedgerPanel({
       ? [...organizationRecommendationIdsRef.current, candidateId]
       : organizationRecommendationIdsRef.current.filter((currentCandidateId) => currentCandidateId !== candidateId))
     return enabled ? committedIds.includes(candidateId) : !committedIds.includes(candidateId)
-  }, [effectiveLedgers, organizationUpperLedgerIds, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.snapshot])
+  }, [accountKey, effectiveLedgers, ledgers, onRefreshOrganizationState, organizationUpperLedgerIds, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.snapshot])
   const handleOrganizationSavedLedgerToggle = useCallback(async (ledgerId: string, enabled: boolean) =>
     setOrganizationSavedLedgerParticipation(ledgerId, enabled), [setOrganizationSavedLedgerParticipation])
   const handleOrganizationSavedLedgerSelectionChange = useCallback(async (selectedLedgerIds: string[]) => {
@@ -1600,6 +1620,7 @@ export function ControlledFavoriteLedgerPanel({
       <FavoriteLedgerOverview
         ref={favoriteLedgerOverviewRef}
         key={normalizeAccountMid(currentAccountMid) ?? 'no-account'}
+        currentAccountMid={currentAccountMid}
         ledgers={displayedLedgers}
         missingLedgerIds={missingLedgerIds}
         unboundLedgerIds={unboundLedgerIds}

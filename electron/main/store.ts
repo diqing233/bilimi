@@ -706,13 +706,26 @@ export function saveAssistantPreferences(
   overrideStore?: FavoriteLedgerEnabledOverrideStoreLike
 ): AssistantPreferences {
   const enabledOverrideStore = resolveFavoriteLedgerEnabledOverrideStore(store, overrideStore)
+  // A renderer can load before the account-specific lazy migration has
+  // completed and send back a full preference snapshot with an empty account
+  // map.  Never let that stale snapshot erase durable account projections;
+  // explicit entries still replace only the accounts they contain.
+  const currentFavoriteAccountPreferences = normalizeFavoriteAccountPreferenceMap(
+    store.get('favoriteAccountPreferences')
+  )
+  const requestedFavoriteAccountPreferences = normalizeFavoriteAccountPreferenceMap(
+    preferences.favoriteAccountPreferences
+  )
   store.set({
     theme: preferences.theme === 'light' || preferences.theme === 'dark' ? preferences.theme : 'system',
     language: typeof preferences.language === 'string' && preferences.language.trim() ? preferences.language.trim() : 'zh-CN',
     windowBounds: normalizePortableWindowBounds(preferences.windowBounds),
     favoritesFolderName: preferences.favoritesFolderName,
     favoriteLedgers: normalizeFavoriteLedgers(preferences.favoriteLedgers),
-    favoriteAccountPreferences: normalizeFavoriteAccountPreferenceMap(preferences.favoriteAccountPreferences),
+    favoriteAccountPreferences: {
+      ...currentFavoriteAccountPreferences,
+      ...requestedFavoriteAccountPreferences
+    },
     ledgerPromptDismissed: Boolean(preferences.ledgerPromptDismissed),
     petStyle: preferences.petStyle === 'classic' ? 'classic' : 'big-head',
     petHoverShortcuts: normalizePetHoverShortcuts(preferences.petHoverShortcuts),

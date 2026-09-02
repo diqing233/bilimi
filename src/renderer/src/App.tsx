@@ -1913,7 +1913,17 @@ export default function App() {
           }
         }
         const { bilibiliFolderId: _folderId, bilibiliFolderIds: _folderIds, bilibiliFolderTitle: _folderTitle, bilibiliFolderVideoCount: _videoCount, bindingState: _bindingState, ...unboundLedger } = ledger
-        return { ...unboundLedger, bindingState: 'unbound' as const }
+        // Keep deletion-only history produced by the formal-binding projection.
+        // It is display/deletion metadata, never a write-authorized binding.
+        const historicalIds = formalLedger?.historicalBilibiliFolderIds ?? ledger.historicalBilibiliFolderIds ?? []
+        return {
+          ...unboundLedger,
+          ...(historicalIds.length ? { historicalBilibiliFolderIds: [...historicalIds] } : {}),
+          ...(formalLedger?.historicalBilibiliFolderTitle || ledger.historicalBilibiliFolderTitle
+            ? { historicalBilibiliFolderTitle: formalLedger?.historicalBilibiliFolderTitle ?? ledger.historicalBilibiliFolderTitle }
+            : {}),
+          bindingState: 'unbound' as const
+        }
       }
       const successfulIds = successful.map((binding) => binding.remoteFolderId)
       const formalLedger = formalLedgerById.get(ledger.id)

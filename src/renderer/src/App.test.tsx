@@ -3682,6 +3682,83 @@ describe('App runtime integration', () => {
     expect(savedLedgers.find((item) => item.id === ledger.id)).not.toHaveProperty('bilibiliFolderId')
   })
 
+  it('projects a renamed formally bound folder as an unbound candidate in the App snapshot', async () => {
+    const accountMid = '100'
+    const ledger = {
+      ...createDefaultFavoriteLedgers().find((item) => item.id === 'music')!,
+      bilibiliFolderId: '4065561111',
+      bilibiliFolderIds: ['4065561111'],
+      bilibiliFolderTitle: 'bilimi·音乐舞台',
+      bindingState: 'bound' as const,
+      enabled: true
+    }
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [ledger] }
+        }
+      })),
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 12, updatedAt: '2026-09-02T00:00:00.000Z',
+        videoCount: 7, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 1, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, pendingAidCount: 0,
+        remoteReconciliations: [],
+        physicalShards: [{
+          logicalLedgerId: ledger.id, shardNumber: 1, remoteFolderId: '4065561111',
+          remoteTitle: 'bilimi·音乐舞台哈哈', bindingState: 'bound'
+        }]
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (isLedgerStatusScript(script)) {
+          return {
+            ok: false,
+            ledgers: [{ ...ledger, bilibiliFolderTitle: 'bilimi·音乐舞台哈哈', bindingState: 'unbound' as const }],
+            missingLedgerIds: [ledger.id],
+            backupConflictLedgerIds: [],
+            unboundLedgerIds: [ledger.id],
+            unboundCandidates: [{
+              ledgerId: ledger.id,
+              candidates: [{ id: '4065561111', title: 'bilimi·音乐舞台哈哈', memberCount: 7 }]
+            }],
+            message: '发现未绑定的 bilimi 收藏夹。'
+          }
+        }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    const snapshot = await requestRuntime({ id: 'renamed-formal-binding-snapshot', type: 'snapshot' })
+
+    expect(snapshot).toMatchObject({
+      favoriteLedgerStatus: { ok: false, unboundLedgerIds: [ledger.id] },
+      preferences: {
+        favoriteAccountPreferences: {
+          [accountMid]: {
+            favoriteLedgers: expect.arrayContaining([expect.objectContaining({
+              id: ledger.id, bindingState: 'unbound', bilibiliFolderId: '4065561111'
+            })])
+          }
+        }
+      }
+    })
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        [accountMid]: expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([expect.objectContaining({ id: ledger.id, bindingState: 'unbound' })])
+        })
+      })
+    }))
+  })
+
   it('does not restore a deleted remote draft when an older status check finishes afterward', async () => {
     const accountMid = '100'
     const remoteDraft = {

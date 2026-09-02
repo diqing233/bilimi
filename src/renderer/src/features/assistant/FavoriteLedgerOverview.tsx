@@ -25,6 +25,8 @@ import {
 } from './favoriteLedgerEnableStore'
 
 type FavoriteLedgerOverviewProps = {
+  /** Account identity already resolved by the owning panel. */
+  currentAccountMid?: string
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
   unboundLedgerIds?: string[]
@@ -288,7 +290,7 @@ export function preserveFavoriteLedgerOrder(
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], onDismissRemoteDraftReminder, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
+export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ currentAccountMid, ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], onDismissRemoteDraftReminder, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
@@ -341,7 +343,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     // cancelling its recommendation still only changes this round's adopted
     // state. Its saved/local or remote folder is never a deletion target here.
     ledger.ruleOrigin === 'recommendation-draft' &&
-    organizationRecommendationEnabledById?.get(ledger.id) === true &&
+    (organizationRecommendationEnabledById?.get(ledger.id) === true ||
+      (organizationRecommendationEnabledById?.get(ledger.id) === undefined && ledger.enabled)) &&
     Boolean(onOrganizationRecommendationToggle)
   const cancelRecommendation = async (ledgerId: string) => {
     if (!onOrganizationRecommendationToggle) return false
@@ -375,7 +378,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     !unsavedLedgerIds.has(ledger.id) && !isTransientNewDraft(ledger) &&
     (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule' ||
       Boolean(organizationSavedLedgerEnabledById?.has(ledger.id)) ||
-      Boolean(organizationRecommendationEnabledById?.has(ledger.id))) && !isRecoveredRemoteDraft(ledger) &&
+      Boolean(organizationRecommendationEnabledById?.has(ledger.id)) ||
+      (ledger.ruleOrigin === 'recommendation-draft' && Boolean(onOrganizationRecommendationToggle))) && !isRecoveredRemoteDraft(ledger) &&
     !isSystemDisabled(ledger) && !isRoundLocked(ledger) && !isForcedEnabled(ledger)
   const enableEntries = (items: FavoriteLedger[], deletionMode = false, enabledOverride?: ReadonlyMap<string, boolean>, unsavedLedgerIds = locallyUnsavedLedgerIds): FavoriteLedgerEnableEntry[] => items.map((ledger) => ({
     id: ledger.id,
@@ -713,6 +717,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       return
     }
     const previousEnabled = enableStore.isEnabled(id)
+    const toggledLedger = draftLedgers.find((ledger) => ledger.id === id)
     if (organizationSavedLedgerEnabledById?.has(id) && onOrganizationSavedLedgerToggle) {
       const nextEnabled = !previousEnabled
       // Publish the local projection before awaiting the main-process command so
@@ -734,7 +739,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       })
       return
     }
-    if (organizationRecommendationEnabledById?.has(id) && onOrganizationRecommendationToggle) {
+    if ((organizationRecommendationEnabledById?.has(id) || toggledLedger?.ruleOrigin === 'recommendation-draft') && onOrganizationRecommendationToggle) {
       const nextEnabled = !previousEnabled
       enabledStateChangeSourceRef.current = 'organization-selection'
       if (!enableStore.setEnabled(id, nextEnabled)) return
@@ -1048,9 +1053,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     if (persistedLedgers.length) {
       try {
         for (const ledger of persistedLedgers) await onBeforeDeleteLedger?.(ledger.id)
-        const accountMid = window.bilimiDesktop?.readBilibiliAccountMid
-          ? await window.bilimiDesktop.readBilibiliAccountMid()
-          : ''
+        const accountMid = currentAccountMid !== undefined
+          ? currentAccountMid.trim()
+          : window.bilimiDesktop?.readBilibiliAccountMid
+            ? await window.bilimiDesktop.readBilibiliAccountMid()
+            : ''
         if (!accountMid || !window.bilimiDesktop?.deleteFavoriteLedgersLocal) throw new Error('Local favorite ledger deletion is unavailable.')
         await window.bilimiDesktop.deleteFavoriteLedgersLocal(accountMid, persistedLedgers.map((ledger) => ledger.id))
       } catch {
@@ -1089,9 +1096,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     awaitingParentLedgerIdsRef.current.delete(ledger.id)
     if (wasPersisted) {
       try {
-        const accountMid = window.bilimiDesktop?.readBilibiliAccountMid
-          ? await window.bilimiDesktop.readBilibiliAccountMid()
-          : ''
+        const accountMid = currentAccountMid !== undefined
+          ? currentAccountMid.trim()
+          : window.bilimiDesktop?.readBilibiliAccountMid
+            ? await window.bilimiDesktop.readBilibiliAccountMid()
+            : ''
         if (!accountMid || !window.bilimiDesktop?.deleteFavoriteLedgerDraft) throw new Error('Draft deletion is unavailable.')
         await window.bilimiDesktop.deleteFavoriteLedgerDraft(accountMid, ledger.id)
       } catch {
