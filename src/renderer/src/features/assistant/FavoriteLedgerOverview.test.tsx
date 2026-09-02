@@ -1070,13 +1070,13 @@ describe('FavoriteLedgerOverview', () => {
 
     const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     expect(dialog).toHaveTextContent('bilimi·知识学习（当前 310 个视频）B站：保留')
-    expect(dialog).toHaveTextContent('bilimi·暂存（当前 0 个视频）B站：保留')
+    expect(dialog).toHaveTextContent('bilimi·暂存（历史分册 / 远端已不存在）（当前 0 个视频）B站：保留')
     expect(dialog).toHaveTextContent('只移除右侧规则或草稿；收藏库和 B 站保留。')
 
     fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
 
     expect(dialog).toHaveTextContent('bilimi·知识学习（当前 310 个视频）B站：删除 1 个实际收藏夹')
-    expect(dialog).toHaveTextContent('bilimi·暂存（当前 0 个视频）B站：无绑定，不会删除')
+    expect(dialog).toHaveTextContent('bilimi·暂存（历史分册 / 远端已不存在）（当前 0 个视频）B站：远端已不存在，不会删除')
     expect(dialog).toHaveTextContent('收藏库工作夹和成员保留。')
     expect(dialog).not.toHaveTextContent('删除“知识学习”时，会同时从 B 站删除')
   })
@@ -2772,6 +2772,32 @@ describe('FavoriteLedgerOverview', () => {
     expect(group).toHaveTextContent('bilimi·游戏专区')
     expect(group).toHaveTextContent('bilimi·游戏专区·2')
     expect(within(dialog).getAllByRole('checkbox', { name: /已检测到未绑定的 bilimi 收藏夹/ })).toHaveLength(1)
+  })
+
+  it('does not count historical remote shards that are absent from the current inventory', async () => {
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
+          { logicalLedgerId: 'honker', remoteFolderId: 'current-honker', title: 'bilimi·honker233', memberCount: 0, state: 'bound', requiresUnboundAcknowledgement: false },
+          { logicalLedgerId: 'honker', remoteFolderId: 'old-honker-1', title: 'bilimi·honker233', memberCount: 0, state: 'missing-remote', requiresUnboundAcknowledgement: false },
+          { logicalLedgerId: 'honker', remoteFolderId: 'old-honker-2', title: 'bilimi·honker233', memberCount: 0, state: 'missing-remote', requiresUnboundAcknowledgement: false }
+        ])
+      }
+    })
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[{
+      id: 'honker', displayName: 'bilimi·honker233', keywords: [], enabled: true, priority: 10, isDefault: false,
+      bilibiliFolderId: 'current-honker', bilibiliFolderIds: ['current-honker'], bindingState: 'bound'
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·honker233' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    expect(within(dialog).getByTestId('managed-deletion-group-honker')).toHaveTextContent('honker233（1 个分册）')
+    expect(within(dialog).getByTestId('managed-deletion-group-honker')).toHaveTextContent('历史分册 / 远端已不存在')
   })
 
   it('passes explicit acknowledgement when deleting an unbound name-matched default folder', async () => {

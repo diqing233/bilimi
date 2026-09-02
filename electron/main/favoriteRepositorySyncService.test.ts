@@ -737,6 +737,34 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({ physicalShards: [] })
   })
 
+  it('retains historical shard ids as missing-remote candidates when only one remains in the inventory', async () => {
+    const repository = await createRepository()
+    for (const [id, shardNumber] of [['current-honker', 1], ['old-honker-1', 2], ['old-honker-2', 3]] as const) {
+      await repository.commit('100', {
+        id: `honker-${shardNumber}`, accountMid: '100', issuedAt: '2026-09-02T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId: 'honker', logicalTitle: 'honker233', shardNumber, memberAids: [],
+          remoteTitle: 'bilimi·honker233', bindingState: 'bound', remoteFolderId: id
+        }
+      })
+    }
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(),
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+          { id: 'current-honker', title: 'bilimi·honker233', memberCount: 0 }
+        ] })
+      }
+    })
+
+    await expect(service.previewManagedFolderDeletion('100', ['honker'], { honker: 'bilimi·honker233' })).resolves.toEqual([
+      expect.objectContaining({ logicalLedgerId: 'honker', remoteFolderId: 'current-honker', state: 'bound' }),
+      expect.objectContaining({ logicalLedgerId: 'honker', remoteFolderId: 'old-honker-1', state: 'missing-remote' }),
+      expect.objectContaining({ logicalLedgerId: 'honker', remoteFolderId: 'old-honker-2', state: 'missing-remote' })
+    ])
+  })
+
   it('reports a same-title bilimi folder as an unbound deletion candidate instead of silently ignoring it', async () => {
     const repository = await createRepository()
     await repository.commit('100', {
