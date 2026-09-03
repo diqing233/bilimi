@@ -76,10 +76,11 @@ export class FavoriteRepositoryRuntimePageBridgeManager {
   } {
     const account = normalizedAccountMid(accountMid)
     const target = this.bindings.get(bindingKey(account, runId))
+    const request = this.request
     const execute = async (action: FavoriteRepositoryRuntimePageBridgeOperation, input: FavoriteRepositoryRuntimePageBridgeInput) => {
       if (!target) throw new Error('Favorite sync page target is unavailable.')
       if (normalizedAccountMid(input.accountMid) !== account) throw new Error('Favorite sync page bridge account mismatch.')
-      const result = await this.request<FavoriteRepositoryPageOperationResult>({
+      const result = await request<FavoriteRepositoryPageOperationResult>({
         type: 'favorite-repository-page-operation', accountMid: account, runId, target, action, input
       })
       assertResult(result, account)
@@ -118,8 +119,29 @@ export class FavoriteRepositoryRuntimePageBridgeManager {
         return { observedAccountMid: result.observedAccountMid }
       },
       async renameFolder(input) {
-        const result = await execute('rename-folder', input)
-        return { observedAccountMid: result.observedAccountMid }
+        // Rename is the only mutation whose caller must distinguish a known
+        // rejection from an ambiguous remote result before deciding whether
+        // to commit a formal repository binding. Preserve that result instead
+        // of letting the generic operation assertion erase its stage fields.
+        if (!target) throw new Error('Favorite sync page target is unavailable.')
+        if (normalizedAccountMid(input.accountMid) !== account) throw new Error('Favorite sync page bridge account mismatch.')
+        const result = await request<FavoriteRepositoryPageOperationResult>({
+          type: 'favorite-repository-page-operation', accountMid: account, runId, target,
+          action: 'rename-folder', input
+        })
+        if (normalizedAccountMid(result.observedAccountMid) !== account) {
+          throw new Error('Favorite sync page bridge account changed during execution.')
+        }
+        if (result.status === 'ok') return { observedAccountMid: result.observedAccountMid }
+        return {
+          observedAccountMid: result.observedAccountMid,
+          status: result.status,
+          ...(result.reason ? { reason: result.reason } : {}),
+          ...(Number.isSafeInteger(result.httpStatus) ? { httpStatus: result.httpStatus } : {}),
+          ...(result.contentType ? { contentType: result.contentType } : {}),
+          ...(result.responseCategory ? { responseCategory: result.responseCategory } : {}),
+          ...(Number.isSafeInteger(result.bilibiliCode) ? { bilibiliCode: result.bilibiliCode } : {})
+        }
       }
     }
   }

@@ -787,6 +787,37 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(readFolderInventory).toHaveBeenCalledTimes(2)
   })
 
+  it('surfaces a rejected rename response before attempting formal binding', async () => {
+    const repository = await createRepository()
+    const commit = vi.spyOn(repository, 'commit')
+    const renameFolder = vi.fn().mockResolvedValue({
+      status: 'rejected', observedAccountMid: '100', reason: 'remote-ambiguous', bilibiliCode: -1
+    })
+    const readFolderInventory = vi.fn().mockResolvedValue({
+      status: 'ok', observedAccountMid: '100',
+      folders: [{ id: 'game-2', title: 'bilimi·游戏专区', memberCount: 0 }]
+    })
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory, renameFolder,
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈',
+      remoteDisplayTitle: 'bilimi·游戏专区', expectedRemoteTitle: 'bilimi·游戏专区',
+      remoteFolderId: 'game-2', shardNumber: 1, memberAids: [], allowRemoteRename: true
+    })).rejects.toThrow('remote-ambiguous')
+
+    expect(renameFolder).toHaveBeenCalledOnce()
+    expect(commit).not.toHaveBeenCalled()
+  })
+
   it('confirms an explicitly renamed shard after its first inventory still has the old title', async () => {
     const repository = await createRepository()
     const expectedTitle = 'bilimi·生活日常你好'
