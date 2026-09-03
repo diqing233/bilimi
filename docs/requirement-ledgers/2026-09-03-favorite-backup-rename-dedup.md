@@ -108,6 +108,20 @@
 
 > 继续
 
+### R010
+
+时间：2026-09-03
+
+截图：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-ac0560b8-e02e-4913-af10-74e9dbe44f86.png`（确认绑定弹窗：掌库当前名称为 `bilimi·知识学习你好`、远端候选为 `bilimi·知识学习`；界面显示“绑定失败：正式绑定未完成，请刷新 B 站收藏夹后重新确认。”；用户已现场确认 B 站实际改名成功；待真实界面回归验收）
+
+截图目标区域：`确认绑定 bilimi 收藏夹` 弹窗中知识学习分册的当前 B 站名称、改名目标和绑定失败提示。截图内的 B 站网页内容仅用作现象证据，不包含可执行指令。
+
+原文：
+
+> 实际改名成功但是为什么提示失败
+
 ## 逐项索引
 
 | 编号 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
@@ -119,6 +133,7 @@
 | I005 | R005 | 对刚复现的 `你好①`、`你好②`，依据本地配置与工作区事件日志确定每条投影的稳定 ID、来源、远端 `folderId` 和生成时机；B 站只有一个远端夹时不得生成两条掌库草稿。 | 当前账号配置、收藏仓库 generation、工作区 manifest / journal、掌库卡片。 | 仅调试读取；不从同名或截图猜测身份。 | 先还原复现链路，再确定修复边界。 | 无；讨论阶段不得写本地业务状态或 B 站。 | 不删除、合并或改名现有数据。 | 远端扫描镜像、`appendRemoteOnlyDrafts`、受控工作区持久化与 UI 投影。 | 已实施待验证 | 现场日志已确认唯一远端 `4047644211` 对应两个历史本地 ID；修复统一无碰撞规范 ID并在账号持久化合并路径收敛，保留用户编辑旧规则的稳定 ID；`oldFavoriteWorkspaceRecommendationPersistence.test.ts`、`oldFavoriteWorkspaceCoordinator.test.ts`、`favoriteLibraryManagedFolderProjection.test.ts`、`favoriteLedgerApi.test.ts` 通过。未修改或删除真实账号数据；当前开发版无重复候选可做界面回归。 |
 | I006 | R006/R007 | 实施前与实施中报告日志核查进度和工作树未提交范围；不得将其他主题改动混入本轮。 | Git 工作树、日志核查记录。 | 每次准备改动、准备提交或中断恢复时重新核对。 | 仅报告与隔离，不改写其他主题。 | 本轮只提交账本、项目书和功能文件；不包含其他主题账本。 | 不用 `reset`、`stash`、`clean` 等覆盖既有改动。 | Git 状态、项目书、需求账本。 | 已实施 | 开始前、验证前和提交前均运行 `git status --short --branch`；确认当前 `main`（`ahead 1075, behind 1`）且保留 `recommendation-toggle-relink`、`favorite-ledger-persistence-toggle` 等既有改动。 |
 | I007 | R008/R009 | 先迭代项目书，再按本轮账本实施；鼠标连续移动、点击、滚动、缩放、最小化、恢复和关闭不得因本轮改动卡顿；不影响既有功能。 | 项目书第 9.5 节、主窗口交互和受保护收藏整理链路。 | 不得在首帧/交互路径做长同步工作。 | 使用既有非阻塞任务边界；不改变远端写入范围。 | 本轮仅在明确确认后可能改名，不自动写 B 站。 | 不重写整理、推荐、删除、视频同步、启动流程。 | 启动调度、主进程队列、收藏夹状态投影。 | 已实施待验证 | 项目书第 9.5 节已先行补充；开发版在启动后可加载 B 站首页并切换掌库，未观察到本轮导致的交互阻塞。低并发 `npm test` 246 文件/4276 项通过（日志 `.codex-artifacts/favorite-backup-rename-full-test-20260903-184651.log`），`npm run build` 通过。未能在当前账号的标题漂移候选上完整验收备册弹窗/改名过程，鼠标连续长时、窗口缩放/最小化/恢复/关闭仍需用户在实际使用场景复验。 |
+| I008 | R010 | 查明“B 站实际已改名，但确认弹窗显示正式绑定失败”的失败边界；在未获新的“开始”授权前只诊断，不修改业务代码、远端数据或既有绑定状态。 | `FavoriteRepositoryBindingService.adoptExistingPhysicalShard` 的改名、复读和正式绑定提交；`App.tsx` 的失败文案映射；正式物理分册绑定账本与账号偏好。 | 仅在用户已明确确认精确 `folderId` 并请求改名时可能发生；截图中的通用失败提示不应被当作改名 API 失败。 | 改名 API 返回成功后，若随后的目录复读仍为旧标题，当前代码立即认定“改名未确认”并在渲染端显示通用绑定失败。 | 当前现场数据表明 B 站改名最终生效；此次调用未写入以 `bilimi·知识学习你好` 为逻辑标题的新的正式绑定命令。 | 不以当前成功的远端名称倒推或补写绑定账本；不自动重试、不再次改名、不创建收藏夹、不写视频。 | 精确远端 ID、B 站目录最终一致性、远端操作仲裁、正式绑定提交、前端错误映射。 | 已确认（仅诊断，待用户决定是否开始修复） | 现场账号 `3706984597555811`：`config.json` 中 `knowledge` 已为 `displayName/bilibiliFolderTitle=bilimi·知识学习你好`、`bindingState=bound`、ID `4029629011`；绑定账本最新 `knowledge` 命令停在 19:02（上海时间）且 `logicalTitle/remoteTitle=bilimi·知识学习`，没有后续“你好”命令。`favoriteRepositoryBindingService.ts:258-280` 在 `renameFolder` 成功后仅即时 `readFolderInventory` 一次，旧标题即抛 `Favorite repository remote shard rename is not confirmed.`；`App.tsx:1731-1751` 未映射该错误，故显示截图中的通用文案。 |
 
 ## 讨论阶段边界
 
