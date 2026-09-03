@@ -45,9 +45,9 @@ describe('assistant state', () => {
     expect(next.favoriteAccountPreferences?.['200']).toBe(otherAccount)
   })
 
-  it('defaults automatic pet startup to disabled and preserves an explicit opt-in', () => {
-    expect((createInitialAssistantPreferences() as unknown as Record<string, unknown>).autoShowPetOnStartup).toBe(false)
-    expect((createInitialAssistantPreferences({ autoShowPetOnStartup: true } as never) as unknown as Record<string, unknown>).autoShowPetOnStartup).toBe(true)
+  it('defaults automatic pet startup to enabled and preserves an explicit opt-out', () => {
+    expect((createInitialAssistantPreferences() as unknown as Record<string, unknown>).autoShowPetOnStartup).toBe(true)
+    expect((createInitialAssistantPreferences({ autoShowPetOnStartup: false } as never) as unknown as Record<string, unknown>).autoShowPetOnStartup).toBe(false)
   })
   it('applies an interactive setting patch without cloning unrelated heavy preferences', () => {
     const preferences = createInitialAssistantPreferences({

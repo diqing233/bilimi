@@ -287,7 +287,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   petStyle: 'big-head',
   petHoverShortcuts: DEFAULT_PET_HOVER_SHORTCUTS,
   showPetAssistantShortcut: true,
-  autoShowPetOnStartup: false,
+  autoShowPetOnStartup: true,
   hidePetDuringVideoFullscreen: false,
   closeBehavior: 'minimize-to-tray',
   confirmBeforeExit: true,
@@ -615,7 +615,8 @@ export function loadAssistantPreferences(
         ? true
         : Boolean(store.get('showPetAssistantShortcut')) ||
           hasLegacyAssistantHoverShortcut(store.get('petHoverShortcuts')),
-    autoShowPetOnStartup: Boolean(store.get('autoShowPetOnStartup')),
+    autoShowPetOnStartup:
+      store.has?.('autoShowPetOnStartup') === false ? true : Boolean(store.get('autoShowPetOnStartup')),
     hidePetDuringVideoFullscreen: Boolean(store.get('hidePetDuringVideoFullscreen')),
     closeBehavior: normalizeMainWindowCloseBehavior(store.get('closeBehavior')),
     confirmBeforeExit:

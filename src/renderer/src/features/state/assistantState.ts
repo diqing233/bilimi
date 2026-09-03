@@ -169,7 +169,8 @@ export function createInitialAssistantPreferences(
       typeof persisted?.showPetAssistantShortcut === 'boolean'
         ? persisted.showPetAssistantShortcut
         : true,
-    autoShowPetOnStartup: Boolean(persisted?.autoShowPetOnStartup),
+    autoShowPetOnStartup:
+      typeof persisted?.autoShowPetOnStartup === 'boolean' ? persisted.autoShowPetOnStartup : true,
     hidePetDuringVideoFullscreen: Boolean(persisted?.hidePetDuringVideoFullscreen),
     closeBehavior: normalizeMainWindowCloseBehavior(persisted?.closeBehavior),
     confirmBeforeExit:

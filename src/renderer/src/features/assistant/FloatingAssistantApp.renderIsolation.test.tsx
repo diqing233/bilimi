@@ -148,18 +148,18 @@ describe('FloatingAssistantApp render isolation', () => {
     expect(ledgerRenderCount).toBe(rendersBeforeSwitch)
   })
 
-  it('shows automatic pet startup disabled by default and persists an explicit opt-in', async () => {
+  it('shows automatic pet startup enabled by default and persists an explicit opt-out', async () => {
     const patchPreferences = vi.fn(async (patch: Record<string, unknown>) => patch)
     installDesktopApi(createInitialAssistantPreferences(), { patchPreferences })
     render(<FloatingAssistantApp mode="sidebar" />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
-    const toggle = await screen.findByRole('checkbox', { name: '启动时自动显示小咪' })
+    const toggle = await screen.findByRole('checkbox', { name: '应用启动时自动唤醒小咪' })
 
-    expect(toggle).not.toBeChecked()
+    expect(toggle).toBeChecked()
     fireEvent.click(toggle)
 
-    await waitFor(() => expect(patchPreferences).toHaveBeenCalledWith({ autoShowPetOnStartup: true }))
+    await waitFor(() => expect(patchPreferences).toHaveBeenCalledWith({ autoShowPetOnStartup: false }))
   })
 
   it('publishes approved guidance to the global prompt and pet only for a changed top-level tab', async () => {

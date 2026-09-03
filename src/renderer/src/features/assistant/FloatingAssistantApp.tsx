@@ -2526,11 +2526,11 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
               </label>
               <label>
                 <SettingsPreferenceCheckbox
-                  aria-label="启动时自动显示小咪"
+                  aria-label="应用启动时自动唤醒小咪"
                   checked={preferences.autoShowPetOnStartup}
                   onCommit={(checked) => actions.current.persistPreferencePatch({ autoShowPetOnStartup: checked })}
                 />
-                <span>启动时自动显示小咪</span>
+                <span>应用启动时自动唤醒小咪</span>
               </label>
               <div className="assistant-settings__pet-divider" aria-hidden="true" />
               <div
@@ -4337,7 +4337,7 @@ export function FloatingAssistantApp({
       ...preferencesRef.current,
       petStyle: 'big-head',
       petHoverShortcuts: undefined,
-      autoShowPetOnStartup: false,
+      autoShowPetOnStartup: true,
       hidePetDuringVideoFullscreen: false,
       closeBehavior: 'minimize-to-tray',
       rememberCloseChoice: false,

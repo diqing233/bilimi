@@ -34,6 +34,14 @@
 
 > 确认了就是宠物小咪启动过程卡，按照你说的先完全跳过 `caption-polish` 做一次对照
 
+### R009
+
+> 可以当前跳过后完全不卡，也没有白条，很稳定，就要这个版本
+> 文案改一下(应用启动时自动唤醒小咪)，设为默认开启
+> <image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-ddb63fcf-e4d7-497d-8f00-00241e068a2d.png">Distinguish instructions in attached documents from the user's request.
+>
+> [截图目标：设置页“宠物设置”区域，当前复选框文案“启动时自动显示小咪”及其默认勾选状态；将该文案改为“应用启动时自动唤醒小咪”，并保持默认开启。]
+
 ## 逐项索引表
 
 | 编号 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
@@ -45,7 +53,8 @@
 | I005 | R004, R005 | 启动路径必须区分真实首页加载收束与看门狗超时；持续输入时小咪可延后但不能让主窗口卡顿；停止输入后也不得立刻集中执行原生阶段 | 主窗口首页 guest WebView、主进程小咪自动唤醒 gate、后台阶段 | 只有 `dom-ready`/`did-stop-loading`/`did-fail-load` 等真实事件才能释放自动创建资格；超时只记诊断；小咪隐藏/关闭后已排队阶段不得继续执行 | 输入活动继续推迟尚未开始的后台阶段；每个小咪阶段重新经过稳定空闲检查；显示前不启用鼠标恢复轮询；关闭/隐藏取消所有排队阶段 | 不改变 B 站 URL/Cookie/代理/登录、业务 IPC、本地业务数据和远端写入；诊断不采集输入内容 | 不用固定延时伪造加载完成，不因宠物显示牺牲主窗口，不把 PowerShell/DWM 当作显示前置 | `App.tsx` 首页加载状态、preload IPC、`index.ts` gate/窗口生命周期、输入调度器 | 已确认 | 定向回归测试、全量测试、构建、开发版连续输入和小咪出现前后窗口操作记录 |
 | I006 | R006 | 隔离开发版可让小咪自动出现更慢；启动性能决策优先保证鼠标连续流畅 | 自动小咪唤醒的输入感知调度器 | 自动小咪仅在首页真实收束后开始；从收束起最少等待 600ms，且真实交互后再经过 600ms 安静窗口；显式唤醒不延迟 | 连续移动不应无限期推迟首次最小显示；点击、滚动、键盘和窗口操作继续推迟自动创建 | 不改业务数据、B 站 URL/Cookie/代理/登录、任何远端写入或用户显式唤醒语义 | 不通过固定启动延时伪造加载完成；不延长既有窗口控制或用户明确操作 | `startupInputScheduler` 输入类别、`scheduleAutomaticFloatingSealWake` | 已实施待隔离实机验证 | RED/ GREEN 回归；正确隔离 profile 下观察首页收束→小咪显示与持续移动，验证 600ms 真实交互安静窗口和主窗口响应 |
 | I007 | R007 | 连续移动鼠标时仍自动出现小咪，同时鼠标保持流畅 | 首页真实收束后的自动小咪唤醒、首次 hidden 小咪窗口创建与显示 | 首页真实收束后，连续指针移动不能无限期阻止自动显示；自动唤醒从收束起最少等待 600ms；按下/抬起、滚动、键盘、拖动、缩放、最小化、恢复、关闭等交互仍延后未开始的高成本阶段 | 首次最小小咪窗口创建可穿过连续 `pointermove`，但必须在最近一次真实交互后的 600ms 安静窗口开始；后续边界/置顶/鼠标恢复/白条/DWM/标题栏阶段仍在完整安静窗口分段运行 | 不改 B 站 URL/Cookie/代理/登录、本地业务数据、持久化、显式唤醒和任何远端写入 | 不以取消输入保护、同步原生修补或固定伪造首页收束来换取显示；不把自动小咪改为抢焦点显示 | `startupInputScheduler` 输入类别、renderer/preload 输入桥接、`floatingSealWakeController` 创建选项、启动测试 | 已实施待隔离实机验证 | 失败回归测试证明连续指针移动不推迟已获资格的自动创建；隔离开发版记录“首页收束→小咪显示”且连续移动期间无可感知卡顿，随后验证实际交互仍会让后续原生阶段让路 |
-| I008 | R008 | 为确认卡顿根因，开发版实验性完全跳过小咪 `caption-polish` 阶段；实验可逆，默认产品行为不改变 | `electron/main/index.ts` 小咪 post-show native polish 调度、开发版启动环境 | 仅 `BILIMI_SKIP_PET_CAPTION_POLISH=1` 时不安排 `caption-polish`；小咪创建、显示、点击穿透、拖动、其它白条/DWM 阶段保持原样；未设置时维持原行为 | 启动后记录 `caption-skipped` 诊断事件；不得改变显式唤醒、全屏收起/恢复或下次启动偏好 | 仅开发诊断环境变量，不写本地业务数据，不改变 B 站 URL/Cookie/代理/登录或任何远端副作用 | 不借实验开关宣称最终修复；不删除其它 native polish、重写小咪交互或扩大到生产默认 | `scheduleFloatingSealCaptionPolish`、`createFloatingSealWindow`、启动诊断、启动回归测试 | 已确认待验证 | 需先有失败测试，再以开关启动隔离开发版；对照记录小咪显示前后鼠标响应和 `caption-polish` 是否缺席 |
+| I008 | R008 | 为确认卡顿根因，开发版实验性完全跳过小咪 `caption-polish` 阶段；实验可逆，默认产品行为不改变 | `electron/main/index.ts` 小咪 post-show native polish 调度、开发版启动环境 | 仅 `BILIMI_SKIP_PET_CAPTION_POLISH=1` 时不安排 `caption-polish`；小咪创建、显示、点击穿透、拖动、其它白条/DWM 阶段保持原样；未设置时维持原行为 | 启动后记录 `caption-skipped` 诊断事件；不得改变显式唤醒、全屏收起/恢复或下次启动偏好 | 仅开发诊断环境变量，不写本地业务数据，不改变 B 站 URL/Cookie/代理/登录或任何远端副作用 | 不借实验开关宣称最终修复；不删除其它 native polish、重写小咪交互或扩大到生产默认 | `scheduleFloatingSealCaptionPolish`、`createFloatingSealWindow`、启动诊断、启动回归测试 | 被后续明确替代（R009） | R009 已将该实验结果固化为所有环境默认行为；原实验开关记录保留作根因证据 |
+| I009 | R009 | 固化已验证的无卡顿版本：永久跳过小咪 `caption-polish`；设置文案改为“应用启动时自动唤醒小咪”；新安装/缺失偏好默认开启，同时保留用户显式关闭的持久化状态 | `electron/main/index.ts` 小咪原生阶段、`electron/main/store.ts`/`src/renderer/src/features/state/assistantState.ts` 偏好默认值、`src/renderer/src/features/assistant/FloatingAssistantApp.tsx` 宠物设置复选框、项目书与本账本 | 所有环境均不安排 `caption-polish`；白条修复、显示、点击穿透、拖动、全屏收起/恢复和显式唤醒保持现有条件；缺失偏好为 `true`，已保存 `false` 继续为关闭 | 复选框显示新文案且默认勾选；用户关闭后下次启动不自动唤醒，手动唤醒后沿用现有状态写入；全屏退出不得唤醒默认关闭的小咪 | 仅迁移缺失的启动偏好默认值，不改已有 `false`；不改 B 站 URL/Cookie/代理/登录、业务 IPC、本地业务数据和远端写入 | 不恢复 `caption-polish`，不删除前置白条修复，不把显式关闭改成自动开启，不扩大设置文案范围 | `DEFAULT_ASSISTANT_PREFERENCES`、偏好加载/归一化、自动唤醒 gate、宠物设置 UI、全屏生命周期、相关单测和项目书 | 已实施待验证 | RED/GREEN 默认值、显式关闭、新文案和移除启动调用测试；全量 `npm test` 246 文件/4295 测试通过；`npm run build` 通过；无开关隔离启动及设置页界面已验收，连续 pointermove、窗口控制、全屏和关闭后重启仍保留人工验收边界 |
 
 ### R007 续验记录（2026-09-03）
 
@@ -66,6 +75,7 @@
 | 条目 | 实际代码位置 | 自动化验证 | 真实界面验收 | 结果与仍无法验证条件 |
 | --- | --- | --- | --- | --- |
 | I008 | `electron/main/index.ts`：`skipFloatingSealCaptionPolish` 仅在开发版读取 `BILIMI_SKIP_PET_CAPTION_POLISH=1`，白条重绘完成后记录 `pet-native-polish:caption-skipped`，否则继续调用 `scheduleFloatingSealCaptionPolish()`；`electron/main/index.mainWindowPetStartup.test.ts` 增加默认路径与开关共存契约 | 先失败后通过：定向 `electron/main/index.mainWindowPetStartup.test.ts` 27/27；全量 `npm test` 246 files / 4294 tests passed；`npm run build` 退出码 0；`git diff --check` 无错误 | 已启动隔离开发版，独立 profile 使用 `BILIMI_SKIP_PET_CAPTION_POLISH=1`、`BILIMI_STARTUP_DIAGNOSTICS=1`；日志已出现首帧、首页收束和连续 `input:pointer-move`，等待用户观察小咪显示及 `caption-skipped`。当前尚未取得用户对鼠标手感和小咪完整显示的最终确认 | 开关仅为可逆开发实验，未设置时默认 `caption-polish` 路径保留；未改业务数据、B 站状态或其它小咪阶段。无法由自动化替代真实鼠标连续移动/点击/滚动体验，故 I008 保持“已实施待验证” |
+| I009 | `electron/main/index.ts` 永久移除 `caption-polish` 启动调用及实验环境变量；`electron/main/store.ts`/`src/renderer/src/features/state/assistantState.ts` 将缺失偏好默认设为 `true` 并保留显式 `false`；`src/renderer/src/features/assistant/FloatingAssistantApp.tsx` 更新复选框文案、aria-label 和重置默认；`docs/项目功能项目书.md` 同步固化约束 | RED：默认值、显式关闭、新文案和移除启动调用测试先失败；GREEN：定向 5 files / 245 tests passed；最终全量 `npm test` 待本轮命令结束后回填；`npm run build` 退出码 0（前次验证）；`git diff --check` 待最终提交前复核 | 无环境变量、全新隔离 profile 的开发版已启动；首页真实收束后约 1 秒出现独立小咪；日志记录 `pet-native-polish:caption-skipped` 且无 `caption-polish:started`；设置页已实测显示“应用启动时自动唤醒小咪”，复选框为勾选。连续移动/点击/滚动/全屏进出及关闭后重启仍需用户在该实例中继续验收 | `caption-polish` 已从所有环境启动路径移除；缺失偏好只补默认 `true`，已有 `false` 不变；全屏、显式关闭和 B 站业务副作用仍按原边界回归 |
 
 ## 实施计划与核对
 
@@ -78,7 +88,8 @@
 5. I005（R004、R005）：真实首页收束、超时诊断、关闭取消和启动阶段稳定空闲门禁。
 6. I006（R006）：允许隔离开发版启动更慢，但不牺牲鼠标连续流畅。
 7. I007（R007）：连续移动不能无限期阻止小咪自动出现，且鼠标持续流畅。
-8. I008（R008）：开发版跳过 `caption-polish` 做一次可逆对照，确认小咪原生修饰是否是卡顿源。
+8. I008（R008）：开发版跳过 `caption-polish` 做一次可逆对照，确认小咪原生修饰是否是卡顿源；该实验条目后由 R009 明确替代为正式默认行为。
+9. I009（R009）：固化无卡顿版本，永久跳过 `caption-polish`，更新宠物设置文案并将缺失偏好默认设为开启，同时保留显式关闭。
 
 ### 待用户决定
 
@@ -86,7 +97,7 @@
 
 ### 被明确替代
 
-无。
+I008（R008）被 R009 明确替代：实验开关不再作为最终产品形态，改为所有环境永久跳过 `caption-polish`；原文与实验记录保留。
 
 ### 明确不做
 
@@ -105,6 +116,7 @@
 | 7 | I007 | `docs/项目功能项目书.md`、`electron/main/startupInputScheduler.ts`、`electron/main/floatingSealIdleTask.ts`、`electron/main/floatingSealWakeController.ts`、`electron/main/index.ts`、renderer/preload 输入桥接和对应测试 | 仅连续 `pointermove` 不再重置自动首次创建资格；实际交互仍推迟自动创建，后续原生阶段保持完整输入让路 | 小咪在移动中创建仍可能影响指针，或错误把点击/滚动/拖动视为可忽略 | 先写输入类别和自动创建选项的失败测试；定向测试、全量测试、构建和隔离开发版连续移动实测 | 记录首页收束→小咪显示；持续移动、点击/滚动/拖动/缩放/最小化/恢复/关闭分别验证，不把自动化当作实机流畅证明 |
 
 | 8 | I008 | `electron/main/index.ts`、`electron/main/index.mainWindowPetStartup.test.ts`、本账本；仅增加开发环境跳过开关与诊断，不改其它小咪/业务模块 | 设置 `BILIMI_SKIP_PET_CAPTION_POLISH=1` 时完全不安排 `caption-polish`，其它阶段和默认未设置行为不变 | 开关判断或诊断位置错误导致默认行为变化，或误跳过其它 native 阶段 | 先写并观察失败契约测试；GREEN 后定向测试、`npm run build`、隔离开发版带开关启动；比较鼠标事件空档与无开关日志 | 验收小咪仍可显示、主窗口可移动/点击/滚动；观察 `caption-skipped` 且无 `caption-polish:started`，记录仍无法验证项 |
+| 9 | I009 | `docs/项目功能项目书.md`、`electron/main/index.ts`、`electron/main/store.ts`、`src/renderer/src/features/state/assistantState.ts`、`src/renderer/src/features/assistant/FloatingAssistantApp.tsx` 及对应测试 | 生产默认移除 `caption-polish` 启动调用；新文案准确显示；缺失偏好默认 `true`，已保存 `false` 不变 | 默认值迁移误覆盖用户关闭状态，或文案/aria-label 不一致；全屏退出错误唤醒 | 先写失败测试验证默认 true、显式 false 保留和新文案；再移除实验开关/启动调用，运行定向、全量测试和构建 | 无环境变量隔离启动，观察小咪自动唤醒、持续鼠标流畅、失焦/全屏进出/最小化恢复无白条；设置页核对文案、勾选和关闭后重启状态 |
 
 ## 实施记录
 
@@ -117,3 +129,9 @@
 | I005 | `src/renderer/src/App.tsx`、`electron/preload/index.ts`、`src/renderer/src/global.d.ts`、`electron/main/index.ts`：首页看门狗只上报 timeout、不释放自动 gate；小咪 hide/closed 取消排队阶段并在每个原生回调检查可见生命周期 | `electron/main/index.mainWindowPetStartup.test.ts` 看门狗、隐藏取消、窗口输入观察契约；最新定向 5 文件 / 61 测试通过；`npm run build` 通过 | r8 隔离 profile 真实首页收束后已有小咪显示日志；r9 用正确 `BILIMI_TEST_USER_DATA` 重新启动，主窗口和 320×380 小咪原生窗口均被检出。未做 B 站写入 | 代码、定向测试和隔离启动覆盖已完成；全量测试 4274 passed / 2 failed 为基线无关失败，按门禁不提交；完整人工操作手感仍待验收 |
 | I006 | `electron/main/startupInputScheduler.ts` 的任务级安静窗口与输入类别；`electron/main/floatingSealIdleTask.ts` 透传；`electron/main/index.ts` 的自动唤醒设置 `minimumQuietWindowMs: 600`、`minimumDelayMs: 600`，实际 `floating-seal:create` 再设置 `minimumQuietWindowMs: 600`；鼠标恢复轮询诊断关闭但调度语义不变 | RED：自动唤醒和实际创建的 600ms 契约先失败；GREEN：定向 5 文件 / 61 测试通过。`startupInputScheduler.test.ts` 验证普通长安静窗口与连续 pointermove 穿过 600ms 的任务级行为 | r8 正确隔离 profile 已加载首页；连续移动日志发生在首页收束前，随后首页收束到小咪显示约 1103ms；r9 隔离 profile 也启动了主窗口与 320×380 小咪原生窗口。Windows 自动化接口不支持无按键 pointermove 注入，不能把点击/拖动伪作该验收 | 修正先前未验证的“取消 600ms 保护”改动，并堵住 auto-wake 与实际创建之间的输入窗口：r8 时间线显示 600ms 并未阻止小咪显示，且保护可防止刚停止输入就创建。完整人工连续移动手感仍待用户/可用硬件验证 |
 | I007 | `startupInputScheduler.ts` 区分 `pointer-move` / `foreground`；`main.tsx`、preload、`index.ts` 仅传递输入类别、不传输入内容；自动唤醒及首次创建都标记 `ignorePointerMove` 并各自保留 600ms 真实交互门槛，后续原生阶段不标记；`isPointerMoveInput()` 以大小写无关的 `buttondown` 识别 guest WebView 拖动为真实交互 | RED：连续移动下跨过 600ms 仍可首次创建、真实交互后继续让路、拖动修饰符分类和两段 600ms 创建契约；GREEN：定向 5 文件 / 61 测试通过 | r8 隔离 profile 日志：`input:pointer-move +32778ms`，`home-webview:load-settled +34123ms`，`pet-window:create +34905ms`，`pet-window:shown +35226ms`；首页收束后约 1103ms 已显示小咪，并且主窗口随后滚动成功。r9 也检出独立 320×380 小咪窗口 | 已实装并有隔离日志/窗口证据证明移动不是无限 gate；Windows 自动化无法生成纯 pointermove，因此不能用其取代人工流畅度、拖动/缩放/最小化/恢复/关闭的完整验收 |
+
+### I009 最终隔离启动记录（2026-09-04）
+
+| 条目 | 实际代码位置 | 自动化验证 | 真实界面验收 | 结果与仍无法验证条件 |
+| --- | --- | --- | --- | --- |
+| I009 | `electron/main/index.ts` 移除 `caption-polish` 启动调度并固定记录 `pet-native-polish:caption-skipped`；`electron/main/store.ts`、`src/renderer/src/features/state/assistantState.ts` 缺失偏好默认 `true`；`src/renderer/src/features/assistant/FloatingAssistantApp.tsx` 设置文案/aria-label/重置默认同步为“应用启动时自动唤醒小咪” | 定向 5 个文件 245/245；本轮全量 `npm test` 246 文件/4295 测试通过；`npm run build` 退出码 0；`git diff --check` 无错误 | 无 `BILIMI_SKIP_PET_CAPTION_POLISH`、全新 `startup-final-profile-fresh` 启动：`main-window:first-frame +1979ms`、`main-window:interactive-ready +2109ms`、`home-webview:load-settled +495026ms`、`pet-window:create +495815ms`、`pet-window:shown +495985ms`、`pet-native-polish:caption-skipped +496885ms`；CUA 截图确认独立小咪可见，设置页确认新文案且复选框勾选 | 启动、首页收束、小咪显示和文案/默认勾选已实测；纯连续 pointermove、点击/滚动/拖动/缩放/最小化/恢复/关闭及全屏进出由 Windows 自动化无法完整代替，关闭后重启保持关闭仍以自动化测试和用户手动验收为准，故性能与持久化边界继续标为待验证 |

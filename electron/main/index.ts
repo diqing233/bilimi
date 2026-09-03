@@ -13,7 +13,6 @@ import {
   shell,
   webContents
 } from 'electron'
-import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
@@ -88,7 +87,6 @@ import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { getMainWindowPresentationState } from './mainWindowPresentationState'
 import { handleFavoriteLibraryEntry } from './favoriteLibraryEntryFlow'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
-import { installFloatingSealCaptionStrip } from './floatingSealCaptionStrip'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
 import { createFloatingSealMouseRecoveryController } from './floatingSealMouseRecovery'
 import { createFloatingSealWakeController } from './floatingSealWakeController'
@@ -284,8 +282,6 @@ function traceStartupPhase(phase: string) {
 function yieldStartupEventLoop() {
   return new Promise<void>((resolve) => setImmediate(resolve))
 }
-const skipFloatingSealCaptionPolish =
-  !app.isPackaged && process.env.BILIMI_SKIP_PET_CAPTION_POLISH === '1'
 const bilibiliSessionProxy = new BilibiliSessionProxy(() => session.fromPartition(BILIMI_SESSION_PARTITION))
 
 function normalizeBilibiliConnectionMode(value: unknown): 'auto' | 'direct' {
@@ -494,28 +490,6 @@ function installFloatingSealWhiteStripPolish(
   onWhiteStripFixReady(disposeWhiteStripFix, handleFloatingSealDisplayChange)
 }
 
-function scheduleFloatingSealCaptionPolish(seal: BrowserWindow) {
-  return scheduleFloatingSealIdleTask(async () => {
-    if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
-    // Strip WS_CAPTION and disable DWM non-client rendering to avoid
-    // the inactive-frame path. The nudge remains as the fallback.
-    await installFloatingSealCaptionStrip(seal, {
-      spawn: spawn as unknown as NonNullable<
-        Parameters<typeof installFloatingSealCaptionStrip>[1]
-      >['spawn'],
-      logger: (message, error) => {
-        if (error) {
-          console.warn('[floatingSeal]', message, error)
-        } else {
-          console.warn('[floatingSeal]', message)
-        }
-      }
-    })
-    if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
-    traceStartupPhase('pet-native-polish:caption-ready')
-  }, 'floating-seal:caption-polish')
-}
-
 function createFloatingSealWindow() {
   traceStartupPhase('pet-window:create')
   const seal = new BrowserWindow(
@@ -529,7 +503,6 @@ function createFloatingSealWindow() {
   let windowSetupHandle: FloatingSealIdleTaskHandle | undefined
   let mouseRecoverySetupHandle: FloatingSealIdleTaskHandle | undefined
   let nativePolishHandle: FloatingSealIdleTaskHandle | undefined
-  let captionPolishHandle: FloatingSealIdleTaskHandle | undefined
   let postShowSetupQueued = false
 
   const removeDisplayChangeListeners = () => {
@@ -541,7 +514,7 @@ function createFloatingSealWindow() {
   }
 
   const cancelStartupStages = () => {
-    for (const handle of [postShowSetupHandle, windowSetupHandle, mouseRecoverySetupHandle, whiteStripRecompositeHandle, nativePolishHandle, captionPolishHandle]) {
+    for (const handle of [postShowSetupHandle, windowSetupHandle, mouseRecoverySetupHandle, whiteStripRecompositeHandle, nativePolishHandle]) {
       if (handle) cancelFloatingSealIdleTask(handle)
     }
     postShowSetupHandle = undefined
@@ -549,7 +522,6 @@ function createFloatingSealWindow() {
     mouseRecoverySetupHandle = undefined
     whiteStripRecompositeHandle = undefined
     nativePolishHandle = undefined
-    captionPolishHandle = undefined
     postShowSetupQueued = false
     disposeWhiteStripFix?.()
     disposeWhiteStripFix = null
@@ -623,11 +595,7 @@ function createFloatingSealWindow() {
                 await dispose.recomposite()
                 if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
                 traceStartupPhase('pet-native-polish:white-strip-ready')
-                if (skipFloatingSealCaptionPolish) {
-                  traceStartupPhase('pet-native-polish:caption-skipped')
-                } else {
-                  captionPolishHandle = scheduleFloatingSealCaptionPolish(seal)
-                }
+                traceStartupPhase('pet-native-polish:caption-skipped')
               }, 'floating-seal:white-strip-recomposite')
             })
           }, 'floating-seal:native-polish')

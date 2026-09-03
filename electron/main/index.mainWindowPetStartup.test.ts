@@ -174,7 +174,7 @@ describe('main-window first pet startup wiring', () => {
     expect(yieldIndex).toBeLessThan(proxyIndex)
   })
 
-  it('shows the pet before optional native polish so caption repair cannot block input', () => {
+  it('shows the pet before deferred white-strip polish so native repair cannot block input', () => {
     const petStart = mainSource.indexOf('function createFloatingSealWindow()')
     const petEnd = mainSource.indexOf('\n}\n\nconst floatingSealWakeController', petStart)
     const petCreation = mainSource.slice(petStart, petEnd)
@@ -192,18 +192,16 @@ describe('main-window first pet startup wiring', () => {
     expect(readyShow).toContain('schedulePostShowStartupStages()')
     expect(readyShow).not.toContain('installFloatingSealWhiteStripPolish(seal')
     expect(nativePolish).toContain('installFloatingSealWhiteStripFix(seal')
-    expect(nativePolish.slice(0, nativePolish.indexOf('function scheduleFloatingSealCaptionPolish'))).not.toContain('setTimeout(')
     expect(mainSource).toContain("'floating-seal:white-strip-recomposite'")
-    expect(mainSource).toContain("'floating-seal:caption-polish'")
-    expect(mainSource).toContain('function scheduleFloatingSealCaptionPolish(seal: BrowserWindow)')
-    expect(mainSource).toContain('await installFloatingSealCaptionStrip(seal')
+    expect(mainSource).not.toContain("'floating-seal:caption-polish'")
+    expect(mainSource).not.toContain('function scheduleFloatingSealCaptionPolish(seal: BrowserWindow)')
+    expect(mainSource).not.toContain('await installFloatingSealCaptionStrip(seal')
   })
 
-  it('supports an opt-in development switch that skips caption polish without removing the default path', () => {
-    expect(mainSource).toContain('BILIMI_SKIP_PET_CAPTION_POLISH')
+  it('permanently skips caption polish without an environment switch', () => {
+    expect(mainSource).not.toContain('BILIMI_SKIP_PET_CAPTION_POLISH')
     expect(mainSource).toContain("traceStartupPhase('pet-native-polish:caption-skipped')")
-    expect(mainSource).toContain('if (skipFloatingSealCaptionPolish)')
-    expect(mainSource).toContain('scheduleFloatingSealCaptionPolish(seal)')
+    expect(mainSource).not.toContain('scheduleFloatingSealCaptionPolish(seal)')
   })
 
   it('keeps the cold pet show path to click-through and display before post-show native setup', () => {
