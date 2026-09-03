@@ -72,6 +72,7 @@ export type AssistantPreferences = {
   petStyle: 'big-head' | 'classic'
   petHoverShortcuts: PetHoverShortcutId[]
   showPetAssistantShortcut: boolean
+  autoShowPetOnStartup: boolean
   hidePetDuringVideoFullscreen: boolean
   closeBehavior: MainWindowCloseBehavior
   confirmBeforeExit: boolean
@@ -286,6 +287,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   petStyle: 'big-head',
   petHoverShortcuts: DEFAULT_PET_HOVER_SHORTCUTS,
   showPetAssistantShortcut: true,
+  autoShowPetOnStartup: false,
   hidePetDuringVideoFullscreen: false,
   closeBehavior: 'minimize-to-tray',
   confirmBeforeExit: true,
@@ -613,6 +615,7 @@ export function loadAssistantPreferences(
         ? true
         : Boolean(store.get('showPetAssistantShortcut')) ||
           hasLegacyAssistantHoverShortcut(store.get('petHoverShortcuts')),
+    autoShowPetOnStartup: Boolean(store.get('autoShowPetOnStartup')),
     hidePetDuringVideoFullscreen: Boolean(store.get('hidePetDuringVideoFullscreen')),
     closeBehavior: normalizeMainWindowCloseBehavior(store.get('closeBehavior')),
     confirmBeforeExit:
@@ -730,6 +733,7 @@ export function saveAssistantPreferences(
     petStyle: preferences.petStyle === 'classic' ? 'classic' : 'big-head',
     petHoverShortcuts: normalizePetHoverShortcuts(preferences.petHoverShortcuts),
     showPetAssistantShortcut: Boolean(preferences.showPetAssistantShortcut),
+    autoShowPetOnStartup: Boolean(preferences.autoShowPetOnStartup),
     hidePetDuringVideoFullscreen: Boolean(preferences.hidePetDuringVideoFullscreen),
     closeBehavior: normalizeMainWindowCloseBehavior(preferences.closeBehavior),
     confirmBeforeExit: Boolean(preferences.confirmBeforeExit),
@@ -816,6 +820,7 @@ export function normalizeAssistantPreferencePatch(
       case 'deepseekFeatureDefaultsInitialized':
       case 'ledgerPromptDismissed':
       case 'showPetAssistantShortcut':
+      case 'autoShowPetOnStartup':
       case 'hidePetDuringVideoFullscreen':
       case 'confirmBeforeExit':
       case 'rememberCloseChoice':

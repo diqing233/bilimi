@@ -2524,6 +2524,14 @@ const SettingsWorkspaceContent = memo(function SettingsWorkspaceContent({
                 />
                 <span>全屏视频时自动收起小咪</span>
               </label>
+              <label>
+                <SettingsPreferenceCheckbox
+                  aria-label="启动时自动显示小咪"
+                  checked={preferences.autoShowPetOnStartup}
+                  onCommit={(checked) => actions.current.persistPreferencePatch({ autoShowPetOnStartup: checked })}
+                />
+                <span>启动时自动显示小咪</span>
+              </label>
               <div className="assistant-settings__pet-divider" aria-hidden="true" />
               <div
                 className="assistant-settings__hover-shortcuts"
@@ -4329,6 +4337,7 @@ export function FloatingAssistantApp({
       ...preferencesRef.current,
       petStyle: 'big-head',
       petHoverShortcuts: undefined,
+      autoShowPetOnStartup: false,
       hidePetDuringVideoFullscreen: false,
       closeBehavior: 'minimize-to-tray',
       rememberCloseChoice: false,

@@ -16,6 +16,7 @@ function createPreferences(
     petStyle: 'big-head',
     petHoverShortcuts: [],
     showPetAssistantShortcut: true,
+    autoShowPetOnStartup: false,
     hidePetDuringVideoFullscreen: false,
     closeBehavior: 'exit-launcher',
     confirmBeforeExit: true,

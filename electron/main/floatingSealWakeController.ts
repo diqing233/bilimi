@@ -103,6 +103,17 @@ export function createFloatingSealWakeController<TWindow extends WakeableFloatin
       resolvePendingWake = null
       pendingWake = null
     },
+    cancelPendingWake() {
+      displayRequested = false
+      if (createScheduled) {
+        createScheduled = false
+        if (createHandle !== undefined) cancelCreate(createHandle)
+        createHandle = undefined
+      }
+      resolvePendingWake?.()
+      resolvePendingWake = null
+      pendingWake = null
+    },
     showWhenReady(window: TWindow) {
       readyWindows.add(window)
       if (!displayRequested || getWindow() !== window || window.isDestroyed()) return

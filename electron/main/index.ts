@@ -274,6 +274,7 @@ let floatingSealMouseRecovery: ReturnType<typeof createFloatingSealMouseRecovery
 let floatingSealMouseTransparent = true
 let floatingSealInteractiveRegions: unknown[] = []
 let assistantPetState: AssistantPetState = 'idle'
+let petHiddenForVideoFullscreen = false
 let floatingAssistantSide: FloatingAssistantSide | undefined
 const startupTraceStartedAt = Date.now()
 function traceStartupPhase(phase: string) {
@@ -701,6 +702,7 @@ const floatingSealWakeController = createFloatingSealWakeController({
 
 let automaticFloatingSealWakeScheduled = false
 let automaticFloatingSealWakeHandle: FloatingSealIdleTaskHandle | undefined
+let automaticPetStartupEnabledForThisLaunch = false
 let mainRendererInteractiveReady = false
 let startupServicesReady = false
 let homeWebviewLoadSettled = false
@@ -748,6 +750,7 @@ function scheduleAutomaticFloatingSealWake() {
 }
 
 function maybeScheduleAutomaticFloatingSealWake() {
+  if (!automaticPetStartupEnabledForThisLaunch) return
   if (!mainRendererInteractiveReady || !startupServicesReady || !homeWebviewLoadSettled) return
   scheduleAutomaticFloatingSealWake()
 }
@@ -873,6 +876,18 @@ function isTrustedOldFavoriteSessionSender(senderId: number): boolean {
     .includes(senderId)
 }
 
+function assertTrustedAssistantPetSender(event: { sender: { id: number } }) {
+  const floatingAssistant = floatingAssistantController.getWindow()
+  const trustedIds = [
+    mainWindow?.webContents.id,
+    floatingSealWindow?.webContents.id,
+    floatingAssistant?.webContents.id
+  ].filter((id): id is number => typeof id === 'number')
+  if (!trustedIds.includes(event.sender.id)) {
+    throw new Error('Assistant pet request came from an untrusted renderer.')
+  }
+}
+
 function sendAssistantPreferencePatchChanged(patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) {
   const normalizedMeta = normalizeAssistantPreferencePatchMeta(meta)
   const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
@@ -968,7 +983,32 @@ function closeFloatingAssistantWindow() {
   floatingAssistantController.hide()
 }
 
-function closeAssistantPetWindow() {
+function closeAssistantPetWindow(options: {
+  persistStartupPreference?: boolean
+  temporarilyForVideoFullscreen?: boolean
+} = {}) {
+  const wasVisible = Boolean(
+    floatingSealWindow &&
+    !floatingSealWindow.isDestroyed() &&
+    floatingSealWindow.isVisible()
+  )
+
+  if (options.temporarilyForVideoFullscreen) {
+    // Fullscreen must also cancel an automatic wake that has not reached native
+    // window creation yet, but only a visible pet earns a later restoration.
+    cancelAutomaticFloatingSealWake()
+    if (!wasVisible) {
+      floatingSealWakeController.cancelPendingWake()
+    } else {
+      petHiddenForVideoFullscreen = true
+    }
+  } else {
+    petHiddenForVideoFullscreen = false
+  }
+
+  if (options.persistStartupPreference !== false && !options.temporarilyForVideoFullscreen) {
+    saveAssistantPreferencePatch({ autoShowPetOnStartup: false })
+  }
   cancelAutomaticFloatingSealWake()
   closeFloatingMenuWindow()
   closeFloatingAssistantWindow()
@@ -976,6 +1016,7 @@ function closeAssistantPetWindow() {
   floatingSealWakeController.close()
   cancelRecompositeFloatingSealWindow?.()
   floatingSealMouseRecovery?.setVisible(false)
+  return wasVisible
 }
 
 function restoreMainWindowFromTray() {
@@ -1050,9 +1091,23 @@ function setFloatingSealWindowMouseTransparent(transparent: boolean) {
   setFloatingSealMouseTransparency(floatingSealWindow, transparent)
 }
 
-function wakeAssistantPetWindow() {
+async function wakeAssistantPetWindow(options: {
+  persistStartupPreference?: boolean
+  restoreAfterVideoFullscreen?: boolean
+} = {}) {
+  if (options.restoreAfterVideoFullscreen) {
+    if (!petHiddenForVideoFullscreen) return false
+    petHiddenForVideoFullscreen = false
+  } else {
+    petHiddenForVideoFullscreen = false
+  }
+
+  if (options.persistStartupPreference !== false && !options.restoreAfterVideoFullscreen) {
+    saveAssistantPreferencePatch({ autoShowPetOnStartup: true })
+  }
   cancelAutomaticFloatingSealWake()
-  return floatingSealWakeController.wakeImmediately()
+  await floatingSealWakeController.wakeImmediately()
+  return true
 }
 
 function notifyFloatingAssistantSnapshotChanged() {
@@ -1345,7 +1400,7 @@ function createMainWindow() {
   mainWindow = win
   keepMainWindowTitle(win)
   installMainWindowControlReactions({
-    closeAssistantPet: closeAssistantPetWindow,
+    closeAssistantPet: () => closeAssistantPetWindow({ persistStartupPreference: false }),
     getPreferences: () =>
       appQuitting
         ? {
@@ -2193,8 +2248,16 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('assistant-pet:restore-main-window', () => {
     restoreMainWindowForPet()
   })
-  ipcMain.on('assistant-pet:close', () => {
-    closeAssistantPetWindow()
+  ipcMain.handle('assistant-pet:close', (event, requestedOptions: unknown) => {
+    assertTrustedAssistantPetSender(event)
+    const temporarilyForVideoFullscreen = event.sender.id === mainWindow?.webContents.id &&
+      Boolean(
+        requestedOptions &&
+        typeof requestedOptions === 'object' &&
+        !Array.isArray(requestedOptions) &&
+        (requestedOptions as { temporarilyForVideoFullscreen?: unknown }).temporarilyForVideoFullscreen === true
+      )
+    return closeAssistantPetWindow({ temporarilyForVideoFullscreen })
   })
   ipcMain.handle('main-window:presentation-state', () => getMainWindowPresentationState(mainWindow))
   ipcMain.on('assistant-pet:set-state', (_event, state: AssistantPetState) => {
@@ -2208,7 +2271,17 @@ function registerAssistantPreferenceHandlers() {
     const tone = hint.tone === 'working' || hint.tone === 'error' ? hint.tone : 'hint'
     sendAssistantPetHint({ tone, message: hint.message })
   })
-  ipcMain.handle('assistant-pet:wake', () => wakeAssistantPetWindow())
+  ipcMain.handle('assistant-pet:wake', (event, requestedOptions: unknown) => {
+    assertTrustedAssistantPetSender(event)
+    const restoreAfterVideoFullscreen = event.sender.id === mainWindow?.webContents.id &&
+      Boolean(
+        requestedOptions &&
+        typeof requestedOptions === 'object' &&
+        !Array.isArray(requestedOptions) &&
+        (requestedOptions as { restoreAfterVideoFullscreen?: unknown }).restoreAfterVideoFullscreen === true
+      )
+    return wakeAssistantPetWindow({ restoreAfterVideoFullscreen })
+  })
   ipcMain.handle('assistant:open-from-floating-seal', () => {
     restoreMainWindowForPet()
   })
@@ -2352,6 +2425,7 @@ configureDevelopmentRuntimeSwitches(app, {
 })
 configureAppIdentity(app)
 const singleInstanceGuard = installSingleInstanceGuard(app, () => mainWindow)
+automaticPetStartupEnabledForThisLaunch = loadAssistantPreferences(getDesktopStore()).autoShowPetOnStartup
 
 async function readCurrentBilibiliAccountMid() {
   const cookies = await session.fromPartition(BILIMI_SESSION_PARTITION).cookies.get({ name: 'DedeUserID' })

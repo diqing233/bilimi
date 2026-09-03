@@ -77,7 +77,7 @@ type BilimiDesktopApi = {
   version: string
   notifyStartupInputActivity?: (activity?: 'pointer-move' | 'foreground') => void
   notifyMainWindowFirstFrame?: () => void
-  closeAssistantPet?: () => void
+  closeAssistantPet?: (options?: { temporarilyForVideoFullscreen?: boolean }) => Promise<boolean>
   closeFloatingAssistant?: () => void
   closeFloatingMenu?: () => void
   openFavoriteLibrary?: () => Promise<void>
@@ -372,7 +372,7 @@ type BilimiDesktopApi = {
   startFloatingSealDrag?: (screenX: number, screenY: number) => void
   toggleFloatingAssistant?: () => Promise<void>
   toggleFloatingMenu?: () => Promise<void>
-  wakeAssistantPet?: () => Promise<void>
+  wakeAssistantPet?: (options?: { restoreAfterVideoFullscreen?: boolean }) => Promise<boolean>
   testDeepSeekConnection?: () => Promise<DeepSeekConnectionTestResult>
   transcribeCurrentVideoAudio?: (
     request: VideoAudioTranscriptionRequest
