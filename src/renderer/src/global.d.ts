@@ -75,9 +75,9 @@ type FavoriteLedgerEnabledHistoryOptions = { mergeFavoriteRuleHistory?: true }
 
 type BilimiDesktopApi = {
   version: string
-  notifyStartupInputActivity?: () => void
+  notifyStartupInputActivity?: (activity?: 'pointer-move' | 'foreground') => void
   notifyMainWindowFirstFrame?: () => void
-  closeAssistantPet?: () => void
+  closeAssistantPet?: (options?: { temporarilyForVideoFullscreen?: boolean }) => Promise<boolean>
   closeFloatingAssistant?: () => void
   closeFloatingMenu?: () => void
   openFavoriteLibrary?: () => Promise<void>
@@ -141,7 +141,9 @@ type BilimiDesktopApi = {
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void
   notifyMainWindowInteractive?: () => void
+  notifyHomeWebviewGuestAttached?: (webContentsId: number) => void
   notifyHomeWebviewLoadSettled?: () => void
+  notifyHomeWebviewLoadTimeout?: () => void
   retryBilibiliSessionDirect?: () => Promise<{ mode: 'auto' | 'direct'; effectiveMode: 'direct' | 'system'; temporaryDirect: boolean }>
   readBilibiliAccountMid?: () => Promise<string>
   readBilibiliAccount?: () => Promise<{ mid: string; nickname?: string }>
@@ -370,7 +372,7 @@ type BilimiDesktopApi = {
   startFloatingSealDrag?: (screenX: number, screenY: number) => void
   toggleFloatingAssistant?: () => Promise<void>
   toggleFloatingMenu?: () => Promise<void>
-  wakeAssistantPet?: () => Promise<void>
+  wakeAssistantPet?: (options?: { restoreAfterVideoFullscreen?: boolean }) => Promise<boolean>
   testDeepSeekConnection?: () => Promise<DeepSeekConnectionTestResult>
   transcribeCurrentVideoAudio?: (
     request: VideoAudioTranscriptionRequest

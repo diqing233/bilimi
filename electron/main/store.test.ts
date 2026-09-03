@@ -101,6 +101,8 @@ function createFakeStore(
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     petStyle: initial.petStyle ?? DEFAULT_ASSISTANT_PREFERENCES.petStyle,
     petHoverShortcuts: initial.petHoverShortcuts ?? DEFAULT_ASSISTANT_PREFERENCES.petHoverShortcuts,
+    autoShowPetOnStartup:
+      initial.autoShowPetOnStartup ?? DEFAULT_ASSISTANT_PREFERENCES.autoShowPetOnStartup,
     hidePetDuringVideoFullscreen:
       initial.hidePetDuringVideoFullscreen ??
       DEFAULT_ASSISTANT_PREFERENCES.hidePetDuringVideoFullscreen,
@@ -503,6 +505,20 @@ describe('assistant preference store helpers', () => {
     delete (store.snapshot as Partial<DesktopStoreState>).showPetAssistantShortcut
 
     expect(loadAssistantPreferences(store).showPetAssistantShortcut).toBe(true)
+  })
+
+  it('defaults automatic pet startup to enabled when the preference is missing', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Record<string, unknown>).autoShowPetOnStartup
+
+    expect((loadAssistantPreferences(store) as Record<string, unknown>).autoShowPetOnStartup).toBe(true)
+  })
+
+  it('preserves an explicitly disabled automatic pet startup preference', () => {
+    const store = createFakeStore()
+    ;(store.snapshot as Record<string, unknown>).autoShowPetOnStartup = false
+
+    expect((loadAssistantPreferences(store) as Record<string, unknown>).autoShowPetOnStartup).toBe(false)
   })
 
   it('defaults correction learning preferences for legacy stores', () => {

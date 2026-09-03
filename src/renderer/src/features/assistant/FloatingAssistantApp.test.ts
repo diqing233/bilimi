@@ -648,6 +648,16 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(resetFunction).toContain('saveAssistantSidebarWidth?.(null)')
   })
 
+  it('resets automatic pet startup to its enabled default', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const resetFunction = source.slice(
+      source.indexOf('async function resetAssistantSettings'),
+      source.indexOf('function restoreDefaultLayoutSize')
+    )
+
+    expect(resetFunction).toContain('autoShowPetOnStartup: true')
+  })
+
   it('uses themed confirmation dialogs instead of browser confirmations for settings resets', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 

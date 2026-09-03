@@ -91,6 +91,7 @@ function createAppPreferences(
     petStyle: 'big-head',
     petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
     showPetAssistantShortcut: true,
+    autoShowPetOnStartup: false,
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
@@ -123,6 +124,7 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     | undefined
   let preferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
   let favoriteLedgerEnabledChanged: ((patch: { accountMid: string; ledgerId: string; enabled: boolean }) => void) | undefined
+  let openInTab: ((url: string) => void) | undefined
   const registerAssistantRuntime = vi.fn(
     (handler: (request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload>) => {
       runtimeHandler = handler
@@ -139,6 +141,10 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     }),
     onFavoriteLedgerEnabledChanged: vi.fn((callback) => {
       favoriteLedgerEnabledChanged = callback
+      return vi.fn()
+    }),
+    onOpenInTab: vi.fn((callback: (url: string) => void) => {
+      openInTab = callback
       return vi.fn()
     }),
     setAssistantPetHint: vi.fn(),
@@ -189,6 +195,10 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     notifyFavoriteLedgerEnabledChanged: (patch: { accountMid: string; ledgerId: string; enabled: boolean }) => {
       if (!favoriteLedgerEnabledChanged) throw new Error('Favorite ledger enabled listener was not registered.')
       act(() => favoriteLedgerEnabledChanged?.(patch))
+    },
+    openInTab: (url: string) => {
+      if (!openInTab) throw new Error('Open-in-tab listener was not registered.')
+      act(() => openInTab?.(url))
     },
     requestRuntime: async (request: AssistantRuntimeRequest) => {
       if (!runtimeHandler) {
@@ -7606,11 +7616,144 @@ describe('App runtime integration', () => {
     }
   })
 
-  it('hides and restores 小咪 around active video fullscreen when enabled', async () => {
+  it('does not wake a default-disabled 小咪 when video fullscreen ends', async () => {
+    vi.useFakeTimers()
+    const preferences = createAppPreferences({
+      autoShowPetOnStartup: false,
+      hidePetDuringVideoFullscreen: true
+    })
+    const wakeAssistantPet = vi.fn().mockResolvedValue(undefined)
+    renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      wakeAssistantPet
+    })
+
+    try {
+      await act(async () => undefined)
+      const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
+
+      act(() => {
+        homeWebview.dispatchEvent(new Event('enter-html-full-screen'))
+      })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS)
+        homeWebview.dispatchEvent(new Event('leave-html-full-screen'))
+        await Promise.resolve()
+      })
+
+      expect(wakeAssistantPet).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not request fullscreen restoration when no visible 小咪 was temporarily hidden', async () => {
+    vi.useFakeTimers()
+    const closeAssistantPet = vi.fn().mockResolvedValue(false)
+    const wakeAssistantPet = vi.fn().mockResolvedValue(undefined)
+    renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        autoShowPetOnStartup: false,
+        hidePetDuringVideoFullscreen: true
+      })),
+      closeAssistantPet,
+      wakeAssistantPet
+    })
+
+    try {
+      await act(async () => undefined)
+      const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
+
+      act(() => homeWebview.dispatchEvent(new Event('enter-html-full-screen')))
+      await act(async () => vi.advanceTimersByTimeAsync(VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS))
+      act(() => homeWebview.dispatchEvent(new Event('leave-html-full-screen')))
+
+      expect(closeAssistantPet).toHaveBeenCalledWith({ temporarilyForVideoFullscreen: true })
+      expect(wakeAssistantPet).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('restores only a 小咪 whose fullscreen close confirmed that it was visible', async () => {
+    vi.useFakeTimers()
+    const closeAssistantPet = vi.fn().mockResolvedValue(true)
+    const wakeAssistantPet = vi.fn().mockResolvedValue(undefined)
+    renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({ hidePetDuringVideoFullscreen: true })),
+      closeAssistantPet,
+      wakeAssistantPet
+    })
+
+    try {
+      await act(async () => undefined)
+      const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
+
+      act(() => homeWebview.dispatchEvent(new Event('enter-html-full-screen')))
+      await act(async () => vi.advanceTimersByTimeAsync(VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS))
+      await act(async () => undefined)
+      act(() => homeWebview.dispatchEvent(new Event('leave-html-full-screen')))
+      await act(async () => undefined)
+
+      expect(wakeAssistantPet).toHaveBeenCalledWith({ restoreAfterVideoFullscreen: true })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('restores a fullscreen-hidden 小咪 when fullscreen exits before the hide request settles', async () => {
     vi.useFakeTimers()
     const preferences = createAppPreferences({ hidePetDuringVideoFullscreen: true })
-    const closeAssistantPet = vi.fn()
-    const wakeAssistantPet = vi.fn().mockResolvedValue(undefined)
+    let settleCloseRequest: ((hidden: boolean) => void) | undefined
+    const closeAssistantPet = vi.fn(
+      () => new Promise<boolean>((resolve) => {
+        settleCloseRequest = resolve
+      })
+    )
+    const wakeAssistantPet = vi.fn().mockResolvedValue(true)
+    renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      closeAssistantPet,
+      wakeAssistantPet
+    })
+
+    try {
+      await act(async () => undefined)
+      const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
+
+      act(() => {
+        homeWebview.dispatchEvent(new Event('enter-html-full-screen'))
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS)
+      })
+
+      expect(closeAssistantPet).toHaveBeenCalledWith({ temporarilyForVideoFullscreen: true })
+
+      act(() => {
+        homeWebview.dispatchEvent(new Event('leave-html-full-screen'))
+      })
+      expect(wakeAssistantPet).not.toHaveBeenCalled()
+
+      await act(async () => {
+        settleCloseRequest?.(true)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(wakeAssistantPet).toHaveBeenCalledWith({ restoreAfterVideoFullscreen: true })
+      expect(wakeAssistantPet).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('hides and restores an already visible 小咪 around active video fullscreen when enabled', async () => {
+    vi.useFakeTimers()
+    const preferences = createAppPreferences({ hidePetDuringVideoFullscreen: true })
+    const closeAssistantPet = vi.fn().mockResolvedValue(true)
+    const wakeAssistantPet = vi.fn().mockResolvedValue(true)
     const { desktopApi } = renderAppWithRuntimeBridge({
       closeAssistantPet,
       loadPreferences: vi.fn().mockResolvedValue(preferences),
@@ -7635,14 +7778,14 @@ describe('App runtime integration', () => {
         await vi.advanceTimersByTimeAsync(VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS)
       })
 
-      expect(closeAssistantPet).toHaveBeenCalledOnce()
+      expect(closeAssistantPet).toHaveBeenCalledWith({ temporarilyForVideoFullscreen: true })
 
       await act(async () => {
         homeWebview.dispatchEvent(new Event('leave-html-full-screen'))
         await Promise.resolve()
       })
 
-      expect(wakeAssistantPet).toHaveBeenCalledOnce()
+      expect(wakeAssistantPet).toHaveBeenCalledWith({ restoreAfterVideoFullscreen: true })
       expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({
         tone: 'hint',
         message: '全屏看完感觉怎么样？要不要和小咪互动一下？'

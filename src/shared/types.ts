@@ -333,6 +333,7 @@ export type AssistantPreferences = {
   petStyle: 'big-head' | 'classic'
   petHoverShortcuts: PetHoverShortcutId[]
   showPetAssistantShortcut: boolean
+  autoShowPetOnStartup: boolean
   hidePetDuringVideoFullscreen: boolean
   closeBehavior: MainWindowCloseBehavior
   confirmBeforeExit: boolean

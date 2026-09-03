@@ -819,6 +819,7 @@ export default function App() {
   const favoriteLedgerEnsurePromisesRef = useRef(new Map<string, Promise<AssistantAutomationResult>>())
   const suppressPageInteractionHintsUntilRef = useRef(0)
   const petHiddenForVideoFullscreen = useRef(false)
+  const videoFullscreenActiveRef = useRef(false)
   const videoFullscreenPetCloseTimer = useRef<number | null>(null)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences(
@@ -997,59 +998,77 @@ export default function App() {
   }, [])
 
   const restorePetAfterVideoFullscreen = useCallback(() => {
-    petHiddenForVideoFullscreen.current = false
     clearVideoFullscreenPetCloseTimer()
+    if (!petHiddenForVideoFullscreen.current) return
+    petHiddenForVideoFullscreen.current = false
 
-    void Promise.resolve(window.bilimiDesktop?.wakeAssistantPet?.()).finally(() => {
-      window.bilimiDesktop?.setAssistantPetHint?.({
-        tone: 'hint',
-        message: '全屏看完感觉怎么样？要不要和小咪互动一下？'
+    void Promise.resolve(window.bilimiDesktop?.wakeAssistantPet?.({ restoreAfterVideoFullscreen: true }))
+      .then((restored) => {
+        if (restored) {
+          window.bilimiDesktop?.setAssistantPetHint?.({
+            tone: 'hint',
+            message: '全屏看完感觉怎么样？要不要和小咪互动一下？'
+          })
+        }
       })
-    })
+      .catch(() => undefined)
   }, [clearVideoFullscreenPetCloseTimer])
+
+  const endVideoFullscreen = useCallback(() => {
+    videoFullscreenActiveRef.current = false
+    restorePetAfterVideoFullscreen()
+  }, [restorePetAfterVideoFullscreen])
 
   const handleHtmlFullscreenChange = useCallback(
     (tabId: string, fullscreen: boolean) => {
-      if (tabId !== activeTabIdRef.current || !preferences.hidePetDuringVideoFullscreen) {
+      if (!fullscreen) {
+        if (tabId === activeTabIdRef.current) endVideoFullscreen()
         return
       }
 
-      if (fullscreen) {
-        if (petHiddenForVideoFullscreen.current) {
-          return
-        }
+      if (tabId !== activeTabIdRef.current || !preferencesRef.current.hidePetDuringVideoFullscreen) return
+      videoFullscreenActiveRef.current = true
 
-        petHiddenForVideoFullscreen.current = true
-        window.bilimiDesktop?.setAssistantPetHint?.({
-          tone: 'sleepy',
-          message: '主人先安心全屏看，小咪不挡画面，待会儿回来找你～'
-        })
-        clearVideoFullscreenPetCloseTimer()
-        videoFullscreenPetCloseTimer.current = window.setTimeout(() => {
-          videoFullscreenPetCloseTimer.current = null
-          window.bilimiDesktop?.closeAssistantPet?.()
-        }, VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS)
-        return
-      }
+      window.bilimiDesktop?.setAssistantPetHint?.({
+        tone: 'sleepy',
+        message: '主人先安心全屏看，小咪不挡画面，待会儿回来找你～'
+      })
+      clearVideoFullscreenPetCloseTimer()
+      videoFullscreenPetCloseTimer.current = window.setTimeout(() => {
+        videoFullscreenPetCloseTimer.current = null
+        if (!videoFullscreenActiveRef.current || !preferencesRef.current.hidePetDuringVideoFullscreen) return
 
-      if (petHiddenForVideoFullscreen.current) {
-        restorePetAfterVideoFullscreen()
-      }
+        void Promise.resolve(
+          window.bilimiDesktop?.closeAssistantPet?.({ temporarilyForVideoFullscreen: true })
+        )
+          .then((hidden) => {
+            if (!hidden) return
+            petHiddenForVideoFullscreen.current = true
+            if (!videoFullscreenActiveRef.current || !preferencesRef.current.hidePetDuringVideoFullscreen) {
+              restorePetAfterVideoFullscreen()
+            }
+          })
+          .catch(() => undefined)
+      }, VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS)
     },
     [
       clearVideoFullscreenPetCloseTimer,
-      preferences.hidePetDuringVideoFullscreen,
+      endVideoFullscreen,
       restorePetAfterVideoFullscreen
     ]
   )
 
   useEffect(() => {
-    if (!preferences.hidePetDuringVideoFullscreen && petHiddenForVideoFullscreen.current) {
-      restorePetAfterVideoFullscreen()
-    }
-  }, [preferences.hidePetDuringVideoFullscreen, restorePetAfterVideoFullscreen])
+    if (!preferences.hidePetDuringVideoFullscreen) endVideoFullscreen()
+  }, [endVideoFullscreen, preferences.hidePetDuringVideoFullscreen])
 
-  useEffect(() => clearVideoFullscreenPetCloseTimer, [clearVideoFullscreenPetCloseTimer])
+  useEffect(() => {
+    if (videoFullscreenActiveRef.current) endVideoFullscreen()
+  }, [activeTabId, endVideoFullscreen])
+
+  useEffect(() => () => {
+    endVideoFullscreen()
+  }, [endVideoFullscreen])
 
   const handleWebviewReady = useCallback((tabId: string, webview: Electron.WebviewTag) => {
     webviewRefs.current[tabId] = webview
@@ -1067,7 +1086,7 @@ export default function App() {
   }, [])
 
   const handleFavoriteRepositoryTargetState = useCallback((
-    _tabId: string,
+    tabId: string,
     state: FavoriteRepositoryPageTarget & { webview: Electron.WebviewTag }
   ) => {
     favoriteRepositoryTargetStates.current.set(state.webContentsId, {
@@ -1075,6 +1094,9 @@ export default function App() {
       instanceId: state.instanceId,
       navigationEpoch: state.navigationEpoch
     })
+    if (tabId === HOME_TAB_ID) {
+      window.bilimiDesktop?.notifyHomeWebviewGuestAttached?.(state.webContentsId)
+    }
   }, [])
 
   const openInternalTab = useCallback((url: string) => {
@@ -3935,7 +3957,10 @@ export default function App() {
 
     homeWebviewLoadSettleTimeoutRef.current = window.setTimeout(() => {
       homeWebviewLoadSettleTimeoutRef.current = undefined
-      notifyHomeWebviewLoadSettled()
+      // The watchdog is diagnostic only. A timeout means Chromium/network did
+      // not emit a real initial-load outcome; it must not impersonate one and
+      // release the pet's automatic-start gate.
+      window.bilimiDesktop?.notifyHomeWebviewLoadTimeout?.()
     }, HOME_WEBVIEW_LOAD_SETTLE_TIMEOUT_MS)
 
     return () => {

@@ -19,8 +19,8 @@ describe('favorite history wiring', () => {
 
   it('broadcasts the assistant snapshot after managed-folder deletion persistence', () => {
     const source = readFileSync(resolve(import.meta.dirname, 'index.ts'), 'utf8')
-    const managedFolderDeletedBlock = source.match(/onManagedFolderDeleted:[\s\S]{0,2600}?\n\s*\},\n\s*remote:/)?.[0] ?? ''
-    const managedFolderDeletionBlock = source.match(/onManagedFolderDeletion:[\s\S]{0,2600}?\n\s*\},\n\s*classifyCurrentItems:/)?.[0] ?? ''
+    const managedFolderDeletedBlock = source.match(/onManagedFolderDeleted:[\s\S]{0,2600}?\r?\n\s*\},\r?\n\s*remote:/)?.[0] ?? ''
+    const managedFolderDeletionBlock = source.match(/onManagedFolderDeletion:[\s\S]{0,2600}?\r?\n\s*\},\r?\n\s*classifyCurrentItems:/)?.[0] ?? ''
     expect(managedFolderDeletedBlock).toContain('notifyFloatingAssistantSnapshotChanged()')
     expect(managedFolderDeletionBlock).toContain('notifyFloatingAssistantSnapshotChanged()')
   })

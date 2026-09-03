@@ -85,11 +85,16 @@ import type { OldFavoriteWorkspaceBilibiliSyncPreflight, OldFavoriteWorkspaceDee
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
-  notifyStartupInputActivity: () => ipcRenderer.send('startup:input-activity'),
+  notifyStartupInputActivity: (activity: 'pointer-move' | 'foreground' = 'foreground') => ipcRenderer.send('startup:input-activity', activity),
   notifyMainWindowFirstFrame: () => ipcRenderer.send('main-window:first-frame'),
   notifyMainWindowInteractive: () => ipcRenderer.send('main-window:interactive-ready'),
+  notifyHomeWebviewGuestAttached: (webContentsId: number) => ipcRenderer.send('home-webview:guest-attached', webContentsId),
   notifyHomeWebviewLoadSettled: () => ipcRenderer.send('home-webview:load-settled'),
-  closeAssistantPet: () => ipcRenderer.send('assistant-pet:close'),
+  notifyHomeWebviewLoadTimeout: () => ipcRenderer.send('home-webview:load-timeout'),
+  closeAssistantPet: (options?: { temporarilyForVideoFullscreen?: boolean }) =>
+    ipcRenderer.invoke('assistant-pet:close', {
+      temporarilyForVideoFullscreen: options?.temporarilyForVideoFullscreen === true
+    }) as Promise<boolean>,
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
   getMainWindowPresentationState: () => ipcRenderer.invoke('main-window:presentation-state') as Promise<{ visible: boolean; minimized: boolean }>,
@@ -752,7 +757,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.send('floating-seal:start-drag', screenX, screenY),
   toggleFloatingAssistant: () => ipcRenderer.invoke('floating-assistant:toggle') as Promise<void>,
   toggleFloatingMenu: () => ipcRenderer.invoke('floating-menu:toggle') as Promise<void>,
-  wakeAssistantPet: () => ipcRenderer.invoke('assistant-pet:wake') as Promise<void>,
+  wakeAssistantPet: (options?: { restoreAfterVideoFullscreen?: boolean }) =>
+    ipcRenderer.invoke('assistant-pet:wake', {
+      restoreAfterVideoFullscreen: options?.restoreAfterVideoFullscreen === true
+    }) as Promise<boolean>,
   testDeepSeekConnection: () =>
     ipcRenderer.invoke('deepseek:test-connection') as Promise<DeepSeekConnectionTestResult>
 })

@@ -13,7 +13,6 @@ import {
   shell,
   webContents
 } from 'electron'
-import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
@@ -88,7 +87,6 @@ import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { getMainWindowPresentationState } from './mainWindowPresentationState'
 import { handleFavoriteLibraryEntry } from './favoriteLibraryEntryFlow'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
-import { installFloatingSealCaptionStrip } from './floatingSealCaptionStrip'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
 import { createFloatingSealMouseRecoveryController } from './floatingSealMouseRecovery'
 import { createFloatingSealWakeController } from './floatingSealWakeController'
@@ -269,9 +267,12 @@ let recompositeFloatingSealWindow: (() => void) | null = null
 let cancelRecompositeFloatingSealWindow: (() => void) | null = null
 let whiteStripRecompositeHandle: FloatingSealIdleTaskHandle | undefined
 let cancelFloatingSealStartupStages: (() => void) | null = null
+let scheduleFloatingSealPostShowStartupStages: (() => void) | null = null
 let floatingSealMouseRecovery: ReturnType<typeof createFloatingSealMouseRecoveryController> | null = null
+let floatingSealMouseTransparent = true
 let floatingSealInteractiveRegions: unknown[] = []
 let assistantPetState: AssistantPetState = 'idle'
+let petHiddenForVideoFullscreen = false
 let floatingAssistantSide: FloatingAssistantSide | undefined
 const startupTraceStartedAt = Date.now()
 function traceStartupPhase(phase: string) {
@@ -327,12 +328,23 @@ function installWindowOpenRouting(win: BrowserWindow) {
   win.webContents.on('did-attach-webview', (_event, webContents) => {
     webContents.setWindowOpenHandler(({ url }) => routeWindowOpenToRendererTab(win, url))
     installStartupInputObserver(webContents)
+    mainWindowGuestWebContentsIds.add(webContents.id)
+    webContents.once('dom-ready', () => rememberHomeGuestLoadOutcome(webContents.id))
+    webContents.once('did-stop-loading', () => rememberHomeGuestLoadOutcome(webContents.id))
+    webContents.once('did-fail-load', (_event, _errorCode, _errorDescription, _validatedURL, isMainFrame) => {
+      if (isMainFrame !== false) rememberHomeGuestLoadOutcome(webContents.id)
+    })
+    webContents.once('destroyed', () => {
+      mainWindowGuestWebContentsIds.delete(webContents.id)
+      settledHomeGuestIds.delete(webContents.id)
+      if (homeWebviewGuestId === webContents.id) homeWebviewGuestId = undefined
+    })
   })
 }
 
 function installStartupInputObservers(win: BrowserWindow) {
   installStartupInputObserver(win.webContents)
-  const noteWindowInput = () => noteStartupInputActivity()
+  const noteWindowInput = () => noteStartupInputActivity('foreground')
   win.on('move', noteWindowInput)
   win.on('resize', noteWindowInput)
   win.on('minimize', noteWindowInput)
@@ -340,12 +352,27 @@ function installStartupInputObservers(win: BrowserWindow) {
   win.on('close', noteWindowInput)
 }
 
-function installStartupInputObserver(target: Electron.WebContents) {
-  target.on('before-input-event', () => {
-    noteStartupInputActivity()
+function isPointerMoveInput(inputType: string | undefined, modifiers: string[] | undefined = []) {
+  if (inputType !== 'mouseMove' && inputType !== 'pointerMove') return false
+  return !modifiers.some((modifier) => {
+    const normalizedModifier = modifier.toLowerCase()
+    return normalizedModifier === 'left' ||
+      normalizedModifier === 'middle' ||
+      normalizedModifier === 'right' ||
+      normalizedModifier.endsWith('buttondown')
   })
-  target.on('input-event', () => {
-    noteStartupInputActivity()
+}
+
+function installStartupInputObserver(target: Electron.WebContents) {
+  target.on('before-input-event', (_event, input) => {
+    noteStartupInputActivity(
+      isPointerMoveInput(input.type, input.modifiers) ? 'pointer-move' : 'foreground'
+    )
+  })
+  target.on('input-event', (_event, inputEvent) => {
+    noteStartupInputActivity(
+      isPointerMoveInput(inputEvent.type, inputEvent.modifiers) ? 'pointer-move' : 'foreground'
+    )
   })
 }
 
@@ -452,6 +479,7 @@ function installFloatingSealWhiteStripPolish(
       })
   })
   const handleFloatingSealDisplayChange = () => {
+    if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
     if (whiteStripRecompositeHandle) cancelFloatingSealIdleTask(whiteStripRecompositeHandle)
     whiteStripRecompositeHandle = scheduleFloatingSealIdleTask(async () => {
       whiteStripRecompositeHandle = undefined
@@ -460,27 +488,6 @@ function installFloatingSealWhiteStripPolish(
     }, 'floating-seal:white-strip-recomposite')
   }
   onWhiteStripFixReady(disposeWhiteStripFix, handleFloatingSealDisplayChange)
-}
-
-function scheduleFloatingSealCaptionPolish(seal: BrowserWindow) {
-  return scheduleFloatingSealIdleTask(async () => {
-    if (seal.isDestroyed() || floatingSealWindow !== seal) return
-    // Strip WS_CAPTION and disable DWM non-client rendering to avoid
-    // the inactive-frame path. The nudge remains as the fallback.
-    await installFloatingSealCaptionStrip(seal, {
-      spawn: spawn as unknown as NonNullable<
-        Parameters<typeof installFloatingSealCaptionStrip>[1]
-      >['spawn'],
-      logger: (message, error) => {
-        if (error) {
-          console.warn('[floatingSeal]', message, error)
-        } else {
-          console.warn('[floatingSeal]', message)
-        }
-      }
-    })
-    traceStartupPhase('pet-native-polish:caption-ready')
-  }, 'floating-seal:caption-polish')
 }
 
 function createFloatingSealWindow() {
@@ -496,10 +503,18 @@ function createFloatingSealWindow() {
   let windowSetupHandle: FloatingSealIdleTaskHandle | undefined
   let mouseRecoverySetupHandle: FloatingSealIdleTaskHandle | undefined
   let nativePolishHandle: FloatingSealIdleTaskHandle | undefined
-  let captionPolishHandle: FloatingSealIdleTaskHandle | undefined
+  let postShowSetupQueued = false
+
+  const removeDisplayChangeListeners = () => {
+    if (!handleFloatingSealDisplayChange) return
+    screen.off('display-metrics-changed', handleFloatingSealDisplayChange)
+    screen.off('display-added', handleFloatingSealDisplayChange)
+    screen.off('display-removed', handleFloatingSealDisplayChange)
+    handleFloatingSealDisplayChange = null
+  }
 
   const cancelStartupStages = () => {
-    for (const handle of [postShowSetupHandle, windowSetupHandle, mouseRecoverySetupHandle, whiteStripRecompositeHandle, nativePolishHandle, captionPolishHandle]) {
+    for (const handle of [postShowSetupHandle, windowSetupHandle, mouseRecoverySetupHandle, whiteStripRecompositeHandle, nativePolishHandle]) {
       if (handle) cancelFloatingSealIdleTask(handle)
     }
     postShowSetupHandle = undefined
@@ -507,21 +522,107 @@ function createFloatingSealWindow() {
     mouseRecoverySetupHandle = undefined
     whiteStripRecompositeHandle = undefined
     nativePolishHandle = undefined
-    captionPolishHandle = undefined
+    postShowSetupQueued = false
     disposeWhiteStripFix?.()
+    disposeWhiteStripFix = null
+    removeDisplayChangeListeners()
+    recompositeFloatingSealWindow = null
+    cancelRecompositeFloatingSealWindow = null
   }
   cancelFloatingSealStartupStages = cancelStartupStages
+
+  const schedulePostShowStartupStages = () => {
+    if (postShowSetupQueued || seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
+    postShowSetupQueued = true
+    postShowSetupHandle = scheduleFloatingSealIdleTask(() => {
+      postShowSetupHandle = undefined
+      if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
+      enforceSealBounds = installFixedFloatingSealBoundsGuard(seal)
+      enforceFloatingSealWindowBounds = enforceSealBounds
+      windowSetupHandle = scheduleFloatingSealIdleTask(() => {
+        windowSetupHandle = undefined
+        if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
+        seal.setAlwaysOnTop(true, 'floating')
+        seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+        seal.removeMenu()
+        mouseRecoverySetupHandle = scheduleFloatingSealIdleTask(() => {
+          mouseRecoverySetupHandle = undefined
+          if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
+          const mouseRecoveryAlreadyExists = Boolean(floatingSealMouseRecovery)
+          if (!mouseRecoveryAlreadyExists) {
+            floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
+              getCursorPoint: () => screen.getCursorScreenPoint(),
+              schedulePoll: (callback, delayMs) => scheduleFloatingSealIdleTask(
+                callback,
+                'floating-seal:mouse-recovery-poll',
+                {
+                  minimumDelayMs: delayMs,
+                  ignorePointerMove: true,
+                  allowConcurrent: true,
+                  reportDiagnostics: false
+                }
+              ),
+              cancelPoll: (handle) => cancelFloatingSealIdleTask(handle as FloatingSealIdleTaskHandle),
+              window: seal
+            })
+          }
+          floatingSealMouseRecovery.setVisible(false)
+          floatingSealMouseRecovery.updateInteractiveRegions(floatingSealInteractiveRegions)
+          if (!mouseRecoveryAlreadyExists) {
+            floatingSealMouseRecovery.setTransparent(floatingSealMouseTransparent)
+          }
+          floatingSealMouseRecovery.setVisible(seal.isVisible())
+          nativePolishHandle = scheduleFloatingSealIdleTask(async () => {
+            nativePolishHandle = undefined
+            if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
+            installFloatingSealWhiteStripPolish(seal, (dispose, handleDisplayChange) => {
+              if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) {
+                dispose()
+                return
+              }
+              removeDisplayChangeListeners()
+              disposeWhiteStripFix?.()
+              disposeWhiteStripFix = dispose
+              cancelRecompositeFloatingSealWindow = dispose.cancelRecomposite
+              handleFloatingSealDisplayChange = handleDisplayChange
+              recompositeFloatingSealWindow = dispose.recomposite
+              screen.on('display-metrics-changed', handleDisplayChange)
+              screen.on('display-added', handleDisplayChange)
+              screen.on('display-removed', handleDisplayChange)
+              whiteStripRecompositeHandle = scheduleFloatingSealIdleTask(async () => {
+                whiteStripRecompositeHandle = undefined
+                if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
+                await dispose.recomposite()
+                if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
+                traceStartupPhase('pet-native-polish:white-strip-ready')
+                traceStartupPhase('pet-native-polish:caption-skipped')
+              }, 'floating-seal:white-strip-recomposite')
+            })
+          }, 'floating-seal:native-polish')
+        }, 'floating-seal:mouse-recovery')
+      }, 'floating-seal:window-setup')
+    }, 'floating-seal:bounds-setup')
+  }
+  scheduleFloatingSealPostShowStartupStages = schedulePostShowStartupStages
 
   // A cold pet window must use only the click-through setup required for its
   // first visible frame. Window bounds, workspace visibility and recovery
   // polling are native work and are deliberately deferred until after show.
   setFloatingSealMouseTransparency(seal, true)
 
+  seal.on('hide', () => {
+    // `close()` keeps the reusable pet BrowserWindow alive by calling hide(),
+    // so cancelled startup work must not wait for the eventual `closed` event.
+    cancelStartupStages()
+    floatingSealMouseRecovery?.setVisible(false)
+  })
+
   seal.on('closed', () => {
     cancelStartupStages()
     floatingSealMouseRecovery?.dispose()
     floatingSealMouseRecovery = null
     floatingSealInteractiveRegions = []
+    floatingSealMouseTransparent = true
     disposeWhiteStripFix?.()
     if (handleFloatingSealDisplayChange) {
       screen.off('display-metrics-changed', handleFloatingSealDisplayChange)
@@ -545,60 +646,7 @@ function createFloatingSealWindow() {
     floatingSealWakeController.showWhenReady(seal)
     traceStartupPhase('pet-window:shown')
 
-    // Every post-show native action has its own quiet boundary. Input received
-    // between stages delays the remaining non-critical work.
-    postShowSetupHandle = scheduleFloatingSealIdleTask(() => {
-      postShowSetupHandle = undefined
-      if (seal.isDestroyed() || floatingSealWindow !== seal) return
-      enforceSealBounds = installFixedFloatingSealBoundsGuard(seal)
-      enforceFloatingSealWindowBounds = enforceSealBounds
-      windowSetupHandle = scheduleFloatingSealIdleTask(() => {
-        windowSetupHandle = undefined
-        if (seal.isDestroyed() || floatingSealWindow !== seal) return
-        seal.setAlwaysOnTop(true, 'floating')
-        seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-        seal.removeMenu()
-        mouseRecoverySetupHandle = scheduleFloatingSealIdleTask(() => {
-          mouseRecoverySetupHandle = undefined
-          if (seal.isDestroyed() || floatingSealWindow !== seal) return
-          floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
-            getCursorPoint: () => screen.getCursorScreenPoint(),
-            schedulePoll: (callback) => scheduleFloatingSealIdleTask(callback, 'floating-seal:mouse-recovery-poll'),
-            cancelPoll: (handle) => cancelFloatingSealIdleTask(handle as FloatingSealIdleTaskHandle),
-            window: seal
-          })
-          floatingSealMouseRecovery.setVisible(false)
-          floatingSealMouseRecovery.updateInteractiveRegions(floatingSealInteractiveRegions)
-          floatingSealMouseRecovery.setTransparent(true)
-          floatingSealMouseRecovery.setVisible(seal.isVisible())
-          nativePolishHandle = scheduleFloatingSealIdleTask(async () => {
-            nativePolishHandle = undefined
-            if (seal.isDestroyed() || floatingSealWindow !== seal) return
-            installFloatingSealWhiteStripPolish(seal, (dispose, handleDisplayChange) => {
-              if (seal.isDestroyed() || floatingSealWindow !== seal) {
-                dispose()
-                return
-              }
-              disposeWhiteStripFix = dispose
-              cancelRecompositeFloatingSealWindow = dispose.cancelRecomposite
-              handleFloatingSealDisplayChange = handleDisplayChange
-              recompositeFloatingSealWindow = dispose.recomposite
-              screen.on('display-metrics-changed', handleDisplayChange)
-              screen.on('display-added', handleDisplayChange)
-              screen.on('display-removed', handleDisplayChange)
-              whiteStripRecompositeHandle = scheduleFloatingSealIdleTask(async () => {
-                whiteStripRecompositeHandle = undefined
-                if (seal.isDestroyed() || floatingSealWindow !== seal) return
-                await dispose.recomposite()
-                if (seal.isDestroyed() || floatingSealWindow !== seal) return
-                traceStartupPhase('pet-native-polish:white-strip-ready')
-                captionPolishHandle = scheduleFloatingSealCaptionPolish(seal)
-              }, 'floating-seal:white-strip-recomposite')
-            })
-          }, 'floating-seal:native-polish')
-        }, 'floating-seal:mouse-recovery')
-      }, 'floating-seal:window-setup')
-    }, 'floating-seal:bounds-setup')
+    schedulePostShowStartupStages()
   })
 
   return seal
@@ -610,17 +658,50 @@ const floatingSealWakeController = createFloatingSealWakeController({
   prepareWindow: () => {
     resetFloatingSealWindowBounds()
     floatingSealMouseRecovery?.setVisible(true)
-    setFloatingSealWindowMouseTransparent(false)
   },
-  scheduleCreate: (callback) => scheduleFloatingSealIdleTask(callback, 'floating-seal:create'),
+  onShown: () => scheduleFloatingSealPostShowStartupStages?.(),
+  scheduleCreate: (callback) => scheduleFloatingSealIdleTask(
+    callback,
+    'floating-seal:create',
+    {
+      // A foreground interaction can arrive after auto-wake has released but
+      // before BrowserWindow construction. Preserve the full create guard at
+      // this second boundary; wakeImmediately() intentionally bypasses it.
+      minimumQuietWindowMs: 600,
+      ignorePointerMove: true
+    }
+  ),
   cancelCreate: (handle) => cancelFloatingSealIdleTask(handle as FloatingSealIdleTaskHandle)
 })
 
 let automaticFloatingSealWakeScheduled = false
 let automaticFloatingSealWakeHandle: FloatingSealIdleTaskHandle | undefined
+let automaticPetStartupEnabledForThisLaunch = false
 let mainRendererInteractiveReady = false
 let startupServicesReady = false
 let homeWebviewLoadSettled = false
+let homeWebviewGuestId: number | undefined
+const mainWindowGuestWebContentsIds = new Set<number>()
+const settledHomeGuestIds = new Set<number>()
+
+function markHomeWebviewLoadSettled() {
+  if (homeWebviewLoadSettled) return
+  homeWebviewLoadSettled = true
+  traceStartupPhase('home-webview:load-settled')
+  maybeScheduleAutomaticFloatingSealWake()
+}
+
+function rememberHomeGuestLoadOutcome(webContentsId: number) {
+  if (!mainWindowGuestWebContentsIds.has(webContentsId)) return
+  settledHomeGuestIds.add(webContentsId)
+  if (homeWebviewGuestId === webContentsId) markHomeWebviewLoadSettled()
+}
+
+function registerHomeWebviewGuest(webContentsId: number) {
+  if (!mainWindowGuestWebContentsIds.has(webContentsId)) return
+  homeWebviewGuestId = webContentsId
+  if (settledHomeGuestIds.has(webContentsId)) markHomeWebviewLoadSettled()
+}
 
 function scheduleAutomaticFloatingSealWake() {
   if (automaticFloatingSealWakeScheduled || appQuitting) return
@@ -631,10 +712,19 @@ function scheduleAutomaticFloatingSealWake() {
     automaticFloatingSealWakeHandle = undefined
     if (appQuitting) return
     void floatingSealWakeController.wake()
-  }, 'floating-seal:auto-wake')
+  }, 'floating-seal:auto-wake', {
+    // The first hidden/click-through window is deliberately separated from
+    // real foreground work, but ordinary pointer movement must not postpone it
+    // forever. Keep a longer guard after a click, scroll, key, or window
+    // gesture so stopping input cannot immediately trigger native creation.
+    minimumQuietWindowMs: 600,
+    minimumDelayMs: 600,
+    ignorePointerMove: true
+  })
 }
 
 function maybeScheduleAutomaticFloatingSealWake() {
+  if (!automaticPetStartupEnabledForThisLaunch) return
   if (!mainRendererInteractiveReady || !startupServicesReady || !homeWebviewLoadSettled) return
   scheduleAutomaticFloatingSealWake()
 }
@@ -760,6 +850,18 @@ function isTrustedOldFavoriteSessionSender(senderId: number): boolean {
     .includes(senderId)
 }
 
+function assertTrustedAssistantPetSender(event: { sender: { id: number } }) {
+  const floatingAssistant = floatingAssistantController.getWindow()
+  const trustedIds = [
+    mainWindow?.webContents.id,
+    floatingSealWindow?.webContents.id,
+    floatingAssistant?.webContents.id
+  ].filter((id): id is number => typeof id === 'number')
+  if (!trustedIds.includes(event.sender.id)) {
+    throw new Error('Assistant pet request came from an untrusted renderer.')
+  }
+}
+
 function sendAssistantPreferencePatchChanged(patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) {
   const normalizedMeta = normalizeAssistantPreferencePatchMeta(meta)
   const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
@@ -855,7 +957,32 @@ function closeFloatingAssistantWindow() {
   floatingAssistantController.hide()
 }
 
-function closeAssistantPetWindow() {
+function closeAssistantPetWindow(options: {
+  persistStartupPreference?: boolean
+  temporarilyForVideoFullscreen?: boolean
+} = {}) {
+  const wasVisible = Boolean(
+    floatingSealWindow &&
+    !floatingSealWindow.isDestroyed() &&
+    floatingSealWindow.isVisible()
+  )
+
+  if (options.temporarilyForVideoFullscreen) {
+    // Fullscreen must also cancel an automatic wake that has not reached native
+    // window creation yet, but only a visible pet earns a later restoration.
+    cancelAutomaticFloatingSealWake()
+    if (!wasVisible) {
+      floatingSealWakeController.cancelPendingWake()
+    } else {
+      petHiddenForVideoFullscreen = true
+    }
+  } else {
+    petHiddenForVideoFullscreen = false
+  }
+
+  if (options.persistStartupPreference !== false && !options.temporarilyForVideoFullscreen) {
+    saveAssistantPreferencePatch({ autoShowPetOnStartup: false })
+  }
   cancelAutomaticFloatingSealWake()
   closeFloatingMenuWindow()
   closeFloatingAssistantWindow()
@@ -863,6 +990,7 @@ function closeAssistantPetWindow() {
   floatingSealWakeController.close()
   cancelRecompositeFloatingSealWindow?.()
   floatingSealMouseRecovery?.setVisible(false)
+  return wasVisible
 }
 
 function restoreMainWindowFromTray() {
@@ -928,6 +1056,7 @@ function setFloatingSealWindowMouseTransparent(transparent: boolean) {
     return
   }
 
+  floatingSealMouseTransparent = transparent
   if (floatingSealMouseRecovery) {
     floatingSealMouseRecovery.setTransparent(transparent)
     return
@@ -936,9 +1065,23 @@ function setFloatingSealWindowMouseTransparent(transparent: boolean) {
   setFloatingSealMouseTransparency(floatingSealWindow, transparent)
 }
 
-function wakeAssistantPetWindow() {
+async function wakeAssistantPetWindow(options: {
+  persistStartupPreference?: boolean
+  restoreAfterVideoFullscreen?: boolean
+} = {}) {
+  if (options.restoreAfterVideoFullscreen) {
+    if (!petHiddenForVideoFullscreen) return false
+    petHiddenForVideoFullscreen = false
+  } else {
+    petHiddenForVideoFullscreen = false
+  }
+
+  if (options.persistStartupPreference !== false && !options.restoreAfterVideoFullscreen) {
+    saveAssistantPreferencePatch({ autoShowPetOnStartup: true })
+  }
   cancelAutomaticFloatingSealWake()
-  return floatingSealWakeController.wakeImmediately()
+  await floatingSealWakeController.wakeImmediately()
+  return true
 }
 
 function notifyFloatingAssistantSnapshotChanged() {
@@ -1216,6 +1359,9 @@ function requestMainAssistantRuntime<TPayload>(request: AssistantRuntimeRequestI
 function createMainWindow() {
   const { workAreaSize } = screen.getPrimaryDisplay()
   homeWebviewLoadSettled = false
+  homeWebviewGuestId = undefined
+  mainWindowGuestWebContentsIds.clear()
+  settledHomeGuestIds.clear()
   const win = new BrowserWindow(
     createMainWindowOptions(createPreloadScriptPath(__dirname), workAreaSize)
   )
@@ -1228,7 +1374,7 @@ function createMainWindow() {
   mainWindow = win
   keepMainWindowTitle(win)
   installMainWindowControlReactions({
-    closeAssistantPet: closeAssistantPetWindow,
+    closeAssistantPet: () => closeAssistantPetWindow({ persistStartupPreference: false }),
     getPreferences: () =>
       appQuitting
         ? {
@@ -1453,7 +1599,7 @@ function registerAssistantPreferenceHandlers() {
     }
     markAssistantRuntimeReady(event.sender.id)
   })
-  ipcMain.on('startup:input-activity', (event) => {
+  ipcMain.on('startup:input-activity', (event, activity: unknown) => {
     const floatingAssistant = floatingAssistantController.getWindow()
     const floatingMenu = floatingMenuController.getWindow()
     const trustedIds = [
@@ -1463,9 +1609,9 @@ function registerAssistantPreferenceHandlers() {
       floatingMenu?.webContents.id
     ].filter((id): id is number => typeof id === 'number')
     if (!trustedIds.includes(event.sender.id)) return
-    traceStartupPhase('input:activity')
+    traceStartupPhase(activity === 'pointer-move' ? 'input:pointer-move' : 'input:foreground')
     cancelRecompositeFloatingSealWindow?.()
-    noteStartupInputActivity()
+    noteStartupInputActivity(activity === 'pointer-move' ? 'pointer-move' : 'foreground')
   })
   ipcMain.on('main-window:first-frame', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
@@ -1485,9 +1631,20 @@ function registerAssistantPreferenceHandlers() {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
       return
     }
-    homeWebviewLoadSettled = true
-    traceStartupPhase('home-webview:load-settled')
-    maybeScheduleAutomaticFloatingSealWake()
+    markHomeWebviewLoadSettled()
+  })
+  ipcMain.on('home-webview:guest-attached', (event, webContentsId: unknown) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id ||
+      !Number.isInteger(webContentsId)) {
+      return
+    }
+    registerHomeWebviewGuest(webContentsId)
+  })
+  ipcMain.on('home-webview:load-timeout', (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
+      return
+    }
+    traceStartupPhase('home-webview:load-timeout')
   })
   ipcMain.handle('bilibili-session:retry-direct', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
@@ -2072,8 +2229,16 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('assistant-pet:restore-main-window', () => {
     restoreMainWindowForPet()
   })
-  ipcMain.on('assistant-pet:close', () => {
-    closeAssistantPetWindow()
+  ipcMain.handle('assistant-pet:close', (event, requestedOptions: unknown) => {
+    assertTrustedAssistantPetSender(event)
+    const temporarilyForVideoFullscreen = event.sender.id === mainWindow?.webContents.id &&
+      Boolean(
+        requestedOptions &&
+        typeof requestedOptions === 'object' &&
+        !Array.isArray(requestedOptions) &&
+        (requestedOptions as { temporarilyForVideoFullscreen?: unknown }).temporarilyForVideoFullscreen === true
+      )
+    return closeAssistantPetWindow({ temporarilyForVideoFullscreen })
   })
   ipcMain.handle('main-window:presentation-state', () => getMainWindowPresentationState(mainWindow))
   ipcMain.on('assistant-pet:set-state', (_event, state: AssistantPetState) => {
@@ -2087,7 +2252,17 @@ function registerAssistantPreferenceHandlers() {
     const tone = hint.tone === 'working' || hint.tone === 'error' ? hint.tone : 'hint'
     sendAssistantPetHint({ tone, message: hint.message })
   })
-  ipcMain.handle('assistant-pet:wake', () => wakeAssistantPetWindow())
+  ipcMain.handle('assistant-pet:wake', (event, requestedOptions: unknown) => {
+    assertTrustedAssistantPetSender(event)
+    const restoreAfterVideoFullscreen = event.sender.id === mainWindow?.webContents.id &&
+      Boolean(
+        requestedOptions &&
+        typeof requestedOptions === 'object' &&
+        !Array.isArray(requestedOptions) &&
+        (requestedOptions as { restoreAfterVideoFullscreen?: unknown }).restoreAfterVideoFullscreen === true
+      )
+    return wakeAssistantPetWindow({ restoreAfterVideoFullscreen })
+  })
   ipcMain.handle('assistant:open-from-floating-seal', () => {
     restoreMainWindowForPet()
   })
@@ -2231,6 +2406,7 @@ configureDevelopmentRuntimeSwitches(app, {
 })
 configureAppIdentity(app)
 const singleInstanceGuard = installSingleInstanceGuard(app, () => mainWindow)
+automaticPetStartupEnabledForThisLaunch = loadAssistantPreferences(getDesktopStore()).autoShowPetOnStartup
 
 async function readCurrentBilibiliAccountMid() {
   const cookies = await session.fromPartition(BILIMI_SESSION_PARTITION).cookies.get({ name: 'DedeUserID' })

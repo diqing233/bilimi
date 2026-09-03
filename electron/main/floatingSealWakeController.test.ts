@@ -102,6 +102,29 @@ describe('createFloatingSealWakeController', () => {
     current = null
   })
 
+  it('notifies post-show setup when an already-ready hidden pet is shown again', () => {
+    const existing = sealWindow()
+    const onShown = vi.fn()
+    const controller = createFloatingSealWakeController({
+      createWindow: vi.fn(sealWindow),
+      getWindow: () => existing,
+      prepareWindow: vi.fn(),
+      onShown,
+      scheduleCreate: vi.fn(),
+      cancelCreate: vi.fn()
+    })
+    controller.wake()
+    controller.showWhenReady(existing)
+    controller.close()
+    onShown.mockClear()
+    existing.showInactive.mockClear()
+
+    controller.wake()
+
+    expect(existing.showInactive).toHaveBeenCalledOnce()
+    expect(onShown).toHaveBeenCalledWith(existing)
+  })
+
   it('cancels a scheduled cold wake when the pet is closed', () => {
     let scheduled: (() => void) | undefined
     const cancelCreate = vi.fn()
@@ -123,6 +146,30 @@ describe('createFloatingSealWakeController', () => {
     expect(cancelCreate).toHaveBeenCalledWith(7)
     scheduled?.()
     expect(createWindow).not.toHaveBeenCalled()
+  })
+
+  it('cancels a scheduled cold wake for fullscreen without hiding an already visible pet', () => {
+    let scheduled: (() => void) | undefined
+    const cancelCreate = vi.fn()
+    const existing = sealWindow()
+    let current: ReturnType<typeof sealWindow> | null = null
+    const controller = createFloatingSealWakeController({
+      createWindow: vi.fn(sealWindow),
+      getWindow: () => current,
+      prepareWindow: vi.fn(),
+      scheduleCreate: (callback) => {
+        scheduled = callback
+        return 8
+      },
+      cancelCreate
+    })
+
+    controller.wake()
+    controller.cancelPendingWake()
+    scheduled?.()
+
+    expect(cancelCreate).toHaveBeenCalledWith(8)
+    expect(existing.hide).not.toHaveBeenCalled()
   })
 
   it('creates a cold pet immediately for an explicit wake while cancelling automatic idle creation', () => {

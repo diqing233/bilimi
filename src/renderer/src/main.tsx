@@ -15,27 +15,37 @@ const isFloatingAssistantWindow = route.get('window') === 'floating-assistant'
 const isFloatingSealWindow = route.get('window') === 'floating-seal'
 const isFloatingMenuWindow = route.get('window') === 'floating-menu'
 
+type StartupInputActivity = 'pointer-move' | 'foreground'
+
 let lastStartupInputNoticeAt = Number.NEGATIVE_INFINITY
 let startupInputNoticeTimer: number | undefined
-const notifyStartupInputActivity = () => {
+let deferredStartupInputActivity: StartupInputActivity | undefined
+const notifyStartupInputActivity = (activity: StartupInputActivity) => {
   const now = performance.now()
   const elapsed = now - lastStartupInputNoticeAt
   if (elapsed >= 50) {
     lastStartupInputNoticeAt = now
-    window.bilimiDesktop?.notifyStartupInputActivity?.()
+    window.bilimiDesktop?.notifyStartupInputActivity?.(activity)
     return
   }
+  if (activity === 'foreground') deferredStartupInputActivity = 'foreground'
+  else deferredStartupInputActivity ??= 'pointer-move'
   if (startupInputNoticeTimer !== undefined) return
   startupInputNoticeTimer = window.setTimeout(() => {
     startupInputNoticeTimer = undefined
     lastStartupInputNoticeAt = performance.now()
-    window.bilimiDesktop?.notifyStartupInputActivity?.()
+    const deferredActivity = deferredStartupInputActivity ?? 'foreground'
+    deferredStartupInputActivity = undefined
+    window.bilimiDesktop?.notifyStartupInputActivity?.(deferredActivity)
   }, Math.max(0, 50 - elapsed))
 }
-for (const eventName of ['pointermove', 'pointerdown', 'pointerup', 'wheel', 'keydown', 'keyup']) {
-  window.addEventListener(eventName, notifyStartupInputActivity, { passive: true })
+window.addEventListener('pointermove', (event) => {
+  notifyStartupInputActivity(event.buttons === 0 ? 'pointer-move' : 'foreground')
+}, { passive: true })
+for (const eventName of ['pointerdown', 'pointerup', 'wheel', 'keydown', 'keyup']) {
+  window.addEventListener(eventName, () => notifyStartupInputActivity('foreground'), { passive: true })
 }
-window.addEventListener('resize', notifyStartupInputActivity, { passive: true })
+window.addEventListener('resize', () => notifyStartupInputActivity('foreground'), { passive: true })
 
 function StartupRouteFallback() {
   return (
