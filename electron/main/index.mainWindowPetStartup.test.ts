@@ -6,6 +6,7 @@ const mainSource = readFileSync(resolve(process.cwd(), 'electron/main/index.ts')
 const idleTaskSource = readFileSync(resolve(process.cwd(), 'electron/main/floatingSealIdleTask.ts'), 'utf8')
 const preloadSource = readFileSync(resolve(process.cwd(), 'electron/preload/index.ts'), 'utf8')
 const rendererSource = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+const rendererEntrySource = readFileSync(resolve(process.cwd(), 'src/renderer/src/main.tsx'), 'utf8')
 
 describe('main-window first pet startup wiring', () => {
   it('starts the automatic pet wake only after the main renderer reports an interactive frame', () => {
@@ -21,6 +22,17 @@ describe('main-window first pet startup wiring', () => {
     expect(readyHandler).toContain('mainRendererInteractiveReady = true')
     expect(readyHandler).toContain('maybeScheduleAutomaticFloatingSealWake()')
     expect(startup).toContain('startupServicesReady = true')
+  })
+
+  it('records a dedicated first-frame signal before interactive readiness', () => {
+    const firstFrameHandlerStart = mainSource.indexOf("ipcMain.on('main-window:first-frame'")
+    const firstFrameHandler = mainSource.slice(firstFrameHandlerStart, mainSource.indexOf("ipcMain.on('main-window:interactive-ready'", firstFrameHandlerStart))
+
+    expect(preloadSource).toContain("notifyMainWindowFirstFrame: () => ipcRenderer.send('main-window:first-frame')")
+    expect(rendererSource).toContain('notifyMainWindowFirstFrame?.()')
+    expect(firstFrameHandlerStart).toBeGreaterThanOrEqual(0)
+    expect(firstFrameHandler).toContain('event.sender.id !== mainWindow.webContents.id')
+    expect(firstFrameHandler).toContain("traceStartupPhase('main-window:first-frame')")
   })
 
   it('reports interactivity from a browser idle task so pet creation cannot compete with first-frame input', () => {
@@ -94,25 +106,26 @@ describe('main-window first pet startup wiring', () => {
     const petStart = mainSource.indexOf('function createFloatingSealWindow()')
     const petEnd = mainSource.indexOf('\n}\n\nconst floatingSealWakeController', petStart)
     const petCreation = mainSource.slice(petStart, petEnd)
-    const nativePolishStart = mainSource.indexOf('function scheduleFloatingSealNativePolish(')
+    const nativePolishStart = mainSource.indexOf('function installFloatingSealWhiteStripPolish(')
     const nativePolishEnd = mainSource.indexOf('\n}\n\nfunction createFloatingSealWindow()', nativePolishStart)
     const nativePolish = mainSource.slice(nativePolishStart, nativePolishEnd)
 
-    expect(petCreation).not.toContain('await scheduleFloatingSealNativePolish(seal')
+    expect(petCreation).toContain("scheduleFloatingSealIdleTask(async () =>")
     expect(petCreation).not.toContain('installFloatingSealWhiteStripFix(seal')
-    expect(petCreation).not.toContain('installFloatingSealCaptionStrip(seal')
+    expect(petCreation).not.toContain('await installFloatingSealCaptionStrip(seal')
     expect(petCreation).toContain("seal.webContents.once('did-finish-load'")
     expect(petCreation).toContain('floatingSealMouseRecovery = createFloatingSealMouseRecoveryController')
     expect(petCreation).toContain('floatingSealWakeController.showWhenReady(seal)')
-    expect(petCreation).toContain('void scheduleFloatingSealNativePolish(seal')
+    expect(petCreation).toContain('installFloatingSealWhiteStripPolish(seal')
     expect(petCreation.indexOf('floatingSealWakeController.showWhenReady(seal)')).toBeLessThan(
-      petCreation.indexOf('void scheduleFloatingSealNativePolish(seal')
+      petCreation.indexOf('installFloatingSealWhiteStripPolish(seal')
     )
-    expect(nativePolish).toContain('await new Promise<void>((resolve) => setImmediate(resolve))')
     expect(nativePolish).toContain('installFloatingSealWhiteStripFix(seal')
-    expect(nativePolish).toContain('installFloatingSealCaptionStrip(seal')
-    expect(nativePolish).toContain('await disposeWhiteStripFix.recomposite()')
-    expect(nativePolish).toContain('await installFloatingSealCaptionStrip(seal')
+    expect(nativePolish.slice(0, nativePolish.indexOf('function scheduleFloatingSealCaptionPolish'))).not.toContain('setTimeout(')
+    expect(mainSource).toContain("'floating-seal:white-strip-recomposite'")
+    expect(mainSource).toContain("'floating-seal:caption-polish'")
+    expect(mainSource).toContain('function scheduleFloatingSealCaptionPolish(seal: BrowserWindow)')
+    expect(mainSource).toContain('await installFloatingSealCaptionStrip(seal')
   })
 
   it('keeps the cold pet show path to click-through and display before post-show native setup', () => {
@@ -128,7 +141,13 @@ describe('main-window first pet startup wiring', () => {
     expect(petCreation.indexOf('seal.setVisibleOnAllWorkspaces')).toBeGreaterThan(showIndex)
     expect(petCreation.indexOf('seal.removeMenu()')).toBeGreaterThan(showIndex)
     expect(petCreation).toContain('postShowSetupHandle = scheduleFloatingSealIdleTask')
-    expect(petCreation).toContain('cancelFloatingSealIdleTask(postShowSetupHandle)')
+    expect(petCreation).toContain('const cancelStartupStages = () =>')
+  })
+
+  it('cancels all queued pet startup stages when the pet is hidden or closed', () => {
+    expect(mainSource).toContain('let cancelFloatingSealStartupStages')
+    expect(mainSource).toContain('cancelFloatingSealStartupStages?.()')
+    expect(mainSource).toContain('const cancelStartupStages = () =>')
   })
 
   it('schedules automatic pet wake through a cancellable idle task', () => {
@@ -140,25 +159,21 @@ describe('main-window first pet startup wiring', () => {
 
   it('routes native pet creation through the same cancellable grace scheduler', () => {
     const controller = mainSource.slice(mainSource.indexOf('const floatingSealWakeController'))
-    expect(controller).toContain('scheduleCreate: (callback) => scheduleFloatingSealIdleTask(callback)')
+    expect(controller).toContain("scheduleCreate: (callback) => scheduleFloatingSealIdleTask(callback, 'floating-seal:create')")
     expect(controller).toContain('cancelCreate: (handle) => cancelFloatingSealIdleTask(handle as FloatingSealIdleTaskHandle)')
   })
 
   it('keeps the main-process pet task cancellable before native pet creation', () => {
-    expect(idleTaskSource).toContain('setTimeout(() =>')
-    expect(idleTaskSource).toContain('clearTimeout(handle')
-    expect(idleTaskSource).toContain('handle.timer.unref?.()')
-    expect(idleTaskSource).toContain('setImmediate(() =>')
-    expect(idleTaskSource).toContain('clearImmediate(handle.immediate)')
+    expect(idleTaskSource).toContain('createStartupInputScheduler')
+    expect(idleTaskSource).toContain('handle.cancel()')
+    expect(idleTaskSource).toContain('noteStartupInputActivity')
   })
 
   it('releases pet creation through a cancellable event-loop turn after renderer idle instead of a fixed grace delay', () => {
-    expect(idleTaskSource).toContain('setImmediate(() =>')
-    expect(idleTaskSource).toContain('clearTimeout(handle')
-    expect(idleTaskSource).toContain('setTimeout(() =>')
-    expect(idleTaskSource).toMatch(/setTimeout\(\(\) =>[\s\S]*?, 0\)/u)
+    expect(idleTaskSource).toContain('quietWindowMs: 160')
+    expect(idleTaskSource).toContain('startupInputScheduler.schedule')
     expect(idleTaskSource).not.toContain('FLOATING_SEAL_IDLE_GRACE_MS')
-    expect(idleTaskSource).not.toContain('}, 250)')
+    expect(idleTaskSource).not.toContain('setImmediate(() =>')
   })
 
   it('waits for a browser idle boundary after the home page settles before releasing the pet gate', () => {
@@ -170,5 +185,27 @@ describe('main-window first pet startup wiring', () => {
     expect(notification).toContain('notifyHomeWebviewLoadSettledWhenIdle')
     expect(notification).toContain('cancelIdleCallback')
     expect(notification).toContain('homeWebviewIdleNotificationHandleRef')
+  })
+
+  it('lets trusted main and guest input defer automatic pet startup without observing input content', () => {
+    expect(mainSource).toContain("target.on('before-input-event'")
+    expect(mainSource).toContain("target.on('input-event'")
+    expect(mainSource).toContain('installStartupInputObserver(win.webContents)')
+    expect(mainSource).toContain('installStartupInputObserver(webContents)')
+    expect(mainSource).toContain("win.on('move', noteWindowInput)")
+    expect(mainSource).toContain("ipcMain.on('startup:input-activity'")
+    expect(mainSource).toContain('noteStartupInputActivity()')
+    expect(preloadSource).toContain("notifyStartupInputActivity: () => ipcRenderer.send('startup:input-activity')")
+  })
+
+  it('loads only the current window renderer module at startup', () => {
+    expect(rendererEntrySource).not.toMatch(/^import App from/mu)
+    expect(rendererEntrySource).not.toMatch(/^import \{ FloatingAssistantApp/mu)
+    expect(rendererEntrySource).not.toMatch(/^import \{ FloatingMenuApp/mu)
+    expect(rendererEntrySource).not.toMatch(/^import \{ PalaceMaidPetApp/mu)
+    expect(rendererEntrySource).toContain("lazy(() => import('./App')")
+    expect(rendererEntrySource).toContain("lazy(() => import('./features/assistant/FloatingAssistantApp')")
+    expect(rendererEntrySource).toContain("lazy(() => import('./features/assistant/FloatingMenuApp')")
+    expect(rendererEntrySource).toContain("lazy(() => import('./features/assistant/PalaceMaidPetApp')")
   })
 })

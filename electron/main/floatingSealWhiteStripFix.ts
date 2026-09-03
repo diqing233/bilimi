@@ -36,6 +36,7 @@ type WhiteStripFixOptions = RecompositeShape & {
 
 export type FloatingSealRecomposition = (() => void) & {
   recomposite: () => Promise<void>
+  cancelRecomposite: () => void
 }
 
 const DEFAULT_ATTEMPTS = 3
@@ -102,6 +103,7 @@ export function installFloatingSealWhiteStripFix(
   let pendingTimers: unknown[] = []
   let anchor: Point | null = null
   let nudgeDeltaX: -1 | 1 = 1
+  let currentOffset: 0 | 1 = 0
   let settlePendingRecomposition: (() => void) | null = null
 
   const clearPending = () => {
@@ -128,6 +130,7 @@ export function installFloatingSealWhiteStripFix(
     }
 
     target.setPosition(anchor.x + offset * nudgeDeltaX, anchor.y)
+    currentOffset = offset
   }
 
   const recomposite = (): Promise<void> => {
@@ -165,10 +168,16 @@ export function installFloatingSealWhiteStripFix(
     moveTo(0)
   }
 
+  const cancelRecomposite = () => {
+    cancelPendingRecomposition()
+    if (currentOffset !== 0) moveTo(0)
+  }
+
   target.on('blur', recomposite)
   target.on('focus', settle)
 
   const dispose = settle as FloatingSealRecomposition
   dispose.recomposite = recomposite
+  dispose.cancelRecomposite = cancelRecomposite
   return dispose
 }

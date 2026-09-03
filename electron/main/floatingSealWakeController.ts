@@ -26,6 +26,11 @@ export function createFloatingSealWakeController<TWindow extends WakeableFloatin
   let resolvePendingWake: (() => void) | null = null
   const readyWindows = new WeakSet<TWindow>()
 
+  function getLiveWindow() {
+    const current = getWindow()
+    return current && !current.isDestroyed() ? current : null
+  }
+
   function showWithoutActivation(window: TWindow) {
     if (window.isDestroyed()) return
     prepareWindow(window)
@@ -36,8 +41,8 @@ export function createFloatingSealWakeController<TWindow extends WakeableFloatin
     wake() {
       displayRequested = true
       pendingWake ??= new Promise<void>((resolve) => { resolvePendingWake = resolve })
-      const existing = getWindow()
-      if (existing && !existing.isDestroyed()) {
+      const existing = getLiveWindow()
+      if (existing) {
         if (readyWindows.has(existing)) {
           showWithoutActivation(existing)
           resolvePendingWake?.()
@@ -54,9 +59,32 @@ export function createFloatingSealWakeController<TWindow extends WakeableFloatin
       createHandle = scheduleCreate(() => {
         createScheduled = false
         createHandle = undefined
-        if (!displayRequested) return
+        if (!displayRequested || getLiveWindow()) return
         createWindow()
       })
+      return pendingWake
+    },
+    wakeImmediately() {
+      displayRequested = true
+      pendingWake ??= new Promise<void>((resolve) => { resolvePendingWake = resolve })
+      const existing = getLiveWindow()
+      if (existing) {
+        if (readyWindows.has(existing)) {
+          showWithoutActivation(existing)
+          resolvePendingWake?.()
+          resolvePendingWake = null
+          const completed = pendingWake
+          pendingWake = null
+          return completed
+        }
+        return pendingWake
+      }
+      if (createScheduled) {
+        createScheduled = false
+        if (createHandle !== undefined) cancelCreate(createHandle)
+        createHandle = undefined
+      }
+      createWindow()
       return pendingWake
     },
     close() {

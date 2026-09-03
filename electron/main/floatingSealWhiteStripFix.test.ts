@@ -168,6 +168,20 @@ describe('installFloatingSealWhiteStripFix', () => {
     expect(harness.target.setPosition).toHaveBeenLastCalledWith(120, 240)
   })
 
+  it('cancels an active recomposition burst so input cannot trigger later native nudges', async () => {
+    const harness = createHarness({ x: 120, y: 240, width: 336, height: 380 })
+
+    const completion = harness.dispose.recomposite()
+    expect(harness.scheduled).toHaveLength(6)
+
+    harness.dispose.cancelRecomposite()
+    harness.flushAll()
+
+    await expect(completion).resolves.toBeUndefined()
+    expect(harness.scheduled).toHaveLength(0)
+    expect(harness.target.setPosition).not.toHaveBeenCalled()
+  })
+
   it('restores to the bounds captured at blur time, not the live bounds', () => {
     const harness = createHarness({ x: 120, y: 240, width: 336, height: 380 })
 

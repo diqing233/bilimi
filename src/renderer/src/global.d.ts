@@ -75,6 +75,8 @@ type FavoriteLedgerEnabledHistoryOptions = { mergeFavoriteRuleHistory?: true }
 
 type BilimiDesktopApi = {
   version: string
+  notifyStartupInputActivity?: () => void
+  notifyMainWindowFirstFrame?: () => void
   closeAssistantPet?: () => void
   closeFloatingAssistant?: () => void
   closeFloatingMenu?: () => void

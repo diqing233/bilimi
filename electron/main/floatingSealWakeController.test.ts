@@ -125,6 +125,33 @@ describe('createFloatingSealWakeController', () => {
     expect(createWindow).not.toHaveBeenCalled()
   })
 
+  it('creates a cold pet immediately for an explicit wake while cancelling automatic idle creation', () => {
+    let scheduled: (() => void) | undefined
+    let current: ReturnType<typeof sealWindow> | null = null
+    const cancelCreate = vi.fn()
+    const createWindow = vi.fn(() => {
+      current = sealWindow()
+      return current
+    })
+    const controller = createFloatingSealWakeController({
+      createWindow,
+      getWindow: () => current,
+      prepareWindow: vi.fn(),
+      scheduleCreate: (callback) => {
+        scheduled = callback
+        return 9
+      },
+      cancelCreate
+    })
+
+    controller.wake()
+    controller.wakeImmediately()
+    scheduled?.()
+
+    expect(cancelCreate).toHaveBeenCalledWith(9)
+    expect(createWindow).toHaveBeenCalledOnce()
+  })
+
   it('does not show a loaded pet after close cancels its display intent', () => {
     const created = sealWindow()
     let current: ReturnType<typeof sealWindow> | null = null
@@ -151,5 +178,25 @@ describe('createFloatingSealWakeController', () => {
     expect(created.hide).toHaveBeenCalledOnce()
     expect(created.showInactive).not.toHaveBeenCalled()
     expect(created.focus).not.toHaveBeenCalled()
+  })
+
+  it('creates a replacement when the current window handle is already destroyed', () => {
+    const destroyed = sealWindow()
+    destroyed.isDestroyed.mockReturnValue(true)
+    const replacement = sealWindow()
+    const createWindow = vi.fn(() => replacement)
+    let scheduled: (() => void) | undefined
+    const controller = createFloatingSealWakeController({
+      createWindow,
+      getWindow: () => destroyed,
+      prepareWindow: vi.fn(),
+      scheduleCreate: (callback) => { scheduled = callback; return 1 },
+      cancelCreate: vi.fn()
+    })
+
+    controller.wake()
+    scheduled?.()
+
+    expect(createWindow).toHaveBeenCalledOnce()
   })
 })

@@ -94,6 +94,8 @@ import { createFloatingSealMouseRecoveryController } from './floatingSealMouseRe
 import { createFloatingSealWakeController } from './floatingSealWakeController'
 import {
   cancelFloatingSealIdleTask,
+  disposeFloatingSealIdleTaskScheduler,
+  noteStartupInputActivity,
   scheduleFloatingSealIdleTask,
   type FloatingSealIdleTaskHandle
 } from './floatingSealIdleTask'
@@ -264,6 +266,9 @@ let mainTray: Tray | null = null
 let appQuitting = false
 let enforceFloatingSealWindowBounds: (() => void) | null = null
 let recompositeFloatingSealWindow: (() => void) | null = null
+let cancelRecompositeFloatingSealWindow: (() => void) | null = null
+let whiteStripRecompositeHandle: FloatingSealIdleTaskHandle | undefined
+let cancelFloatingSealStartupStages: (() => void) | null = null
 let floatingSealMouseRecovery: ReturnType<typeof createFloatingSealMouseRecoveryController> | null = null
 let floatingSealInteractiveRegions: unknown[] = []
 let assistantPetState: AssistantPetState = 'idle'
@@ -317,9 +322,30 @@ function routeWindowOpenToRendererTab(win: BrowserWindow, url: string) {
 
 function installWindowOpenRouting(win: BrowserWindow) {
   win.webContents.setWindowOpenHandler(({ url }) => routeWindowOpenToRendererTab(win, url))
+  installStartupInputObservers(win)
 
   win.webContents.on('did-attach-webview', (_event, webContents) => {
     webContents.setWindowOpenHandler(({ url }) => routeWindowOpenToRendererTab(win, url))
+    installStartupInputObserver(webContents)
+  })
+}
+
+function installStartupInputObservers(win: BrowserWindow) {
+  installStartupInputObserver(win.webContents)
+  const noteWindowInput = () => noteStartupInputActivity()
+  win.on('move', noteWindowInput)
+  win.on('resize', noteWindowInput)
+  win.on('minimize', noteWindowInput)
+  win.on('restore', noteWindowInput)
+  win.on('close', noteWindowInput)
+}
+
+function installStartupInputObserver(target: Electron.WebContents) {
+  target.on('before-input-event', () => {
+    noteStartupInputActivity()
+  })
+  target.on('input-event', () => {
+    noteStartupInputActivity()
   })
 }
 
@@ -408,7 +434,7 @@ function positionFloatingAssistantWindow(
   assistant.setBounds(getFloatingAssistantBounds(anchor))
 }
 
-async function scheduleFloatingSealNativePolish(
+function installFloatingSealWhiteStripPolish(
   seal: BrowserWindow,
   onWhiteStripFixReady: (
     dispose: ReturnType<typeof installFloatingSealWhiteStripFix>,
@@ -417,10 +443,6 @@ async function scheduleFloatingSealNativePolish(
 ) {
   if (process.platform !== 'win32') return
   traceStartupPhase('pet-native-polish:start')
-
-  // BrowserWindow creation is already native work. Yield before each Windows
-  // task; the host is already visible, so these optional repairs cannot gate input.
-  await new Promise<void>((resolve) => setImmediate(resolve))
   if (seal.isDestroyed() || floatingSealWindow !== seal) return
   const disposeWhiteStripFix = installFloatingSealWhiteStripFix(seal, {
     getWorkArea: (bounds) =>
@@ -429,32 +451,36 @@ async function scheduleFloatingSealNativePolish(
         padding: FLOATING_SEAL_HOST_PADDING
       })
   })
-  const handleFloatingSealDisplayChange = () => { void disposeWhiteStripFix.recomposite() }
-  await disposeWhiteStripFix.recomposite()
-  traceStartupPhase('pet-native-polish:white-strip-ready')
-  if (seal.isDestroyed() || floatingSealWindow !== seal) {
-    disposeWhiteStripFix()
-    return
+  const handleFloatingSealDisplayChange = () => {
+    if (whiteStripRecompositeHandle) cancelFloatingSealIdleTask(whiteStripRecompositeHandle)
+    whiteStripRecompositeHandle = scheduleFloatingSealIdleTask(async () => {
+      whiteStripRecompositeHandle = undefined
+      if (seal.isDestroyed() || floatingSealWindow !== seal) return
+      await disposeWhiteStripFix.recomposite()
+    }, 'floating-seal:white-strip-recomposite')
   }
   onWhiteStripFixReady(disposeWhiteStripFix, handleFloatingSealDisplayChange)
+}
 
-  await new Promise<void>((resolve) => setImmediate(resolve))
-  if (seal.isDestroyed() || floatingSealWindow !== seal) return
-  // Strip WS_CAPTION and disable DWM non-client rendering to avoid the
-  // inactive-frame path. The nudge remains as the fallback.
-  await installFloatingSealCaptionStrip(seal, {
-    spawn: spawn as unknown as NonNullable<
-      Parameters<typeof installFloatingSealCaptionStrip>[1]
-    >['spawn'],
-    logger: (message, error) => {
-      if (error) {
-        console.warn('[floatingSeal]', message, error)
-      } else {
-        console.warn('[floatingSeal]', message)
+function scheduleFloatingSealCaptionPolish(seal: BrowserWindow) {
+  return scheduleFloatingSealIdleTask(async () => {
+    if (seal.isDestroyed() || floatingSealWindow !== seal) return
+    // Strip WS_CAPTION and disable DWM non-client rendering to avoid
+    // the inactive-frame path. The nudge remains as the fallback.
+    await installFloatingSealCaptionStrip(seal, {
+      spawn: spawn as unknown as NonNullable<
+        Parameters<typeof installFloatingSealCaptionStrip>[1]
+      >['spawn'],
+      logger: (message, error) => {
+        if (error) {
+          console.warn('[floatingSeal]', message, error)
+        } else {
+          console.warn('[floatingSeal]', message)
+        }
       }
-    }
-  })
-  traceStartupPhase('pet-native-polish:caption-ready')
+    })
+    traceStartupPhase('pet-native-polish:caption-ready')
+  }, 'floating-seal:caption-polish')
 }
 
 function createFloatingSealWindow() {
@@ -462,11 +488,29 @@ function createFloatingSealWindow() {
   const seal = new BrowserWindow(
     createFloatingSealWindowOptions(getFloatingSealBounds(), createPreloadScriptPath(__dirname))
   )
+  installStartupInputObservers(seal)
   let enforceSealBounds: (() => void) | null = null
   let disposeWhiteStripFix: ReturnType<typeof installFloatingSealWhiteStripFix> | null = null
   let handleFloatingSealDisplayChange: (() => void) | null = null
   let postShowSetupHandle: FloatingSealIdleTaskHandle | undefined
+  let windowSetupHandle: FloatingSealIdleTaskHandle | undefined
+  let mouseRecoverySetupHandle: FloatingSealIdleTaskHandle | undefined
   let nativePolishHandle: FloatingSealIdleTaskHandle | undefined
+  let captionPolishHandle: FloatingSealIdleTaskHandle | undefined
+
+  const cancelStartupStages = () => {
+    for (const handle of [postShowSetupHandle, windowSetupHandle, mouseRecoverySetupHandle, whiteStripRecompositeHandle, nativePolishHandle, captionPolishHandle]) {
+      if (handle) cancelFloatingSealIdleTask(handle)
+    }
+    postShowSetupHandle = undefined
+    windowSetupHandle = undefined
+    mouseRecoverySetupHandle = undefined
+    whiteStripRecompositeHandle = undefined
+    nativePolishHandle = undefined
+    captionPolishHandle = undefined
+    disposeWhiteStripFix?.()
+  }
+  cancelFloatingSealStartupStages = cancelStartupStages
 
   // A cold pet window must use only the click-through setup required for its
   // first visible frame. Window bounds, workspace visibility and recovery
@@ -474,8 +518,7 @@ function createFloatingSealWindow() {
   setFloatingSealMouseTransparency(seal, true)
 
   seal.on('closed', () => {
-    if (postShowSetupHandle) cancelFloatingSealIdleTask(postShowSetupHandle)
-    if (nativePolishHandle) cancelFloatingSealIdleTask(nativePolishHandle)
+    cancelStartupStages()
     floatingSealMouseRecovery?.dispose()
     floatingSealMouseRecovery = null
     floatingSealInteractiveRegions = []
@@ -488,6 +531,8 @@ function createFloatingSealWindow() {
     floatingSealWindow = null
     enforceFloatingSealWindowBounds = null
     recompositeFloatingSealWindow = null
+    cancelRecompositeFloatingSealWindow = null
+    if (cancelFloatingSealStartupStages === cancelStartupStages) cancelFloatingSealStartupStages = null
   })
 
   floatingSealWindow = seal
@@ -500,49 +545,60 @@ function createFloatingSealWindow() {
     floatingSealWakeController.showWhenReady(seal)
     traceStartupPhase('pet-window:shown')
 
-    // Give the shown window an entire cancellable idle slice before doing
-    // bounds, workspace, menu or hit-testing work. `showInactive()` must not
-    // be followed by a concentrated batch of native calls in the same turn.
+    // Every post-show native action has its own quiet boundary. Input received
+    // between stages delays the remaining non-critical work.
     postShowSetupHandle = scheduleFloatingSealIdleTask(() => {
       postShowSetupHandle = undefined
       if (seal.isDestroyed() || floatingSealWindow !== seal) return
       enforceSealBounds = installFixedFloatingSealBoundsGuard(seal)
       enforceFloatingSealWindowBounds = enforceSealBounds
-      seal.setAlwaysOnTop(true, 'floating')
-      seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-      seal.removeMenu()
-      floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
-        getCursorPoint: () => screen.getCursorScreenPoint(),
-        schedulePoll: (callback, delayMs) => setTimeout(callback, delayMs),
-        cancelPoll: (handle) => clearTimeout(handle as NodeJS.Timeout),
-        window: seal
-      })
-      floatingSealMouseRecovery.setVisible(false)
-      floatingSealMouseRecovery.updateInteractiveRegions(floatingSealInteractiveRegions)
-      floatingSealMouseRecovery.setTransparent(true)
-      floatingSealMouseRecovery.setVisible(seal.isVisible())
-
-      // DWM/PowerShell repair gets a second idle slice: composition work can
-      // still be expensive even after the pet's first frame is visible.
-      nativePolishHandle = scheduleFloatingSealIdleTask(() => {
-        nativePolishHandle = undefined
+      windowSetupHandle = scheduleFloatingSealIdleTask(() => {
+        windowSetupHandle = undefined
         if (seal.isDestroyed() || floatingSealWindow !== seal) return
-        void scheduleFloatingSealNativePolish(seal, (dispose, handleDisplayChange) => {
-          if (seal.isDestroyed() || floatingSealWindow !== seal) {
-            dispose()
-            return
-          }
-          disposeWhiteStripFix = dispose
-          handleFloatingSealDisplayChange = handleDisplayChange
-          recompositeFloatingSealWindow = dispose.recomposite
-          screen.on('display-metrics-changed', handleDisplayChange)
-          screen.on('display-added', handleDisplayChange)
-          screen.on('display-removed', handleDisplayChange)
-        }).catch((error) => {
-          console.warn('[floatingSeal] native startup polish failed', error)
-        })
-      })
-    })
+        seal.setAlwaysOnTop(true, 'floating')
+        seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+        seal.removeMenu()
+        mouseRecoverySetupHandle = scheduleFloatingSealIdleTask(() => {
+          mouseRecoverySetupHandle = undefined
+          if (seal.isDestroyed() || floatingSealWindow !== seal) return
+          floatingSealMouseRecovery = createFloatingSealMouseRecoveryController({
+            getCursorPoint: () => screen.getCursorScreenPoint(),
+            schedulePoll: (callback) => scheduleFloatingSealIdleTask(callback, 'floating-seal:mouse-recovery-poll'),
+            cancelPoll: (handle) => cancelFloatingSealIdleTask(handle as FloatingSealIdleTaskHandle),
+            window: seal
+          })
+          floatingSealMouseRecovery.setVisible(false)
+          floatingSealMouseRecovery.updateInteractiveRegions(floatingSealInteractiveRegions)
+          floatingSealMouseRecovery.setTransparent(true)
+          floatingSealMouseRecovery.setVisible(seal.isVisible())
+          nativePolishHandle = scheduleFloatingSealIdleTask(async () => {
+            nativePolishHandle = undefined
+            if (seal.isDestroyed() || floatingSealWindow !== seal) return
+            installFloatingSealWhiteStripPolish(seal, (dispose, handleDisplayChange) => {
+              if (seal.isDestroyed() || floatingSealWindow !== seal) {
+                dispose()
+                return
+              }
+              disposeWhiteStripFix = dispose
+              cancelRecompositeFloatingSealWindow = dispose.cancelRecomposite
+              handleFloatingSealDisplayChange = handleDisplayChange
+              recompositeFloatingSealWindow = dispose.recomposite
+              screen.on('display-metrics-changed', handleDisplayChange)
+              screen.on('display-added', handleDisplayChange)
+              screen.on('display-removed', handleDisplayChange)
+              whiteStripRecompositeHandle = scheduleFloatingSealIdleTask(async () => {
+                whiteStripRecompositeHandle = undefined
+                if (seal.isDestroyed() || floatingSealWindow !== seal) return
+                await dispose.recomposite()
+                if (seal.isDestroyed() || floatingSealWindow !== seal) return
+                traceStartupPhase('pet-native-polish:white-strip-ready')
+                captionPolishHandle = scheduleFloatingSealCaptionPolish(seal)
+              }, 'floating-seal:white-strip-recomposite')
+            })
+          }, 'floating-seal:native-polish')
+        }, 'floating-seal:mouse-recovery')
+      }, 'floating-seal:window-setup')
+    }, 'floating-seal:bounds-setup')
   })
 
   return seal
@@ -556,7 +612,7 @@ const floatingSealWakeController = createFloatingSealWakeController({
     floatingSealMouseRecovery?.setVisible(true)
     setFloatingSealWindowMouseTransparent(false)
   },
-  scheduleCreate: (callback) => scheduleFloatingSealIdleTask(callback),
+  scheduleCreate: (callback) => scheduleFloatingSealIdleTask(callback, 'floating-seal:create'),
   cancelCreate: (handle) => cancelFloatingSealIdleTask(handle as FloatingSealIdleTaskHandle)
 })
 
@@ -575,7 +631,7 @@ function scheduleAutomaticFloatingSealWake() {
     automaticFloatingSealWakeHandle = undefined
     if (appQuitting) return
     void floatingSealWakeController.wake()
-  })
+  }, 'floating-seal:auto-wake')
 }
 
 function maybeScheduleAutomaticFloatingSealWake() {
@@ -630,6 +686,7 @@ function createFloatingMenuWindow() {
       preload: createPreloadScriptPath(__dirname)
     })
   )
+  installStartupInputObservers(menu)
 
   configureFloatingMenuWindow(menu, () => {
     floatingMenuController.clearIfCurrent(menu)
@@ -662,6 +719,7 @@ function createFloatingAssistantWindow() {
       sandbox: false
     }
   })
+  installStartupInputObservers(assistant)
 
   assistant.setAlwaysOnTop(true, 'floating')
   assistant.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -798,9 +856,12 @@ function closeFloatingAssistantWindow() {
 }
 
 function closeAssistantPetWindow() {
+  cancelAutomaticFloatingSealWake()
   closeFloatingMenuWindow()
   closeFloatingAssistantWindow()
+  cancelFloatingSealStartupStages?.()
   floatingSealWakeController.close()
+  cancelRecompositeFloatingSealWindow?.()
   floatingSealMouseRecovery?.setVisible(false)
 }
 
@@ -876,7 +937,8 @@ function setFloatingSealWindowMouseTransparent(transparent: boolean) {
 }
 
 function wakeAssistantPetWindow() {
-  return floatingSealWakeController.wake()
+  cancelAutomaticFloatingSealWake()
+  return floatingSealWakeController.wakeImmediately()
 }
 
 function notifyFloatingAssistantSnapshotChanged() {
@@ -1390,6 +1452,26 @@ function registerAssistantPreferenceHandlers() {
       return
     }
     markAssistantRuntimeReady(event.sender.id)
+  })
+  ipcMain.on('startup:input-activity', (event) => {
+    const floatingAssistant = floatingAssistantController.getWindow()
+    const floatingMenu = floatingMenuController.getWindow()
+    const trustedIds = [
+      mainWindow?.webContents.id,
+      floatingSealWindow?.webContents.id,
+      floatingAssistant?.webContents.id,
+      floatingMenu?.webContents.id
+    ].filter((id): id is number => typeof id === 'number')
+    if (!trustedIds.includes(event.sender.id)) return
+    traceStartupPhase('input:activity')
+    cancelRecompositeFloatingSealWindow?.()
+    noteStartupInputActivity()
+  })
+  ipcMain.on('main-window:first-frame', (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
+      return
+    }
+    traceStartupPhase('main-window:first-frame')
   })
   ipcMain.on('main-window:interactive-ready', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
@@ -3036,6 +3118,7 @@ const favoriteRepositoryQuitBarrier = createFavoriteRepositoryQuitBarrier({
 })
 app.on('before-quit', favoriteRepositoryQuitBarrier)
 app.on('before-quit', cancelAutomaticFloatingSealWake)
+app.on('before-quit', disposeFloatingSealIdleTaskScheduler)
 app.on('before-quit', disposeDefaultFasterWhisperHelperSessions)
 app.on('before-quit', disposeFasterWhisperGpuProbes)
 

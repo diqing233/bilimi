@@ -3715,6 +3715,7 @@ export default function App() {
       }
     }
     firstFrame = window.requestAnimationFrame(() => {
+      window.bilimiDesktop?.notifyMainWindowFirstFrame?.()
       secondFrame = window.requestAnimationFrame(() => {
         idleHandle = idleWindow.requestIdleCallback?.(notifyInteractive, { timeout: 1000 })
         if (idleHandle === undefined) {

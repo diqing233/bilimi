@@ -85,6 +85,8 @@ import type { OldFavoriteWorkspaceBilibiliSyncPreflight, OldFavoriteWorkspaceDee
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
+  notifyStartupInputActivity: () => ipcRenderer.send('startup:input-activity'),
+  notifyMainWindowFirstFrame: () => ipcRenderer.send('main-window:first-frame'),
   notifyMainWindowInteractive: () => ipcRenderer.send('main-window:interactive-ready'),
   notifyHomeWebviewLoadSettled: () => ipcRenderer.send('home-webview:load-settled'),
   closeAssistantPet: () => ipcRenderer.send('assistant-pet:close'),
