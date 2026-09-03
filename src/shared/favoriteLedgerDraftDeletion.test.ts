@@ -81,7 +81,7 @@ describe('favorite ledger draft deletion', () => {
     expect(removeUnsavedFavoriteLedgerDraft(ledgers, 'bound-draft')).toBe(ledgers)
   })
 
-  it('removes a persisted pure recommendation draft through its dedicated draft path', () => {
+  it('refuses an already persisted recommendation rule through its dedicated draft path', () => {
     const recommendationDraft = {
       id: 'recommended-pure', displayName: 'bilimi·推荐草稿', keywords: ['推荐'], enabled: true, priority: 10,
       syncState: 'local-draft' as const, ruleOrigin: 'recommendation-draft' as const,
@@ -93,9 +93,19 @@ describe('favorite ledger draft deletion', () => {
     }
     const ledgers = [recommendationDraft, savedRule]
 
-    expect(isPureRecommendationLedgerDraft(recommendationDraft)).toBe(true)
-    expect(removePureRecommendationLedgerDraft(ledgers, 'recommended-pure')).toEqual([savedRule])
+    expect(isPureRecommendationLedgerDraft(recommendationDraft)).toBe(false)
+    expect(removePureRecommendationLedgerDraft(ledgers, 'recommended-pure')).toBe(ledgers)
     expect(removePureRecommendationLedgerDraft(ledgers, 'saved')).toBe(ledgers)
+  })
+
+  it('removes a temporary recommendation candidate without persisted lifecycle state', () => {
+    const recommendationDraft = {
+      id: 'recommended-temporary', displayName: 'bilimi·临时推荐', keywords: ['临时'], enabled: true, priority: 10,
+      syncState: 'local-draft' as const, ruleOrigin: 'recommendation-draft' as const, isDefault: false
+    }
+
+    expect(isPureRecommendationLedgerDraft(recommendationDraft)).toBe(true)
+    expect(removePureRecommendationLedgerDraft([recommendationDraft], recommendationDraft.id)).toEqual([])
   })
 
   it('removes selected custom ledgers through the local configuration path while retaining defaults', () => {
