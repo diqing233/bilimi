@@ -30,6 +30,10 @@
 
 > 不卡了，但是鼠标持续移动，小咪不会出现
 
+### R008
+
+> 确认了就是宠物小咪启动过程卡，按照你说的先完全跳过 `caption-polish` 做一次对照
+
 ## 逐项索引表
 
 | 编号 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
@@ -41,6 +45,7 @@
 | I005 | R004, R005 | 启动路径必须区分真实首页加载收束与看门狗超时；持续输入时小咪可延后但不能让主窗口卡顿；停止输入后也不得立刻集中执行原生阶段 | 主窗口首页 guest WebView、主进程小咪自动唤醒 gate、后台阶段 | 只有 `dom-ready`/`did-stop-loading`/`did-fail-load` 等真实事件才能释放自动创建资格；超时只记诊断；小咪隐藏/关闭后已排队阶段不得继续执行 | 输入活动继续推迟尚未开始的后台阶段；每个小咪阶段重新经过稳定空闲检查；显示前不启用鼠标恢复轮询；关闭/隐藏取消所有排队阶段 | 不改变 B 站 URL/Cookie/代理/登录、业务 IPC、本地业务数据和远端写入；诊断不采集输入内容 | 不用固定延时伪造加载完成，不因宠物显示牺牲主窗口，不把 PowerShell/DWM 当作显示前置 | `App.tsx` 首页加载状态、preload IPC、`index.ts` gate/窗口生命周期、输入调度器 | 已确认 | 定向回归测试、全量测试、构建、开发版连续输入和小咪出现前后窗口操作记录 |
 | I006 | R006 | 隔离开发版可让小咪自动出现更慢；启动性能决策优先保证鼠标连续流畅 | 自动小咪唤醒的输入感知调度器 | 自动小咪仅在首页真实收束后开始；从收束起最少等待 600ms，且真实交互后再经过 600ms 安静窗口；显式唤醒不延迟 | 连续移动不应无限期推迟首次最小显示；点击、滚动、键盘和窗口操作继续推迟自动创建 | 不改业务数据、B 站 URL/Cookie/代理/登录、任何远端写入或用户显式唤醒语义 | 不通过固定启动延时伪造加载完成；不延长既有窗口控制或用户明确操作 | `startupInputScheduler` 输入类别、`scheduleAutomaticFloatingSealWake` | 已实施待隔离实机验证 | RED/ GREEN 回归；正确隔离 profile 下观察首页收束→小咪显示与持续移动，验证 600ms 真实交互安静窗口和主窗口响应 |
 | I007 | R007 | 连续移动鼠标时仍自动出现小咪，同时鼠标保持流畅 | 首页真实收束后的自动小咪唤醒、首次 hidden 小咪窗口创建与显示 | 首页真实收束后，连续指针移动不能无限期阻止自动显示；自动唤醒从收束起最少等待 600ms；按下/抬起、滚动、键盘、拖动、缩放、最小化、恢复、关闭等交互仍延后未开始的高成本阶段 | 首次最小小咪窗口创建可穿过连续 `pointermove`，但必须在最近一次真实交互后的 600ms 安静窗口开始；后续边界/置顶/鼠标恢复/白条/DWM/标题栏阶段仍在完整安静窗口分段运行 | 不改 B 站 URL/Cookie/代理/登录、本地业务数据、持久化、显式唤醒和任何远端写入 | 不以取消输入保护、同步原生修补或固定伪造首页收束来换取显示；不把自动小咪改为抢焦点显示 | `startupInputScheduler` 输入类别、renderer/preload 输入桥接、`floatingSealWakeController` 创建选项、启动测试 | 已实施待隔离实机验证 | 失败回归测试证明连续指针移动不推迟已获资格的自动创建；隔离开发版记录“首页收束→小咪显示”且连续移动期间无可感知卡顿，随后验证实际交互仍会让后续原生阶段让路 |
+| I008 | R008 | 为确认卡顿根因，开发版实验性完全跳过小咪 `caption-polish` 阶段；实验可逆，默认产品行为不改变 | `electron/main/index.ts` 小咪 post-show native polish 调度、开发版启动环境 | 仅 `BILIMI_SKIP_PET_CAPTION_POLISH=1` 时不安排 `caption-polish`；小咪创建、显示、点击穿透、拖动、其它白条/DWM 阶段保持原样；未设置时维持原行为 | 启动后记录 `caption-skipped` 诊断事件；不得改变显式唤醒、全屏收起/恢复或下次启动偏好 | 仅开发诊断环境变量，不写本地业务数据，不改变 B 站 URL/Cookie/代理/登录或任何远端副作用 | 不借实验开关宣称最终修复；不删除其它 native polish、重写小咪交互或扩大到生产默认 | `scheduleFloatingSealCaptionPolish`、`createFloatingSealWindow`、启动诊断、启动回归测试 | 已确认待验证 | 需先有失败测试，再以开关启动隔离开发版；对照记录小咪显示前后鼠标响应和 `caption-polish` 是否缺席 |
 
 ### R007 续验记录（2026-09-03）
 
@@ -56,6 +61,12 @@
 | I001、I003、I005、I006、I007 | `electron/main/index.ts`、`electron/main/startupInputScheduler.ts`、`electron/main/floatingSealIdleTask.ts`、`electron/main/floatingSealWakeController.ts`、`electron/preload/index.ts`、`src/renderer/src/main.tsx`、`src/renderer/src/App.tsx`、`src/renderer/src/global.d.ts`；首页 guest 早到收束另由主进程缓存再可信认领 | `npm run build` 退出码 0；`npm test` 退出码 0，246 files / 4281 tests passed；本轮启动定向契约包括 6 files / 92 tests passed | 自动创建只会从真实首页 guest 收束放行，连续无按键 `pointermove` 不重置首次最小创建门槛，真实交互仍让后续重阶段等待。实际开发版 r12 已记录收束到小咪可见；但 Windows 自动化无法产生纯连续 `pointermove`，所以该项鼠标手感以及缩放、最小化、恢复、关闭的整段体验仍须人工验收。 |
 | I003（测试门禁） | `electron/installer/installer.finishPage.test.ts`、`electron/main/index.favoriteHistoryWiring.test.ts` | 两条已有源码文本断言先在本 Windows 工作树以 CRLF 失败；改为同时接受 LF/CRLF 后，定向 2 files / 6 tests 与上述全量测试通过 | 仅修正测试对文本行尾的跨平台匹配，不修改安装器、收藏历史或任何应用运行行为。 |
 
+### I008 实施记录（2026-09-04）
+
+| 条目 | 实际代码位置 | 自动化验证 | 真实界面验收 | 结果与仍无法验证条件 |
+| --- | --- | --- | --- | --- |
+| I008 | `electron/main/index.ts`：`skipFloatingSealCaptionPolish` 仅在开发版读取 `BILIMI_SKIP_PET_CAPTION_POLISH=1`，白条重绘完成后记录 `pet-native-polish:caption-skipped`，否则继续调用 `scheduleFloatingSealCaptionPolish()`；`electron/main/index.mainWindowPetStartup.test.ts` 增加默认路径与开关共存契约 | 先失败后通过：定向 `electron/main/index.mainWindowPetStartup.test.ts` 27/27；全量 `npm test` 246 files / 4294 tests passed；`npm run build` 退出码 0；`git diff --check` 无错误 | 已启动隔离开发版，独立 profile 使用 `BILIMI_SKIP_PET_CAPTION_POLISH=1`、`BILIMI_STARTUP_DIAGNOSTICS=1`；日志已出现首帧、首页收束和连续 `input:pointer-move`，等待用户观察小咪显示及 `caption-skipped`。当前尚未取得用户对鼠标手感和小咪完整显示的最终确认 | 开关仅为可逆开发实验，未设置时默认 `caption-polish` 路径保留；未改业务数据、B 站状态或其它小咪阶段。无法由自动化替代真实鼠标连续移动/点击/滚动体验，故 I008 保持“已实施待验证” |
+
 ## 实施计划与核对
 
 ### 已确认条目（按原文顺序）
@@ -67,6 +78,7 @@
 5. I005（R004、R005）：真实首页收束、超时诊断、关闭取消和启动阶段稳定空闲门禁。
 6. I006（R006）：允许隔离开发版启动更慢，但不牺牲鼠标连续流畅。
 7. I007（R007）：连续移动不能无限期阻止小咪自动出现，且鼠标持续流畅。
+8. I008（R008）：开发版跳过 `caption-polish` 做一次可逆对照，确认小咪原生修饰是否是卡顿源。
 
 ### 待用户决定
 
@@ -91,6 +103,8 @@
 | 5 | I005 | `src/renderer/src/App.tsx`、`electron/preload/index.ts`、`src/renderer/src/global.d.ts`、`electron/main/index.ts`、启动测试 | 看门狗不再伪装真实收束；隐藏/关闭取消所有小咪阶段；事件注册类型安全 | 首页未收束时小咪不自动创建；小咪隐藏后迟到任务误执行 | 先写失败测试，再定向测试、全量测试和构建 | 开发版持续移动/停止鼠标，观察主窗口响应和小咪阶段诊断 |
 | 6 | I006 | `electron/main/startupInputScheduler.ts`、`electron/main/floatingSealIdleTask.ts`、`electron/main/index.ts`、调度器/启动测试 | 自动小咪首次创建在首页真实收束至少 600ms、且最近真实交互安静 600ms 后进行；连续移动不无限期阻止显示 | 错误延迟显式唤醒或后台后续阶段；多阶段在停止输入后集中执行 | 先写任务级输入类别失败测试和自动唤醒契约，再最小实现并跑定向/全量测试 | 正确隔离 profile 下记录首页收束→小咪创建间隔及连续移动/停止后的主窗口响应 |
 | 7 | I007 | `docs/项目功能项目书.md`、`electron/main/startupInputScheduler.ts`、`electron/main/floatingSealIdleTask.ts`、`electron/main/floatingSealWakeController.ts`、`electron/main/index.ts`、renderer/preload 输入桥接和对应测试 | 仅连续 `pointermove` 不再重置自动首次创建资格；实际交互仍推迟自动创建，后续原生阶段保持完整输入让路 | 小咪在移动中创建仍可能影响指针，或错误把点击/滚动/拖动视为可忽略 | 先写输入类别和自动创建选项的失败测试；定向测试、全量测试、构建和隔离开发版连续移动实测 | 记录首页收束→小咪显示；持续移动、点击/滚动/拖动/缩放/最小化/恢复/关闭分别验证，不把自动化当作实机流畅证明 |
+
+| 8 | I008 | `electron/main/index.ts`、`electron/main/index.mainWindowPetStartup.test.ts`、本账本；仅增加开发环境跳过开关与诊断，不改其它小咪/业务模块 | 设置 `BILIMI_SKIP_PET_CAPTION_POLISH=1` 时完全不安排 `caption-polish`，其它阶段和默认未设置行为不变 | 开关判断或诊断位置错误导致默认行为变化，或误跳过其它 native 阶段 | 先写并观察失败契约测试；GREEN 后定向测试、`npm run build`、隔离开发版带开关启动；比较鼠标事件空档与无开关日志 | 验收小咪仍可显示、主窗口可移动/点击/滚动；观察 `caption-skipped` 且无 `caption-polish:started`，记录仍无法验证项 |
 
 ## 实施记录
 

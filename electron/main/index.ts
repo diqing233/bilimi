@@ -284,6 +284,8 @@ function traceStartupPhase(phase: string) {
 function yieldStartupEventLoop() {
   return new Promise<void>((resolve) => setImmediate(resolve))
 }
+const skipFloatingSealCaptionPolish =
+  !app.isPackaged && process.env.BILIMI_SKIP_PET_CAPTION_POLISH === '1'
 const bilibiliSessionProxy = new BilibiliSessionProxy(() => session.fromPartition(BILIMI_SESSION_PARTITION))
 
 function normalizeBilibiliConnectionMode(value: unknown): 'auto' | 'direct' {
@@ -621,7 +623,11 @@ function createFloatingSealWindow() {
                 await dispose.recomposite()
                 if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return
                 traceStartupPhase('pet-native-polish:white-strip-ready')
-                captionPolishHandle = scheduleFloatingSealCaptionPolish(seal)
+                if (skipFloatingSealCaptionPolish) {
+                  traceStartupPhase('pet-native-polish:caption-skipped')
+                } else {
+                  captionPolishHandle = scheduleFloatingSealCaptionPolish(seal)
+                }
               }, 'floating-seal:white-strip-recomposite')
             })
           }, 'floating-seal:native-polish')

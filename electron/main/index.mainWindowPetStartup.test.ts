@@ -199,6 +199,13 @@ describe('main-window first pet startup wiring', () => {
     expect(mainSource).toContain('await installFloatingSealCaptionStrip(seal')
   })
 
+  it('supports an opt-in development switch that skips caption polish without removing the default path', () => {
+    expect(mainSource).toContain('BILIMI_SKIP_PET_CAPTION_POLISH')
+    expect(mainSource).toContain("traceStartupPhase('pet-native-polish:caption-skipped')")
+    expect(mainSource).toContain('if (skipFloatingSealCaptionPolish)')
+    expect(mainSource).toContain('scheduleFloatingSealCaptionPolish(seal)')
+  })
+
   it('keeps the cold pet show path to click-through and display before post-show native setup', () => {
     const petStart = mainSource.indexOf('function createFloatingSealWindow()')
     const petEnd = mainSource.indexOf('\n}\n\nconst floatingSealWakeController', petStart)
