@@ -1,14 +1,5 @@
 import type { FavoriteLedger } from '../../src/shared/types'
 
-function normalizedRuleKeywords(ledger: FavoriteLedger) {
-  return ledger.keywords.map((keyword) => keyword.trim().toLocaleLowerCase()).filter(Boolean).sort()
-}
-
-function sameLogicalRecommendation(left: FavoriteLedger, right: FavoriteLedger) {
-  if ((left.ruleType ?? 'keyword') !== (right.ruleType ?? 'keyword')) return false
-  return JSON.stringify(normalizedRuleKeywords(left)) === JSON.stringify(normalizedRuleKeywords(right))
-}
-
 export async function classifyOldFavoriteItemsCooperatively<Item, Result>(
   items: readonly Item[],
   classifyBatch: (items: Item[]) => Result[] | Promise<Result[]>,
@@ -67,9 +58,8 @@ export function mergeOldFavoriteWorkspaceLedgers(
 ) {
   const availableSavedLedgers = savedLedgers.filter((saved) =>
     !excludedRecommendedLedgers.some((excluded) =>
-      (excluded.id === saved.id || sameLogicalRecommendation(excluded, saved)) &&
-      !recommendedLedgers.some((recommended) =>
-        recommended.id === saved.id || sameLogicalRecommendation(recommended, saved))))
+      excluded.id === saved.id &&
+      !recommendedLedgers.some((recommended) => recommended.id === saved.id)))
   const consumedSavedIds = new Set<string>()
   const resolvedRecommendations = recommendedLedgers.map((recommended) => {
     const exactId = availableSavedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && ledger.id === recommended.id)
@@ -85,15 +75,7 @@ export function mergeOldFavoriteWorkspaceLedgers(
         managedFolderDeletedByUser: exactId.managedFolderDeletedByUser
       }
     }
-    const saved = availableSavedLedgers.find((ledger) => !consumedSavedIds.has(ledger.id) && sameLogicalRecommendation(ledger, recommended))
-    if (!saved) return { ...recommended, keywords: [...recommended.keywords] }
-    consumedSavedIds.add(saved.id)
-    return {
-      ...saved,
-      keywords: [...saved.keywords],
-      enabled: true,
-      priority: recommended.priority
-    }
+    return { ...recommended, keywords: [...recommended.keywords] }
   })
   return [
     ...resolvedRecommendations,

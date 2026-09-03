@@ -32,15 +32,6 @@ function matchesGeneratedRecommendation(ledger: FavoriteLedger, recommendation: 
     ledger.isDefault === recommendation.isDefault
 }
 
-function normalizedRuleKeywords(ledger: FavoriteLedger) {
-  return ledger.keywords.map((keyword) => keyword.trim().toLocaleLowerCase()).filter(Boolean).sort()
-}
-
-function sameLogicalRecommendation(left: FavoriteLedger, right: FavoriteLedger) {
-  if ((left.ruleType ?? 'keyword') !== (right.ruleType ?? 'keyword')) return false
-  return JSON.stringify(normalizedRuleKeywords(left)) === JSON.stringify(normalizedRuleKeywords(right))
-}
-
 export function reconcileRecommendedLedgers(
   current: FavoriteLedger[],
   recommendations: FavoriteLedger[],
@@ -54,13 +45,7 @@ export function reconcileRecommendedLedgers(
       matchedCurrentIds.add(exactId.id)
       return exactId
     }
-    const existing = current.find((ledger) =>
-      !matchedCurrentIds.has(ledger.id) && sameLogicalRecommendation(ledger, recommendation))
-    if (!existing) return recommendation
-    matchedCurrentIds.add(existing.id)
-    return !existing.bilibiliFolderId
-      ? { ...existing, enabled: true }
-      : existing
+    return recommendation
   })
   const recommendedById = new Map(recommendations.map((ledger) => [ledger.id, ledger]))
   const retained = current.filter((ledger) => {
@@ -78,7 +63,8 @@ export function reconcileRecommendedLedgers(
 }
 
 function hasConfiguredRule(ledger: FavoriteLedger) {
-  return ledger.enabled || ledger.keywords.some((keyword) => keyword.trim())
+  return ledger.ruleOrigin === 'saved-rule' || ledger.enabled ||
+    (Array.isArray(ledger.keywords) && ledger.keywords.some((keyword) => keyword.trim()))
 }
 
 function remoteFolderIds(ledger: FavoriteLedger) {
@@ -110,7 +96,8 @@ export function mergeRecoveredLedgerDrafts(current: FavoriteLedger[], recovered:
   const emittedIds = new Set<string>()
   for (const group of groups.values()) {
     const remoteFolderId = remoteFolderIds(group[0]!.ledger)[0]!
-    const configured = group.find(({ ledger }) => hasConfiguredRule(ledger))
+    const configuredEntries = group.filter(({ ledger }) => hasConfiguredRule(ledger))
+    const configured = configuredEntries[0]
     const canonical = group.find(({ ledger }) => ledger.id === createRemoteObservationFavoriteLedgerId(remoteFolderId))
     const selected = configured?.ledger ?? canonical?.ledger ?? group[0]!.ledger
     // A user-edited legacy rule keeps its stable local ID; only an
@@ -123,11 +110,16 @@ export function mergeRecoveredLedgerDrafts(current: FavoriteLedger[], recovered:
     retained.push(selectedLedger.bilibiliFolderId
       ? selectedLedger
       : { ...selectedLedger, bilibiliFolderId: remoteFolderId, bilibiliFolderIds: [remoteFolderId] })
+    emittedIds.add(selectedLedger.id)
+    for (const entry of configuredEntries.slice(1)) {
+      if (emittedIds.has(entry.ledger.id)) continue
+      retained.push(entry.ledger)
+      emittedIds.add(entry.ledger.id)
+    }
     for (const entry of group) {
       if (entry.source === 'current') consumedCurrentIds.add(entry.ledger.id)
       else consumedRecoveredIds.add(entry.ledger.id)
     }
-    emittedIds.add(selectedLedger.id)
   }
 
   for (const ledger of current) {

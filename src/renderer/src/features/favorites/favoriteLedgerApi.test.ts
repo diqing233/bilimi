@@ -996,6 +996,55 @@ describe('favorite ledger API scripts', () => {
     ]))
   })
 
+  it('does not suppress a different remote folder when a non-prefixed local rule has the same title', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 90, title: 'bilimi·同名', media_count: 1 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([{
+      id: 'legacy-local', displayName: '同名', keywords: [], enabled: false, priority: 1, isDefault: false,
+      bindingState: 'unbound'
+    }])) as { ledgers: FavoriteLedger[] }
+
+    expect(result.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'legacy-local', displayName: '同名' }),
+      expect.objectContaining({ bilibiliFolderId: '90', syncState: 'local-draft' })
+    ]))
+  })
+
+  it('reports missing credentials as unverified instead of a successful status shape', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    Object.defineProperty(document, 'cookie', { configurable: true, value: '' })
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([])) as { ok: boolean; verified: boolean }
+
+    expect(result.ok).toBe(false)
+    expect(result.verified).toBe(false)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('does not mark an enabled unbacked ledger as a successful status', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([{
+      id: 'unbacked-enabled', displayName: 'bilimi·未备册', keywords: [], enabled: true, priority: 1, isDefault: false,
+      bindingState: 'unbacked'
+    }])) as { ok: boolean; missingLedgerIds: string[] }
+
+    expect(result.ok).toBe(false)
+    expect(result.missingLedgerIds).toContain('unbacked-enabled')
+  })
+
   it('treats a bound folder with a changed title as an unbound exact-id candidate', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

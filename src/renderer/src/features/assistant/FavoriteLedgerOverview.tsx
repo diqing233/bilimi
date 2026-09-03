@@ -364,6 +364,30 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const ledgerHintPanelRef = useRef<HTMLElement>(null)
   const ledgerHintTriggerRef = useRef<HTMLButtonElement>(null)
   const ledgerHintTooltipRef = useRef<HTMLDivElement>(null)
+  const ledgerScrollRestoreRef = useRef<{ container: HTMLElement; top: number; frames: number[] }>({
+    container: ledgerHintPanelRef.current as HTMLElement,
+    top: 0,
+    frames: []
+  })
+  const preserveLedgerScroll = () => {
+    const origin = ledgerHintPanelRef.current
+    if (!origin) return
+    const container = origin.closest<HTMLElement>('[role="dialog"][aria-label="掌库"]') ?? origin
+    const state = ledgerScrollRestoreRef.current
+    state.container = container
+    state.top = container.scrollTop
+    for (const frame of state.frames) window.cancelAnimationFrame(frame)
+    const restore = (remainingFrames: number) => {
+      if (!state.container.isConnected) return
+      if (state.container.scrollTop !== state.top) state.container.scrollTop = state.top
+      if (remainingFrames > 0) {
+        state.frames = [window.requestAnimationFrame(() => restore(remainingFrames - 1))]
+      } else {
+        state.frames = []
+      }
+    }
+    state.frames = [window.requestAnimationFrame(() => restore(1))]
+  }
   const [draftLedgers, setDraftLedgers] = useState(ledgers)
   const draftLedgersRef = useRef(draftLedgers)
   const awaitingParentLedgerIdsRef = useRef<Set<string>>(new Set())
@@ -712,6 +736,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   }
   const toggle = (id: string) => {
     if (deletionModeActive && destructiveActionLocked) return
+    preserveLedgerScroll()
     if (deletionModeActive) {
       deletionStore.toggle(id)
       return
@@ -769,6 +794,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   }
   const toggleAll = () => {
     if (deletionModeActive && destructiveActionLocked) return
+    preserveLedgerScroll()
     if (deletionModeActive) {
       deletionStore.toggleAll()
       return
@@ -1083,11 +1109,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setDeletionError(null)
     setDraftDeletionError(null)
     for (const ledger of persistedLedgers) {
-      const result = await onDeleteLedger?.(ledger.id)
-      if (result === false) {
-        setDeletionError('删除未成功，请稍后重试。')
-        setDraftDeletionError('删除未成功，请稍后重试。')
-        return false
+      // The account-local deletion has already committed. A workspace or
+      // parent projection refresh is best-effort and must not resurrect this
+      // rule or turn a completed local deletion into a false failure.
+      try {
+        await onDeleteLedger?.(ledger.id)
+      } catch {
+        // The next authoritative refresh will reconcile the parent snapshot.
       }
     }
     return true
@@ -1125,6 +1153,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     }
   }
   const requestSingleLedgerDeletion = (ledger: FavoriteLedger) => {
+    if (ledger.ruleOrigin === 'recommendation-draft' && !ledger.isDefault) {
+      void deleteLocalFavoriteLedgers([ledger.id])
+      return
+    }
     if (isDraftDirectlyDeletable(ledger)) {
       void deleteUnsavedDraft(ledger)
       return

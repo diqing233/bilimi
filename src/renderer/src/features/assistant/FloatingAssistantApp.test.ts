@@ -180,6 +180,17 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(saveFunction).not.toContain("{ type: 'reclassify-favorite-configuration' }")
   })
 
+  it('restores a rejected direct enabled write only when its optimistic value remains current', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgerEnabled'),
+      source.indexOf('async function saveFavoriteLedgerRules')
+    )
+
+    expect(saveFunction).toContain('rollbackIndexedFavoriteLedgerEnabledPatch')
+    expect(saveFunction).toContain('catch (error)')
+  })
+
   it('passes the direct enabled callback through the isolated ledger panel', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const panelStart = source.indexOf('<LedgerWorkspacePanel')

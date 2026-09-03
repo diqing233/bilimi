@@ -5233,6 +5233,140 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Adopted' })).not.toBeInTheDocument())
   })
 
+  it('locally deletes an exact adopted recommendation after it has been backed to Bilibili', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [{ id: 'author-adopted-bound', displayName: 'bilimi·Backed adopted', keywords: ['Backed adopted'], kind: 'author' as const, count: 2, reason: 'adopted' }],
+        adoptedCandidateIds: ['author-adopted-bound']
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(preview)
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['author-adopted-bound'] })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command,
+      deleteFavoriteLedgersLocal
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+      ledgers={[{
+        id: 'author-adopted-bound', displayName: 'bilimi·Backed adopted', keywords: ['Backed adopted'], ruleType: 'author', enabled: true,
+        priority: 10_000, ruleOrigin: 'recommendation-draft', bindingState: 'bound', bilibiliFolderId: 'remote-adopted', isDefault: false
+      }]} />)
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Backed adopted', checked: true }))
+
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['author-adopted-bound']))
+    expect(command).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'set-round-excluded-ledger-ids' }))
+  })
+
+  it('does not restore an older scroll position after the user scrolls between lower recommendation clicks', async () => {
+    const frames = new Map<number, FrameRequestCallback>()
+    let nextFrameId = 0
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      const frameId = ++nextFrameId
+      frames.set(frameId, callback)
+      return frameId
+    })
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((frameId) => {
+      frames.delete(Number(frameId))
+    })
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [
+          { id: 'author-scroll-one', displayName: 'bilimi·Scroll one', keywords: ['Scroll one'], kind: 'author' as const, count: 2, reason: 'scroll' },
+          { id: 'author-scroll-two', displayName: 'bilimi·Scroll two', keywords: ['Scroll two'], kind: 'author' as const, count: 2, reason: 'scroll' }
+        ],
+        adoptedCandidateIds: []
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
+    } as unknown as typeof window.bilimiDesktop
+
+    try {
+      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} ledgers={[]} />)
+      await openPersistedWorkspaceGuide()
+      fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+      const panel = screen.getByRole('dialog', { name: '掌库' })
+      panel.scrollTop = 240
+      frames.clear()
+
+      fireEvent.click(await screen.findByRole('checkbox', { name: 'Scroll one', checked: false }))
+      panel.scrollTop = 400
+      fireEvent.click(await screen.findByRole('checkbox', { name: 'Scroll two', checked: false }))
+
+      expect(frames).toHaveLength(1)
+      const restore = [...frames.values()][0]
+      restore?.(performance.now())
+      expect(panel.scrollTop).toBe(400)
+    } finally {
+      requestFrame.mockRestore()
+      cancelFrame.mockRestore()
+    }
+  })
+
+  it('does not pull the panel back after the user manually scrolls following one recommendation click', async () => {
+    const frames = new Map<number, FrameRequestCallback>()
+    let nextFrameId = 0
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      const frameId = ++nextFrameId
+      frames.set(frameId, callback)
+      return frameId
+    })
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((frameId) => {
+      frames.delete(frameId)
+    })
+    try {
+      const preview = {
+        version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+        mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+        scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+        classifications: {}, recommendations: {
+          candidates: [{ id: 'scroll-manual', displayName: 'Scroll manual', kind: 'author' as const, count: 1, reason: 'Scroll' }],
+          adoptedCandidateIds: [] as string[]
+        }, history: { cursor: 0, length: 0 }
+      }
+      window.bilimiDesktop = {
+        openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+        commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
+      } as unknown as typeof window.bilimiDesktop
+      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} ledgers={[]} />)
+      await openPersistedWorkspaceGuide()
+      fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+      const panel = screen.getByRole('dialog', { name: '掌库' })
+      panel.scrollTop = 240
+      frames.clear()
+
+      fireEvent.click(await screen.findByRole('checkbox', { name: 'Scroll manual', checked: false }))
+      panel.scrollTop = 400
+      fireEvent.scroll(panel)
+
+      const restore = [...frames.values()][0]
+      restore?.(performance.now())
+      expect(panel.scrollTop).toBe(400)
+      expect(requestFrame).toHaveBeenCalledTimes(1)
+    } finally {
+      requestFrame.mockRestore()
+      cancelFrame.mockRestore()
+    }
+  })
+
   it('keeps an adopted lower recommendation selected and reports failure when its local deletion fails', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

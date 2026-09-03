@@ -111,7 +111,7 @@ describe('old favorite workspace recommendation persistence', () => {
     )).toEqual([...defaults, edited, bound])
   })
 
-  it('re-enables an unbound matching author rule under its existing identity', () => {
+  it('does not merge a different stable recommendation id by matching rule shape', () => {
     const existing = {
       ...recommendation,
       id: 'saved-alice',
@@ -122,10 +122,7 @@ describe('old favorite workspace recommendation persistence', () => {
     }
     const generated = { ...recommendation, id: 'custom-author-alice-new' }
 
-    expect(reconcileRecommendedLedgers([existing], [generated], [generated.id])).toEqual([{
-      ...existing,
-      enabled: true
-    }])
+    expect(reconcileRecommendedLedgers([existing], [generated], [generated.id])).toEqual([existing, generated])
   })
 
   it('removes a local recommendation draft marked unbound when it has no remote folder', () => {
@@ -216,5 +213,24 @@ describe('old favorite workspace recommendation persistence', () => {
     }
 
     expect(mergeRecoveredLedgerDrafts([legacyConfigured], [canonicalRecovered])).toEqual([legacyConfigured])
+  })
+
+  it('keeps a disabled saved-rule record when a canonical observation points to the same remote folder', () => {
+    const savedRule = {
+      id: 'saved-legacy', displayName: '同名', keywords: [], ruleType: 'keyword' as const,
+      enabled: false, priority: 1, bilibiliFolderId: '404', bilibiliFolderIds: ['404'],
+      ruleOrigin: 'saved-rule' as const, bindingState: 'unbound' as const, syncState: 'local-draft' as const, isDefault: false
+    }
+    const canonical = {
+      id: createRemoteObservationFavoriteLedgerId('404'), displayName: 'bilimi·同名', keywords: [], ruleType: 'keyword' as const,
+      enabled: false, priority: 2, bilibiliFolderId: '404', bilibiliFolderIds: ['404'],
+      bindingState: 'unbound' as const, syncState: 'local-draft' as const, isDefault: false
+    }
+
+    const result = mergeRecoveredLedgerDrafts([savedRule, canonical], [canonical])
+
+    expect(result).toEqual([
+      expect.objectContaining({ id: 'saved-legacy', ruleOrigin: 'saved-rule', bilibiliFolderId: '404' })
+    ])
   })
 })

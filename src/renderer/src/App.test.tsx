@@ -43,6 +43,7 @@ function isLedgerStatusScript(script: string) {
 function emptyLedgerStatus() {
   return {
     ok: true,
+    verified: true,
     ledgers: createDefaultFavoriteLedgers(),
     missingLedgerIds: [],
     message: '册目查验已毕。'
@@ -143,6 +144,23 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     setAssistantPetHint: vi.fn(),
     savePreferences: vi.fn(async (preferences: AssistantPreferences) => preferences),
     adoptFavoriteRepositoryLedgerBinding: vi.fn().mockResolvedValue(undefined),
+    openFavoriteRepositoryAccount: vi.fn(async (accountMid: string) => ({
+      version: 1,
+      accountMid,
+      revision: 1,
+      updatedAt: '2026-09-04T00:00:00.000Z',
+      videoCount: 0,
+      folderCount: 0,
+      folders: [],
+      folderCounts: {},
+      scopeCounts: {},
+      physicalShardCount: 0,
+      physicalShards: [],
+      syncRecordCount: 0,
+      syncCounts: {},
+      pendingAidCount: 0,
+      remoteReconciliations: []
+    })),
     checkpointConfirmedFavoriteReview: vi.fn().mockResolvedValue(undefined),
     commitConfirmedFavoriteReview: vi.fn().mockResolvedValue(undefined),
     registerAssistantRuntime,
@@ -688,6 +706,8 @@ describe('App runtime integration', () => {
     })
     Object.assign(webview, { executeJavaScript })
 
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+
     act(() => {
       webview.dispatchEvent(
         new CustomEvent('did-navigate-in-page', {
@@ -1050,6 +1070,8 @@ describe('App runtime integration', () => {
     })
     Object.assign(webview, { executeJavaScript })
 
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+
     act(() => {
       webview.dispatchEvent(
         new CustomEvent('did-navigate-in-page', {
@@ -1098,6 +1120,7 @@ describe('App runtime integration', () => {
       if (isLedgerStatusScript(script)) {
         return {
           ok: true,
+          verified: true,
           ledgers: preferences.favoriteLedgers,
           missingLedgerIds: [],
           backupConflictLedgerIds: [],
@@ -1170,6 +1193,7 @@ describe('App runtime integration', () => {
       if (isLedgerStatusScript(script)) {
         return {
           ok: false,
+          verified: true,
           ledgers,
           missingLedgerIds: ['game'],
           backupConflictLedgerIds: [],
@@ -1195,6 +1219,7 @@ describe('App runtime integration', () => {
     })
     Object.assign(webview, { executeJavaScript })
 
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
     act(() => {
       webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
         detail: { url: 'https://www.bilibili.com/video/BV1review711' }
@@ -1233,6 +1258,7 @@ describe('App runtime integration', () => {
       if (isLedgerStatusScript(script)) {
         return {
           ok: false,
+          verified: true,
           ledgers,
           missingLedgerIds: ['game'],
           backupConflictLedgerIds: [],
@@ -1258,6 +1284,7 @@ describe('App runtime integration', () => {
     })
     Object.assign(webview, { executeJavaScript })
 
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
     act(() => {
       webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
         detail: { url: 'https://www.bilibili.com/video/BV1review712' }
@@ -1306,6 +1333,7 @@ describe('App runtime integration', () => {
         return statusReadCount === 1
           ? {
               ok: true,
+              verified: true,
               ledgers: provisionedLedgers,
               missingLedgerIds: [],
               backupConflictLedgerIds: [],
@@ -1314,6 +1342,7 @@ describe('App runtime integration', () => {
             }
           : {
               ok: true,
+              verified: true,
               ledgers: localDraftLedgers,
               missingLedgerIds: [],
               backupConflictLedgerIds: [],
@@ -1388,6 +1417,7 @@ describe('App runtime integration', () => {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       adoptFavoriteRepositoryLedgerBinding
     })
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
     notifyPreferencesChanged(createAppPreferences({ favoriteLedgers: ledgers }))
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -1410,7 +1440,7 @@ describe('App runtime integration', () => {
         }
         if (isLedgerStatusScript(script)) {
           return {
-            ok: true, ledgers, missingLedgerIds: [], backupConflictLedgerIds: [],
+            ok: true, verified: true, ledgers, missingLedgerIds: [], backupConflictLedgerIds: [],
             unboundLedgerIds: [], message: 'Favorite ledgers are bound.'
           }
         }
@@ -1484,6 +1514,7 @@ describe('App runtime integration', () => {
       }),
       adoptFavoriteRepositoryLedgerBinding
     })
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
     notifyPreferencesChanged(createAppPreferences({ favoriteLedgers: ledgers }))
     const webview = document.getElementById('bilimi-webview') as HTMLElement & { executeJavaScript?: (script: string) => Promise<unknown> }
     const createdFolders: string[] = []
@@ -1492,7 +1523,7 @@ describe('App runtime integration', () => {
       if (script.includes('api:favorite:capacity-list') && script.includes('fullLedgerIds')) {
         return { ok: false, fullLedgerIds: ['game'], missingTargets: ['favorite-shard-confirmation:game'], steps: [], message: 'full' }
       }
-      if (isLedgerStatusScript(script)) return { ok: true, ledgers: currentLedgers, missingLedgerIds: [], backupConflictLedgerIds: [], unboundLedgerIds: [], message: 'bound' }
+      if (isLedgerStatusScript(script)) return { ok: true, verified: true, ledgers: currentLedgers, missingLedgerIds: [], backupConflictLedgerIds: [], unboundLedgerIds: [], message: 'bound' }
       if (script.includes('favorite physical shard create')) {
         createdFolders.push('9201')
         return { ok: true, steps: ['api:favorite:shard-create'], missingTargets: [], folder: { id: '9201', title: 'bilimi·游戏专区·2', shardNumber: 2 } }
@@ -1552,6 +1583,7 @@ describe('App runtime integration', () => {
       if (isLedgerStatusScript(script)) {
         return {
           ok: true,
+          verified: true,
           ledgers: localDraftLedgers,
           missingLedgerIds: [],
           backupConflictLedgerIds: [],
@@ -1621,6 +1653,7 @@ describe('App runtime integration', () => {
       if (isLedgerStatusScript(script)) {
         return {
           ok: false,
+          verified: true,
           ledgers: preferences.favoriteLedgers,
           missingLedgerIds: ['game'],
           backupConflictLedgerIds: [],
@@ -1865,6 +1898,7 @@ describe('App runtime integration', () => {
         if (script.includes('/x/v3/fav/folder/add')) {
           return {
             ok: true,
+            verified: true,
             ledgers: backedUpLedgers,
             steps: ['api:ledger:list'],
             missingTargets: [],
@@ -1925,6 +1959,7 @@ describe('App runtime integration', () => {
         if (isLedgerStatusScript(script)) {
           return {
             ok: false,
+            verified: true,
             ledgers: [{ ...music, bilibiliFolderId: undefined, bilibiliFolderIds: undefined, bindingState: 'unbacked' as const }],
             missingLedgerIds: [music.id],
             unboundLedgerIds: [],
@@ -1935,6 +1970,7 @@ describe('App runtime integration', () => {
         if (script.includes('/x/v3/fav/folder/add')) {
           return {
             ok: true,
+            verified: true,
             ledgers: [{ ...music, bilibiliFolderId: 'new-music', bilibiliFolderIds: ['new-music'], bindingState: 'bound' as const }],
             steps: ['api:ledger:list'],
             missingTargets: [],
@@ -1993,6 +2029,95 @@ describe('App runtime integration', () => {
     expect(executeJavaScript).not.toHaveBeenCalled()
   })
 
+  it('saves a selected recommendation locally without executing any Bilibili write path', async () => {
+    const accountMid = '100'
+    const initialLedgers = createDefaultFavoriteLedgers()
+    const recommendation = {
+      id: 'recommended-local-only', displayName: 'bilimi·本地推荐', keywords: ['本地推荐'], ruleType: 'author' as const,
+      enabled: true, priority: 90, syncState: 'local-draft' as const, ruleOrigin: 'recommendation-draft' as const, isDefault: false
+    }
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: initialLedgers }
+        }
+      })),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      savePreferences
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: ReturnType<typeof vi.fn>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      throw new Error(`Recommendation save must not execute Bilibili script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await expect(requestRuntime({
+      id: 'recommendation-local-only', type: 'save-ledgers', ledgers: [...initialLedgers, recommendation],
+      options: { deleteDisabled: false, recommendationOnly: true }
+    })).resolves.toMatchObject({
+      ok: true,
+      steps: ['favorite-ledgers:local-save'],
+      ledgers: expect.arrayContaining([expect.objectContaining({ id: recommendation.id, enabled: true })])
+    })
+    expect(executeJavaScript).not.toHaveBeenCalled()
+    const persistedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers
+    expect(persistedLedgers).toEqual(expect.arrayContaining([expect.objectContaining({
+      id: recommendation.id, ruleOrigin: 'recommendation-draft', enabled: true
+    })]))
+  })
+
+  it('fails closed when the repository summary does not identify the active account', async () => {
+    const accountMid = '100'
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(LEDGER_STATUS_SCRIPT_MARKER)) {
+        throw new Error(`Unexpected unverified repository script: ${script.slice(0, 80)}`)
+      }
+      if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+      throw new Error(`Unexpected unverified repository script: ${script.slice(0, 80)}`)
+    })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: {
+            defaultFavoriteSystemEnabled: true,
+            favoriteLedgers: createDefaultFavoriteLedgers()
+          }
+        }
+      })),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1,
+        revision: 1,
+        updatedAt: '2026-09-04T00:00:00.000Z',
+        videoCount: 0,
+        folderCount: 0,
+        folders: [],
+        folderCounts: {},
+        scopeCounts: {},
+        physicalShardCount: 0,
+        physicalShards: [],
+        syncRecordCount: 0,
+        syncCounts: {},
+        pendingAidCount: 0,
+        remoteReconciliations: []
+      }),
+      executeJavaScript
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: typeof executeJavaScript
+    }
+    Object.assign(webview, { executeJavaScript })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await expect(requestRuntime({ id: 'missing-summary-account', type: 'ensure-ledgers' }))
+      .resolves.toMatchObject({ ok: false })
+    expect(executeJavaScript.mock.calls.filter(([script]) => script.includes(LEDGER_STATUS_SCRIPT_MARKER))).toHaveLength(0)
+  })
+
   it('keeps locally deleted and manually dismissed remote drafts suppressed during the pet full backup', async () => {
     const accountMid = '100'
     const getFavoriteLedgerRemoteDraftReminderDismissals = vi.fn().mockResolvedValue(['manual-dismissal'])
@@ -2010,7 +2135,7 @@ describe('App runtime integration', () => {
     const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
       if (userGesture) return { hasUserId: true, hasCsrf: true }
       if (script.includes(LEDGER_SAVE_SCRIPT_MARKER)) {
-        return { ok: true, ledgers: createDefaultFavoriteLedgers(), steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。' }
+        return { ok: true, verified: true, ledgers: createDefaultFavoriteLedgers(), steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。' }
       }
       if (isLedgerStatusScript(script)) return emptyLedgerStatus()
       throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
@@ -2058,7 +2183,7 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async (script: string) => {
         if (script.includes('/x/v3/fav/folder/add')) {
-          return { ok: true, ledgers: returnedLedgers, steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。' }
+          return { ok: true, verified: true, ledgers: returnedLedgers, steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。' }
         }
         if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
         throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
@@ -2106,7 +2231,7 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async (script: string) => {
         if (script.includes('/x/v3/fav/folder/add')) {
-          return { ok: true, ledgers: returnedLedgers, steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。' }
+          return { ok: true, verified: true, ledgers: returnedLedgers, steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。' }
         }
         if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
         throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
@@ -2174,7 +2299,7 @@ describe('App runtime integration', () => {
         if (script.includes('/x/v3/fav/folder/add')) {
           expect(script).toContain('bound-music')
           expect(script).toContain('unbound-music')
-          return { ok: true, ledgers: returnedLedgers, steps: ['api:ledger:list', 'api:ledger:create:music'], missingTargets: [], message: '收藏夹已备册。' }
+          return { ok: true, verified: true, ledgers: returnedLedgers, steps: ['api:ledger:list', 'api:ledger:create:music'], missingTargets: [], message: '收藏夹已备册。' }
         }
         if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
         throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
@@ -2231,7 +2356,7 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async (script: string) => {
         if (script.includes('/x/v3/fav/folder/add')) {
-          return { ok: true, ledgers: returnedLedgers, steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。' }
+          return { ok: true, verified: true, ledgers: returnedLedgers, steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。' }
         }
         if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
         throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
@@ -2301,6 +2426,7 @@ describe('App runtime integration', () => {
         if (script.includes('/x/v3/fav/folder/created/list-all')) {
           return {
             ok: true,
+            verified: true,
             ledgers: [{ ...music, bindingState: 'bound' as const }],
             steps: ['api:ledger:list'],
             missingTargets: [],
@@ -2362,12 +2488,16 @@ describe('App runtime integration', () => {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
     Object.assign(webview, {
-      executeJavaScript: vi.fn(async (script: string) => {
-        expect(script).not.toContain('9000')
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        expect(script).toContain('"remoteDraftKnownFolderIds":["9000"]')
+        expect(script).not.toContain('"remoteDraftBoundFolderIds":["9000"]')
         return {
           ok: false,
+          verified: true,
           ledgers: [{ ...legacyLedger, bilibiliFolderId: undefined, bindingState: 'unbound' }],
           steps: ['api:ledger:list'],
+          missingLedgerIds: [legacyLedger.id],
           missingTargets: [legacyLedger.id],
           unboundLedgerIds: [legacyLedger.id],
           unboundCandidates: [{ ledgerId: legacyLedger.id, candidates: [{ id: '9000', title: legacyLedger.displayName, memberCount: 0 }] }],
@@ -2417,12 +2547,15 @@ describe('App runtime integration', () => {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
     Object.assign(webview, {
-      executeJavaScript: vi.fn(async (script: string) => {
-        expect(script).not.toContain('unbound-game-2')
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        expect(script).toContain('"remoteDraftKnownFolderIds":["unbound-game-2"]')
+        expect(script).not.toContain('"remoteDraftBoundFolderIds":["unbound-game-2"]')
         return {
           ok: false,
+          verified: true,
           ledgers: [{ ...game, bindingState: 'unbound' }],
-          steps: ['api:ledger:list'], missingTargets: ['game'], unboundLedgerIds: ['game'],
+          steps: ['api:ledger:list'], missingLedgerIds: ['game'], missingTargets: ['game'], unboundLedgerIds: ['game'],
           unboundCandidates: [{ ledgerId: 'game', candidates: [{ id: 'unbound-game-2', title: 'bilimi·游戏专区·2', memberCount: 1000 }] }],
           message: '发现未绑定的 bilimi 收藏夹。'
         }
@@ -2466,12 +2599,15 @@ describe('App runtime integration', () => {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
     Object.assign(webview, {
-      executeJavaScript: vi.fn(async (script: string) => {
-        expect(script).not.toContain('unbound-game-2')
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        expect(script).toContain('"remoteDraftKnownFolderIds":["unbound-game-2"]')
+        expect(script).not.toContain('"remoteDraftBoundFolderIds":["unbound-game-2"]')
         return {
           ok: false,
+          verified: true,
           ledgers: [{ ...game, bindingState: 'unbacked' as const }], steps: ['api:ledger:list'],
-          missingTargets: ['game'], unboundLedgerIds: ['game'],
+          missingLedgerIds: ['game'], missingTargets: ['game'], unboundLedgerIds: ['game'],
           unboundCandidates: [{ ledgerId: 'game', candidates: [{ id: 'unbound-game-2', title: 'bilimi·游戏专区·2', memberCount: 1000 }] }],
           message: '发现未绑定的 bilimi 收藏夹。'
         }
@@ -2609,6 +2745,7 @@ describe('App runtime integration', () => {
         expect(script).toContain('"rebindRemoteFolderIds":{"game":"88"}')
         return {
           ok: true,
+          verified: true,
           ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' as const }],
           steps: ['api:ledger:list'], missingTargets: [], message: '已备册'
         }
@@ -2629,6 +2766,7 @@ describe('App runtime integration', () => {
     })
     expect(lightBackupResult).toMatchObject({
       ok: true,
+      verified: true,
       ledgers: [expect.objectContaining({ id: 'game', bilibiliFolderIds: ['88', '89'], bindingState: 'bound' })]
     })
 
@@ -2676,7 +2814,7 @@ describe('App runtime integration', () => {
         expect(payload.options.remoteDraftKnownFolderIds).toBeUndefined()
         expect(script).toContain('"id":"game"')
         expect(script).not.toContain('"id":"knowledge"')
-        return { ok: true, ledgers: [{ ...game, bilibiliFolderId: 'game-88', bilibiliFolderIds: ['game-88'], bindingState: 'bound' as const }], steps: ['api:ledger:list'], missingTargets: [], message: '已备册' }
+        return { ok: true, verified: true, ledgers: [{ ...game, bilibiliFolderId: 'game-88', bilibiliFolderIds: ['game-88'], bindingState: 'bound' as const }], steps: ['api:ledger:list'], missingTargets: [], message: '已备册' }
       })
     })
 
@@ -2704,9 +2842,10 @@ describe('App runtime integration', () => {
       }
       return {
         ok: true,
+        verified: true,
         ledgers: [{ ...music, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
         steps: ['api:ledger:list', 'api:ledger:create:music'], missingTargets: [],
-        missingLedgerIds: [], verified: true, message: '册目已备齐。'
+        missingLedgerIds: [], message: '册目已备齐。'
       }
     })
     Object.assign(webview, { executeJavaScript })
@@ -2714,7 +2853,7 @@ describe('App runtime integration', () => {
     await expect(requestRuntime({
       id: 'confirmed-empty-candidate-create', type: 'save-ledgers', ledgers: [music],
       options: { deleteDisabled: false, confirmCreateAndBind: true }
-    })).resolves.toMatchObject({ ok: true, ledgers: [expect.objectContaining({ id: 'music', bindingState: 'bound' })] })
+    })).resolves.toMatchObject({ ok: true, verified: true, ledgers: [expect.objectContaining({ id: 'music', bindingState: 'bound' })] })
 
     expect(executeJavaScript).toHaveBeenCalled()
   })
@@ -2790,6 +2929,7 @@ describe('App runtime integration', () => {
         ? { hasUserId: true, hasCsrf: true }
         : {
             ok: true,
+            verified: true,
             ledgers: [{ ...music, bilibiliFolderId: '9001', bindingState: 'bound' as const }, remoteDraft],
             steps: ['api:ledger:list', 'api:ledger:create:music'],
             missingTargets: [],
@@ -2803,6 +2943,7 @@ describe('App runtime integration', () => {
       options: { backupTargetLedgerIds: [music.id], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }
     })).resolves.toMatchObject({
       ok: true,
+      verified: true,
       remoteOnlyDraftLedgerIds: [remoteDraft.id],
       ledgers: expect.arrayContaining([expect.objectContaining({ id: remoteDraft.id, syncState: 'local-draft' })])
     })
@@ -2833,6 +2974,7 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async () => ({
         ok: true,
+        verified: true,
         ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' }],
         steps: ['api:ledger:list'], missingTargets: [], message: 'ok'
       }))
@@ -2871,6 +3013,7 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async () => ({
         ok: true,
+        verified: true,
         ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' as const }],
         steps: ['api:ledger:list'], missingTargets: [], message: '已备册'
       }))
@@ -2911,6 +3054,7 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async () => ({
         ok: true,
+        verified: true,
         ledgers: [{ ...game, bilibiliFolderId: 'recovered-main-title', bindingState: 'bound' }],
         steps: ['api:ledger:list'], missingTargets: [], message: '册目已备齐。'
       }))
@@ -2926,6 +3070,7 @@ describe('App runtime integration', () => {
       }
     })).resolves.toMatchObject({
       ok: true,
+      verified: true,
       ledgers: [expect.objectContaining({
         id: 'game',
         bindingState: 'bound',
@@ -2956,6 +3101,7 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async () => ({
         ok: true,
+        verified: true,
         ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' }],
         steps: ['api:ledger:list'], missingTargets: [], message: 'ok'
       }))
@@ -3006,6 +3152,7 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async () => ({
         ok: true,
+        verified: true,
         ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' }],
         steps: ['api:ledger:list'], missingTargets: [], message: 'ok'
       }))
@@ -3051,6 +3198,7 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async () => ({
         ok: true,
+        verified: true,
         ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' }],
         steps: ['api:ledger:list'], missingTargets: [], message: '备册完成。'
       }))
@@ -3067,6 +3215,7 @@ describe('App runtime integration', () => {
       }
     })).resolves.toMatchObject({
       ok: true,
+      verified: true,
       ledgers: [expect.objectContaining({ bilibiliFolderId: '88', bilibiliFolderIds: ['88', '89'] })]
     })
 
@@ -3094,6 +3243,7 @@ describe('App runtime integration', () => {
       if (isLedgerStatusScript(script)) {
         return {
           ok: true,
+          verified: true,
           ledgers: [{
             id: 'custom-remote-88', displayName: 'bilimi·待恢复', keywords: [], enabled: false, priority: 99,
             bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
@@ -3105,6 +3255,7 @@ describe('App runtime integration', () => {
       }
       return {
         ok: true,
+        verified: true,
         ledgers: [{ ...game, bilibiliFolderId: '77', bindingState: 'bound' }],
         steps: ['api:ledger:list'], missingTargets: [], message: '收藏夹已备册。'
       }
@@ -3199,6 +3350,7 @@ describe('App runtime integration', () => {
       if (isLedgerStatusScript(script)) return emptyLedgerStatus()
       return {
         ok: true,
+        verified: true,
         ledgers: [{ ...game, bilibiliFolderId: '77', bilibiliFolderIds: ['77'], bindingState: 'bound' }, {
           id: 'custom-remote-88', displayName: 'bilimi·待恢复', keywords: [], enabled: false, priority: 99,
           bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
@@ -3278,6 +3430,7 @@ describe('App runtime integration', () => {
           expect(script).not.toContain('"id":"knowledge"')
           return {
             ok: true,
+            verified: true,
             ledgers: [{ ...music, bilibiliFolderId: '9901', syncState: 'bound' }],
             steps: ['api:ledger:list'],
             missingTargets: [],
@@ -3334,6 +3487,7 @@ describe('App runtime integration', () => {
         }
         return {
           ok: true,
+          verified: true,
           ledgers: [
             { ...enabled, bilibiliFolderId: '9901', bindingState: 'bound' as const },
             unchecked,
@@ -3403,7 +3557,7 @@ describe('App runtime integration', () => {
           expect(payload.options.remoteDraftKnownFolderIds).toBeUndefined()
           expect(script).toContain('"nextLedgers":[{"id":"life"')
           expect(script).not.toContain('"id":"other"')
-          return { ok: true, ledgers: [life], steps: ['api:ledger:list'], missingTargets: [], message: '收藏夹已备册。' }
+          return { ok: true, verified: true, ledgers: [life], steps: ['api:ledger:list'], missingTargets: [], message: '收藏夹已备册。' }
         }
         if (isLedgerStatusScript(script)) return { ...emptyLedgerStatus(), ledgers: [life, other] }
         throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
@@ -3443,6 +3597,7 @@ describe('App runtime integration', () => {
         if (script.includes('/x/v3/fav/folder/add')) {
           return {
             ok: true,
+            verified: true,
             ledgers: [{ ...music, bilibiliFolderId: '9901', bindingState: 'bound' as const }],
             steps: ['api:ledger:list'], missingTargets: [], message: '当前册目已备齐。'
           }
@@ -3495,6 +3650,7 @@ describe('App runtime integration', () => {
         expect(script).toContain('"enabled":true')
         return {
           ok: true,
+          verified: true,
           ledgers: backedUpLedgers,
           steps: ['api:ledger:list'],
           missingTargets: [],
@@ -3598,6 +3754,7 @@ describe('App runtime integration', () => {
         if (isLedgerStatusScript(script)) {
           return {
             ok: true,
+            verified: true,
             ledgers: recoveredLedgers,
             missingLedgerIds: [],
             backupConflictLedgerIds: [],
@@ -3688,6 +3845,7 @@ describe('App runtime integration', () => {
           return oldBindingWasReintroduced
             ? {
                 ok: true,
+                verified: true,
                 ledgers: [{ ...ledger, bilibiliFolderId: 'older-bound-folder', bindingState: 'bound' as const }],
                 missingLedgerIds: [],
                 backupConflictLedgerIds: [],
@@ -3696,6 +3854,7 @@ describe('App runtime integration', () => {
               }
             : {
                 ok: false,
+                verified: true,
                 ledgers: [ledger],
                 missingLedgerIds: [],
                 backupConflictLedgerIds: [],
@@ -3751,8 +3910,8 @@ describe('App runtime integration', () => {
         if (isLedgerStatusScript(script)) {
           const staleBindingWasTrusted = script.includes('stale-folder')
           return staleBindingWasTrusted
-            ? { ok: true, ledgers: [{ ...ledger, bindingState: 'bound' as const }], missingLedgerIds: [], unboundLedgerIds: [], unboundCandidates: [] }
-            : { ok: false, ledgers: [{ ...ledger, bindingState: 'unbound' as const }], missingLedgerIds: [ledger.id], unboundLedgerIds: [ledger.id], unboundCandidates: [{ ledgerId: ledger.id, candidates: [{ id: 'stale-folder', title: ledger.displayName, memberCount: 0 }] }] }
+            ? { ok: true, verified: true, ledgers: [{ ...ledger, bindingState: 'bound' as const }], missingLedgerIds: [], unboundLedgerIds: [], unboundCandidates: [] }
+            : { ok: false, verified: true, ledgers: [{ ...ledger, bindingState: 'unbound' as const }], missingLedgerIds: [ledger.id], unboundLedgerIds: [ledger.id], unboundCandidates: [{ ledgerId: ledger.id, candidates: [{ id: 'stale-folder', title: ledger.displayName, memberCount: 0 }] }] }
         }
         throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
       })
@@ -3814,6 +3973,7 @@ describe('App runtime integration', () => {
           expect(script).toContain('"remoteDraftBoundFolderIds":["9001"]')
           return {
             ok: true,
+            verified: true,
             ledgers: [{ ...ledger, bilibiliFolderId: '9001' }],
             missingLedgerIds: [],
             backupConflictLedgerIds: [],
@@ -3874,7 +4034,7 @@ describe('App runtime integration', () => {
         if (isLedgerStatusScript(script)) {
           expect(script).toContain('"bilibiliFolderId":"9001"')
           const { bilibiliFolderId: _removed, ...unboundLedger } = ledger
-          return { ok: false, ledgers: [unboundLedger], missingLedgerIds: [ledger.id], backupConflictLedgerIds: [], message: '册目查验已毕。' }
+          return { ok: false, verified: true, ledgers: [unboundLedger], missingLedgerIds: [ledger.id], backupConflictLedgerIds: [], message: '册目查验已毕。' }
         }
         throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
       })
@@ -3926,6 +4086,7 @@ describe('App runtime integration', () => {
         if (isLedgerStatusScript(script)) {
           return {
             ok: false,
+            verified: true,
             ledgers: [{ ...ledger, bilibiliFolderTitle: 'bilimi·音乐舞台哈哈', bindingState: 'unbound' as const }],
             missingLedgerIds: [ledger.id],
             backupConflictLedgerIds: [],
@@ -4017,6 +4178,7 @@ describe('App runtime integration', () => {
       }
       return Promise.resolve({
         ok: true,
+        verified: true,
         ledgers: preferencesAfterDraftDeletion.favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? [],
         missingLedgerIds: [],
         backupConflictLedgerIds: [],
@@ -4035,6 +4197,7 @@ describe('App runtime integration', () => {
     await act(async () => {
       resolveOlderStatus?.({
         ok: true,
+        verified: true,
         ledgers: currentLedgers,
         missingLedgerIds: [],
         remoteOnlyDraftLedgerIds: [remoteDraft.id],
@@ -4178,6 +4341,7 @@ describe('App runtime integration', () => {
     await act(async () => {
       resolveBackup?.({
       ok: true,
+      verified: true,
       ledgers: createDefaultFavoriteLedgers(),
       steps: ['api:ledger:list'],
       missingTargets: [],
@@ -4211,6 +4375,7 @@ describe('App runtime integration', () => {
       if (script.includes('/x/v3/fav/folder/add')) {
         return {
           ok: true,
+          verified: true,
           ledgers: [{ ...inbox, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
           steps: ['api:ledger:list', 'api:ledger:create:inbox'], missingTargets: [], message: '已备册'
         }
@@ -4252,6 +4417,7 @@ describe('App runtime integration', () => {
       if (script.includes('/x/v3/fav/folder/add')) {
         return {
           ok: true,
+          verified: true,
           ledgers: [{ ...music, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
           steps: ['api:ledger:list', 'api:ledger:create:music'],
           missingTargets: [],
@@ -4293,6 +4459,7 @@ describe('App runtime integration', () => {
       if (script.includes('/x/v3/fav/folder/add')) {
         return {
           ok: true,
+          verified: true,
           ledgers: [{ ...custom, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
           steps: ['api:ledger:list', 'api:ledger:create:custom-music'], missingTargets: [], message: '已备册'
         }
@@ -4325,6 +4492,7 @@ describe('App runtime integration', () => {
       if (script.includes('/x/v3/fav/folder/add')) {
         return {
           ok: true,
+          verified: true,
           ledgers: [{ ...inbox, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
           steps: ['api:ledger:list', 'api:ledger:create:inbox'], missingTargets: [], message: '已备册'
         }
@@ -5662,6 +5830,7 @@ describe('App runtime integration', () => {
         return statusReadCount < 3
           ? {
               ok: true,
+              verified: true,
               ledgers: provisionedLedgers,
               missingLedgerIds: [],
               backupConflictLedgerIds: [],
@@ -5670,6 +5839,7 @@ describe('App runtime integration', () => {
             }
           : {
               ok: true,
+              verified: true,
               ledgers: localDraftLedgers,
               missingLedgerIds: [],
               backupConflictLedgerIds: [],
@@ -6203,6 +6373,7 @@ describe('App runtime integration', () => {
           : isLedgerStatusScript(script)
             ? {
                 ok: true,
+                verified: true,
                 ledgers: preferences.favoriteLedgers,
                 missingLedgerIds: [],
                 backupConflictLedgerIds: [],
@@ -6265,6 +6436,7 @@ describe('App runtime integration', () => {
           : isLedgerStatusScript(script)
             ? {
                 ok: true,
+                verified: true,
                 ledgers: preferences.favoriteLedgers,
                 missingLedgerIds: [],
                 backupConflictLedgerIds: [],

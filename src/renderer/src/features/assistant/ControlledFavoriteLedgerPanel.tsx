@@ -277,6 +277,58 @@ export function ControlledFavoriteLedgerPanel({
   openOrganizationSelection
 }: ControlledFavoriteLedgerPanelProps) {
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
+  const favoritePanelRef = useRef<HTMLElement>(null)
+  const favoritePanelScrollRestoreRef = useRef<{
+    panel: HTMLElement
+    top: number
+    frames: number[]
+    userScrolled: boolean
+    restoring: boolean
+    cleanup?: () => void
+  } | null>(null)
+  const preserveFavoritePanelScrollPosition = useCallback(() => {
+    const panel = favoritePanelRef.current
+    if (!panel) return
+    const state = favoritePanelScrollRestoreRef.current ?? {
+      panel,
+      top: panel.scrollTop,
+      frames: [],
+      userScrolled: false,
+      restoring: false
+    }
+    for (const frame of state.frames) window.cancelAnimationFrame(frame)
+    state.cleanup?.()
+    state.panel = panel
+    state.top = panel.scrollTop
+    state.userScrolled = false
+    const onScroll = () => {
+      if (!state.restoring) state.userScrolled = true
+    }
+    panel.addEventListener('scroll', onScroll)
+    state.cleanup = () => panel.removeEventListener('scroll', onScroll)
+    const restore = (remainingFrames: number) => {
+      if (!state.panel.isConnected || state.userScrolled) {
+        state.cleanup?.()
+        state.cleanup = undefined
+        state.frames = []
+        return
+      }
+      if (state.panel.scrollTop !== state.top) {
+        state.restoring = true
+        state.panel.scrollTop = state.top
+        state.restoring = false
+      }
+      state.frames = remainingFrames > 0
+        ? [window.requestAnimationFrame(() => restore(remainingFrames - 1))]
+        : []
+    }
+    state.frames = [window.requestAnimationFrame(() => restore(1))]
+    favoritePanelScrollRestoreRef.current = state
+  }, [])
+  useEffect(() => () => {
+    for (const frame of favoritePanelScrollRestoreRef.current?.frames ?? []) window.cancelAnimationFrame(frame)
+    favoritePanelScrollRestoreRef.current?.cleanup?.()
+  }, [])
   const [guideOpen, setGuideOpen] = useState(false)
   const accountKey = normalizeAccountMid(currentAccountMid)
   const reclassifySavedLedgerDirectory = useCallback(async () => {
@@ -288,8 +340,16 @@ export function ControlledFavoriteLedgerPanel({
   const saveLedgersAndRefreshWorkspace = useCallback(async (nextLedgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => {
     const result = await onSaveLedgers(nextLedgers, options) as { ok?: boolean } | undefined
     if (result?.ok === false) return result
-    if (options?.recommendationOnly) await workspace.refresh(true)
-    else await reclassifySavedLedgerDirectory()
+    if (options?.recommendationOnly) {
+      // The account-rule commit is authoritative. A best-effort workspace
+      // refresh must not turn a successful local recommendation save into a
+      // rejected mutation (which would remove the optimistic card and let an
+      // older parent snapshot resurrect it). The next authoritative refresh
+      // can still repair a stale workspace projection.
+      await workspace.refresh(true).catch(() => undefined)
+    } else {
+      await reclassifySavedLedgerDirectory()
+    }
     return result
   }, [onSaveLedgers, reclassifySavedLedgerDirectory, workspace.refresh])
   const saveLedgerEnabledAndRefreshWorkspace = useCallback(async (
@@ -736,6 +796,7 @@ export function ControlledFavoriteLedgerPanel({
     }
   }, [effectiveLedgers, organizationUpperLedgerIds, persistedUpperLedgerIds, saveLedgerEnabledAndRefreshWorkspace, setOrganizationRecommendedCandidates, updateLedgerEnabledById, updateOrganizationSavedLedgerParticipationById, workspace.setRoundExcludedLedgerIds, workspace.snapshot])
   const updateOrganizationRecommendedCandidates = useCallback((update: (current: string[]) => string[]) => {
+    preserveFavoritePanelScrollPosition()
     const snapshot = workspace.snapshot
     const snapshotAdoptedCandidateIds = isOrganizationSelectionSnapshot(snapshot)
       ? snapshot.recommendations.adoptedCandidateIds
@@ -763,17 +824,14 @@ export function ControlledFavoriteLedgerPanel({
     const linkedSavedLedger = linkedSavedLedgerId
       ? effectiveLedgers.find((ledger) => ledger.id === linkedSavedLedgerId && organizationUpperLedgerIds.has(ledger.id))
       : undefined
-    const isExactLocalRecommendationCancellation = Boolean(
+    const isExactPersistedRecommendationCancellation = Boolean(
       linkedSavedLedger &&
       removedCandidateIds.length === 1 &&
       changedCandidateId === linkedSavedLedger.id &&
       persistedUpperLedgerIds.has(linkedSavedLedger.id) &&
-      linkedSavedLedger.ruleOrigin === 'recommendation-draft' &&
-      linkedSavedLedger.bindingState === 'unbacked' &&
-      !linkedSavedLedger.bilibiliFolderId?.trim() &&
-      !(linkedSavedLedger.bilibiliFolderIds ?? []).some((folderId) => folderId.trim())
+      linkedSavedLedger.ruleOrigin === 'recommendation-draft'
     )
-    if (isExactLocalRecommendationCancellation && linkedSavedLedger) {
+    if (isExactPersistedRecommendationCancellation && linkedSavedLedger) {
       if (!accountKey || !window.bilimiDesktop?.deleteFavoriteLedgersLocal) return
       void (async () => {
         try {
@@ -782,10 +840,13 @@ export function ControlledFavoriteLedgerPanel({
           setDismissedGeneratedRecommendationLedgerIds((current) => new Set([...current, linkedSavedLedger.id]))
           organizationRecommendationIdsRef.current = next
           workspace.stageRecommendedCandidateSelection(next)
-          workspace.setRecommendedCandidates(next)
-          await workspace.waitForRecommendationQueue({ rejectOnError: true })
-          await workspace.refresh()
-          await onRefreshOrganizationState?.()
+          // The main-process local-delete transaction already removes this
+          // candidate from the active preview and reclassifies its projection
+          // atomically. Renderer refreshes are deliberately best effort: a
+          // read failure must not make the completed local deletion appear to
+          // have failed or reintroduce the old rule from a stale snapshot.
+          await workspace.refresh().catch(() => undefined)
+          await Promise.resolve(onRefreshOrganizationState?.()).catch(() => undefined)
         } catch {
           // Do not stage the lower cancellation until the local rule removal
           // has succeeded. The selected candidate therefore remains intact
@@ -802,7 +863,7 @@ export function ControlledFavoriteLedgerPanel({
       return
     }
     void setOrganizationRecommendedCandidates(next)
-  }, [accountKey, effectiveLedgers, onRefreshOrganizationState, onTransientFeedback, organizationUpperLedgerIds, persistedUpperLedgerIds, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.recommendedCandidateIds, workspace.refresh, workspace.setRecommendedCandidates, workspace.snapshot, workspace.stageRecommendedCandidateSelection, workspace.waitForRecommendationQueue])
+  }, [accountKey, effectiveLedgers, onRefreshOrganizationState, onTransientFeedback, organizationUpperLedgerIds, persistedUpperLedgerIds, preserveFavoritePanelScrollPosition, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.recommendedCandidateIds, workspace.refresh, workspace.setRecommendedCandidates, workspace.snapshot, workspace.stageRecommendedCandidateSelection, workspace.waitForRecommendationQueue])
   const handleOrganizationRecommendationToggle = useCallback(async (ledgerId: string, enabled: boolean) => {
     const snapshot = workspace.snapshot
     if (!isVisibleOrganizationRecommendationEditing(snapshot, guideOpen)) {
@@ -810,8 +871,12 @@ export function ControlledFavoriteLedgerPanel({
       if (!ledger || ledger.ruleOrigin !== 'recommendation-draft') return false
       if (!onSaveLedgerEnabled) return false
       try {
-        await onSaveLedgerEnabled(ledgerId, enabled)
-        await onRefreshOrganizationState?.()
+        const result = await onSaveLedgerEnabled(ledgerId, enabled) as { ok?: boolean } | undefined
+        if (result?.ok === false) return false
+        // Local account-rule persistence is the success boundary. A later
+        // relationship/status refresh may be unavailable and is retried by
+        // the next authoritative snapshot without rolling back the click.
+        await Promise.resolve(onRefreshOrganizationState?.()).catch(() => undefined)
         return true
       } catch {
         return false
@@ -838,12 +903,16 @@ export function ControlledFavoriteLedgerPanel({
   }, [effectiveLedgers, guideOpen, onRefreshOrganizationState, onSaveLedgerEnabled, organizationUpperLedgerIds, persistedUpperLedgerIds, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.snapshot])
   const handleOrganizationSavedLedgerToggle = useCallback(async (ledgerId: string, enabled: boolean) => {
     const ledger = effectiveLedgers.find((candidate) => candidate.id === ledgerId)
-    if (ledger?.ruleOrigin === 'recommendation-draft' &&
-      !isVisibleOrganizationRecommendationEditing(workspace.snapshot, guideOpen)) {
+    const snapshot = workspace.snapshot
+    const linkedRecommendation = isOrganizationSelectionSnapshot(snapshot) &&
+      snapshot.recommendations.candidates.some((candidate) => candidate.id === ledgerId)
+    if ((ledger?.ruleOrigin === 'recommendation-draft' || linkedRecommendation) &&
+      !isVisibleOrganizationRecommendationEditing(snapshot, guideOpen)) {
       if (!onSaveLedgerEnabled) return false
       try {
-        await onSaveLedgerEnabled(ledgerId, enabled)
-        await onRefreshOrganizationState?.()
+        const result = await onSaveLedgerEnabled(ledgerId, enabled) as { ok?: boolean } | undefined
+        if (result?.ok === false) return false
+        await Promise.resolve(onRefreshOrganizationState?.()).catch(() => undefined)
         return true
       } catch {
         return false
@@ -942,7 +1011,11 @@ export function ControlledFavoriteLedgerPanel({
   // transaction snapshot before any recommendation promotion effect can run.
   const handleDeleteLedger = useCallback(async () => {
     await workspace.refresh().catch(() => undefined)
-    await onRefreshOrganizationState?.()
+    try {
+      await onRefreshOrganizationState?.()
+    } catch {
+      // The local deletion is already committed; leave parent refresh retryable.
+    }
     return true
   }, [onRefreshOrganizationState, workspace.refresh])
   const waitForRecommendationLedgerSave = useCallback(async (ledgerId: string) => {
@@ -1675,7 +1748,7 @@ export function ControlledFavoriteLedgerPanel({
   }
 
   return (
-    <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
+    <section ref={favoritePanelRef} role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header"><h2 className="sr-only">掌库</h2></div>
         <div className="favorite-ledger-panel__toolbar">

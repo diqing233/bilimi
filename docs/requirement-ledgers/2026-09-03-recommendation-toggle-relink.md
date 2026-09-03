@@ -155,6 +155,60 @@
 
 > 可以开个新分支做完，但必须合并，如果后续当前工作树没有改动优先在当前工作树改
 
+### R011
+
+附件文件：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-0a60ab1c-a221-4e3f-88a8-50ca2871fc54.png`
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-55d306cd-690b-4944-9e2c-0d85028e6e24.png`
+
+截图目标区域：图一勾选推荐收藏夹前后的右侧掌库上下滚动条位置；图二取消勾选后的同一滚动条位置。两次操作均不应强制改变用户当前阅读位置。截图不能替代真实 Electron 的滚动位置和操作响应验收。
+
+用户原文（完整）：
+
+> 推荐收藏夹勾选过程中会强制移动右侧上下移动条，可以看看图一勾选和取消勾选后位置发生了改变
+>
+> 另外就是非“整理收藏”期间 ，无法正常勾选和取消勾选，需要再详情页点击一次保存才能正常
+> <image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-0a60ab1c-a221-4e3f-88a8-50ca2871fc54.png">[Image #1]</image><image name=[Image #2] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-55d306cd-690b-4944-9e2c-0d85028e6e24.png">[Image #2]</image>
+
+### R012
+
+对话来源：`codex://threads/01a064e2-0e7e-7053-8065-ffb7a02e1dcc`
+
+用户原文（完整）：
+
+> codex://threads/01a064e2-0e7e-7053-8065-ffb7a02e1dcc   检查这个对话中说到的关于推荐收藏夹的问题，我让它先修了，你看看还有没有没考虑到的地方（“勾选推荐收藏夹”是真实存在的整理流程操作，但它只应保存本地规则并刷新工作区，不应写 B 站。它触发状态刷新时走到了未补全的路径：状态核验、确保册目没有拿到全账号已绑定 ID 覆盖集，所以又把这些旧记录投影成“未保存”。  ）
+
+### R013
+
+用户原文（完整）：
+
+> 以上讨论总结一下，看看有没有遗漏
+
+### R014
+
+用户原文（完整）：
+
+> 还有吗
+
+### R015
+
+用户原文（完整）：
+
+> 一次性分析完
+
+### R016
+
+用户原文（完整）：
+
+> 先迭代项目书，再按照项目书和账本改，开始（注意鼠标要一直流畅动，不要变卡，不要影响已有功能，仔细核对项目书）
+
+### R017
+
+用户原文（完整）：
+
+> 继续
+
 ## 逐项索引补充（R004-R010）
 
 | 编号 | 原文引用 | 精确目标 | 目标界面 / 数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化 / 迁移 / B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
@@ -165,6 +219,8 @@
 | I009 | R008 | 明确推荐候选“首次下方勾选”成功后的状态语义：它会生成掌库收藏夹规则、保存到账号规则目录并勾选；不得把仅未备册到 B 站的 `local-draft` 混同为未保存临时草稿。 | 下方推荐收藏夹首次采用、上方掌库卡片、`favoriteAccountPreferences.favoriteLedgers`。 | 保存成功回执后适用；保存失败或尚未完成回执的短暂过渡状态另行保留真实失败/重试。 | 之后下方取消、上方取消与详情删除的语义必须以“已保存规则”为前提重新核对。 | 本地账号规则保存；不因该澄清改变 B 站备册/绑定/同步边界。 | 不以字段名 `local-draft` 推断未保存或删除资格。 | 推荐采用保存链路、账号权威目录、删除和取消分流。 | 已确认，待实施 | 项目书 §9.4 已更新；待自动化与 Electron 验收。 |
 | I010 | R004、R008、R009 | 在“整理收藏 > 推荐收藏夹”下方取消一个已由首次勾选生成、已保存到账号目录的推荐收藏夹时，必须同步取消勾选并删除上方同稳定规则 ID的本地掌库收藏夹规则。 | 下方推荐候选取消入口、上方掌库卡片/详情、`favoriteAccountPreferences.favoriteLedgers` 及当前整理工作区投影。 | 仅适用于该推荐候选与账号目录中同稳定 ID规则已建立映射，且下方取消操作成功时；保存失败、映射不一致或 B 站冻结执行态必须保留真实失败/受限状态。 | 下方取消 → 上方同 ID立即取消并移除；账号权威目录、当前工作区候选/分类投影一并收束；第二轮再次出现同 ID候选时不得从已删除规则错误回填。 | 仅删除本地掌库规则和必要本地工作区投影；绝不删除、改名、解绑、移动或同步 B 站远端收藏夹。 | 详情页明确删除、删除模式、普通收藏夹、不同稳定 ID同名候选及冻结/执行中的既有保护流程不改。 | 候选→规则稳定 ID映射、账号级本地删除事务、previewing 工作区重分类、完成/关闭工作区的快照刷新、第二轮候选初始化。 | 已确认，待实施 | 用户确认 R009；项目书 §9.4 已更新；待以失败回归和真实 Electron 界面验收分别证明。 |
 | I011 | R002、R010 | 工作树策略：若根工作树无其它未提交主题，优先在当前工作树完成；否则可在隔离分支完成，但最终必须合并回本地 `main`。 | Git 工作树与分支。 | 实施开始时根据 `git status --short --branch` 判定。 | 不覆盖、隐藏或混入根工作树现有改动。 | 仅本地 Git 操作；不推送、不 rebase、不删分支/工作树，除非另获明确授权。 | 不改变本轮推荐收藏夹业务范围。 | 根工作树状态、隔离 worktree、最终合并。 | 已实施进行中 | 根工作树有其它主题未提交改动；本轮正在 `codex/recommendation-toggle-relink-rework` 隔离分支中实施，合并待验证后执行。 |
+| I012 | R011 | 勾选或取消推荐收藏夹不能强制移动右侧上下滚动条；非“整理收藏”期间上方推荐规则的勾选/取消无需先打开详情页再点击保存。 | 右侧掌库滚动容器、上方掌库规则 toggle、账号级启用写入。 | 每次勾选/取消和异步状态回写后均适用；显式打开详情页的既有定位行为不受本项限制。 | 保存前后保留用户的 `scrollTop` 和当前可见锚点；点击直接写账号级 `enabled` 并以权威回执收束，失败恢复上次状态。 | 只写本地账号规则及必要工作区刷新；不得写 B 站。 | 不修改显式打开/新建详情的定位、普通收藏夹、删除模式和 B站流程。 | `FavoriteLedgerOverview`、`ControlledFavoriteLedgerPanel`、`FloatingAssistantApp`、主进程账号核验、父级快照。 | 已确认，实施中 | 已有代码尝试保存滚动位置和直接写入，但缺少正确容器的行为级回归；待 RED/GREEN、定向套件和真实 Electron 验收。 |
+| I013 | R012-R017 | 推荐勾选只保存本地规则并刷新工作区；状态、确保和保存路径使用完整账号远端 ID 覆盖集，避免已绑定远端夹在刷新时被投影成“未保存”。一次性补齐所有可从讨论、项目书和账本识别的遗漏。 | 推荐 toggle 后状态核验、确保册目、保存规则、远端观察草稿投影和本轮账本/项目书。 | 任何推荐刷新路径及循环复读；覆盖不可核验时失败关闭。 | 已绑定/已知精确 ID不再观察投影；未知 ID保留一次观察；本地提交成功不因工作区刷新失败回滚；过期结果不得覆盖新操作。 | 推荐链路只允许本地写入和 B 站目录 GET，禁止所有 B站写入。 | 不按名称/来源/数量猜测身份；不影响普通收藏夹、备册改名、视频同步、删除确认和启动。 | `App.tsx`、`favoriteLedgerApi.ts`、推荐工作区、账号仓库、R011 滚动保护。 | 已确认，实施中 | 覆盖集、fail-closed、历史观察收敛与失败回滚已有针对性测试；第二轮精确 ID回填已有主进程测试。仍需补足滚动容器、零写入链路和真实 Electron 验收。 |
 
 ## 实施验收补录（稳定 ID 关联修订）
 
@@ -185,3 +241,57 @@
 - `npm.cmd test -- electron/main/oldFavoriteWorkspaceCoordinator.test.ts --silent`：367/367 通过。
 - `npm.cmd test -- --silent`：4275/4277 通过；失败仅为 `electron/installer/installer.finishPage.test.ts` 和 `electron/main/index.favoriteHistoryWiring.test.ts` 的既有断言，均不在本轮修改范围内。
 - 以上仅为定向自动化证据；真实 Electron 的推荐勾选、详情删除、首次采用、第二轮重开和下方取消删除均仍待在测试账号上验收。
+
+## 继续复核补录（2026-09-04）
+
+本次从账本原文区和逐项索引表重新核对 I001-I013，再执行推荐主题定向套件、全量测试、构建和差异检查。原文、索引和此前补录均保留；本节只追加新证据，不把自动化结果改写成真实界面验收。
+
+| 验证项 | 新鲜结果 | 证据位置/说明 |
+| --- | --- | --- |
+| 推荐渲染器回归 | 6 个套件、762/762 通过 | `.codex-artifacts/recommendation-renderer-targeted.txt`；覆盖 `ControlledFavoriteLedgerPanel`、`FavoriteLedgerOverview`、`FloatingAssistantApp`、`favoriteLedgerApi`、`favoriteLedgerEnabledPatch`、`App`。 |
+| 推荐主进程回归 | 2 个套件、381/381 通过 | `.codex-artifacts/recommendation-main-targeted.txt`；覆盖工作区协调器和推荐持久化。 |
+| 全量回归 | 246 个套件、4306/4306 通过 | `.codex-artifacts/recommendation-full-test.txt`。 |
+| 生产构建 | `npm.cmd run build` 退出码 0 | `.codex-artifacts/recommendation-build.txt`。 |
+| 差异检查 | `git diff --check` 无空白错误 | `.codex-artifacts/recommendation-diff-check.txt`；仅有 Git 的 LF/CRLF 提示。 |
+| B 站零写入自动化 | 通过已有本地保存/删除 spy 断言 | `src/renderer/src/App.test.tsx` 的推荐本地保存测试、`ControlledFavoriteLedgerPanel.test.tsx` 的本地删除与远端绑定保留测试；未执行真实账号网络 spy。 |
+| 真实 Electron | 未完成，保持“已实施待真实验证” | 已观察开发版 `bilimi` 窗口和未登录状态；无法在不自动化认证的情况下获得测试账号。打开掌库前的 Computer Use 操作被物理 Escape 中止，按技能规约停止后续 UI 输入。因此 I001-I010、I012-I013 的真实勾选、详情删除、首次采用、第二轮重开、下方取消删除、滚动保持、账号切换和窗口连续响应均不能标记为真实通过。 |
+
+### 逐项状态结论
+
+- I001/I008：代码和自动化通过，真实非整理期间上方推荐勾选/取消待验证。
+- I002/I006：代码和自动化通过，真实详情页即时删除收束待验证。
+- I003/I009：代码和自动化通过，真实首次下方采用后账号目录保存并勾选待验证。
+- I004/I007：代码和自动化通过，真实第一轮结束后第二轮重开回填待验证。
+- I005/I010：代码和自动化通过，真实下方取消删除同 ID 本地规则且不写 B 站待验证。
+- I011：继续在根目录 `main` 工作树收口；无关的 `favorite-backup-rename-dedup.md` 未纳入本主题提交。
+- I012：滚动保护自动化通过，真实滚动条不跳和鼠标连续响应待验证。
+- I013：完整远端 ID 覆盖、fail-closed、历史收敛和本地零远端写入自动化通过；真实 B 站写入 spy 与账号切换待验证。
+
+由于项目书 §9.6 第 7、8 条要求真实 Electron 证据，以上条目在真实操作完成前继续保持“已实施待真实验证”，本轮不声称推荐收藏夹问题已完成全部验收。
+
+### 精确 ID 分类兜底补录（2026-09-04）
+
+继续复核时发现：`oldFavoriteWorkspaceClassification.ts` 的工作区分类合并仍以 `ruleType + keywords` 把不同稳定 ID的推荐规则视为同一条，与 I004/I007/I013 及项目书 §9.6 第 5 条的身份边界冲突。这会让同关键词但不同 ID的候选错误继承另一规则的启用状态或在取消后被错误排除。
+
+先将既有两条关键词合并测试改为精确 ID期望，并运行 `npm.cmd test -- electron/main/oldFavoriteWorkspaceClassification.test.ts --silent`：旧实现 11/13 通过、2 条按预期失败，失败现象分别为“不同 ID候选被替换为已保存规则”和“被移除候选按关键词排除了不同 ID规则”。随后删除关键词兜底，只保留 `candidate.id === ledger.id` 的合并/排除，复跑同一测试为 13/13 通过。
+
+| 索引 | 状态更新 | 代码与测试位置 | 自动化证据 | 真实 Electron 验收 |
+| --- | --- | --- | --- | --- |
+| I004 / I007 / I013 | 已实施待真实验证 | `electron/main/oldFavoriteWorkspaceClassification.ts` 的 `mergeOldFavoriteWorkspaceLedgers`；`electron/main/oldFavoriteWorkspaceClassification.test.ts` 两条同关键词不同 ID回归。 | 红：11/13、2 条预期失败；绿：13/13 通过。全量与构建结果以本补录后的最终验证记录为准。 | 第二轮真实账号重开与不同 ID同关键词候选仍待验证；本补录不把自动化结果替代为界面验收。 |
+
+同时核实 I013 的“B 站零写入”自动化边界：当前已有首次本地保存的 `executeJavaScript` 零调用和本地删除回归，但尚未设置覆盖勾选、取消、详情删除、刷新全链路的统一远端 fetch/IPC spy；该证据缺口继续保留，不能写成已完成统一网络 spy。
+
+### 最终验证补录（2026-09-04，精确 ID 修订后）
+
+在上述精确 ID 分类修订后重新执行：
+
+- `npm.cmd test -- electron/main/oldFavoriteWorkspaceClassification.test.ts electron/main/oldFavoriteWorkspaceCoordinator.test.ts electron/main/oldFavoriteWorkspaceRecommendationPersistence.test.ts --silent`：3 个套件、394/394 通过；其中新增的不同稳定 ID同关键词回归为 13/13 通过。
+- `npm.cmd test -- --silent --reporter=json --outputFile=.codex-artifacts/recommendation-toggle-integrity-full-final-5.json`：520 个套件、4306/4306 通过，0 失败、0 待定。
+- `npm run build`：退出码 0。
+- `git diff --check`：无空白错误，仅有 Git 的 LF/CRLF 提示。
+
+本次补录修订了此前“按关键词兜底合并”遗漏：`mergeOldFavoriteWorkspaceLedgers` 现在只允许精确 `ledger.id` 合并/排除，真正不同稳定 ID即使规则类型、标题或关键词相同也分别保留。真实 Electron、统一 B 站远端写入 spy 和账号切换仍按上一节记录为待验证；因此 I001-I010、I012-I013 继续保持“已实施待真实验证”，不宣称本轮全部界面验收完成。
+
+### 工作树状态更正（2026-09-04）
+
+前文 I011 历史补录保留了隔离分支实施中的表述；该表述不代表当前状态。经本轮最终核对，推荐主题改动现在直接位于本地 `main` 工作树，未创建或保留需要再合并的任务分支；用户原有的无关 `docs/requirement-ledgers/2026-09-03-favorite-backup-rename-dedup.md` 仍未暂存、未提交。

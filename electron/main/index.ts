@@ -1586,6 +1586,13 @@ function registerAssistantPreferenceHandlers() {
     if (historyOptions !== undefined && !mergeFavoriteRuleHistory) {
       throw new Error('Favorite ledger history merge options are invalid.')
     }
+    // The narrow enabled-state path is still account-scoped. Do not accept a
+    // stale renderer snapshot after the user switches Bilibili accounts;
+    // otherwise a click could write an override into the wrong account.
+    const currentAccountMid = await readCurrentBilibiliAccountMid()
+    if (!accountMid || accountMid !== currentAccountMid) {
+      throw new Error('Favorite ledger account is no longer current.')
+    }
     const beforeHistoryState = await oldFavoriteWorkspaceCoordinator?.getFavoriteLedgerHistoryState(accountMid)
     const patch = await writeFavoriteLedgerEnabled(undefined, accountMid, ledgerId, enabled)
     // In-round participation is projected through the coordinator's

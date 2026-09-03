@@ -149,7 +149,7 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
     }))
   })
 
-  it('reuses a saved author ledger with the same complete UP rule instead of duplicating it', () => {
+  it('keeps a saved author ledger with a different stable id separate from a matching recommendation', () => {
     expect(mergeOldFavoriteWorkspaceLedgers([{
       id: 'saved-honker', displayName: 'bilimi·我的追更', keywords: ['honker233-小王爱马枪'],
       ruleType: 'author', enabled: false, priority: 9, isDefault: false
@@ -157,13 +157,13 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
       id: 'custom-author-honker233-小王爱马枪', displayName: 'bilimi·honker233',
       keywords: ['honker233-小王爱马枪'], ruleType: 'author', enabled: true,
       priority: 0, isDefault: false
-    }])).toEqual([{
-      id: 'saved-honker', displayName: 'bilimi·我的追更', keywords: ['honker233-小王爱马枪'],
-      ruleType: 'author', enabled: true, priority: 0, isDefault: false
-    }])
+    }])).toEqual([
+      expect.objectContaining({ id: 'custom-author-honker233-小王爱马枪', enabled: true }),
+      expect.objectContaining({ id: 'saved-honker', enabled: false })
+    ])
   })
 
-  it('excludes a saved rule that matches a recommendation removed from the current round', () => {
+  it('does not exclude a saved rule when a removed recommendation only shares its keywords', () => {
     expect(mergeOldFavoriteWorkspaceLedgers([
       {
         id: 'saved-honker', displayName: 'bilimi·honker233', keywords: ['honker233-小王爱马枪'],
@@ -178,7 +178,8 @@ describe('mergeOldFavoriteWorkspaceLedgers', () => {
       keywords: ['honker233-小王爱马枪'], ruleType: 'author', enabled: true,
       priority: 0, isDefault: false
     }])).toEqual([
-      expect.objectContaining({ id: 'music' })
+      expect.objectContaining({ id: 'saved-honker', enabled: true }),
+      expect.objectContaining({ id: 'music', enabled: true })
     ])
   })
 })

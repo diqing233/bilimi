@@ -53,7 +53,8 @@ import {
 } from '../state/preferenceSaveScheduler'
 import {
   applyIndexedFavoriteLedgerEnabledPatch,
-  createFavoriteLedgerEnabledIndex
+  createFavoriteLedgerEnabledIndex,
+  rollbackIndexedFavoriteLedgerEnabledPatch
 } from '../state/favoriteLedgerEnabledPatch'
 import { CommentChooser } from './CommentChooser'
 import { CommentIntentDialog } from './CommentIntentDialog'
@@ -5131,13 +5132,40 @@ export function FloatingAssistantApp({
     enabled: boolean,
     historyOptions?: { mergeFavoriteRuleHistory?: true }
   ) {
-    const accountMid = resolvedSnapshot.accountMid
+    const normalizeAccount = (value: string | undefined) => {
+      const normalized = value?.trim() ?? ''
+      return /^\d+$/.test(normalized) && BigInt(normalized) > 0n ? BigInt(normalized).toString() : ''
+    }
+    const accountMid = normalizeAccount(resolvedSnapshot.accountMid)
     if (!accountMid || !window.bilimiDesktop?.writeFavoriteLedgerEnabled) {
       throw new Error('当前账号无法保存收藏夹启用状态。')
     }
+    const snapshotAccountMid = normalizeAccount(snapshotRef.current?.accountMid)
+    if (snapshotAccountMid && snapshotAccountMid !== accountMid) {
+      throw new Error('当前账号已切换，请刷新后重试。')
+    }
+    if (window.bilimiDesktop.readBilibiliAccountMid) {
+      let observedAccountMid = ''
+      try {
+        observedAccountMid = normalizeAccount(await window.bilimiDesktop.readBilibiliAccountMid())
+      } catch {
+        throw new Error('当前账号无法核验，请刷新后重试。')
+      }
+      if (!observedAccountMid || observedAccountMid !== accountMid) {
+        throw new Error('当前账号已切换，请刷新后重试。')
+      }
+    }
     const patch = { accountMid, ledgerId, enabled }
-    applyIndexedFavoriteLedgerEnabledPatch(favoriteLedgerEnabledIndexRef.current, patch)
-    await window.bilimiDesktop.writeFavoriteLedgerEnabled(accountMid, ledgerId, enabled, undefined, historyOptions)
+    const previousEnabled = applyIndexedFavoriteLedgerEnabledPatch(favoriteLedgerEnabledIndexRef.current, patch)
+    try {
+      const persisted = await window.bilimiDesktop.writeFavoriteLedgerEnabled(accountMid, ledgerId, enabled, undefined, historyOptions)
+      if (persisted?.accountMid && normalizeAccount(persisted.accountMid) !== accountMid) {
+        throw new Error('收藏夹规则账号校验失败，请刷新后重试。')
+      }
+    } catch (error) {
+      rollbackIndexedFavoriteLedgerEnabledPatch(favoriteLedgerEnabledIndexRef.current, patch, previousEnabled)
+      throw error
+    }
     return createDefaultResult('收藏夹规则已保存。')
   }
 

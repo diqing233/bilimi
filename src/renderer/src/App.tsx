@@ -1596,9 +1596,16 @@ export default function App() {
     remoteDraftCoverageLedgers: FavoriteLedger[] = favoriteLedgers
   ) {
     let repositorySummary = null
+    if (accountMid && !window.bilimiDesktop?.openFavoriteRepositoryAccount) {
+      throw new Error('Favorite repository summary is unavailable.')
+    }
     if (accountMid && window.bilimiDesktop?.openFavoriteRepositoryAccount) {
       try {
         repositorySummary = await window.bilimiDesktop.openFavoriteRepositoryAccount(accountMid)
+        const summaryAccountMid = String(repositorySummary?.accountMid ?? '').trim()
+        if (summaryAccountMid !== accountMid) {
+          throw new Error('Favorite repository account mismatch.')
+        }
       } catch {
         throw new Error('Favorite repository summary is unavailable.')
       }
@@ -1612,7 +1619,7 @@ export default function App() {
       .map((ledger) => ledger.id))
     const remoteDraftBoundFolderIds = new Set<string>()
     const remoteDraftKnownFolderIds = new Set(remoteDraftCoverageLedgers
-      .filter((ledger) => !ledger.managedFolderDeletedByUser && ledger.bindingState === 'unbound')
+      .filter((ledger) => !ledger.managedFolderDeletedByUser)
       .flatMap((ledger) => [ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])])
       .map((folderId) => folderId?.trim())
       .filter((folderId): folderId is string => Boolean(folderId)))
@@ -1621,8 +1628,11 @@ export default function App() {
         for (const folderId of shard.knownRemoteFolderIds ?? []) {
           if (folderId.trim()) remoteDraftKnownFolderIds.add(folderId.trim())
         }
+        // A physical shard can be pending reconciliation while already
+        // carrying an exact remote ID. It is known for observation de-duping,
+        // but only a bound shard is write-authorized.
+        if (shard.remoteFolderId?.trim()) remoteDraftKnownFolderIds.add(shard.remoteFolderId.trim())
         if (shard.bindingState === 'bound' && shard.remoteFolderId?.trim()) {
-          remoteDraftKnownFolderIds.add(shard.remoteFolderId.trim())
           remoteDraftBoundFolderIds.add(shard.remoteFolderId.trim())
         }
       }
@@ -2076,14 +2086,30 @@ export default function App() {
       ...dismissedRemoteDraftReminderIds,
       ...pendingRemoteDraftRediscoveryIds
     ])]
-    const status = await runScript(
-      buildFavoriteLedgerStatusScript(
-        ledgersWithRepositoryCandidates,
-        suppressedRemoteDraftFolderIds,
-        remoteDraftKnownFolderIds,
-        remoteDraftBoundFolderIds
-      )
-    ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
+    let status: Partial<FavoriteLedgerStatus> & AssistantAutomationResult
+    try {
+      status = await runScript(
+        buildFavoriteLedgerStatusScript(
+          ledgersWithRepositoryCandidates,
+          suppressedRemoteDraftFolderIds,
+          remoteDraftKnownFolderIds,
+          remoteDraftBoundFolderIds
+        )
+      ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
+    } catch {
+      const unavailableStatus: FavoriteLedgerStatus = {
+        ok: false,
+        verified: false,
+        ledgers: favoriteLedgers,
+        missingLedgerIds: [],
+        unboundLedgerIds: [],
+        backupConflictLedgerIds: [],
+        message: '收藏夹状态暂不可用，请稍后重试。'
+      }
+      assistantSnapshotCacheRef.current.favoriteLedgerStatus = unavailableStatus
+      favoriteLedgerStatusCacheRef.current = null
+      return unavailableStatus
+    }
 
     if (statusGeneration !== favoriteLedgerStatusGenerationRef.current) {
       return {
@@ -2097,7 +2123,10 @@ export default function App() {
       }
     }
 
-    if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
+    // Only an explicitly verified directory response may update account
+    // preferences. Older/invalid bridge payloads are fail-closed instead of
+    // being treated as an empty successful observation.
+    if (status.verified === true && Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
       const preservedBoundLedgerIds = new Set(options.preserveBoundLedgerIds ?? [])
       const statusLedgerIds = new Set(status.ledgers.map((ledger) => ledger.id))
       const recoveredLedgers = [

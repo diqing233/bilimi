@@ -40,5 +40,23 @@ export function applyIndexedFavoriteLedgerEnabledPatch(
   patch: FavoriteLedgerEnabledPatch
 ) {
   const ledger = index.get(ledgerKey(patch.accountMid, patch.ledgerId))
-  if (ledger) ledger.enabled = patch.enabled
+  if (!ledger) return undefined
+  const previousEnabled = ledger.enabled
+  ledger.enabled = patch.enabled
+  return previousEnabled
+}
+
+/**
+ * Revert an optimistic toggle only when no later update replaced its value.
+ * This keeps a rejected IPC response from overwriting a newer click.
+ */
+export function rollbackIndexedFavoriteLedgerEnabledPatch(
+  index: FavoriteLedgerEnabledIndex,
+  patch: FavoriteLedgerEnabledPatch,
+  previousEnabled: boolean | undefined
+) {
+  const ledger = index.get(ledgerKey(patch.accountMid, patch.ledgerId))
+  if (!ledger || previousEnabled === undefined || ledger.enabled !== patch.enabled) return false
+  ledger.enabled = previousEnabled
+  return true
 }

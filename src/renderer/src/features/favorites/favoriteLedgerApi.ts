@@ -298,12 +298,13 @@ function sharedScriptHelpers(): string {
     const stableRemoteDraftLedgerId = ${createRemoteObservationFavoriteLedgerId.toString()};
     const isPureRemoteObservationDraft = (ledger) => {
       const folderIds = ledgerRemoteFolderIds(ledger);
+      const keywords = Array.isArray(ledger.keywords) ? ledger.keywords : [];
       return ledger.syncState === 'local-draft' &&
         ledger.bindingState === 'unbound' &&
         folderIds.length === 1 &&
         ledger.ruleOrigin !== 'saved-rule' &&
         !ledger.enabled &&
-        !ledger.keywords.some((keyword) => String(keyword || '').trim());
+        !keywords.some((keyword) => String(keyword || '').trim());
     };
     const appendRemoteOnlyDrafts = (
       ledgers,
@@ -385,12 +386,16 @@ function sharedScriptHelpers(): string {
           .map((folderId) => String(folderId || '').trim())
           .filter(Boolean)
       ]);
-      // A normal local rule with the same title is an explicit rebind
-      // candidate, not a remote-only draft. A local bilimi-prefixed draft is
-      // kept separate so the owner can choose which one to bind.
+      // A configured non-prefixed rule is an explicit rebind candidate, not a
+      // second remote-only draft. An empty/disabled legacy placeholder is not
+      // enough evidence to claim a remote folder, so it remains visible as an
+      // independent observation. A pending remote draft is likewise limited
+      // to its exact persisted folder ID; another same-name ID must not be
+      // projected as a duplicate while the owner confirms the original.
       const localRebindTitles = new Set(deduplicatedLedgers
         .filter((ledger) => ledger.bindingState === 'unbound' &&
-          (!isBilimiManagedFolder({ title: ledger.displayName }) || ledger.pendingRemoteBinding))
+          (!isBilimiManagedFolder({ title: ledger.displayName }) || ledger.pendingRemoteBinding) &&
+          (ledger.enabled || (Array.isArray(ledger.keywords) && ledger.keywords.some((keyword) => String(keyword || '').trim()))))
         .map((ledger) => normalizeLogicalFolderTitle(ledger.displayName)));
       let priority = deduplicatedLedgers.reduce((max, ledger) => Math.max(max, Number(ledger.priority) || 0), -1) + 1;
       for (const folder of folders) {
@@ -398,7 +403,8 @@ function sharedScriptHelpers(): string {
         const folderId = String(findFolderId(folder) || '').trim();
         const displayName = String(folder.title || '').trim();
         const normalizedTitle = normalizeLogicalFolderTitle(displayName);
-        if (!folderId || dismissedIds.has(folderId) || knownRemoteFolderIds.has(folderId) || localRebindTitles.has(normalizedTitle) || !displayName || !normalizedTitle) continue;
+        if (!folderId || dismissedIds.has(folderId) || knownRemoteFolderIds.has(folderId) ||
+          localRebindTitles.has(normalizedTitle) || !displayName || !normalizedTitle) continue;
         const id = stableRemoteDraftLedgerId(folderId);
         const existingIndex = remoteDraftIndexByFolderId.get(folderId) ?? ledgerIndexById.get(id);
         const videoCount = Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0);
@@ -478,7 +484,7 @@ export function buildFavoriteLedgerStatusScript(
       ${sharedScriptHelpers()}
       const { csrf, mid } = readCredentials();
       if (!csrf || !mid) {
-        return { ok: false, ledgers: payload.ledgers, missingLedgerIds: [], message: '未能读取登录凭据，无法查验册目。' };
+        return { ok: false, verified: false, ledgers: payload.ledgers, missingLedgerIds: [], unboundLedgerIds: [], message: '未能读取登录凭据，无法查验册目。' };
       }
 
       const response = await fetch(buildListUrl(mid), { credentials: 'include' });
@@ -496,12 +502,16 @@ export function buildFavoriteLedgerStatusScript(
       const unboundLedgerIds = nextLedgers
         .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)
         .map((ledger) => ledger.id);
+      const missingLedgerIds = nextLedgers
+        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState !== 'bound')
+        .map((ledger) => ledger.id);
       const unboundCandidates = collectUnboundCandidates(nextLedgers, folders);
 
       return {
-        ok: unboundLedgerIds.length === 0,
+        ok: unboundLedgerIds.length === 0 && missingLedgerIds.length === 0,
+        verified: true,
         ledgers: nextLedgers,
-        missingLedgerIds: nextLedgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && ledger.bindingState !== 'bound').map((ledger) => ledger.id),
+        missingLedgerIds,
         backupConflictLedgerIds: [],
         unboundLedgerIds,
         unboundCandidates,
