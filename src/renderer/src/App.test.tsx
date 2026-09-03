@@ -2459,7 +2459,14 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
         if (userGesture && script.includes('const hasUserId =')) return { hasUserId: true, hasCsrf: true }
-        expect(script).not.toContain('4115311554')
+        const payloadMatch = script.match(/const payload = (.*?);/s)
+        expect(payloadMatch).not.toBeNull()
+        const payload = JSON.parse(payloadMatch?.[1] ?? '{}')
+        expect(payload.nextLedgers).not.toEqual(expect.arrayContaining([
+          expect.objectContaining({ bilibiliFolderId: '4115311554' })
+        ]))
+        expect(payload.options.rebindRemoteFolderIds).toBeUndefined()
+        expect(payload.remoteDraftKnownFolderIds).toContain('4115311554')
         return {
           ok: false,
           ledgers: [{ ...game, bilibiliFolderId: '4115311554', bilibiliFolderIds: ['4115311554'], bindingState: 'unbound' as const }],
@@ -3244,6 +3251,62 @@ describe('App runtime integration', () => {
       expect.objectContaining({ id: 'unchecked', enabled: false }),
       expect.objectContaining({ id: 'draft', syncState: 'local-draft' })
     ]))
+  })
+
+  it('passes complete repository coverage into a single-target backup without widening its write target', async () => {
+    const accountMid = '100'
+    const life = {
+      id: 'life', displayName: 'bilimi·生活日常', keywords: [], enabled: true, priority: 10,
+      isDefault: false, bilibiliFolderId: 'life-1', bilibiliFolderIds: ['life-1'], bindingState: 'bound' as const
+    }
+    const other = {
+      id: 'other', displayName: 'bilimi·知识学习', keywords: [], enabled: true, priority: 20,
+      isDefault: false, bilibiliFolderId: 'bound-other', bilibiliFolderIds: ['bound-other'], bindingState: 'bound' as const
+    }
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [life, other] }
+      }
+    })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-03T00:00:00.000Z',
+        videoCount: 0, folderCount: 3, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 3, syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: [],
+        physicalShards: [
+          { logicalLedgerId: 'life', shardNumber: 1, remoteFolderId: 'life-1', remoteTitle: life.displayName, bindingState: 'bound' },
+          { logicalLedgerId: 'other', shardNumber: 1, remoteFolderId: 'bound-other', remoteTitle: other.displayName, bindingState: 'bound' },
+          { logicalLedgerId: 'pending', shardNumber: 1, remoteTitle: 'bilimi·影视动漫', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['pending-other'] }
+        ]
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        if (script.includes(LEDGER_SAVE_SCRIPT_MARKER)) {
+          const payloadMatch = script.match(/const payload = (.*?);/s)
+          expect(payloadMatch).not.toBeNull()
+          const payload = JSON.parse(payloadMatch?.[1] ?? '{}')
+          expect(payload.remoteDraftKnownFolderIds).toEqual(['bound-other', 'life-1', 'pending-other'])
+          expect(payload.options.remoteDraftKnownFolderIds).toBeUndefined()
+          expect(script).toContain('"nextLedgers":[{"id":"life"')
+          expect(script).not.toContain('"id":"other"')
+          return { ok: true, ledgers: [life], steps: ['api:ledger:list'], missingTargets: [], message: '收藏夹已备册。' }
+        }
+        if (isLedgerStatusScript(script)) return { ...emptyLedgerStatus(), ledgers: [life, other] }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    await expect(requestRuntime({
+      id: 'single-target-complete-observation-coverage', type: 'save-ledgers', ledgers: [life, other],
+      options: { backupTargetLedgerIds: ['life'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({ ok: true })
   })
 
   it('clears a default deletion marker when one ledger is formally backed up', async () => {

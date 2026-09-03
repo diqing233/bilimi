@@ -901,6 +901,38 @@ describe('favorite ledger API scripts', () => {
     expect(result.remoteOnlyDraftLedgerIds).toEqual([])
   })
 
+  it('does not project account-known folders as remote drafts during a single-target backup', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 'life-1', title: 'bilimi·生活日常', media_count: 0 },
+          { id: 'bound-other', title: 'bilimi·知识学习', media_count: 0 },
+          { id: 'pending-other', title: 'bilimi·影视动漫', media_count: 0 },
+          { id: 'unknown-folder', title: 'bilimi·真正陌生', media_count: 0 }
+        ] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+    const lifeLedger: FavoriteLedger = {
+      id: 'life', displayName: 'bilimi·生活日常', keywords: [], enabled: true, priority: 1,
+      isDefault: false, bilibiliFolderId: 'life-1', bilibiliFolderIds: ['life-1'], bindingState: 'bound'
+    }
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([lifeLedger], [lifeLedger], {
+      remoteDraftKnownFolderIds: ['bound-other', 'pending-other']
+    } as never))
+
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([createRemoteObservationFavoriteLedgerId('unknown-folder')])
+    expect(result.ledgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ bilibiliFolderId: 'bound-other' }),
+      expect.objectContaining({ bilibiliFolderId: 'pending-other' })
+    ]))
+    expect(result.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ bilibiliFolderId: 'unknown-folder', syncState: 'local-draft' })
+    ]))
+  })
+
   it('keeps a same-name local draft separate from the remote folder until the user rebinds it', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

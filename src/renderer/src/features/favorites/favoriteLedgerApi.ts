@@ -296,7 +296,7 @@ function sharedScriptHelpers(): string {
       .filter((ledger) => ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup && ledger.syncState !== 'local-draft')
       .map((ledger) => ({ ledgerId: ledger.id, candidates: remoteFolderCandidates(ledger, folders) }));
     const stableRemoteDraftLedgerId = ${createRemoteObservationFavoriteLedgerId.toString()};
-    const appendRemoteOnlyDrafts = (ledgers, folders, dismissedRemoteFolderIds = []) => {
+    const appendRemoteOnlyDrafts = (ledgers, folders, dismissedRemoteFolderIds = [], remoteDraftKnownFolderIds = []) => {
       const nextLedgers = [];
       const ledgerIndexById = new Map();
       const remoteDraftIndexByFolderId = new Map();
@@ -363,7 +363,12 @@ function sharedScriptHelpers(): string {
           ? ledger.confirmedDeletedRemoteFolderIds
           : [])
       ].map((id) => String(id || '').trim()).filter(Boolean));
-      const knownRemoteFolderIds = new Set(deduplicatedLedgers.flatMap(ledgerRemoteFolderIds));
+      const knownRemoteFolderIds = new Set([
+        ...deduplicatedLedgers.flatMap(ledgerRemoteFolderIds),
+        ...(Array.isArray(remoteDraftKnownFolderIds) ? remoteDraftKnownFolderIds : [])
+          .map((folderId) => String(folderId || '').trim())
+          .filter(Boolean)
+      ]);
       // A normal local rule with the same title is an explicit rebind
       // candidate, not a remote-only draft. A local bilimi-prefixed draft is
       // kept separate so the owner can choose which one to bind.
@@ -410,8 +415,8 @@ function sharedScriptHelpers(): string {
       }
       return deduplicatedLedgers;
     };
-    const projectRemoteOnlyDrafts = (ledgers, folders, dismissedRemoteFolderIds = []) => {
-      const projectedLedgers = appendRemoteOnlyDrafts(ledgers, folders, dismissedRemoteFolderIds);
+    const projectRemoteOnlyDrafts = (ledgers, folders, dismissedRemoteFolderIds = [], remoteDraftKnownFolderIds = []) => {
+      const projectedLedgers = appendRemoteOnlyDrafts(ledgers, folders, dismissedRemoteFolderIds, remoteDraftKnownFolderIds);
       const dismissedRemoteFolderIdSet = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : [])
         .map((id) => String(id || '').trim())
         .filter(Boolean));
@@ -742,11 +747,13 @@ export function buildSaveFavoriteLedgersScript(
     backupTargetLedgerIds: _backupTargetLedgerIds,
     rediscoverDeletedRemoteDrafts: _rediscoverDeletedRemoteDrafts,
     recommendationOnly: _recommendationOnly,
+    remoteDraftKnownFolderIds = [],
     ...remoteSaveOptions
   } = options
   const payload = scriptPayload({
     nextLedgers: normalizeLedgerPayload(nextLedgers),
-    options: remoteSaveOptions
+    options: remoteSaveOptions,
+    remoteDraftKnownFolderIds
   })
 
   return `
@@ -783,7 +790,8 @@ export function buildSaveFavoriteLedgersScript(
       let remoteDraftProjection = projectRemoteOnlyDrafts(
         syncLedgerFolderIds(payload.nextLedgers, folders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
         folders,
-        payload.options?.dismissedRemoteFolderIds
+        payload.options?.dismissedRemoteFolderIds,
+        payload.remoteDraftKnownFolderIds
       );
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
@@ -829,7 +837,8 @@ export function buildSaveFavoriteLedgersScript(
         remoteDraftProjection = projectRemoteOnlyDrafts(
           syncLedgerFolderIds(nextLedgers, recheckedFolders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
           recheckedFolders,
-          payload.options?.dismissedRemoteFolderIds
+          payload.options?.dismissedRemoteFolderIds,
+          payload.remoteDraftKnownFolderIds
         );
         nextLedgers = remoteDraftProjection.ledgers;
         remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;

@@ -262,21 +262,30 @@ export class FavoriteRepositoryBindingService {
           folderId: normalized.remoteFolderId,
           title: expectedManagedTitle
         })
-        let verifiedInventory
-        try {
-          verifiedInventory = await bridge.readFolderInventory({ accountMid: account, operationKey: `${runId}:verify-rename:${normalized.remoteFolderId}` })
-        } catch {
-          throw new Error('Favorite repository remote shard rename is not confirmed.')
+        let verifiedRemote: FavoriteRepositoryRemoteFolderInventory | undefined
+        for (const [attempt, delayMs] of [0, 250, 750].entries()) {
+          if (attempt > 0) await this.waitForInventoryRetry(delayMs)
+          let verifiedInventory
+          try {
+            verifiedInventory = await bridge.readFolderInventory({
+              accountMid: account,
+              operationKey: `${runId}:verify-rename:${normalized.remoteFolderId}${attempt ? `-recheck-${attempt}` : ''}`
+            })
+          } catch {
+            throw new Error('Favorite repository remote shard rename is not confirmed.')
+          }
+          if (normalizedAccountMid(verifiedInventory.observedAccountMid) !== account) {
+            throw new Error('Favorite repository remote account mismatch.')
+          }
+          const verifiedMatches = verifiedInventory.folders.filter((folder) => folder.id === normalized.remoteFolderId)
+          if (verifiedMatches.length === 1 &&
+            comparableManagedShardTitle(verifiedMatches[0].title) === comparableManagedShardTitle(expectedManagedTitle)) {
+            verifiedRemote = verifiedMatches[0]
+            break
+          }
         }
-        if (normalizedAccountMid(verifiedInventory.observedAccountMid) !== account) {
-          throw new Error('Favorite repository remote account mismatch.')
-        }
-        const verifiedMatches = verifiedInventory.folders.filter((folder) => folder.id === normalized.remoteFolderId)
-        if (verifiedMatches.length !== 1 ||
-          comparableManagedShardTitle(verifiedMatches[0].title) !== comparableManagedShardTitle(expectedManagedTitle)) {
-          throw new Error('Favorite repository remote shard rename is not confirmed.')
-        }
-        remote = verifiedMatches[0]
+        if (!verifiedRemote) throw new Error('Favorite repository remote shard rename is not confirmed.')
+        remote = verifiedRemote
       }
       if (exactExisting && !requiresRename) return this.getBindings(account)
       await this.options.repository.commit(account, {

@@ -787,6 +787,52 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(readFolderInventory).toHaveBeenCalledTimes(2)
   })
 
+  it('confirms an explicitly renamed shard after its first inventory still has the old title', async () => {
+    const repository = await createRepository()
+    const expectedTitle = 'bilimi·生活日常你好'
+    let renamed = false
+    let inventoryReads = 0
+    const waitForInventoryRetry = vi.fn().mockResolvedValue(undefined)
+    const renameFolder = vi.fn(async () => {
+      renamed = true
+      return { observedAccountMid: '100' }
+    })
+    const readFolderInventory = vi.fn(async () => {
+      inventoryReads += 1
+      return {
+        observedAccountMid: '100',
+        folders: [{
+          id: 'life-1',
+          title: renamed && inventoryReads >= 3 ? expectedTitle : 'bilimi·生活日常',
+          memberCount: 0
+        }]
+      }
+    })
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      waitForInventoryRetry,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory, renameFolder,
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'life', logicalTitle: expectedTitle,
+      remoteDisplayTitle: expectedTitle, expectedRemoteTitle: 'bilimi·生活日常',
+      remoteFolderId: 'life-1', shardNumber: 1, memberAids: [], allowRemoteRename: true
+    })).resolves.toMatchObject({
+      shards: [expect.objectContaining({ remoteFolderId: 'life-1', remoteTitle: expectedTitle, bindingState: 'bound' })]
+    })
+
+    expect(renameFolder).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'life-1', title: expectedTitle }))
+    expect(waitForInventoryRetry).toHaveBeenCalledWith(250)
+    expect(readFolderInventory).toHaveBeenCalledTimes(3)
+  })
+
   it('treats a repeated exact adoption as idempotent when the inventory changes', async () => {
     const repository = await createRepository()
     let memberCount = 7

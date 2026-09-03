@@ -1592,7 +1592,8 @@ export default function App() {
 
   async function projectFavoriteLedgersToFormalBindings(
     accountMid: string,
-    favoriteLedgers: FavoriteLedger[]
+    favoriteLedgers: FavoriteLedger[],
+    remoteDraftCoverageLedgers: FavoriteLedger[] = favoriteLedgers
   ) {
     const repositorySummary = accountMid && window.bilimiDesktop?.openFavoriteRepositoryAccount
       ? await window.bilimiDesktop.openFavoriteRepositoryAccount(accountMid).catch(() => null)
@@ -1601,7 +1602,15 @@ export default function App() {
     const trustedRemoteShardNumbers = new Map<string, Map<string, number>>()
     const deletionOnlyHistoricalRemoteFolderIds = new Map<string, Array<{ id: string; title: string }>>()
     const repositoryShards = repositorySummary?.physicalShards ?? []
+    const remoteDraftKnownFolderIds = new Set(remoteDraftCoverageLedgers.flatMap((ledger) => [
+      ledger.bilibiliFolderId,
+      ...(ledger.bilibiliFolderIds ?? [])
+    ].map((folderId) => folderId?.trim()).filter((folderId): folderId is string => Boolean(folderId))))
     for (const shard of repositoryShards) {
+      if (shard.remoteFolderId?.trim()) remoteDraftKnownFolderIds.add(shard.remoteFolderId.trim())
+      for (const folderId of shard.knownRemoteFolderIds ?? []) {
+        if (folderId.trim()) remoteDraftKnownFolderIds.add(folderId.trim())
+      }
       if (shard.bindingState !== 'bound' && shard.remoteFolderId) {
         const entries = deletionOnlyHistoricalRemoteFolderIds.get(shard.logicalLedgerId) ?? []
         if (!entries.some((entry) => entry.id === shard.remoteFolderId)) {
@@ -1632,6 +1641,7 @@ export default function App() {
     return {
       trustedRemoteFolderIds,
       trustedRemoteShardNumbers,
+      remoteDraftKnownFolderIds: [...remoteDraftKnownFolderIds].sort(),
       repositoryRevision: typeof repositorySummary?.revision === 'number' ? repositorySummary.revision : undefined,
       ledgers: favoriteLedgers.map((ledger) => {
         // A right-side local deletion deliberately resets a default rule while
@@ -2446,21 +2456,27 @@ export default function App() {
 
     const accountMid = await readBilibiliAccountMid()
     const previousLedgers = favoriteLedgersForActiveAccount(accountMid)
+    const allAccountLedgers = [...new Map([
+      ...previousLedgers,
+      ...nextLedgers
+    ].map((ledger) => [ledger.id, ledger])).values()]
     const backupTargetLedgerIdSet = new Set(options?.backupTargetLedgerIds ?? [])
     const remoteOperationLedgers = backupTargetLedgerIdSet.size
       ? nextLedgers.filter((ledger) => backupTargetLedgerIdSet.has(ledger.id))
       : nextLedgers
     const dismissedRemoteFolderIds = await window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid)
       .catch(() => []) ?? []
-    const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers } = await projectFavoriteLedgersToFormalBindings(
+    const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers, remoteDraftKnownFolderIds } = await projectFavoriteLedgersToFormalBindings(
       accountMid,
-      remoteOperationLedgers
+      remoteOperationLedgers,
+      allAccountLedgers
     )
 
     const result = await runScript(
       buildSaveFavoriteLedgersScript(ledgersWithFormalBindings, previousLedgers, {
         ...options,
-        dismissedRemoteFolderIds
+        dismissedRemoteFolderIds,
+        remoteDraftKnownFolderIds
       })
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
     const refreshFavoriteLedgerStatusAfterBackup = async (preserveBoundLedgerIds: readonly string[] = []) => {

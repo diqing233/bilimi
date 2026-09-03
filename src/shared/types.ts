@@ -101,6 +101,8 @@ export type FavoriteLedgerSaveOptions = {
   rediscoverDeletedRemoteDrafts?: boolean
   /** Remote-only draft reminders the owner explicitly dismissed for this account. */
   dismissedRemoteFolderIds?: string[]
+  /** Complete account-level remote identities that must not be re-projected as remote-only drafts. */
+  remoteDraftKnownFolderIds?: string[]
   /** Restricts backup to create-or-confirm-bind for explicit library targets. */
   lightweightBackup?: boolean
   /** The user has explicitly approved creating the current library work folder after a read-only preflight found no reusable candidate. */
