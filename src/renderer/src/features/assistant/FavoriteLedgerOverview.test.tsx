@@ -1735,6 +1735,32 @@ describe('FavoriteLedgerOverview', () => {
     await act(async () => { await pending.promise })
   })
 
+  it('restores the account enabled state after a stale recommendation organization map is removed', () => {
+    const recommendation = {
+      id: 'completed-recommendation', displayName: 'bilimi·已完成推荐', keywords: ['已完成'], ruleType: 'author' as const,
+      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft' as const, bindingState: 'unbacked' as const, isDefault: false
+    }
+    const view = render(<FavoriteLedgerOverview
+      organizationActive
+      ledgers={[recommendation]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+      organizationSavedLedgerEnabledById={new Map([['completed-recommendation', true]])}
+      onOrganizationSavedLedgerToggle={vi.fn().mockResolvedValue(true)}
+    />)
+
+    expect(screen.getByRole('button', { name: '移出同步 bilimi·已完成推荐' })).toBeInTheDocument()
+    view.rerender(<FavoriteLedgerOverview
+      organizationActive
+      ledgers={[{ ...recommendation, enabled: false }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+      onOrganizationRecommendationToggle={vi.fn().mockResolvedValue(true)}
+    />)
+
+    expect(screen.getByRole('button', { name: '加入同步 bilimi·已完成推荐' })).toBeInTheDocument()
+  })
+
   it('keeps a round-locked default selected when bulk cancellation excludes saved rules', () => {
     const roundSelection = vi.fn().mockResolvedValue(true)
     render(<FavoriteLedgerOverview

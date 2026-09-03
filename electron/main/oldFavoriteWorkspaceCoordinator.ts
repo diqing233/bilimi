@@ -2490,7 +2490,10 @@ export class OldFavoriteWorkspaceCoordinator {
         items,
         (aid) => segmentIdForAid.get(aid) ?? currentSegmentId
       )
-      const recommendations = recommendationsFromIndex(recommendationIndex)
+      const recommendations = await this.hydrateRecommendationsFromSavedEnabledLedgers(
+        completed,
+        recommendationsFromIndex(recommendationIndex)
+      )
       const pendingTagAids = items
         .filter((item) => !item.tags?.length && item.tagEvidence !== 'confirmed')
         .map((item) => item.aid)
@@ -3301,7 +3304,10 @@ export class OldFavoriteWorkspaceCoordinator {
         organizableItemsByAid.values(),
         (aid) => segmentIdForAid.get(aid) ?? currentSegmentId
       )
-      const recommendations = recommendationsFromIndex(recommendationIndex)
+      const recommendations = await this.hydrateRecommendationsFromSavedEnabledLedgers(
+        completed,
+        recommendationsFromIndex(recommendationIndex)
+      )
       const readiness = this.calculatePlanReadinessFromItems(completed, organizableItemsByAid.values(), sourceFolders)
       const roundStart = await this.captureRoundStartFavoriteRuleStateUnsafe(completed, recommendations)
       if (roundStart) {
@@ -4010,10 +4016,25 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'previewing') return clone(workspace)
       const prior = await this.ensureRecommendations(workspace)
-      const deleted = deletedRules.filter((rule) => Boolean(rule.id.trim()) && normalizedFavoriteRuleSemantics(rule))
+      const candidateIds = new Set(prior.candidates.map((candidate) => candidate.id.trim()).filter(Boolean))
+      const exactDeletedIds = new Set(deletedRules
+        .map((rule) => rule.id.trim())
+        .filter((id) => id && candidateIds.has(id)))
+      // Preserve the legacy semantic fallback for ordinary saved rules whose
+      // persisted id predates the recommendation candidate id. Once a deleted
+      // id is itself a current candidate id, however, its stable identity is
+      // authoritative and the rule must not withdraw a different candidate
+      // that merely shares the same rule shape.
+      const semanticFallbackRules = deletedRules.filter((rule) => {
+        const id = rule.id.trim()
+        return Boolean(id) && !exactDeletedIds.has(id)
+      })
       const adoptedCandidateIds = prior.adoptedCandidateIds.filter((candidateId) => {
+        if (exactDeletedIds.has(candidateId)) return false
         const candidate = prior.candidates.find((item) => item.id === candidateId)
-        return !candidate || !deleted.some((rule) => recommendationMatchesDeletedFavoriteRule(candidate, rule))
+        return !candidate || !semanticFallbackRules.some((rule) =>
+          recommendationMatchesDeletedFavoriteRule(candidate, rule)
+        )
       })
       const next: RecommendationState = {
         initialized: true,
@@ -5678,6 +5699,24 @@ export class OldFavoriteWorkspaceCoordinator {
       ledgers,
       adoptedCandidateIds: [...new Set(state.adoptedCandidateIds.map((id) => id.trim()).filter(Boolean))].sort(),
       excludedLedgerIds: [...new Set(state.excludedLedgerIds.map((id) => id.trim()).filter(Boolean))].sort()
+    }
+  }
+
+  private async hydrateRecommendationsFromSavedEnabledLedgers(
+    workspace: Pick<OldFavoriteWorkspace, 'accountMid'>,
+    recommendations: RecommendationState
+  ): Promise<RecommendationState> {
+    const savedEnabledLedgers = await this.options.listSavedEnabledLedgers?.(workspace.accountMid) ?? []
+    const savedEnabledIds = new Set(savedEnabledLedgers
+      .map((ledger) => ledger.id.trim())
+      .filter(Boolean))
+    const adoptedCandidateIds = recommendations.candidates
+      .map((candidate) => candidate.id)
+      .filter((candidateId) => savedEnabledIds.has(candidateId))
+    if (!adoptedCandidateIds.length) return recommendations
+    return {
+      ...recommendations,
+      adoptedCandidateIds: [...new Set([...recommendations.adoptedCandidateIds, ...adoptedCandidateIds])]
     }
   }
 

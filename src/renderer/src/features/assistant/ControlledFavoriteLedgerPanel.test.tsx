@@ -127,8 +127,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
       scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
       classifications: {},
       recommendations: {
-        candidates: [{ id: 'custom-author-honker233', displayName: 'bilimi·honker233', kind: 'author' as const, keywords: ['honker233'], count: 1, reason: '推荐 UP' }],
-        adoptedCandidateIds: ['custom-author-honker233']
+        candidates: [{ id: 'custom-author-honker233-9.2d', displayName: 'bilimi·honker233', kind: 'author' as const, keywords: ['honker233'], count: 1, reason: '推荐 UP' }],
+        adoptedCandidateIds: ['custom-author-honker233-9.2d']
       },
       history: { cursor: 0, length: 0 }
     }
@@ -140,15 +140,13 @@ describe('ControlledFavoriteLedgerPanel', () => {
     } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
-      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} openLedgerId="custom-author-honker233" openLedgerRequestVersion={1}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} openLedgerId="custom-author-honker233-9.2d" openLedgerRequestVersion={1}
       ledgers={[
-        { id: 'custom-author-honker233-9.2d', displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'author', enabled: true, priority: 10, bindingState: 'unbacked', isDefault: false },
-        { id: 'custom-author-honker233', displayName: 'bilimi·honker233', keywords: [], enabled: true, priority: 10_000, syncState: 'local-draft', ruleOrigin: 'recommendation-draft', isDefault: false }
+        { id: 'custom-author-honker233-9.2d', displayName: 'bilimi·honker233', keywords: ['honker233'], ruleType: 'author', enabled: true, priority: 10, bindingState: 'unbacked', isDefault: false }
       ]} />)
 
     await waitFor(() => expect(screen.getByRole('region', { name: '当前收藏夹' }))
       .toHaveAttribute('data-ledger-id', 'custom-author-honker233-9.2d'))
-    expect(screen.queryByTestId('favorite-ledger-chip-custom-author-honker233')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
     await waitFor(() => expect(window.bilimiDesktop?.deleteFavoriteLedgersLocal)
       .toHaveBeenCalledWith('100', ['custom-author-honker233-9.2d']))
@@ -211,13 +209,50 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(commandOldFavoriteWorkspaceV1).not.toHaveBeenCalled()
   })
 
-  it('deletes a pure recommendation draft through its draft transaction without a workspace queue', async () => {
-    const deleteFavoriteLedgerDraft = vi.fn().mockResolvedValue(undefined)
+  it('uses the account enabled preference when a completed recommendation snapshot remains mounted after the guide closes', async () => {
+    const completed = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'completed' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {}, recommendations: { candidates: [{ id: 'completed-recommendation', displayName: 'bilimi·已完成推荐', kind: 'author' as const, count: 1, reason: '已完成' }], adoptedCandidateIds: ['completed-recommendation'] },
+      history: { cursor: 0, length: 0 }, completionMode: 'local' as const
+    }
+    const saveLedgerEnabled = vi.fn().mockResolvedValue(undefined)
     const commandOldFavoriteWorkspaceV1 = vi.fn()
-    const saveLedgerEnabled = vi.fn()
+    const openOldFavoriteWorkspaceV1 = vi.fn().mockResolvedValue(completed)
     window.bilimiDesktop = {
-      commandOldFavoriteWorkspaceV1,
-      deleteFavoriteLedgerDraft
+      openOldFavoriteWorkspaceV1,
+      commandOldFavoriteWorkspaceV1
+    } as unknown as typeof window.bilimiDesktop
+    const props = {
+      currentAccountMid: '100', missingLedgerIds: [], onEnsureLedgers: vi.fn(), onSaveLedgers: vi.fn(), onSaveLedgerEnabled: saveLedgerEnabled
+    }
+    const initiallyEnabled = [{
+      id: 'completed-recommendation', displayName: 'bilimi·已完成推荐', keywords: ['已完成'], ruleType: 'author' as const,
+      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft' as const, bindingState: 'unbacked' as const, isDefault: false
+    }]
+    const { rerender } = render(<ControlledFavoriteLedgerPanel {...props} ledgers={initiallyEnabled} />)
+
+    await waitFor(() => expect(openOldFavoriteWorkspaceV1).toHaveBeenCalled())
+    commandOldFavoriteWorkspaceV1.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: '已完成推荐' }))
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·已完成推荐' }))
+
+    await waitFor(() => expect(saveLedgerEnabled).toHaveBeenCalledWith('completed-recommendation', false))
+    expect(commandOldFavoriteWorkspaceV1).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'set-recommended-candidates' }))
+    expect(commandOldFavoriteWorkspaceV1).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'set-round-excluded-ledger-ids' }))
+
+    rerender(<ControlledFavoriteLedgerPanel {...props} ledgers={[{ ...initiallyEnabled[0], enabled: false }]} />)
+    expect(screen.getByRole('button', { name: '加入同步 bilimi·已完成推荐' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '加入同步 bilimi·已完成推荐' }))
+    await waitFor(() => expect(saveLedgerEnabled).toHaveBeenCalledWith('completed-recommendation', true))
+  })
+
+  it('persists a pure recommendation draft toggle without a workspace queue', async () => {
+    const commandOldFavoriteWorkspaceV1 = vi.fn()
+    const saveLedgerEnabled = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = {
+      commandOldFavoriteWorkspaceV1
     } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
@@ -230,8 +265,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '无工作区草稿' }))
     fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·无工作区草稿' }))
 
-    await waitFor(() => expect(deleteFavoriteLedgerDraft).toHaveBeenCalledWith('100', 'recommended-draft-no-workspace'))
-    expect(saveLedgerEnabled).not.toHaveBeenCalled()
+    await waitFor(() => expect(saveLedgerEnabled).toHaveBeenCalledWith('recommended-draft-no-workspace', false))
     expect(commandOldFavoriteWorkspaceV1).not.toHaveBeenCalled()
   })
 
@@ -479,6 +513,20 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     expect(projection.candidateToLedgerId.get('persisted-recommendation')).toBe('persisted-recommendation')
     expect(projection.ledgerToCandidateId.get('persisted-recommendation')).toBe('persisted-recommendation')
+  })
+
+  it('does not link a saved rule to a same-keyword recommendation with a different stable id', () => {
+    const projection = createRecommendationProjection([{
+      id: 'saved-author-alpha', displayName: 'bilimi·Alpha', keywords: ['Alpha'],
+      ruleType: 'author', enabled: true, priority: 10, ruleOrigin: 'recommendation-draft',
+      syncState: 'local-draft', bindingState: 'unbacked', isDefault: false
+    }], [{
+      id: 'candidate-author-alpha-v2', displayName: 'bilimi·Alpha', kind: 'author',
+      keywords: ['Alpha'], count: 1, reason: '推荐 UP'
+    }], new Set(['saved-author-alpha']))
+
+    expect(projection.candidateToLedgerId.has('candidate-author-alpha-v2')).toBe(false)
+    expect(projection.ledgerToCandidateId.has('saved-author-alpha')).toBe(false)
   })
 
   it('does not delete a persisted recommendation-origin rule when cancelling without a workspace', async () => {
@@ -4958,8 +5006,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
       scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
       sourceFolders: [], segments: [], currentSegment: null, classifications: {},
       recommendations: {
-        candidates: [{ id: 'author-alice', displayName: 'bilimi·Alice', keywords: ['Alice'], kind: 'author' as const, count: 2, reason: 'Alice' }],
-        adoptedCandidateIds: ['author-alice']
+        candidates: [{ id: 'saved-alice', displayName: 'bilimi·Alice', keywords: ['Alice'], kind: 'author' as const, count: 2, reason: 'Alice' }],
+        adoptedCandidateIds: ['saved-alice']
       },
       history: { cursor: 0, length: 0 }
     }
@@ -4976,7 +5024,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await openPersistedWorkspaceGuide()
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
 
-    expect(screen.queryByTestId('favorite-ledger-chip-author-alice')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('favorite-ledger-chip-saved-alice')).toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: 'Alice精选' }))
     expect(screen.getByLabelText('册名')).toHaveValue('Alice精选')
     expect(screen.getByText('已备册')).toBeInTheDocument()
@@ -4990,14 +5038,14 @@ describe('ControlledFavoriteLedgerPanel', () => {
       scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
       sourceFolders: [], segments: [], currentSegment: null, classifications: {},
       recommendations: {
-        candidates: [{ id: 'author-alice', displayName: 'bilimi·Alice', keywords: ['Alice'], kind: 'author' as const, count: 2, reason: 'Alice' }],
+        candidates: [{ id: 'saved-alice', displayName: 'bilimi·Alice', keywords: ['Alice'], kind: 'author' as const, count: 2, reason: 'Alice' }],
         adoptedCandidateIds: [] as string[]
       },
       history: { cursor: 0, length: 0 }
     }
     const command = vi.fn().mockResolvedValue({
       ...preview,
-      recommendations: { ...preview.recommendations, adoptedCandidateIds: ['author-alice'] }
+      recommendations: { ...preview.recommendations, adoptedCandidateIds: ['saved-alice'] }
     })
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
@@ -5012,7 +5060,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'Alice', checked: false }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
-      type: 'set-recommended-candidates', candidateIds: ['author-alice']
+      type: 'set-recommended-candidates', candidateIds: ['saved-alice']
     }))
 
     fireEvent.click(await screen.findByRole('button', { name: '移出同步 bilimi·Alice精选' }))
@@ -5141,6 +5189,85 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await waitFor(() => expect(screen.queryByRole('button', { name: 'A' })).not.toBeInTheDocument())
     expect(screen.getByRole('checkbox', { name: 'A', checked: false })).toBeInTheDocument()
+  })
+
+  it('deletes an adopted persisted recommendation rule when its exact lower candidate is deselected', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [{ id: 'author-adopted', displayName: 'bilimi·Adopted', keywords: ['Adopted'], kind: 'author' as const, count: 2, reason: 'Adopted' }],
+        adoptedCandidateIds: ['author-adopted']
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(preview)
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['author-adopted'] })
+    const saveLedgerEnabled = vi.fn().mockResolvedValue(undefined)
+    const open = vi.fn().mockResolvedValue(preview)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command,
+      deleteFavoriteLedgersLocal
+    } as unknown as typeof window.bilimiDesktop
+
+    const initialLedgers = [{
+      id: 'author-adopted', displayName: 'bilimi·Adopted', keywords: ['Adopted'], ruleType: 'author' as const, enabled: true,
+      priority: 10_000, ruleOrigin: 'recommendation-draft' as const, bindingState: 'unbacked' as const, isDefault: false
+    }]
+    const props = {
+      currentAccountMid: '100', missingLedgerIds: [], onEnsureLedgers: vi.fn(), onSaveLedgers: vi.fn(), onSaveLedgerEnabled: saveLedgerEnabled
+    }
+    const { rerender } = render(<ControlledFavoriteLedgerPanel {...props} ledgers={initialLedgers} />)
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Adopted', checked: true }))
+
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['author-adopted']))
+    expect(saveLedgerEnabled).not.toHaveBeenCalledWith('author-adopted', false)
+    expect(command).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'set-round-excluded-ledger-ids' }))
+
+    rerender(<ControlledFavoriteLedgerPanel {...props} ledgers={[]} />)
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Adopted' })).not.toBeInTheDocument())
+  })
+
+  it('keeps an adopted lower recommendation selected and reports failure when its local deletion fails', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: {
+        candidates: [{ id: 'author-delete-failed', displayName: 'bilimi·Delete failed', keywords: ['Delete failed'], kind: 'author' as const, count: 2, reason: 'Delete failed' }],
+        adoptedCandidateIds: ['author-delete-failed']
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(preview)
+    const deleteFavoriteLedgersLocal = vi.fn().mockRejectedValue(new Error('local deletion failed'))
+    const onTransientFeedback = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command,
+      deleteFavoriteLedgersLocal
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onTransientFeedback={onTransientFeedback}
+      ledgers={[{
+        id: 'author-delete-failed', displayName: 'bilimi·Delete failed', keywords: ['Delete failed'], ruleType: 'author', enabled: true,
+        priority: 10_000, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
+      }]} />)
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Delete failed', checked: true }))
+
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['author-delete-failed']))
+    await waitFor(() => expect(onTransientFeedback).toHaveBeenCalledWith('删除未成功，请稍后重试。'))
+    expect(screen.getByRole('checkbox', { name: 'Delete failed', checked: true })).toBeInTheDocument()
+    expect(command).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'set-recommended-candidates' }))
   })
 
   it('keeps an unbound recommendation with an actual Bilibili folder when it is deselected', async () => {

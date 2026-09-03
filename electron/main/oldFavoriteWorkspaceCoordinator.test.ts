@@ -4569,6 +4569,70 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace).toMatchObject({ id: next.workspaceId, status: 'scanning' })
   })
 
+  it('adopts only exact trimmed saved-enabled recommendation ids when a fresh round rebuilds its candidates', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    let savedEnabledLedgers: Array<{ id: string; title: string }> = []
+    const coordinator = createCoordinator(repository, store, {
+      listSavedEnabledLedgers: vi.fn(async () => savedEnabledLedgers),
+      // `custom-author-up-disabled` is saved but intentionally absent from
+      // the enabled projection. Its matching recommendation must start clear.
+      listSavedLedgers: vi.fn(async () => [
+        ...savedEnabledLedgers,
+        { id: 'custom-author-up-disabled', title: 'bilimi·UP Disabled' }
+      ])
+    })
+
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'first-source', title: 'First source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'first-source', page: 1, hasMore: false,
+      items: [
+        { aid: 1, title: 'First alpha', author: 'UP Alpha', sourceFolderIds: ['first-source'] },
+        { aid: 2, title: 'Second alpha', author: 'UP Alpha', sourceFolderIds: ['first-source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    const completedMarker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'complete-first-round', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        ...completedMarker,
+        status: 'completed', workspaceRef: { ...completedMarker.workspaceRef, status: 'completed' }
+      }
+    })
+
+    savedEnabledLedgers = [
+      { id: ' custom-author-up-alpha ', title: 'bilimi·UP Alpha' },
+      // Same display name as the generated Beta candidate, but not its stable ID.
+      { id: 'custom-author-up-beta-previous-rule', title: 'bilimi·UP Beta' }
+    ]
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'second-source', title: 'Second source', itemCount: 6, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'second-source', page: 1, hasMore: false,
+      items: [
+        { aid: 11, title: 'Alpha one', author: 'UP Alpha', sourceFolderIds: ['second-source'] },
+        { aid: 12, title: 'Alpha two', author: 'UP Alpha', sourceFolderIds: ['second-source'] },
+        { aid: 13, title: 'Beta one', author: 'UP Beta', sourceFolderIds: ['second-source'] },
+        { aid: 14, title: 'Beta two', author: 'UP Beta', sourceFolderIds: ['second-source'] },
+        { aid: 15, title: 'Disabled one', author: 'UP Disabled', sourceFolderIds: ['second-source'] },
+        { aid: 16, title: 'Disabled two', author: 'UP Disabled', sourceFolderIds: ['second-source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(snapshot.recommendations.adoptedCandidateIds).toContain('custom-author-up-alpha')
+    expect(snapshot.recommendations.adoptedCandidateIds).not.toContain('custom-author-up-beta')
+    expect(snapshot.recommendations.adoptedCandidateIds).not.toContain('custom-author-up-disabled')
+  })
+
   it.each([
     ['incremental', [1, 2, 3], []],
     ['full', [1, 2, 3], []]
@@ -5636,7 +5700,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
 
     await coordinator.reconcileDeletedFavoriteLedgerRules('100', [{
-      id: 'saved-up-alpha', ruleType: 'author', keywords: [' UP Alpha ']
+      id: 'custom-author-up-alpha', ruleType: 'author', keywords: [' UP Alpha ']
     }])
 
     const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
@@ -5669,6 +5733,61 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(saved).toHaveBeenLastCalledWith('100', [
       expect.objectContaining({ id: 'custom-author-up-alpha', ruleType: 'author', keywords: ['UP Alpha'] })
     ], [])
+  })
+
+  it('withdraws only the exact recommendation when two candidates share rule semantics', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, {
+      saveRecommendedLedgers: vi.fn(),
+      classifyCurrentItem: (_item, recommendedLedgers = []) => ({
+        targetLedgerIds: recommendedLedgers.map((ledger) => ledger.id), confidence: 'high' as const
+      })
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha one', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha two', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    const first = requireSnapshot(await coordinator.getSnapshot('100'))
+    const candidateA = first.recommendations.candidates.find((candidate) => candidate.id === 'custom-author-up-alpha')
+    if (!candidateA) throw new Error('recommendation unexpectedly unavailable')
+    const candidateB = {
+      ...candidateA,
+      id: 'custom-author-up-alpha-alias',
+      displayName: candidateA.displayName
+    }
+    await coordinator.setRecommendedCandidates('100', [candidateA.id])
+    await store.appendOverlay('100', first.workspaceId, {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      recommendations: {
+        initialized: true,
+        candidates: [candidateA, candidateB],
+        adoptedCandidateIds: [candidateA.id, candidateB.id]
+      }
+    })
+
+    const restarted = createCoordinator(repository, store, {
+      initializeOnOpen: false,
+      classifyCurrentItem: (_item, recommendedLedgers = []) => ({
+        targetLedgerIds: recommendedLedgers.map((ledger) => ledger.id), confidence: 'high' as const
+      })
+    })
+    await restarted.getSnapshot('100')
+    await restarted.reconcileDeletedFavoriteLedgerRules('100', [{
+      id: candidateA.id, ruleType: 'author', keywords: [' UP Alpha ']
+    }])
+
+    const snapshot = requireSnapshot(await restarted.getSnapshot('100'))
+    expect(snapshot.recommendations.adoptedCandidateIds).not.toContain(candidateA.id)
+    expect(snapshot.recommendations.adoptedCandidateIds).toContain(candidateB.id)
   })
 
   it('keeps the preview recommendation and classifications when deleted-rule reconciliation cannot reclassify', async () => {
@@ -5863,12 +5982,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       confidence: 'high' as const
     }))
     const restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)
+    let savedRuleIsEnabled = false
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
       classifyCurrentItem,
       restoreFavoriteLedgerHistoryState,
-      listSavedEnabledLedgers: vi.fn().mockResolvedValue([{
+      listSavedEnabledLedgers: vi.fn(async () => savedRuleIsEnabled ? [{
         id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', enabled: true
-      }]),
+      }] : []),
       loadFavoriteLedgerHistoryLedgers: vi.fn().mockResolvedValue([{
         id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'], ruleType: 'author',
         enabled: true, priority: 10, ruleOrigin: 'saved-rule', bindingState: 'unbacked', isDefault: false
@@ -5889,6 +6009,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.finishScan('100')
     await coordinator.acceptCurrentTags('100')
     const historyLengthBeforeSelection = requireSnapshot(await coordinator.getSnapshot('100')).history.length
+    // The round started while this rule was disabled, so it must not be
+    // hydrated as an adopted recommendation. Simulate the account-level
+    // enable save reaching the coordinator before the linked selection command.
+    savedRuleIsEnabled = true
 
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     const afterRecommendation = requireSnapshot(await coordinator.getSnapshot('100'))
