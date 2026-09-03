@@ -47,7 +47,8 @@ import {
   createDefaultFavoriteLedgers,
   createRecommendedFavoriteLedgerId,
   createRecommendedFavoriteLedgerNamesForKind,
-  disambiguateRecommendedFavoriteLedgerNames
+  disambiguateRecommendedFavoriteLedgerNames,
+  createRemoteObservationFavoriteLedgerId
 } from '../../src/shared/favoriteLedgers'
 import { parseFavoriteLedgerRules } from '../../src/shared/favoriteLedgerConstraints'
 import type { FavoriteLedger, FavoriteLedgerRuleType } from '../../src/shared/types'
@@ -1064,12 +1065,7 @@ type RecoverableManagedFolder = {
 }
 
 function recoveredCustomLedgerId(remoteFolderId: string) {
-  let hash = 2166136261
-  for (const character of remoteFolderId.trim()) {
-    hash ^= character.codePointAt(0) ?? 0
-    hash = Math.imul(hash, 16777619)
-  }
-  return `custom-${(hash >>> 0).toString(36)}`
+  return createRemoteObservationFavoriteLedgerId(remoteFolderId)
 }
 
 function normalizedRecoveredCustomTitle(title: string) {
@@ -1143,27 +1139,10 @@ function recoverableManagedFolders(
       })
     }
   }
-  const customCandidatesByTitle = new Map<string, RecoverableManagedFolder[]>()
-  for (const candidate of candidates.filter((candidate) => candidate.logicalLedgerId.startsWith('custom-'))) {
-    const key = normalizedRecoveredCustomTitle(candidate.logicalTitle)
-    customCandidatesByTitle.set(key, [...(customCandidatesByTitle.get(key) ?? []), candidate])
-  }
-  const resolvedCandidates = candidates.flatMap((candidate) => {
-    if (!candidate.logicalLedgerId.startsWith('custom-')) return [candidate]
-    const titleKey = normalizedRecoveredCustomTitle(candidate.logicalTitle)
-    const matches = customCandidatesByTitle.get(titleKey) ?? []
-    if (matches.length === 1) return [candidate]
-    if (matches[0] !== candidate) return []
-    return [{
-      ...candidate,
-      logicalLedgerId: recoveredCustomLedgerId(`title:${titleKey}`),
-      memberAids: [],
-      bindingState: 'pending-reconcile' as const,
-      knownRemoteFolderIds: matches.map((match) => match.remoteFolderId).sort()
-    }]
-  })
+  // Exact remote folder IDs are the identity boundary. Equal titles are not
+  // evidence that two different Bilibili folders should share one draft.
   const byTarget = new Map<string, RecoverableManagedFolder[]>()
-  for (const candidate of resolvedCandidates) {
+  for (const candidate of candidates) {
     const target = `${candidate.logicalLedgerId}:${candidate.shardNumber}`
     byTarget.set(target, [...(byTarget.get(target) ?? []), candidate])
   }

@@ -1,5 +1,5 @@
 import type { AccountFavoriteRepositorySnapshot, FavoriteRepositoryCommand } from '../../src/shared/favoriteRepository'
-import { isBilimiManagedLedgerName } from '../../src/shared/favoriteLedgers'
+import { createRemoteObservationFavoriteLedgerId, isBilimiManagedLedgerName } from '../../src/shared/favoriteLedgers'
 import { resolveFavoriteFolderCapabilities } from '../../src/shared/favoriteLedgerCapabilities'
 import type { DeletedFavoriteLedgerRecord, FavoriteLedger } from '../../src/shared/types'
 
@@ -22,6 +22,10 @@ type ProjectionRepository = {
 
 function emptyCustomPendingDuplicateLedgerIds(snapshot: AccountFavoriteRepositorySnapshot, ledgers: FavoriteLedger[]) {
   const configuredLedgerIds = new Set(ledgers.map((ledger) => ledger.id.trim()).filter(Boolean))
+  const userConfiguredLedgerIds = new Set(ledgers
+    .filter((ledger) => ledger.ruleOrigin === 'saved-rule' || ledger.enabled || ledger.keywords.some((keyword) => keyword.trim()))
+    .map((ledger) => ledger.id.trim())
+    .filter(Boolean))
   const boundLogicalIdByRemoteId = new Map(snapshot.physicalShards
     .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId &&
       configuredLedgerIds.has(shard.logicalLedgerId))
@@ -34,6 +38,10 @@ function emptyCustomPendingDuplicateLedgerIds(snapshot: AccountFavoriteRepositor
   return [...pendingByLogicalId]
     .filter(([logicalLedgerId, shards]) => {
       const logicalFolderId = `bilimi-logical:${logicalLedgerId}`
+      // A duplicate may have no repository members yet while still carrying a
+      // user-edited local rule. Preserve that stable logical identity and its
+      // downstream references; only pure observation remnants are removable.
+      if (userConfiguredLedgerIds.has(logicalLedgerId)) return false
       if ((snapshot.memberships[`bilimi-logical:${logicalLedgerId}`] ?? []).length) return false
       if (Object.values(snapshot.positions ?? {}).some((position) => position.localDesiredFolderIds.includes(logicalFolderId))) return false
       if (shards.some((shard) => (snapshot.memberships[shard.folderId] ?? []).length)) return false
@@ -45,15 +53,6 @@ function emptyCustomPendingDuplicateLedgerIds(snapshot: AccountFavoriteRepositor
     })
     .map(([logicalLedgerId]) => logicalLedgerId)
     .sort()
-}
-
-function stableCustomLedgerId(title: string) {
-  let hash = 2166136261
-  for (const character of title.trim().normalize('NFKC').toLocaleLowerCase('zh-Hans-CN')) {
-    hash ^= character.codePointAt(0) ?? 0
-    hash = Math.imul(hash, 16777619)
-  }
-  return `custom-${(hash >>> 0).toString(36)}`
 }
 
 function normalizedLedgerDisplayTitle(title: string) {
@@ -188,7 +187,7 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     // repository binding above remains the only explicit recovery authority.
     if (ledger?.isDefault && ledger.managedFolderDeletedByUser) continue
     const logicalTitle = ledger?.displayName.trim() || title
-    const logicalLedgerId = deletedRecord?.logicalLedgerId ?? ledger?.id ?? stableCustomLedgerId(title)
+    const logicalLedgerId = deletedRecord?.logicalLedgerId ?? ledger?.id ?? createRemoteObservationFavoriteLedgerId(folder.remoteFolderId)
     const shardNumber = configuredById ? 1 : titleShard?.shardNumber ?? 1
     const memberAids = [...new Set(input.snapshot.memberships[folder.id] ?? [])].sort((left, right) => left - right)
     candidates.push({

@@ -1,4 +1,5 @@
 ﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+import { createRemoteObservationFavoriteLedgerId } from '@shared/favoriteLedgers'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FavoriteLedger } from '@shared/types'
 import * as favoriteLedgerApiModule from './favoriteLedgerApi'
@@ -791,6 +792,25 @@ describe('favorite ledger API scripts', () => {
     })])
   })
 
+  it('normalizes a pure legacy remote observation draft to its exact folder-derived id', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·你好', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([{
+      id: 'custom-legacy-observation', displayName: 'bilimi·你好', keywords: [], enabled: false, priority: 10,
+      isDefault: false, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft'
+    }])) as { ledgers: FavoriteLedger[] }
+
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      id: createRemoteObservationFavoriteLedgerId('88'), bilibiliFolderId: '88'
+    })])
+  })
+
   it('projects same-name Bilibili folders as separate remote-only drafts by folder id', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -1108,7 +1128,7 @@ describe('favorite ledger API scripts', () => {
     }])
   })
 
-  it('accepts an explicitly selected renamed folder for the backup binding handoff', async () => {
+  it('accepts an explicitly selected exact-ID folder for the backup binding handoff even after its title loses the bilimi prefix', async () => {
     installCookies()
     const ledger: FavoriteLedger = {
       id: 'custom-music', displayName: 'bilimi·音乐舞台', keywords: ['音乐'], enabled: true,
@@ -1117,14 +1137,14 @@ describe('favorite ledger API scripts', () => {
     }
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
-        return Response.json({ code: 0, data: { list: [{ id: 4065561111, title: 'bilimi·音乐舞台哈哈', media_count: 7 }] } })
+        return Response.json({ code: 0, data: { list: [{ id: 4065561111, title: '手动改过的收藏夹', media_count: 7 }] } })
       }
       throw new Error(`Unexpected request: ${url}`)
     }))
 
     const result = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger], {
       rebindRemoteFolderIds: { 'custom-music': '4065561111' },
-      rebindRemoteFolders: { 'custom-music': [{ id: '4065561111', title: 'bilimi·音乐舞台哈哈', memberCount: 7 }] }
+      rebindRemoteFolders: { 'custom-music': [{ id: '4065561111', title: '手动改过的收藏夹', memberCount: 7 }] }
     }))
 
     expect(result).toMatchObject({ ok: true, missingTargets: [] })

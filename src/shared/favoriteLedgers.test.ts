@@ -14,6 +14,7 @@ import {
   favoriteLedgersById,
   isBilimiManagedLedgerName,
   normalizeFavoriteLedgers,
+  createRemoteObservationFavoriteLedgerId,
   suggestFavoriteLedgerNames
 } from './favoriteLedgers'
 
@@ -41,6 +42,19 @@ describe('recommended favorite ledger naming', () => {
 })
 
 describe('favorite ledger model', () => {
+  it('derives one canonical remote-observation id from an exact Bilibili folder id', () => {
+    expect(createRemoteObservationFavoriteLedgerId('4047644211')).toBe('custom-remote-4047644211')
+    expect(createRemoteObservationFavoriteLedgerId('4047644211')).toBe(
+      createRemoteObservationFavoriteLedgerId('4047644211')
+    )
+    expect(createRemoteObservationFavoriteLedgerId('4047644211')).not.toBe(
+      createRemoteObservationFavoriteLedgerId('4047644212')
+    )
+    expect(createRemoteObservationFavoriteLedgerId('4000512789')).not.toBe(
+      createRemoteObservationFavoriteLedgerId('4000749192')
+    )
+  })
+
   it('counts Unicode code points and validates the complete Bilibili ledger name', () => {
     expect(favoriteLedgerNameLength('bilimi·honker233')).toBe(16)
     expect(favoriteLedgerNameLength('bilimi·测试😀')).toBe(10)

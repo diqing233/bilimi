@@ -6,6 +6,7 @@ import {
   reconcileRecommendedLedgers,
   removeRecommendedLedgers
 } from './oldFavoriteWorkspaceRecommendationPersistence'
+import { createRemoteObservationFavoriteLedgerId } from '../../src/shared/favoriteLedgers'
 
 describe('old favorite workspace recommendation persistence', () => {
   const defaults = [
@@ -181,5 +182,39 @@ describe('old favorite workspace recommendation persistence', () => {
     expect(mergeRecoveredLedgerDrafts([
       { ...recovered, bilibiliFolderId: undefined }
     ], [recovered])).toEqual([recovered])
+  })
+
+  it('collapses duplicate unbound remote drafts by exact folder id and keeps different ids separate', () => {
+    const first = {
+      id: 'custom-1sldpna', displayName: '你好', keywords: [], ruleType: 'keyword' as const,
+      enabled: false, priority: 20000, bilibiliFolderId: '4047644211',
+      bindingState: 'unbound' as const, syncState: 'local-draft' as const, isDefault: false
+    }
+    const canonical = {
+      id: createRemoteObservationFavoriteLedgerId('4047644211'), displayName: 'bilimi·你好', keywords: [], ruleType: 'keyword' as const,
+      enabled: false, priority: 81, bilibiliFolderId: '4047644211',
+      bindingState: 'unbound' as const, syncState: 'local-draft' as const, isDefault: false
+    }
+    const different = {
+      ...canonical,
+      id: createRemoteObservationFavoriteLedgerId('4047644212'),
+      displayName: 'bilimi·你好', bilibiliFolderId: '4047644212'
+    }
+
+    expect(mergeRecoveredLedgerDrafts([first, canonical], [canonical, different])).toEqual([canonical, different])
+  })
+
+  it('preserves a configured legacy remote draft identity while collapsing its duplicate observation', () => {
+    const legacyConfigured = {
+      id: 'custom-1sldpna', displayName: '你好', keywords: ['学习'], ruleType: 'keyword' as const,
+      enabled: true, priority: 81, bilibiliFolderId: '4047644211', bilibiliFolderIds: ['4047644211'],
+      bindingState: 'unbound' as const, syncState: 'local-draft' as const, isDefault: false
+    }
+    const canonicalRecovered = {
+      ...legacyConfigured,
+      id: createRemoteObservationFavoriteLedgerId('4047644211'), displayName: 'bilimi·你好', keywords: [], enabled: false
+    }
+
+    expect(mergeRecoveredLedgerDrafts([legacyConfigured], [canonicalRecovered])).toEqual([legacyConfigured])
   })
 })

@@ -2288,6 +2288,7 @@ export function FavoriteLibraryApp({
               ;[ids[index], ids[target]] = [ids[target]!, ids[index]!]
               return { ...current, [entry.logicalLedgerId]: ids }
             })
+            const renameTargetTitle = entry.title.trim().startsWith('bilimi') ? entry.title.trim() : `bilimi·${entry.title.trim()}`
             return <li key={`${entry.logicalLedgerId}:${candidate.id}`} className="favorite-library__binding-candidate">
               <label><input type="checkbox" aria-label={`绑定 ${entry.title} 到 ${candidate.title}`} checked={selected} disabled={workspaceSyncExecuting || Boolean(candidate.bindingFailureReason)} onChange={(event) => setWorkspaceBindingSelections((current) => {
                 const ids = current[entry.logicalLedgerId] ?? []
@@ -2297,7 +2298,7 @@ export function FavoriteLibraryApp({
                     ? [...ids, candidate.id]
                     : ids.filter((id) => id !== candidate.id)
                 }
-              })} /><span>{selected ? `分册 ${selectedIndex + 1}：` : '候选：'}{entry.title} ← {candidate.title}（{candidate.memberCount} 个视频，B 站夹 ID：{candidate.id}）{candidate.bindingFailureReason ? `：${candidate.bindingFailureReason}` : ''}</span></label>
+              })} /><span>{selected ? `分册 ${selectedIndex + 1}：` : '候选：'}{entry.title} ← {candidate.title}（{candidate.memberCount} 个视频，绑定后 B 站收藏夹名字会更改为 {renameTargetTitle}）{candidate.bindingFailureReason ? `：${candidate.bindingFailureReason}` : ''}</span></label>
               {selected ? <span className="favorite-library__binding-candidate-actions"><button type="button" aria-label={`将 ${candidate.title} 上移`} disabled={workspaceSyncExecuting || selectedIndex === 0} onClick={() => move(-1)}>上移</button><button type="button" aria-label={`将 ${candidate.title} 下移`} disabled={workspaceSyncExecuting || selectedIndex === selectedIds.length - 1} onClick={() => move(1)}>下移</button></span> : null}
             </li>
           })

@@ -227,8 +227,11 @@ export class FavoriteRepositoryBindingService {
       if (matches.length !== 1) throw new Error('Favorite repository remote shard is absent from inventory.')
       let remote = matches[0]
       const remoteTitleMatches = comparableManagedShardTitle(remote.title) === comparableManagedShardTitle(normalized.expectedRemoteTitle)
-      const remoteTitleIsManaged = /^bilimi(?=$|[\s·.:：\-_]|[\u3400-\u9fff])/iu.test(remote.title.trim())
-      if (!remoteTitleMatches && !(normalized.allowRemoteRename && remoteTitleIsManaged)) {
+      // The caller reaches this point only after the user selected this exact
+      // remote folder ID in the rebind confirmation. A title drift must not
+      // turn that ID-confirmed repair into a name-based rejection: the
+      // explicit rename is what restores the managed title.
+      if (!remoteTitleMatches && !normalized.allowRemoteRename) {
         throw new Error('Favorite repository remote shard title is invalid.')
       }
       if (!Number.isSafeInteger(remote.memberCount) || remote.memberCount < 0 ||

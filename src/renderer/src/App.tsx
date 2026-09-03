@@ -1808,11 +1808,10 @@ export default function App() {
         const knownShardNumbers = trustedRemoteShardNumbers?.get(ledger.id) ?? new Map<string, number>()
         const occupiedShardNumbers = new Set(knownShardNumbers.values())
         for (const folder of folders) {
-          const titledShardNumber = shardNumberFromTitle(folder.title, ledger.displayName)
-          if (titledShardNumber === undefined) continue
           const existingShardNumber = knownShardNumbers.get(folder.id.trim())
-          let shardNumber = existingShardNumber ?? folder.shardNumber ?? titledShardNumber
-          if (titledShardNumber === 1 && !existingShardNumber && occupiedShardNumbers.has(1)) {
+          const titledShardNumber = shardNumberFromTitle(folder.title, ledger.displayName)
+          let shardNumber = existingShardNumber ?? folder.shardNumber ?? titledShardNumber ?? 1
+          if (titledShardNumber === 1 && !existingShardNumber && !folder.shardNumber && occupiedShardNumbers.has(1)) {
             shardNumber = 2
             while (occupiedShardNumbers.has(shardNumber)) shardNumber += 1
           }

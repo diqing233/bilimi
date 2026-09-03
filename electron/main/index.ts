@@ -2739,7 +2739,10 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     },
     saveRecommendedLedgers: async (accountMid, ledgers, adoptedLedgerIds = ledgers.map((ledger) => ledger.id)) => {
       const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
-      const favoriteLedgers = reconcileRecommendedLedgers(current.favoriteLedgers, ledgers, adoptedLedgerIds)
+      const favoriteLedgers = mergeRecoveredLedgerDrafts(
+        current.favoriteLedgers,
+        reconcileRecommendedLedgers(current.favoriteLedgers, ledgers, adoptedLedgerIds)
+      )
       if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return false
       saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
         ...current,

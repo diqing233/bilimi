@@ -5,6 +5,10 @@ export { BILIMI_LEDGER_PREFIX, BILIMI_LEGACY_LEDGER_PREFIX } from './constants'
 
 export const BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH = 20
 
+export function createRemoteObservationFavoriteLedgerId(remoteFolderId: string) {
+  return `custom-remote-${encodeURIComponent(String(remoteFolderId || '').trim())}`
+}
+
 export function favoriteLedgerNameLength(value: string) {
   return Array.from(value).length
 }

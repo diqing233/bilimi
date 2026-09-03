@@ -751,9 +751,9 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(readFolderInventory).toHaveBeenCalledTimes(2)
   })
 
-  it('allows an explicitly confirmed managed shard to be renamed when its current title differs', async () => {
+  it('allows an explicitly confirmed exact-ID shard to be renamed when its current title is no longer bilimi managed', async () => {
     const repository = await createRepository()
-    let remoteTitle = 'bilimi·游戏专区'
+    let remoteTitle = '手动改过的收藏夹'
     const renameFolder = vi.fn(async (input: { accountMid: string; operationKey: string; folderId: string; title: string }) => {
       remoteTitle = input.title
       return { observedAccountMid: '100' }

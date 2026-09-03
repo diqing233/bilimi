@@ -4797,7 +4797,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       .toEqual(['bilibili:creative-a', 'bilibili:creative-b'])
   })
 
-  it('keeps duplicate custom remote titles on one explicitly unbound logical target', async () => {
+  it('keeps duplicate custom remote titles separate by exact remote folder id', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -4815,10 +4815,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     const snapshot = await repository.getSnapshot('100')
     const customFolders = snapshot.folders.filter((folder) => folder.kind === 'bilimi-logical' && folder.title === 'bilimi\u00b7\u6211\u7684\u7247\u5355')
-    expect(customFolders).toHaveLength(1)
-    expect(customFolders[0]).toMatchObject({ syncState: 'pending-reconcile', logicalLedgerId: expect.stringMatching(/^custom-/) })
+    expect(customFolders).toHaveLength(2)
+    expect(customFolders.map((folder) => folder.logicalLedgerId)).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^custom-remote-/), expect.stringMatching(/^custom-remote-/)
+    ]))
     expect(snapshot.physicalShards).toEqual(expect.arrayContaining([
-      expect.objectContaining({ logicalLedgerId: customFolders[0].logicalLedgerId, bindingState: 'pending-reconcile', knownRemoteFolderIds: ['custom-a', 'custom-b'] })
+      expect.objectContaining({ logicalLedgerId: expect.stringMatching(/^custom-remote-/), bindingState: 'pending-reconcile', knownRemoteFolderIds: ['custom-a'] }),
+      expect.objectContaining({ logicalLedgerId: expect.stringMatching(/^custom-remote-/), bindingState: 'pending-reconcile', knownRemoteFolderIds: ['custom-b'] })
     ]))
   })
 

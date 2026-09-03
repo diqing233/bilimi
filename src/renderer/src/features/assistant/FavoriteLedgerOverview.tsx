@@ -307,10 +307,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       // the parent account snapshot drops its stale unbound id.  Prefer the
       // explicit unbacked state (and missing snapshot) so that stale metadata
       // cannot keep rendering “未绑定” after the remote folder is gone.
-      : ledger.bindingState === 'unbacked' || missingLedgerIds.includes(ledger.id)
-          ? '未备册'
-        : ledger.bindingState === 'unbound' || unboundLedgerIds.includes(ledger.id)
-          ? '未绑定'
+       : ledger.bindingState === 'unbacked'
+           ? '未备册'
+         : (ledger.bindingState === 'unbound' || unboundLedgerIds.includes(ledger.id)) &&
+             (!missingLedgerIds.includes(ledger.id) || Boolean(ledger.bilibiliFolderId || ledger.bilibiliFolderIds?.length))
+           ? '未绑定'
+         : missingLedgerIds.includes(ledger.id)
+           ? '未备册'
           : ledger.bilibiliFolderId
             ? '已备册'
             : ''
@@ -1630,12 +1633,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         {deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
       </OldFavoriteModal> : null}
       {rebindCandidates ? <OldFavoriteModal title={rebindHasCreationTarget ? '确认创建并绑定 bilimi 收藏夹' : '确认绑定 bilimi 收藏夹'} confirmLabel={rebindHasCreationTarget ? '确认创建并绑定' : '确认绑定'} confirmDisabled={rebindCandidates.some((entry) => entry.candidates.length > 0 && !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
-        {rebindHasCreationTarget
-          ? <p>以下已选收藏夹中，未找到可复用同名 bilimi 收藏夹的项会创建并绑定新的 B 站收藏夹；不会同步视频或处理其他收藏夹。{rebindHasExistingCandidate ? '已有候选的项请确认要绑定的实际收藏夹。' : ''}</p>
-          : <p>检测到 B 站已有疑似 bilimi 收藏夹，请确认它们是否属于同一个 bilimi 工作夹。系统不会按名称自动绑定。</p>}
+         {rebindHasCreationTarget
+           ? <p>以下已选收藏夹中，未找到可复用同名 bilimi 收藏夹的项会创建并绑定新的 B 站收藏夹；不会同步视频或处理其他收藏夹。{rebindHasExistingCandidate ? '已有候选的项请确认要绑定的实际收藏夹。' : ''}</p>
+           : <p>检测到 B 站已有疑似 bilimi 收藏夹，请确认它们是否属于同一个 bilimi 工作夹。确认后将按每个掌库收藏夹的当前名称更新 B 站收藏夹名称并完成绑定；取消则不改名。系统不会按名称自动绑定。</p>}
         {rebindCandidates.map((entry) => {
-          const ledger = draftLedgers.find((item) => item.id === entry.ledgerId)
-          const logicalTitle = displayTitle(ledger?.displayName ?? entry.ledgerId)
+           const ledger = draftLedgers.find((item) => item.id === entry.ledgerId)
+           const logicalTitle = displayTitle(ledger?.displayName ?? entry.ledgerId)
+           const renameTargetTitle = ledger?.displayName ?? logicalTitle
           const defaultCandidates = orderedRebindCandidates(entry.candidates, logicalTitle)
           const selectedIds = rebindSelectedFolderIds[entry.ledgerId] ?? []
           const candidates = [
@@ -1680,7 +1684,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
                     : selectedIds.filter((id) => id !== candidate.id)
                   setRebindSelections((selection) => ({ ...selection, [entry.ledgerId]: nextIds[0] ?? '' }))
                   return { ...current, [entry.ledgerId]: nextIds }
-                })} />分册 {displayedShardNumber}：{candidate.title}（ID：{candidate.id}，{candidate.memberCount} 个视频）{candidate.bindingFailureReason ? ` — 绑定失败：${candidate.bindingFailureReason}` : ''}</label>{selectedIndex >= 0 && selectedIds.length > 1 ? <span className="favorite-ledger-panel__rebind-order"><button type="button" aria-label={`将分册 ${displayedShardNumber} 上移`} title="上移" disabled={selectedIndex === 0} onClick={() => moveSelectedCandidate(candidate.id, -1)}>↑</button><button type="button" aria-label={`将分册 ${displayedShardNumber} 下移`} title="下移" disabled={selectedIndex === selectedIds.length - 1} onClick={() => moveSelectedCandidate(candidate.id, 1)}>↓</button></span> : null}</div>
+                })} />分册 {displayedShardNumber}：{candidate.title}（{candidate.memberCount} 个视频，绑定后 B 站收藏夹名字会更改为 {renameTargetTitle}）{candidate.bindingFailureReason ? ` — 绑定失败：${candidate.bindingFailureReason}` : ''}</label>{selectedIndex >= 0 && selectedIds.length > 1 ? <span className="favorite-ledger-panel__rebind-order"><button type="button" aria-label={`将分册 ${displayedShardNumber} 上移`} title="上移" disabled={selectedIndex === 0} onClick={() => moveSelectedCandidate(candidate.id, -1)}>↑</button><button type="button" aria-label={`将分册 ${displayedShardNumber} 下移`} title="下移" disabled={selectedIndex === selectedIds.length - 1} onClick={() => moveSelectedCandidate(candidate.id, 1)}>↓</button></span> : null}</div>
               })}
             </div> : null}
           </div>

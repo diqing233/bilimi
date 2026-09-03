@@ -2116,10 +2116,11 @@ describe('FavoriteLedgerOverview', () => {
     await screen.findByText('确认绑定 bilimi 收藏夹')
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     expect(screen.getByText('知识学习（共 310 个视频）')).toBeInTheDocument()
-    expect(screen.getByText('分册 1：bilimi·知识学习（ID：77，310 个视频）')).toBeInTheDocument()
+    expect(screen.getByText('分册 1：bilimi·知识学习（310 个视频，绑定后 B 站收藏夹名字会更改为 bilimi·知识学习）')).toBeInTheDocument()
     expect(screen.getByText('游戏专区（共 1006 个视频）')).toBeInTheDocument()
-    expect(screen.getByText('分册 1：bilimi·游戏专区（ID：88，1000 个视频）')).toBeInTheDocument()
-    expect(screen.getByText('分册 2：bilimi·游戏专区·2（ID：89，6 个视频）')).toBeInTheDocument()
+    expect(screen.getByText('分册 1：bilimi·游戏专区（1000 个视频，绑定后 B 站收藏夹名字会更改为 bilimi·游戏专区）')).toBeInTheDocument()
+    expect(screen.getByText('分册 2：bilimi·游戏专区·2（6 个视频，绑定后 B 站收藏夹名字会更改为 bilimi·游戏专区）')).toBeInTheDocument()
+    expect(screen.queryByText(/ID：/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
     await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), expect.objectContaining({
       rediscoverDeletedRemoteDrafts: true,
@@ -2235,8 +2236,9 @@ describe('FavoriteLedgerOverview', () => {
     await screen.findByText('确认绑定 bilimi 收藏夹')
     fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
 
-    expect(await screen.findByText('分册 2：bilimi·游戏专区·2（ID：89，2 个视频） — 绑定失败：远端收藏夹已不在本次清单中，请刷新 B 站收藏夹后重新确认。')).toBeInTheDocument()
-    expect(screen.queryByText('分册 1：bilimi·游戏专区（ID：88，1000 个视频）')).not.toBeInTheDocument()
+    expect(await screen.findByText(/分册 2：bilimi·游戏专区·2/)).toHaveTextContent('绑定失败：远端收藏夹已不在本次清单中，请刷新 B 站收藏夹后重新确认。')
+    expect(screen.queryByText(/ID：89/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/分册 1：bilimi·游戏专区/)).not.toBeInTheDocument()
   })
 
   it('dismisses every physical Bilibili folder behind one recovered draft', () => {

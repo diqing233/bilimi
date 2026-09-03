@@ -1,4 +1,5 @@
 import type { FavoriteLedger } from '../../src/shared/types'
+import { createRemoteObservationFavoriteLedgerId } from '../../src/shared/favoriteLedgers'
 
 export function applyRecommendedLedgers(current: FavoriteLedger[], recommendations: FavoriteLedger[]) {
   const recommendedById = new Map(recommendations.map((ledger) => [ledger.id, ledger]))
@@ -80,26 +81,76 @@ function hasConfiguredRule(ledger: FavoriteLedger) {
   return ledger.enabled || ledger.keywords.some((keyword) => keyword.trim())
 }
 
+function remoteFolderIds(ledger: FavoriteLedger) {
+  return [...new Set([
+    ...(ledger.bilibiliFolderIds ?? []),
+    ledger.bilibiliFolderId
+  ].map((folderId) => String(folderId ?? '').trim()).filter(Boolean))]
+}
+
+function isUnboundRemoteObservationDraft(ledger: FavoriteLedger) {
+  return ledger.syncState === 'local-draft' && ledger.bindingState === 'unbound' && remoteFolderIds(ledger).length === 1
+}
+
 export function mergeRecoveredLedgerDrafts(current: FavoriteLedger[], recovered: FavoriteLedger[]) {
-  const recoveredById = new Map(recovered.map((ledger) => [ledger.id, ledger]))
-  const recoveredByRemoteFolderId = new Map(recovered.flatMap((ledger) =>
-    ledger.bilibiliFolderId ? [[ledger.bilibiliFolderId, ledger] as const] : []))
-  const consumed = new Set<FavoriteLedger>()
-  const retained = current.flatMap((ledger) => {
-    const idMatch = recoveredById.get(ledger.id)
-    const remoteMatch = ledger.bilibiliFolderId
-      ? recoveredByRemoteFolderId.get(ledger.bilibiliFolderId)
-      : undefined
-    const draft = idMatch && !consumed.has(idMatch)
-      ? idMatch
-      : remoteMatch && !consumed.has(remoteMatch) ? remoteMatch : undefined
-    if (!draft) return [ledger]
-    consumed.add(draft)
-    return [hasConfiguredRule(ledger)
-      ? { ...ledger, bilibiliFolderId: ledger.bilibiliFolderId ?? draft.bilibiliFolderId }
-      : draft]
-  })
-  return [...retained, ...recovered.filter((ledger) => !consumed.has(ledger))]
+  const groups = new Map<string, Array<{ ledger: FavoriteLedger; source: 'current' | 'recovered' }>>()
+  const addRemoteDraft = (ledger: FavoriteLedger, source: 'current' | 'recovered') => {
+    if (!isUnboundRemoteObservationDraft(ledger)) return
+    const [remoteFolderId] = remoteFolderIds(ledger)
+    const group = groups.get(remoteFolderId) ?? []
+    group.push({ ledger, source })
+    groups.set(remoteFolderId, group)
+  }
+  current.forEach((ledger) => addRemoteDraft(ledger, 'current'))
+  recovered.forEach((ledger) => addRemoteDraft(ledger, 'recovered'))
+
+  const retained: FavoriteLedger[] = []
+  const consumedCurrentIds = new Set<string>()
+  const consumedRecoveredIds = new Set<string>()
+  const emittedIds = new Set<string>()
+  for (const group of groups.values()) {
+    const remoteFolderId = remoteFolderIds(group[0]!.ledger)[0]!
+    const configured = group.find(({ ledger }) => hasConfiguredRule(ledger))
+    const canonical = group.find(({ ledger }) => ledger.id === createRemoteObservationFavoriteLedgerId(remoteFolderId))
+    const selected = configured?.ledger ?? canonical?.ledger ?? group[0]!.ledger
+    // A user-edited legacy rule keeps its stable local ID; only an
+    // observation-only record is required to use the folder-id-derived ID.
+    const selectedLedger = configured?.ledger ?? (
+      selected.id === createRemoteObservationFavoriteLedgerId(remoteFolderId)
+        ? selected
+        : { ...selected, id: createRemoteObservationFavoriteLedgerId(remoteFolderId) }
+    )
+    retained.push(selectedLedger.bilibiliFolderId
+      ? selectedLedger
+      : { ...selectedLedger, bilibiliFolderId: remoteFolderId, bilibiliFolderIds: [remoteFolderId] })
+    for (const entry of group) {
+      if (entry.source === 'current') consumedCurrentIds.add(entry.ledger.id)
+      else consumedRecoveredIds.add(entry.ledger.id)
+    }
+    emittedIds.add(selectedLedger.id)
+  }
+
+  for (const ledger of current) {
+    if (consumedCurrentIds.has(ledger.id) || emittedIds.has(ledger.id)) continue
+    const recoveredMatch = recovered.find((candidate) => candidate.id === ledger.id && !consumedRecoveredIds.has(candidate.id))
+    if (recoveredMatch) {
+      consumedRecoveredIds.add(recoveredMatch.id)
+      const merged = hasConfiguredRule(ledger)
+        ? { ...ledger, bilibiliFolderId: ledger.bilibiliFolderId ?? recoveredMatch.bilibiliFolderId, bilibiliFolderIds: ledger.bilibiliFolderIds ?? recoveredMatch.bilibiliFolderIds }
+        : recoveredMatch
+      retained.push(merged)
+      emittedIds.add(merged.id)
+      continue
+    }
+    retained.push(ledger)
+    emittedIds.add(ledger.id)
+  }
+  for (const ledger of recovered) {
+    if (consumedRecoveredIds.has(ledger.id) || emittedIds.has(ledger.id)) continue
+    retained.push(ledger)
+    emittedIds.add(ledger.id)
+  }
+  return retained
 }
 
 export function markRecommendedLedgersLocalDraft(current: FavoriteLedger[], recommendationIds: string[]) {

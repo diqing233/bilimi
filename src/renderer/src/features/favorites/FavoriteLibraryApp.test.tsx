@@ -520,8 +520,9 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '备册当前收藏夹' }))
 
     const confirmation = await screen.findByRole('alertdialog', { name: '确认绑定 bilimi 收藏夹' })
-    expect(confirmation).toHaveTextContent('B 站夹 ID：81')
-    expect(confirmation).toHaveTextContent('B 站夹 ID：82')
+    expect(confirmation).toHaveTextContent('绑定后 B 站收藏夹名字会更改为 bilimi·音乐')
+    expect(confirmation).not.toHaveTextContent('B 站夹 ID：81')
+    expect(confirmation).not.toHaveTextContent('B 站夹 ID：82')
     expect(ensureFavoriteLedger).not.toHaveBeenCalled()
     fireEvent.click(within(confirmation).getByRole('button', { name: '确认绑定' }))
 
@@ -1123,7 +1124,8 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(within(backup).getByRole('button', { name: '开始备册' }))
 
     const binding = await screen.findByRole('alertdialog', { name: '确认绑定 bilimi 收藏夹' })
-    expect(binding).toHaveTextContent('音乐 ← bilimi·音乐（12 个视频，B 站夹 ID：81）')
+    expect(binding).toHaveTextContent('音乐 ← bilimi·音乐（12 个视频，绑定后 B 站收藏夹名字会更改为 bilimi·音乐）')
+    expect(binding).not.toHaveTextContent('B 站夹 ID：81')
     expect(within(binding).getByRole('checkbox', { name: '绑定 音乐 到 bilimi·音乐' })).toBeChecked()
     expect(within(binding).getByRole('checkbox', { name: '绑定 音乐 到 bilimi·音乐·2' })).toBeChecked()
     fireEvent.click(within(binding).getByRole('button', { name: '将 bilimi·音乐·2 上移' }))

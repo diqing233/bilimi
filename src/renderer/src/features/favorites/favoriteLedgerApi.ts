@@ -1,4 +1,4 @@
-import { BILIMI_LEDGER_PREFIX, isBilimiManagedLedgerName, stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
+import { BILIMI_LEDGER_PREFIX, createRemoteObservationFavoriteLedgerId, isBilimiManagedLedgerName, stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 
 export type FavoriteLedgerPreviewItem = {
@@ -198,7 +198,7 @@ function sharedScriptHelpers(): string {
         // this exact remote ID to the existing binding service.  The service
         // performs the title repair and formal registration; ordinary status
         // polling still uses the title match below and never auto-binds.
-        if (selectedFolder && isBilimiManagedFolder(selectedFolder)) {
+        if (selectedFolder) {
           const { pendingRemoteBinding: _pendingRemoteBinding, pendingRemoteFolderId: _pendingRemoteFolderId, pendingRemoteFolderTitle: _pendingRemoteFolderTitle, ...boundLedger } = ledger;
           return { ...boundLedger, bilibiliFolderId: selectedRemoteFolderId, bilibiliFolderIds: [selectedRemoteFolderId], bilibiliFolderTitle: String(selectedFolder.title || ledger.displayName), bilibiliFolderVideoCount: Math.max(0, Number(selectedFolder.media_count ?? selectedFolder.count ?? 0) || 0), bindingState: 'bound' };
         }
@@ -295,14 +295,7 @@ function sharedScriptHelpers(): string {
     const collectUnboundCandidates = (ledgers, folders) => ledgers
       .filter((ledger) => ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup && ledger.syncState !== 'local-draft')
       .map((ledger) => ({ ledgerId: ledger.id, candidates: remoteFolderCandidates(ledger, folders) }));
-    const stableRemoteDraftLedgerId = (remoteFolderId) => {
-      let hash = 2166136261;
-      for (const character of String(remoteFolderId || '').trim()) {
-        hash ^= character.codePointAt(0) || 0;
-        hash = Math.imul(hash, 16777619);
-      }
-      return 'custom-remote-' + (hash >>> 0).toString(36);
-    };
+    const stableRemoteDraftLedgerId = ${createRemoteObservationFavoriteLedgerId.toString()};
     const appendRemoteOnlyDrafts = (ledgers, folders, dismissedRemoteFolderIds = []) => {
       const nextLedgers = [];
       const ledgerIndexById = new Map();
@@ -315,9 +308,14 @@ function sharedScriptHelpers(): string {
           for (const folderId of folderIds) {
             if (remoteDraftIndexByFolderId.has(folderId)) continue;
             const isSingleFolderDraft = folderIds.length === 1;
+            const retainsEditedLocalIdentity = ledger.ruleOrigin === 'saved-rule' || ledger.enabled || ledger.keywords.some((keyword) => String(keyword || '').trim());
             const remoteDraft = {
               ...ledger,
-              id: isSingleFolderDraft ? ledger.id : stableRemoteDraftLedgerId(folderId),
+              // A pure remote observation is always identified from its exact
+              // folder ID. An edited legacy rule deliberately keeps its local
+              // ID so existing classification and repository references stay
+              // intact while duplicate observations are collapsed elsewhere.
+              id: isSingleFolderDraft && retainsEditedLocalIdentity ? ledger.id : stableRemoteDraftLedgerId(folderId),
               bilibiliFolderId: folderId,
               bilibiliFolderIds: [folderId],
               ...(isSingleFolderDraft ? {} : { bilibiliFolderVideoCount: undefined })

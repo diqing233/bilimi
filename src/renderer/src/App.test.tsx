@@ -2744,6 +2744,39 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('renames an explicitly selected remote folder when its title differs from the local ledger name', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: true,
+        ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' as const }],
+        steps: ['api:ledger:list'], missingTargets: [], message: '已备册'
+      }))
+    })
+
+    await expect(requestRuntime({
+      id: 'rename-on-explicit-rebind', type: 'save-ledgers', ledgers: [game],
+      options: {
+        rebindRemoteFolderIds: { game: '88' },
+        rebindRemoteFolders: { game: [{ id: '88', title: 'bilimi·旧游戏专区', memberCount: 0 }] }
+      }
+    })).resolves.toMatchObject({ ok: true })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
+      logicalLedgerId: 'game', remoteFolderId: '88', remoteTitle: 'bilimi·旧游戏专区', shardNumber: 1,
+      allowRemoteRename: true
+    }))
+  })
+
   it('registers a same-title recovery folder after the formally bound main shard', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!

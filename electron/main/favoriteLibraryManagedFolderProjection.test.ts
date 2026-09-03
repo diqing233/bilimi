@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createAccountFavoriteRepositorySnapshot } from '../../src/shared/favoriteRepository'
+import { createRemoteObservationFavoriteLedgerId } from '../../src/shared/favoriteLedgers'
 import type { FavoriteLedger } from '../../src/shared/types'
 import { planFavoriteLibraryManagedFolderProjection, restoreFavoriteLibraryManagedFolderProjection } from './favoriteLibraryManagedFolderProjection'
 
@@ -109,7 +110,7 @@ describe('favorite library managed folder projection', () => {
 
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({
-      logicalLedgerId: expect.stringMatching(/^custom-/), logicalTitle: 'bilimi\u00b7\u6211\u7684\u7247\u5355',
+      logicalLedgerId: createRemoteObservationFavoriteLedgerId('custom'), logicalTitle: 'bilimi\u00b7\u6211\u7684\u7247\u5355',
       bindingState: 'pending-reconcile', knownRemoteFolderIds: ['custom'], memberAids: [3]
     })
   })
@@ -289,6 +290,41 @@ describe('favorite library managed folder projection', () => {
     })
 
     expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'delete-local-managed-folder', payload: { logicalFolderId: 'bilimi-logical:custom-stale' }
+    }))
+  })
+
+  it('preserves an empty custom pending duplicate when its local rule was explicitly saved', async () => {
+    const remoteFolderId = '4050295454'
+    const base = snapshot([{ id: remoteFolderId, title: 'bilimi·创意美学' }])
+    const current = {
+      ...base,
+      folders: [
+        ...base.folders,
+        { id: 'bilimi-logical:creative-aesthetic', title: 'bilimi·创意美学', kind: 'bilimi-logical' as const, logicalLedgerId: 'creative-aesthetic', syncState: 'bound' as const },
+        { id: 'bilimi-logical:custom-stale', title: 'bilimi·创意美学', kind: 'bilimi-logical' as const, logicalLedgerId: 'custom-stale', syncState: 'pending-reconcile' as const }
+      ],
+      memberships: {
+        ...base.memberships,
+        'bilimi:creative-aesthetic:001': [], 'bilimi-logical:creative-aesthetic': [],
+        'bilimi:custom-stale:001': [], 'bilimi-logical:custom-stale': []
+      },
+      physicalShards: [
+        { logicalLedgerId: 'creative-aesthetic', folderId: 'bilimi:creative-aesthetic:001', shardNumber: 1, remoteTitle: 'bilimi·创意美学', bindingState: 'bound' as const, remoteFolderId, remoteMemberCount: 0 },
+        { logicalLedgerId: 'custom-stale', folderId: 'bilimi:custom-stale:001', shardNumber: 1, remoteTitle: 'bilimi·创意美学', bindingState: 'pending-reconcile' as const, knownRemoteFolderIds: [remoteFolderId] }
+      ]
+    }
+    const commit = vi.fn()
+
+    await restoreFavoriteLibraryManagedFolderProjection({
+      accountMid: '100', repository: { getSnapshot: async () => current, commit },
+      ledgers: [
+        ledger('creative-aesthetic', 'bilimi·创意美学', remoteFolderId),
+        { ...ledger('custom-stale', 'bilimi·创意美学', remoteFolderId), enabled: false, ruleOrigin: 'saved-rule' }
+      ]
+    })
+
+    expect(commit).not.toHaveBeenCalledWith('100', expect.objectContaining({
       type: 'delete-local-managed-folder', payload: { logicalFolderId: 'bilimi-logical:custom-stale' }
     }))
   })
