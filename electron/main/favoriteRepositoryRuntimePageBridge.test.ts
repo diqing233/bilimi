@@ -61,6 +61,34 @@ describe('FavoriteRepositoryRuntimePageBridgeManager', () => {
     })
   })
 
+  it('preserves a rejected or ambiguous remote rename result for the binding service', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({
+        status: 'rejected', observedAccountMid: '100', reason: 'invalid-folder-title',
+        httpStatus: 200, responseCategory: 'json', bilibiliCode: -400
+      })
+      .mockResolvedValueOnce({
+        status: 'unknown', observedAccountMid: '100', reason: 'remote-ambiguous',
+        httpStatus: 412, responseCategory: 'html'
+      })
+    const manager = new FavoriteRepositoryRuntimePageBridgeManager(request)
+    await manager.bind('100', 'run-1')
+
+    await expect(manager.pageBridge('100', 'run-1').renameFolder({
+      accountMid: '100', operationKey: 'run-1:rename-game-2', folderId: 'game-2', title: ''
+    })).resolves.toMatchObject({
+      status: 'rejected', observedAccountMid: '100', reason: 'invalid-folder-title', bilibiliCode: -400
+    })
+
+    await expect(manager.pageBridge('100', 'run-1').renameFolder({
+      accountMid: '100', operationKey: 'run-1:rename-game-2-retry', folderId: 'game-2', title: 'bilimi·游戏专区'
+    })).resolves.toMatchObject({
+      status: 'unknown', observedAccountMid: '100', reason: 'remote-ambiguous', httpStatus: 412,
+      responseCategory: 'html'
+    })
+  })
+
   it('isolates same run ids across accounts and rejects an account-changed result', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })

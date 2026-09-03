@@ -25,6 +25,13 @@ describe('managedFavoriteFolderDeletionFailureMessage', () => {
     expect(message).toContain('验证')
   })
 
+  it('explains when deletion is blocked by a stale binding title', () => {
+    const message = managedFavoriteFolderDeletionFailureMessage(new Error('favorite-repository-binding-title-stale'))
+
+    expect(message).toContain('绑定账本标题已过期')
+    expect(message).toContain('重新备册确认')
+  })
+
   it('does not expose unknown internal deletion errors', () => {
     const message = managedFavoriteFolderDeletionFailureMessage(new Error('Error invoking remote method favorite-library:delete token=secret'))
 

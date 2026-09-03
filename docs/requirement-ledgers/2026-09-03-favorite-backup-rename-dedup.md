@@ -167,6 +167,78 @@
 > 绑定成功后，我再处理别的事情时（比如勾选推荐收藏夹）偶尔会刷新出来这种未保存草稿，说明绑定可能还不是很牢靠
 > <image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-f709ac4a-fdaa-4c01-bb05-44ccd35b14a3.png">![Image #1](C:\Users\diqing\AppData\Local\Temp\codex-clipboard-f709ac4a-fdaa-4c01-bb05-44ccd35b14a3.png)</image>
 
+### R014
+
+时间：2026-09-03
+
+截图：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-cef5c203-5721-4a9c-bd0a-61a1f87f49af.png`（确认绑定“游戏专区哈哈”时仍显示绑定失败；待日志与真实界面验收）
+
+截图目标区域：`确认绑定 bilimi 收藏夹` 弹窗中已勾选的 `游戏专区哈哈（共 0 个视频）`、分册 1 的当前 B 站名称 `bilimi·游戏专区`、绑定后目标名称 `bilimi·游戏专区哈哈`，以及绿色框标注的“绑定失败：正式绑定未完成，请刷新 B 站收藏夹后重新确认。”提示。截图同时包含 B 站页面和掌库侧栏的现场状态；B 站实际改名是否已生效、精确 `folderId`、主进程错误文本和正式绑定提交结果须以日志/权威快照核对，截图不能替代这些证据。
+
+原文：
+
+> 讨论为什么还是提示失败
+> <image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-cef5c203-5721-4a9c-bd0a-61a1f87f49af.png">![Image #1](C:\Users\diqing\AppData\Local\Temp\codex-clipboard-cef5c203-5721-4a9c-bd0a-61a1f87f49af.png)</image>
+
+### R015
+
+时间：2026-09-04
+
+原文：
+
+> 先迭代项目书，再按照项目书和账本改，开始（注意鼠标要一直流畅动，不要变卡，不要影响已有功能，仔细核对项目书）
+
+### R016
+
+时间：2026-09-04
+
+截图：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-ff559523-3772-4f62-933e-0b7952dceb57.png`（截图现场实际显示“游戏专区哈哈”绑定失败；待日志与真实界面验收）
+
+截图目标区域：确认绑定 bilimi 收藏夹弹窗中已勾选的 `游戏专区哈哈`、当前 B 站名称 `bilimi·游戏专区`、绑定后目标名称 `bilimi·游戏专区哈哈` 以及“绑定失败：正式绑定未完成，请刷新 B 站收藏夹后重新确认。”提示。截图中的实际失败对象与文字中的“知识学习”并不一致；截图只能作为现象证据，不能把游戏专区的结果直接替代知识学习结论。
+
+原文：
+
+> **bilimi·知识学习你好是**掌库收藏夹的名字 ，当前b站是bilimi·知识学习，点击确认绑定后b站名称应该变成**bilimi·知识学习你好**  这个功能失败
+>
+> **bilimi·影视动漫是**掌库收藏夹的名字 ，当前b站是bilimi·影视动漫你好 ，点击确认绑定后b站名称应该变成**bilimi·影视动漫**  这个功能正常
+> 为什么前者失败，后者做好了呢，只是改个名字而已
+
+### R017
+
+时间：2026-09-04
+
+截图：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-eb1a5ab9-73b1-4b7e-b6d8-b07378d1fe1b.png`（B 站页面已显示 `bilimi·小咪的个人空间-bili...`，掌库正在编辑 `bilimi·生活日常哈哈`；待日志与真实界面验收）
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-651e47da-0910-4af1-ad46-501abd1b571a.png`（确认绑定弹窗中 `生活日常哈哈` 的分册目标为 `bilimi·生活日常哈哈`，但显示绑定失败；待日志与真实界面验收）
+
+截图目标区域：图一 B 站当前收藏夹列表中的实际名称与掌库“正在编辑：bilimi·生活日常哈哈”状态；图二“确认绑定 bilimi 收藏夹”弹窗中 `生活日常哈哈（共 0 个视频）`、分册 1 当前远端名称 `bilimi·生活日常`、绑定后目标名称 `bilimi·生活日常哈哈`、失败提示及确认按钮。截图用于证明 B 站名称已经改过来但掌库仍报告失败，不授权从截图猜测具体错误分支。
+
+原文：
+
+> 可以查日志我刚刚改了这个，虽然提示失败，但是图一已经改过来了
+> <image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-eb1a5ab9-73b1-4b7e-b6d8-b07378d1fe1b.png">![Image #1](C:\Users\diqing\AppData\Local\Temp\codex-clipboard-eb1a5ab9-73b1-4b7e-b6d8-b07378d1fe1b.png)</image>
+> <image name=[Image #2] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-651e47da-0910-4af1-ad46-501abd1b571a.png">![Image #2](C:\Users\diqing\AppData\Local\Temp\codex-clipboard-651e47da-0910-4af1-ad46-501abd1b571a.png)</image>
+
+### R018
+
+时间：2026-09-04
+
+截图：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-be5a45ce-071c-4cd6-aff6-766dc6b73b8f.png`（删除模式下，B 站当前显示 `bilimi·生活日常哈哈`，掌库目标卡片仍显示已备册/绑定状态，但页面提示“删除未成功，请稍后重试”和“部分 Bilimi 收藏夹尚未备册”；待日志与真实界面验收）
+
+截图目标区域：掌库“收藏夹”删除模式的按钮、各收藏夹绑定状态、`生活日常哈哈` 卡片的删除选择状态、红色“删除未成功，请稍后重试。”提示、蓝色“部分 Bilimi 收藏夹尚未备册。”提示，以及 B 站页面中仍存在的 `bilimi·生活日常哈哈`。截图只能证明删除操作未收敛，不能单独证明删除接口响应码。
+
+原文：
+
+> 可以通过删除模式判断，如果绑定正常，删除后应该是未备册，当前会提示删除未成功
+> <image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-be5a45ce-071c-4cd6-aff6-766dc6b73b8f.png">![Image #1](C:\Users\diqing\AppData\Local\Temp\codex-clipboard-be5a45ce-071c-4cd6-aff6-766dc6b73b8f.png)</image>
+
 ## 逐项索引
 
 | 编号 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
@@ -182,6 +254,11 @@
 | I009 | R011 | 确认绑定一个精确远端 `folderId` 时，右侧不得把同账号中已由其他规则/正式物理分册持有的 B 站收藏夹再次投影为“未保存·未绑定”；真正未被完整账号规则和物理分册覆盖的陌生 `folderId` 仍可作为远端观察草稿显示一次。 | `FavoriteLedgerOverview` 备册确认，`App.tsx` 单目标备册与正式绑定投影，`favoriteLedgerApi.ts` 的 `appendRemoteOnlyDrafts` / `projectRemoteOnlyDrafts`，账号偏好持久化。 | 仅在带 `backupTargetLedgerIds` 的窄范围备册/绑定时；其他正式绑定已覆盖的 ID 始终隐藏为候选草稿，未知 ID 不因本次修复被静默隐藏。 | 写入目标仍为当前确认册；完整账号规则、全部 `physicalShards.remoteFolderId` 与 `knownRemoteFolderIds` 仅作为只读草稿覆盖集，已知 ID不构造草稿，未知 ID仍构造一次。 | 不新增、删除、绑定、改名或写入其他 B 站收藏夹；不持久化随后会被刷新清理的临时草稿。 | 不以名称、标题、数量或列表顺序合并；不以延时、动画或隐藏侧栏掩盖问题；不改变真实未知远端夹的观察/待绑定能力。 | `backupTargetLedgerIds`、正式仓库摘要、远端目录读取、草稿投影、结果合并和状态刷新。 | 已实施待真实账号验证 | `App.tsx:1593-1661,2383-2410` 建立完整覆盖集但单册脚本仍只收目标册；`favoriteLedgerApi.ts:299-456,617-713` 将覆盖集作为脚本元数据、不落入远端写入 `options`。失败→通过回归覆盖账号已知 ID不投影、单目标覆盖不扩大写入、历史待确认 ID不越权进入写入册目；旧版摘要仅有 `folders + physicalShardCount` 而无 `physicalShards` 明细时，`uses trusted repository bindings when the page ledger check temporarily misses an already scanned folder` 验证正式 ID仍进入观察覆盖和草稿清理（RED/GREEN 日志：`.codex-artifacts/favorite-backup-rename-legacy-summary-red-20260903.log`、`.codex-artifacts/favorite-backup-rename-legacy-summary-green-20260903.log`）。定向 430 项、全量 4293 项、构建通过（见 I007）。真实登录开发版当前 9 个收藏夹均`已备册`且未出现未保存草稿；没有单目标待确认场景，闪现问题仍待现场验收。 |
 | I010 | R012 | 首次确认绑定中，B 站已完成精确远端夹改名时，必须继续完成正式物理分册绑定并关闭弹窗；不得把“改名已生效但后续确认未完成”显示为绑定失败，要求用户重复点击。 | `FavoriteRepositoryBindingService.adoptExistingPhysicalShard` 的改名后目录复读、正式绑定提交；`favoriteRepositoryIpc.ts` 的后置投影回调；掌库确认绑定弹窗。 | 仅用户确认同一精确 `folderId` 且明确允许改名时适用；远端未改名、错账号、ID 缺失或最终确认失败仍须保留真实可重试错误。 | 单次确认在改名生效后必须把同一 ID 的正式绑定与视图状态收敛；后置投影失败不得把已完成的远端副作用伪装成整笔绑定失败。 | 不执行第二次改名、不创建收藏夹、不写视频；如无法确认正式持久化，必须给出与已完成副作用一致的状态。 | 不以标题、数量或时间顺序认领其他夹；不以无限等待或阻塞渲染进程掩盖 B 站目录最终一致性。 | 精确 ID、目录最终一致性、物理分册提交、绑定采用回调、权威投影刷新和前端错误映射。 | 已实施待真实账号验证 | `electron/main/favoriteRepositoryBindingService.ts:9,258-291` 将单次显式确认的精确 ID 复读扩展为 `0/250/750/1500ms`，只发送一次改名；`electron/main/favoriteRepositoryIpc.ts:527-536` 使后置本地投影回调失败不反转已提交采用。回归：`confirms an explicitly renamed shard after a delayed exact-id inventory mirror`、`returns a committed exact-id adoption when the later projection notification fails`，定向 430 项、全量 4293 项和构建通过（见 I007）。真实登录开发版当前没有标题漂移候选，故未执行 B 站改名或确认按钮；首次确认自动关闭仍待该现场条件验收。 |
 | I011 | R013 | 已正式绑定的远端 `folderId` 在任何后续操作（包括勾选推荐收藏夹导致的刷新）中都不得重新以历史远端观察草稿形式显示为“未保存·未绑定”；真正未知的远端 ID 保留一条可观察草稿。 | 账号完整账本投影、`buildFavoriteLedgerStatusScript`、`buildEnsureFavoriteLedgersScript`、`buildSaveFavoriteLedgersScript` 及掌库右侧未保存卡片。 | 只要同账号任一正式规则或物理分册精确覆盖该 ID，所有状态读取、确保和保存入口均隐藏其远端观察草稿；不覆盖的 ID仍显示一次。 | 勾选推荐、保存规则、刷新状态等被动操作只重投影，不新增重复草稿、不修改 B 站名称/成员/绑定；历史草稿在正式绑定成功后按精确 ID 收敛。 | 允许清理由同一 ID 派生的纯远端观察草稿投影；不得删除用户实际创建或编辑的独立本地规则，不写 B 站。 | 不按标题、数量或名称相近性收敛；不隐藏真正陌生的 B 站收藏夹；截图同屏的“收藏夹规则分析失败”在证据不足前不并入本项。 | 全账号规则、物理分册、历史 `local-draft`、远端目录快照、推荐勾选调用路径和草稿投影去重。 | 已实施待真实账号验证 | `favoriteLedgerApi.ts:299-456,462-492,617-713,789-893` 以结构字段识别纯远端观察草稿，并把正式绑定 ID 作为专用清理集传入 status/ensure/save；`App.tsx:1593-1661,2040-2081,2211-2244,2383-2410,2566-2587` 将完整账号观察覆盖集与正式绑定清理集分离，单册远端写入仍仅含目标册。回归覆盖非 `bilimi` 前缀历史草稿收敛、`saved-rule` 保留、单册写入不扩大、仓库摘要失败关闭，以及旧版摘要缺少 `physicalShards` 明细时仍以 `folders` 中的正式 ID收敛观察草稿；后者失败→通过日志为 `.codex-artifacts/favorite-backup-rename-legacy-summary-red-20260903.log`、`.codex-artifacts/favorite-backup-rename-legacy-summary-green-20260903.log`。定向 430 项、全量 4293 项和构建通过（见 I007）。真实登录开发版掌库显示 9 个当前收藏夹均`已备册`、未见`未保存·未绑定`卡片；未为验收改动推荐勾选，推荐触发刷新链路仍待现场复验。 |
+| I012 | R014 | 当 B 站页面已显示改名成功但确认绑定弹窗仍提示失败时，必须从实际错误和权威快照区分“改名已受理/已生效但目录复读未确认”“正式绑定提交失败”“后置投影失败”或其他真实失败；不得继续用无法解释的通用失败掩盖已完成的远端副作用，也不得让用户靠重复点击碰运气。 | `确认绑定 bilimi 收藏夹` 弹窗、渲染端 `registerNewFavoriteLedgerBindings` 错误映射、主进程 `adoptExistingPhysicalShard` 改名/复读/commit、IPC 返回值、账号 `physical-shard-bindings.jsonl` 和远端目录权威快照。 | 仅针对 R014 截图对应的精确 `folderId` 和本次确认事务；在取得日志前不得把失败归因于某一层，也不得自动重试、改名或创建新夹。 | 先记录实际错误文本、改名前后目录读取、正式绑定提交与后置刷新结果，再确定修复；失败提示必须与真实阶段一致，若远端改名已生效应明确告知并保留可恢复绑定状态。 | 讨论阶段不执行 B 站改名、绑定、删除或视频写入；实施阶段仍不得重复发送改名命令或创建第二个远端夹。 | 不以截图颜色、名称相似、时间顺序或“再次点击后消失”猜测根因；不把同屏“收藏夹规则分析失败”并入本项，除非日志证明同因。 | 当前运行版本、精确 `folderId`、目录最终一致性、远端操作回执、仓库提交日志、IPC 与前端错误映射。 | 已实施待真实账号验证 | 主进程桥接现已透传 `rejected/unknown` 与诊断字段；绑定服务按改名回执、同 ID 复读、正式提交、后置投影阶段区分错误，渲染层显示阶段化文案；相关回归已通过。具体 R014 账号案例仍缺少原始 IPC 回执，不能声称现场分支已复现。 |
+| I013 | R015 | 按项目书 9.6 收口推荐收藏夹：整理可见性单一分流、非整理账号级 toggle、第二轮稳定 ID双向联动、详情独立删除、完整远端覆盖与 fail-closed、历史观察保守收敛、B站零写入、滚动位置和鼠标响应；先更新项目书和账本，再以失败回归驱动最小修改。 | `docs/项目功能项目书.md:9.6`、`ControlledFavoriteLedgerPanel.tsx`、`FavoriteLedgerOverview.tsx`、`FloatingAssistantApp.tsx`、`favoriteLedgerApi.ts`、账号仓库和推荐工作区。 | 只有向导展开且快照为 `previewing` 才进入整理队列；其它状态直接写账号启用。覆盖集不可核验时不新增/删除观察草稿，不标记已核验。 | 推荐采用先本地持久化再刷新；下方取消按纯草稿删除/正式规则仅取消参与分流；过期结果不得覆盖新操作；滚动容器保持锚点。 | 推荐操作仅允许本地规则/工作区写入和B站目录 GET，禁止 B站创建、改名、删除、解绑、移动和视频同步。 | 不改普通收藏夹、视频同步、删除确认、备册改名事务和启动模块；不得按标题、来源、数量或列表顺序猜测身份。 | 项目书 9.4/9.5、需求账本 I003/I009/I011、账号偏好 IPC、仓库物理分册、工作区快照和 UI 投影。 | 已实施待真实账号验证 | 项目书已新增 9.6；推荐可见性分流、账号覆盖集、稳定 ID 去重及 fail-closed 保护已实现并有回归测试；真实 Electron、滚动、账号切换和零写入证据待验收。 |
+| I014 | R016 | 解释并修复“知识学习”失败而“影视动漫”成功的实际差异：必须依据同一精确 `folderId` 的改名回执、目录复读时序、正式绑定提交和后置投影结果区分失败阶段；不得把标题内容本身当作原因。截图实际对象“游戏专区哈哈”与文字对象“知识学习”分开验收。 | `favoriteRepositoryPageBridge.ts` 的 `rename-folder` 回执、`favoriteRepositoryBindingService.ts` 改名后精确 ID 复读/commit、`App.tsx` 失败映射、账号 `physical-shard-bindings.jsonl`、B 站目录权威快照。 | 仅在取得本次操作日志和精确远端 ID后下结论；若 B 站已改名但正式绑定未落账，必须显示对应阶段而非泛化“绑定失败”。 | 对照成功与失败案例的每一步：一次改名→同 ID 条件复读→正式绑定→投影刷新；失败时保留可恢复状态，不要求用户靠重复点击碰运气。 | 不重复发送改名、不创建第二个收藏夹、不按名称猜测、不修改视频或其他规则。 | 不把截图中的“游戏专区哈哈”结论替代文字中的“知识学习”；不把无日志的推测写成已确认根因。 | R001/R002 的改名绑定事务、I008/I010 的最终一致性与后置投影保护、前端错误回显和真实账号验收。 | 已实施待真实账号验证 | 改名桥接和绑定服务现已按回执、同 ID 复读、正式提交及后置投影区分阶段，前端不再统一映射为“绑定失败”；相关回归已通过。R016 的具体账号案例仍缺少原始 IPC 回执，截图对象与文字对象继续分开验收。 |
+| I015 | R017 | “生活日常”案例必须以新截图和日志对账：B 站已经显示目标名称 `bilimi·生活日常哈哈` 时，掌库不能继续显示无法解释的绑定失败；必须区分远端改名已生效、目录复读未确认、正式绑定未提交和投影刷新失败，并保留同一 `folderId` 的可恢复状态。 | `favoriteRepositoryPageBridge.ts`、`favoriteRepositoryBindingService.ts`、`favoriteRepositoryIpc.ts`、`App.tsx` 绑定弹窗、账号 `physical-shard-bindings.jsonl`。 | 仅针对本次 `生活日常哈哈` 精确候选和真实账号日志；不得把图一的页面名称当作已完成正式绑定的充分证据。 | 读取改名请求回执、改名后精确 ID 目录复读、仓库 commit 和前端刷新结果；若远端副作用已发生，提示必须与该阶段一致且不要求重复点击。 | 不重复改名、不创建新收藏夹、不写视频、不把其它规则或推荐流程混入。 | 不以截图颜色、名称相似或“图一已改过来”直接推断正式绑定已成功；不隐瞒当前无详细 IPC 日志的事实。 | R010/R012/I008/I010/I014 的错误阶段化、最终一致性复读和后置投影保护。 | 已实施待真实账号验证 | 同一精确 ID 的改名回执透传、有限复读、正式绑定提交和后置投影保护已实现并有回归测试；R017 的实际账号复现、弹窗关闭和远端/本地账本最终一致性仍待现场验收。 |
+| I016 | R018 | 删除模式必须以正式物理分册绑定账本和精确远端 ID为准：已绑定且删除 B 站收藏夹成功后，掌库状态应变为`未备册`/未绑定；若删除未成功，必须显示真实删除阶段原因，不得用“部分 Bilimi 收藏夹尚未备册”掩盖绑定账本与远端状态不一致。 | `FavoriteLedgerOverview` 删除模式、`App.tsx` 删除结果映射、`favoriteRepositoryPageBridge.ts` 的 `delete-folder`、账号物理绑定账本与 B 站目录。 | 仅对用户明确选中的精确 `folderId` 执行删除；删除失败时保留绑定事实和可重试状态，成功后再清除/降级本地绑定。 | 删除请求→远端响应→同 ID 目录复读→本地绑定状态降级，四阶段结果必须可区分；不得因此前改名正式绑定失败而把删除路径当作普通未备册。 | 允许用户明确删除产生一次 B 站删除副作用；不删除其它收藏夹、不创建、不改名、不写视频。 | 不按名称或截图推断删除成功；不因本地显示`已备册`就假定远端删除已完成。 | I001/I008/I010/I015 的精确 ID绑定、改名后正式提交、删除确认和错误回显。 | 已实施待真实账号验证 | 删除前精确 ID 标题过期保护、稳定阶段错误、成功后解绑收尾和中文反馈已实现并有回归测试；真实账号删除成功后状态转为“未备册”及失败重试行为仍待现场验收。 |
 
 ## 讨论阶段边界
 
@@ -213,3 +290,24 @@
 - “勾选推荐收藏夹”实际经过 `ControlledFavoriteLedgerPanel` 的 `recommendationOnly` 本地保存和工作区刷新，并会触发助手快照的 `readFavoriteLedgerStatus`。当前 `buildFavoriteLedgerStatusScript` 与 `buildEnsureFavoriteLedgersScript` 没有接收 `remoteDraftKnownFolderIds`；上一轮只有 `buildSaveFavoriteLedgersScript` 收到完整账号覆盖集，故该刷新路径会绕过覆盖保护。
 - 现有 `appendRemoteOnlyDrafts` 只把标题仍带 `bilimi` 前缀的 `local-draft + unbound` 记录识别为可收敛远端观察草稿。上述三个历史记录的本地显示名已去掉该前缀，导致即使它们共享精确 ID，现有清理条件也会保留并重新显示。后续修复必须用“纯远端观察记录的结构与精确 folderId”，不能用标题前缀、名称或数量判断；有 `ruleOrigin=saved-rule`、已启用状态或有效关键词的真实本地规则继续保留。
 - 截图同屏的“收藏夹规则分析失败，请稍后重试。”尚未在可读日志中获得和草稿投影相同的因果证据；本轮不把它归因或捆绑修复。
+- R014 当前现场进一步核对：`config.json` 最近一次保存为 23:07，仍保留 `game` 的本地名称和精确 ID；绑定日志最后更新时间为 22:54，仍没有 `game` 的标题修复提交。`ledgersAfterBindingRegistration` 在绑定失败时会先保存渲染端结果，随后权威仓库投影又可把原始正式 ID恢复到本地配置，因此“本地显示已改名/已绑定”不能证明正式标题修复事务已成功。
+- R014 的最可能失败窗口已由代码边界缩小为两类，但尚无该次 IPC 原始回执可二选一：① `rename-folder` 返回 `remote-ambiguous`、`invalid-response`、`network-failure` 等异常，服务在改名后复读前直接退出；② 改名回执为成功，但 `list-all` 在当前有限复读窗口仍未返回目标标题，服务抛出 `Favorite repository remote shard rename is not confirmed.`。两类错误都会被 `favoriteLedgerBindingFailure` 映射成同一条“正式绑定未完成”。
+
+## 实施核对补充（2026-09-04，R015“开始”后）
+
+R015 明确授权在新分支实施本轮已确认需求。以下状态更新以本节为准；原文区与先前索引记录永久保留，不作删除或改写。
+
+| 原文/索引 | 实施状态 | 实际代码位置与自动化证据 | 真实界面/账号验收边界 |
+| --- | --- | --- | --- |
+| R001/R002 · I001/I002/I004 | 已实施待真实账号验证 | `electron/main/favoriteRepositoryBindingService.ts` 对显式精确 `folderId` 执行单次改名、同 ID 有界复读并以最终标题提交；`src/renderer/src/App.tsx` 从正式绑定返回快照回写 `remoteTitle`/视频数；绑定确认弹窗仍隐藏 ID并显示改名目标。`favoriteRepositoryBindingService.test.ts`、`App.test.tsx` 改名回写回归通过。 | 尚未在当前登录账号制造标题漂移并点击确认；弹窗像素、自动关闭和 B 站最终名称仍待开发版现场验收。 |
+| R005/R011/R013 · I003/I005/I009/I011 | 已实施待真实账号验证 | 完整账号远端观察覆盖集按精确 `folderId` 去重；正式绑定返回后不再用旧候选标题覆盖；`App.test.tsx`、`favoriteLedgerApi.test.ts`、`oldFavoriteWorkspaceCoordinator.test.ts` 等重复投影/未知 ID/单目标写入边界回归通过。 | 当前开发版已有账号快照未出现重复候选；未在现场重复执行“整理→备册→勾选推荐”完整链路。 |
+| R010/R012/R014/R016 · I008/I010/I012/I014 | 已实施待真实账号验证 | `favoriteRepositoryRuntimePageBridge.ts` 透传改名 `rejected`/`unknown` 及诊断字段；`favoriteRepositoryBindingService.ts` 将拒绝、结果未知、复读未确认分阶段处理，不提交伪绑定；`App.tsx` 映射阶段文案；运行时桥接、绑定服务和 App 回归通过。 | 具体知识学习/游戏专区/影视动漫案例缺少原始 IPC 回执，不能把自动化结果写成现场成功；需用同一精确 ID验证改名回执、复读、commit和弹窗关闭。 |
+| R017 · I015 | 已实施待真实账号验证 | 同一改名事务复用上述精确 ID透传、最终标题回写和后置投影保护；`favoriteRepositoryIpc.ts` 后置回调失败不反转已提交绑定。 | `生活日常哈哈` 的截图与现有账本仍待现场复现；不能仅凭 B 站页面名称认定正式绑定完成。 |
+| R018 · I016 | 已实施待真实账号验证 | `favoriteRepositorySyncService.ts` 删除前精确 ID标题失真返回稳定阶段码 `favorite-repository-binding-title-stale`，不调用删除、不解绑；远端删除成功后仍仅提交 `remove-physical-shard-binding`，UI 文案在 `FavoriteLibraryApp.tsx` 与 `managedFavoriteFolderDeletionFeedback.ts` 区分标题过期。同步服务、删除反馈和收藏库回归通过。 | 尚未在真实账号执行删除模式并核验 B 站删除、掌库状态转为未备册及重试行为；该项不能标记为现场完成。 |
+| R003/R004/R006/R007/R008/R009/R015 · I006/I007 | 已实施；响应性待现场验收 | 项目书先于代码补充第 9.5 条；本轮只使用非阻塞、有界复读，不增加主窗口同步扫描；工作树、构建和全量测试证据见 `.codex-artifacts/`。 | 自动化不能证明鼠标持续流畅；需在 Electron 开发版实际移动、点击、滚动、缩放、最小化、恢复和关闭窗口。 |
+
+### 本轮确认项与排除项回读
+
+- 已确认并纳入实施：R001、R002、R003（仅按实际存在功能解释）、R004、R005、R006、R007、R008、R009、R010、R011、R012、R013、R014、R015、R016、R017、R018。
+- 本轮没有用户明确排除的已确认需求；R003 的“推荐草稿不存在”仅限制内部状态名不得被当作用户功能，不新增推荐入口。
+- 仍待用户/现场决定或验收：所有截图中的精确文案、颜色、位置、弹窗自动关闭、真实 B 站改名/删除副作用、鼠标流畅度，以及 R014/R016 具体账号案例的原始 IPC 分支。未取得证据前不声称这些条目已完成。

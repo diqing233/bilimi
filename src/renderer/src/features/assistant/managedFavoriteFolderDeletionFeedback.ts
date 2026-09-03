@@ -9,6 +9,7 @@ export function managedFavoriteFolderDeletionFailureMessage(error: unknown) {
   if (/csrf-missing/i.test(detail)) return 'B 站登录凭证已失效，请刷新已登录的 B 站页面后重试。'
   if (/account-mismatch|account changed|remote account mismatch/i.test(detail)) return '当前 B 站账号与备册账号不一致，请确认已登录页面后重试。'
   if (/page target is unavailable|target-unavailable/i.test(detail)) return '无法连接当前 B 站页面，请保持已登录页面打开后重试。'
+  if (/favorite-repository-binding-title-stale/i.test(detail)) return '绑定账本标题已过期；已停止删除，请先刷新并重新备册确认后再试。'
   if (/remote folder verification failed/i.test(detail)) return 'B 站收藏夹状态已变化，已停止删除；请重新打开删除确认后再试。'
   if (responseCategory === 'html') return `B 站返回了非 JSON 页面${httpStatus ? `（HTTP ${httpStatus}）` : ''}，可能是登录或验证页面；未继续执行其他删除。`
   if (/network-failure|remote-timeout/i.test(detail)) return 'B 站请求未完成，未继续执行其他删除；请检查网络和登录状态后重试。'

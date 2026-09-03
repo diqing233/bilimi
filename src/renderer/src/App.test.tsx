@@ -2472,8 +2472,12 @@ describe('App runtime integration', () => {
     })
     const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    let resolveLoadedPreferences: ((preferences: AssistantPreferences) => void) | undefined
+    const loadPreferences = vi.fn(() => new Promise<AssistantPreferences>((resolve) => {
+      resolveLoadedPreferences = resolve
+    }))
     const { requestRuntime } = renderAppWithRuntimeBridge({
-      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      loadPreferences,
       savePreferences,
       readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
@@ -2506,7 +2510,11 @@ describe('App runtime integration', () => {
       })
     })
 
-    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await waitFor(() => expect(loadPreferences).toHaveBeenCalled())
+    await act(async () => {
+      resolveLoadedPreferences?.(initialPreferences)
+      await Promise.resolve()
+    })
     await expect(requestRuntime({ id: 'legacy-backup', type: 'ensure-ledgers' })).resolves.toMatchObject({
       ok: false,
       unboundLedgerIds: [legacyLedger.id]
@@ -3001,8 +3009,16 @@ describe('App runtime integration', () => {
 
   it('renames an explicitly selected remote folder when its title differs from the local ledger name', async () => {
     const accountMid = '100'
-    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
-    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      displayName: 'bilimi·游戏专区哈哈'
+    }
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue({
+      shards: [{
+        logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+        remoteFolderId: '88', remoteTitle: 'bilimi·游戏专区哈哈', bindingState: 'bound'
+      }]
+    })
     const { requestRuntime } = renderAppWithRuntimeBridge({
       readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
       adoptFavoriteRepositoryLedgerBinding
@@ -3025,7 +3041,10 @@ describe('App runtime integration', () => {
         rebindRemoteFolderIds: { game: '88' },
         rebindRemoteFolders: { game: [{ id: '88', title: 'bilimi·旧游戏专区', memberCount: 0 }] }
       }
-    })).resolves.toMatchObject({ ok: true })
+    })).resolves.toMatchObject({
+      ok: true,
+      ledgers: [expect.objectContaining({ bilibiliFolderTitle: 'bilimi·游戏专区哈哈' })]
+    })
 
     expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
       logicalLedgerId: 'game', remoteFolderId: '88', remoteTitle: 'bilimi·旧游戏专区', shardNumber: 1,

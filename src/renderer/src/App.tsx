@@ -1788,6 +1788,12 @@ export default function App() {
     if (/remote shard inventory is invalid/i.test(detail)) {
       return { reason: '远端收藏夹数据异常，请刷新 B 站收藏夹后重试。', detail }
     }
+    if (/remote shard rename rejected/i.test(detail)) {
+      return { reason: 'B 站拒绝了本次收藏夹改名，正式绑定未提交。请检查登录状态和名称后重试。', detail }
+    }
+    if (/remote shard rename result-unknown/i.test(detail)) {
+      return { reason: 'B 站改名结果暂时无法确认，已保留精确收藏夹待核对状态，请刷新后重试。', detail }
+    }
     if (/remote shard is already bound|logical shard conflicts/i.test(detail)) {
       return { reason: '该收藏夹已与其他工作夹或分册绑定，请先核对现有绑定。', detail }
     }
@@ -1888,14 +1894,25 @@ export default function App() {
         continue
       }
       try {
-        await window.bilimiDesktop.adoptFavoriteRepositoryLedgerBinding(accountMid, {
+        const adoptionResult = await window.bilimiDesktop.adoptFavoriteRepositoryLedgerBinding(accountMid, {
           logicalLedgerId: ledger.id, shardNumber,
           logicalTitle: ledger.displayName,
           remoteFolderId,
           remoteTitle,
           ...(allowRemoteRename ? { allowRemoteRename: true } : {})
         })
-        successfulBindings.push({ ledgerId: ledger.id, remoteFolderId, remoteTitle, memberCount, shardNumber })
+        const adoptedShard = adoptionResult && typeof adoptionResult === 'object' && !Array.isArray(adoptionResult) &&
+          Array.isArray((adoptionResult as { shards?: unknown }).shards)
+          ? (adoptionResult as { shards: Array<{ logicalLedgerId?: unknown; remoteFolderId?: unknown; shardNumber?: unknown; remoteTitle?: unknown; remoteMemberCount?: unknown }> }).shards.find((shard) =>
+              shard.logicalLedgerId === ledger.id && shard.remoteFolderId === remoteFolderId && shard.shardNumber === shardNumber)
+          : undefined
+        const committedRemoteTitle = typeof adoptedShard?.remoteTitle === 'string' && adoptedShard.remoteTitle.trim()
+          ? adoptedShard.remoteTitle.trim()
+          : remoteTitle
+        const committedMemberCount = Number.isSafeInteger(adoptedShard?.remoteMemberCount) && Number(adoptedShard.remoteMemberCount) >= 0
+          ? Number(adoptedShard.remoteMemberCount)
+          : memberCount
+        successfulBindings.push({ ledgerId: ledger.id, remoteFolderId, remoteTitle: committedRemoteTitle, memberCount: committedMemberCount, shardNumber })
       } catch (error) {
         const failure = favoriteLedgerBindingFailure(error)
         failures.push({

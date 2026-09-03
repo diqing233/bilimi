@@ -31,7 +31,15 @@ export type FavoriteRepositorySyncRun = {
   retryAvailableAt?: string
 }
 
-type PageBridgeResult = { observedAccountMid: string }
+type PageBridgeResult = {
+  observedAccountMid: string
+  status?: 'ok' | 'rejected' | 'unknown'
+  reason?: string
+  httpStatus?: number
+  contentType?: string
+  responseCategory?: 'html' | 'json' | 'text' | 'empty' | 'unknown'
+  bilibiliCode?: number
+}
 type PageBridgeDeleteResult = PageBridgeResult & {
   status?: 'ok' | 'rejected' | 'unknown'
   reason?: string
@@ -1236,7 +1244,7 @@ export class FavoriteRepositorySyncService {
     const foldersById = new Map(inventory.folders.map((folder) => [folder.id, folder]))
     return targets.map((shard) => {
       const folder = foldersById.get(shard.remoteFolderId!)
-      if (!folder || folder.title !== shard.remoteTitle) throw new Error('Favorite repository remote folder verification failed.')
+      if (!folder || folder.title !== shard.remoteTitle) throw new Error('favorite-repository-binding-title-stale')
       return { shard, folder }
     })
   }
@@ -1283,7 +1291,7 @@ export class FavoriteRepositorySyncService {
             })
             continue
           }
-          if (folder.title !== shard.remoteTitle) throw new Error('Favorite repository remote folder verification failed.')
+          if (folder.title !== shard.remoteTitle) throw new Error('favorite-repository-binding-title-stale')
           results.push({
             logicalLedgerId,
             remoteFolderId: folder.id,

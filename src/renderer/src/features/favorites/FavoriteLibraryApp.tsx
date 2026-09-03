@@ -177,6 +177,7 @@ function favoriteLibraryActionFailureMessage(error: unknown) {
   if (/revision mismatch|baseline is stale|baseline.*stale/i.test(detail)) return '收藏库内容刚刚变化；请刷新当前列表后重新操作。'
   if (/no unambiguous remote binding|unbound|not bound|binding.*missing/i.test(detail)) return '该工作夹没有可确认的正式 B 站绑定；请先在工作夹设置中完成绑定或重绑。'
   if (/target was not found|target-missing|managed folder was not found/i.test(detail)) return '目标工作夹已不存在或不可用；请刷新列表后重新选择。'
+  if (/favorite-repository-binding-title-stale/i.test(detail)) return '绑定账本标题已过期；请先刷新并重新备册确认后再删除。'
   if (/capacity|full|limit/i.test(detail)) return '目标 B 站收藏夹容量已满；请整理空间或选择其他已绑定分册。'
   if (/result-unknown|reconciliation|required|remote-ambiguous/i.test(detail)) return '删除未成功，请稍后重试。'
   if (/csrf-missing|login|credential/i.test(detail)) return 'B 站登录状态已失效；请刷新已登录的 B 站页面后重试。'

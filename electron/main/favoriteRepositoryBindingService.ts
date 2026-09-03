@@ -67,6 +67,27 @@ function comparableManagedShardTitle(value: string) {
     .replace(/·0*(\d+)$/u, '·$1')
 }
 
+function remoteRenameFailure(result: {
+  status?: 'ok' | 'rejected' | 'unknown'
+  reason?: string
+  httpStatus?: number
+  contentType?: string
+  responseCategory?: string
+  bilibiliCode?: number
+}) {
+  const diagnostics = [
+    result.reason?.trim() || 'remote-ambiguous',
+    Number.isSafeInteger(result.httpStatus) ? `http-status=${result.httpStatus}` : '',
+    result.contentType?.trim() ? `content-type=${result.contentType.trim()}` : '',
+    result.responseCategory?.trim() ? `response-category=${result.responseCategory.trim()}` : '',
+    Number.isSafeInteger(result.bilibiliCode) ? `bilibili-code=${result.bilibiliCode}` : ''
+  ].filter(Boolean)
+  const error = new Error(`Favorite repository remote shard rename ${result.status === 'rejected' ? 'rejected' : 'result-unknown'}: ${diagnostics.join('; ')}`)
+  if (result.status === 'rejected') Object.assign(error, { remoteWriteRejected: true })
+  if (result.status === 'unknown') Object.assign(error, { remoteWriteResultUnknown: true })
+  return error
+}
+
 export function favoriteRepositoryManagedShardTitle(logicalLedgerId: string, shardNumber: number, bindingToken: string) {
   return favoriteRepositoryManagedShardTitleForDisplay(logicalLedgerId, shardNumber, bindingToken)
 }
@@ -258,12 +279,14 @@ export class FavoriteRepositoryBindingService {
       const requiresRename = normalized.allowRemoteRename &&
         comparableManagedShardTitle(remote.title) !== comparableManagedShardTitle(expectedManagedTitle)
       if (requiresRename) {
-        await bridge.renameFolder({
+        const renameResult = await bridge.renameFolder({
           accountMid: account,
           operationKey: `${runId}:rename:${normalized.remoteFolderId}`,
           folderId: normalized.remoteFolderId,
           title: expectedManagedTitle
         })
+        if (renameResult?.status === 'rejected') throw remoteRenameFailure(renameResult)
+        const renameResultUnknown = renameResult?.status === 'unknown'
         let verifiedRemote: FavoriteRepositoryRemoteFolderInventory | undefined
         for (const [attempt, delayMs] of EXPLICIT_RENAME_CONFIRMATION_RETRY_DELAYS.entries()) {
           if (attempt > 0) await this.waitForInventoryRetry(delayMs)
@@ -274,6 +297,7 @@ export class FavoriteRepositoryBindingService {
               operationKey: `${runId}:verify-rename:${normalized.remoteFolderId}${attempt ? `-recheck-${attempt}` : ''}`
             })
           } catch {
+            if (renameResultUnknown) throw remoteRenameFailure(renameResult)
             throw new Error('Favorite repository remote shard rename is not confirmed.')
           }
           if (normalizedAccountMid(verifiedInventory.observedAccountMid) !== account) {
@@ -286,7 +310,10 @@ export class FavoriteRepositoryBindingService {
             break
           }
         }
-        if (!verifiedRemote) throw new Error('Favorite repository remote shard rename is not confirmed.')
+        if (!verifiedRemote) {
+          if (renameResultUnknown) throw remoteRenameFailure(renameResult)
+          throw new Error('Favorite repository remote shard rename is not confirmed.')
+        }
         remote = verifiedRemote
       }
       if (exactExisting && !requiresRename) return this.getBindings(account)

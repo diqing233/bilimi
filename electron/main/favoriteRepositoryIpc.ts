@@ -411,6 +411,7 @@ export function registerFavoriteRepositoryIpc(options: {
       remoteFolderId: string
       shardNumber: number
       memberAids: number[]
+      allowRemoteRename?: boolean
     }) => Promise<unknown>
     previewLedgerBindingCandidates?: (accountMid: string, ledgers: Array<{ ledgerId: string; title: string }>) => Promise<Array<{
       ledgerId: string
