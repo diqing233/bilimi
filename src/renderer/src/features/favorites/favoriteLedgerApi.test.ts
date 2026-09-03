@@ -901,6 +901,49 @@ describe('favorite ledger API scripts', () => {
     expect(result.remoteOnlyDraftLedgerIds).toEqual([])
   })
 
+  it('removes an unedited non-prefixed observation draft that repeats a formally bound exact id', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·生活日常哈哈', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([{
+      id: 'life', displayName: 'bilimi·生活日常哈哈', keywords: [], enabled: true, priority: 1, isDefault: false,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound'
+    }, {
+      id: 'custom-remote-88', displayName: '生活日常哈哈', keywords: [], enabled: false, priority: 2, isDefault: false,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft'
+    }]))
+
+    expect(result.ledgers).toEqual([
+      expect.objectContaining({ id: 'life', bindingState: 'bound', bilibiliFolderIds: ['88'] })
+    ])
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+  })
+
+  it('keeps an edited non-prefixed local rule when another rule is bound to the same exact id', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·生活日常哈哈', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([{
+      id: 'life', displayName: 'bilimi·生活日常哈哈', keywords: [], enabled: true, priority: 1, isDefault: false,
+      bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound'
+    }, {
+      id: 'saved-life', displayName: '生活日常哈哈', keywords: [], enabled: false, priority: 2, isDefault: false,
+      ruleOrigin: 'saved-rule', bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft'
+    }]))
+
+    expect(result.ledgers.map((ledger: FavoriteLedger) => ledger.id)).toEqual(expect.arrayContaining(['life', 'saved-life']))
+  })
+
   it('does not project account-known folders as remote drafts during a single-target backup', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

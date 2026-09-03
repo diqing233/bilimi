@@ -223,6 +223,67 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('fails closed without running a Bilibili projection when the available repository summary rejects', async () => {
+    const accountMid = '100'
+    const ledgers = createDefaultFavoriteLedgers()
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: ledgers }
+        }
+      })),
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockRejectedValue(new Error('repository unavailable'))
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn()
+    Object.assign(webview, { executeJavaScript })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await expect(requestRuntime({ id: 'repository-summary-unavailable', type: 'snapshot' })).resolves.toMatchObject({
+      favoriteLedgerStatus: {
+        ok: false,
+        verified: false,
+        ledgers,
+        message: '收藏库状态暂不可用，请稍后重试。'
+      }
+    })
+    expect(executeJavaScript).not.toHaveBeenCalled()
+    expect(savePreferences).not.toHaveBeenCalled()
+  })
+
+  it('does not run a full backup when the available repository summary rejects', async () => {
+    const accountMid = '100'
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences()),
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockRejectedValue(new Error('repository unavailable'))
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (_script: string, userGesture?: boolean) => userGesture
+      ? { hasUserId: true, hasCsrf: true }
+      : undefined)
+    Object.assign(webview, { executeJavaScript })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    savePreferences.mockClear()
+    await expect(requestRuntime({ id: 'repository-summary-unavailable-backup', type: 'ensure-ledgers' })).resolves.toMatchObject({
+      ok: false,
+      missingTargets: ['favorite-repository'],
+      message: '收藏库状态暂不可用，请稍后重试。'
+    })
+    expect(executeJavaScript).toHaveBeenCalledTimes(1)
+    expect(savePreferences).not.toHaveBeenCalled()
+  })
+
   it('handles ledger-enabled broadcasts through the prebuilt index without invalidating remote status', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
     const effect = source.slice(
@@ -2579,6 +2640,51 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('passes full formal remote coverage to a single-ledger confirmation without widening its write target', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const knowledge = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'knowledge')!
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [game, knowledge] }
+      }
+    })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-03T00:00:00.000Z',
+        videoCount: 0, folderCount: 2, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 2, syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: [],
+        physicalShards: [
+          { logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: 'game-88', remoteTitle: game.displayName, bindingState: 'bound' },
+          { logicalLedgerId: 'knowledge', shardNumber: 1, remoteFolderId: 'knowledge-99', remoteTitle: knowledge.displayName, bindingState: 'bound' }
+        ]
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        const payloadMatch = script.match(/const payload = (.*?);/s)
+        expect(payloadMatch).not.toBeNull()
+        const payload = JSON.parse(payloadMatch?.[1] ?? '{}')
+        expect(payload.remoteDraftKnownFolderIds).toEqual(['game-88', 'knowledge-99'])
+        expect(payload.remoteDraftBoundFolderIds).toEqual(['game-88', 'knowledge-99'])
+        expect(payload.options.remoteDraftKnownFolderIds).toBeUndefined()
+        expect(script).toContain('"id":"game"')
+        expect(script).not.toContain('"id":"knowledge"')
+        return { ok: true, ledgers: [{ ...game, bilibiliFolderId: 'game-88', bilibiliFolderIds: ['game-88'], bindingState: 'bound' as const }], steps: ['api:ledger:list'], missingTargets: [], message: '已备册' }
+      })
+    })
+
+    await expect(requestRuntime({
+      id: 'single-ledger-complete-observation-coverage', type: 'ensure-ledger', logicalFolderId: 'bilimi-logical:game'
+    })).resolves.toMatchObject({ ok: true })
+  })
+
   it('runs the confirmed creation path instead of repeating an empty binding preview', async () => {
     const accountMid = '100'
     const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
@@ -3293,6 +3399,7 @@ describe('App runtime integration', () => {
           expect(payloadMatch).not.toBeNull()
           const payload = JSON.parse(payloadMatch?.[1] ?? '{}')
           expect(payload.remoteDraftKnownFolderIds).toEqual(['bound-other', 'life-1', 'pending-other'])
+          expect(payload.remoteDraftBoundFolderIds).toEqual(['bound-other', 'life-1'])
           expect(payload.options.remoteDraftKnownFolderIds).toBeUndefined()
           expect(script).toContain('"nextLedgers":[{"id":"life"')
           expect(script).not.toContain('"id":"other"')
@@ -3703,6 +3810,8 @@ describe('App runtime integration', () => {
       executeJavaScript: vi.fn(async (script: string) => {
         if (isLedgerStatusScript(script)) {
           expect(script).toContain('"bilibiliFolderId":"9001"')
+          expect(script).toContain('"remoteDraftKnownFolderIds":["9001"]')
+          expect(script).toContain('"remoteDraftBoundFolderIds":["9001"]')
           return {
             ok: true,
             ledgers: [{ ...ledger, bilibiliFolderId: '9001' }],

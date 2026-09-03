@@ -6,6 +6,8 @@ import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositoryPageBridgeManager } from './favoriteRepositorySyncService'
 import type { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
+const EXPLICIT_RENAME_CONFIRMATION_RETRY_DELAYS = [0, 250, 750, 1500] as const
+
 export type FavoriteRepositoryRemoteFolderInventory = {
   id: string
   title: string
@@ -263,7 +265,7 @@ export class FavoriteRepositoryBindingService {
           title: expectedManagedTitle
         })
         let verifiedRemote: FavoriteRepositoryRemoteFolderInventory | undefined
-        for (const [attempt, delayMs] of [0, 250, 750].entries()) {
+        for (const [attempt, delayMs] of EXPLICIT_RENAME_CONFIRMATION_RETRY_DELAYS.entries()) {
           if (attempt > 0) await this.waitForInventoryRetry(delayMs)
           let verifiedInventory
           try {

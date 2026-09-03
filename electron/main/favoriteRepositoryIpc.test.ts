@@ -80,6 +80,28 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(onLedgerBindingAdopted).toHaveBeenCalledTimes(1)
   })
 
+  it('returns a committed exact-id adoption when the later projection notification fails', async () => {
+    const ipcMain = new FakeIpcMain()
+    const adoption = { logicalLedgerId: 'music' }
+    const adoptExistingPhysicalShard = vi.fn().mockResolvedValue(adoption)
+    const onLedgerBindingAdopted = vi.fn().mockRejectedValueOnce(new Error('projection refresh unavailable'))
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary: vi.fn() } as never,
+      bindingService: { adoptExistingPhysicalShard },
+      onLedgerBindingAdopted,
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:adopt-ledger-binding', 7, '100', {
+      logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', remoteFolderId: '41', remoteTitle: 'bilimi·音乐'
+    })).resolves.toEqual(adoption)
+
+    expect(adoptExistingPhysicalShard).toHaveBeenCalledOnce()
+    expect(onLedgerBindingAdopted).toHaveBeenCalledWith('100', 'music')
+  })
+
   it('returns the same complete library summary contract from snapshot and account-open reads', async () => {
     const ipcMain = new FakeIpcMain()
     const summary = {

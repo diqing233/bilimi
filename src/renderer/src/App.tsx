@@ -1595,21 +1595,36 @@ export default function App() {
     favoriteLedgers: FavoriteLedger[],
     remoteDraftCoverageLedgers: FavoriteLedger[] = favoriteLedgers
   ) {
-    const repositorySummary = accountMid && window.bilimiDesktop?.openFavoriteRepositoryAccount
-      ? await window.bilimiDesktop.openFavoriteRepositoryAccount(accountMid).catch(() => null)
-      : null
+    let repositorySummary = null
+    if (accountMid && window.bilimiDesktop?.openFavoriteRepositoryAccount) {
+      try {
+        repositorySummary = await window.bilimiDesktop.openFavoriteRepositoryAccount(accountMid)
+      } catch {
+        throw new Error('Favorite repository summary is unavailable.')
+      }
+    }
     const trustedRemoteFolderIds = new Map<string, string[]>()
     const trustedRemoteShardNumbers = new Map<string, Map<string, number>>()
     const deletionOnlyHistoricalRemoteFolderIds = new Map<string, Array<{ id: string; title: string }>>()
     const repositoryShards = repositorySummary?.physicalShards ?? []
-    const remoteDraftKnownFolderIds = new Set(remoteDraftCoverageLedgers.flatMap((ledger) => [
-      ledger.bilibiliFolderId,
-      ...(ledger.bilibiliFolderIds ?? [])
-    ].map((folderId) => folderId?.trim()).filter((folderId): folderId is string => Boolean(folderId))))
+    const managedFolderDeletedLedgerIds = new Set(remoteDraftCoverageLedgers
+      .filter((ledger) => ledger.managedFolderDeletedByUser)
+      .map((ledger) => ledger.id))
+    const remoteDraftBoundFolderIds = new Set<string>()
+    const remoteDraftKnownFolderIds = new Set(remoteDraftCoverageLedgers
+      .filter((ledger) => !ledger.managedFolderDeletedByUser && ledger.bindingState === 'unbound')
+      .flatMap((ledger) => [ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])])
+      .map((folderId) => folderId?.trim())
+      .filter((folderId): folderId is string => Boolean(folderId)))
     for (const shard of repositoryShards) {
-      if (shard.remoteFolderId?.trim()) remoteDraftKnownFolderIds.add(shard.remoteFolderId.trim())
-      for (const folderId of shard.knownRemoteFolderIds ?? []) {
-        if (folderId.trim()) remoteDraftKnownFolderIds.add(folderId.trim())
+      if (!managedFolderDeletedLedgerIds.has(shard.logicalLedgerId)) {
+        for (const folderId of shard.knownRemoteFolderIds ?? []) {
+          if (folderId.trim()) remoteDraftKnownFolderIds.add(folderId.trim())
+        }
+        if (shard.bindingState === 'bound' && shard.remoteFolderId?.trim()) {
+          remoteDraftKnownFolderIds.add(shard.remoteFolderId.trim())
+          remoteDraftBoundFolderIds.add(shard.remoteFolderId.trim())
+        }
       }
       if (shard.bindingState !== 'bound' && shard.remoteFolderId) {
         const entries = deletionOnlyHistoricalRemoteFolderIds.get(shard.logicalLedgerId) ?? []
@@ -1633,6 +1648,10 @@ export default function App() {
     if (!repositoryShards.length && Number(repositorySummary?.physicalShardCount ?? 0) > 0) {
       for (const folder of repositorySummary?.folders ?? []) {
         if (folder.kind !== 'bilimi-logical' || folder.syncState !== 'bound' || !folder.logicalLedgerId || !folder.remoteFolderId) continue
+        if (!managedFolderDeletedLedgerIds.has(folder.logicalLedgerId)) {
+          remoteDraftKnownFolderIds.add(folder.remoteFolderId)
+          remoteDraftBoundFolderIds.add(folder.remoteFolderId)
+        }
         trustedRemoteFolderIds.set(folder.logicalLedgerId, [folder.remoteFolderId])
         trustedRemoteShardNumbers.set(folder.logicalLedgerId, new Map([[folder.remoteFolderId, 1]]))
       }
@@ -1642,6 +1661,7 @@ export default function App() {
       trustedRemoteFolderIds,
       trustedRemoteShardNumbers,
       remoteDraftKnownFolderIds: [...remoteDraftKnownFolderIds].sort(),
+      remoteDraftBoundFolderIds: [...remoteDraftBoundFolderIds].sort(),
       repositoryRevision: typeof repositorySummary?.revision === 'number' ? repositorySummary.revision : undefined,
       ledgers: favoriteLedgers.map((ledger) => {
         // A right-side local deletion deliberately resets a default rule while
@@ -1649,7 +1669,10 @@ export default function App() {
         // confirms a binding, an older repository snapshot must not silently
         // restore that physical association.
         if (ledger.managedFolderDeletedByUser) {
-          return ledger
+          return {
+            ...ledger,
+            bindingState: ledger.bindingState === 'bound' ? 'unbound' as const : ledger.bindingState
+          }
         }
         const trustedFolderIds = trustedRemoteFolderIds.get(ledger.id) ?? []
         if (trustedFolderIds.length) {
@@ -1979,6 +2002,15 @@ export default function App() {
     return bindingResult.failures.filter((failure) => !ledgersById.get(failure.ledgerId)?.pendingRemoteBindingCreatedByBackup)
   }
 
+  function favoriteRepositoryUnavailableResult(): AssistantAutomationResult {
+    return {
+      ok: false,
+      steps: [],
+      missingTargets: ['favorite-repository'],
+      message: '收藏库状态暂不可用，请稍后重试。'
+    }
+  }
+
   async function readFavoriteLedgerStatus(
     accountMid = assistantSnapshotCacheRef.current.accountMid,
     options: { force?: boolean; preserveBoundLedgerIds?: readonly string[] } = {}
@@ -2009,10 +2041,33 @@ export default function App() {
         return cached.status
       }
     }
-    const { ledgers: ledgersWithRepositoryCandidates, repositoryRevision } = await projectFavoriteLedgersToFormalBindings(
-      accountMid,
-      favoriteLedgers
-    )
+    let formalBindings
+    try {
+      formalBindings = await projectFavoriteLedgersToFormalBindings(
+        accountMid,
+        favoriteLedgers,
+        favoriteLedgers
+      )
+    } catch (error) {
+      const unavailableStatus: FavoriteLedgerStatus = {
+        ok: false,
+        verified: false,
+        ledgers: favoriteLedgers,
+        missingLedgerIds: [],
+        unboundLedgerIds: [],
+        backupConflictLedgerIds: [],
+        message: '收藏库状态暂不可用，请稍后重试。'
+      }
+      assistantSnapshotCacheRef.current.favoriteLedgerStatus = unavailableStatus
+      favoriteLedgerStatusCacheRef.current = null
+      return unavailableStatus
+    }
+    const {
+      ledgers: ledgersWithRepositoryCandidates,
+      repositoryRevision,
+      remoteDraftKnownFolderIds,
+      remoteDraftBoundFolderIds
+    } = formalBindings
     const [dismissedRemoteDraftReminderIds, pendingRemoteDraftRediscoveryIds] = await Promise.all([
       window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid).catch(() => []) ?? [],
       window.bilimiDesktop?.getFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid).catch(() => []) ?? []
@@ -2022,7 +2077,12 @@ export default function App() {
       ...pendingRemoteDraftRediscoveryIds
     ])]
     const status = await runScript(
-      buildFavoriteLedgerStatusScript(ledgersWithRepositoryCandidates, suppressedRemoteDraftFolderIds)
+      buildFavoriteLedgerStatusScript(
+        ledgersWithRepositoryCandidates,
+        suppressedRemoteDraftFolderIds,
+        remoteDraftKnownFolderIds,
+        remoteDraftBoundFolderIds
+      )
     ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
 
     if (statusGeneration !== favoriteLedgerStatusGenerationRef.current) {
@@ -2151,10 +2211,23 @@ export default function App() {
     const favoriteLedgers = accountMid
       ? effectiveFavoriteLedgersForAccount(preferencesRef.current, accountMid)
       : favoriteLedgersForActiveAccount(accountMid)
-    const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers, repositoryRevision } = await projectFavoriteLedgersToFormalBindings(
-      accountMid,
-      favoriteLedgers
-    )
+    let formalBindings
+    try {
+      formalBindings = await projectFavoriteLedgersToFormalBindings(
+        accountMid,
+        favoriteLedgers,
+        favoriteLedgers
+      )
+    } catch {
+      return favoriteRepositoryUnavailableResult()
+    }
+    const {
+      ledgers: ledgersWithFormalBindings,
+      trustedRemoteShardNumbers,
+      repositoryRevision,
+      remoteDraftKnownFolderIds,
+      remoteDraftBoundFolderIds
+    } = formalBindings
     const [dismissedRemoteDraftReminderIds, pendingRemoteDraftRediscoveryIds] = await Promise.all([
       window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid).catch(() => []) ?? [],
       window.bilimiDesktop?.getFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid).catch(() => []) ?? []
@@ -2165,9 +2238,14 @@ export default function App() {
     ])]
 
     const result = await runScript(
-      buildEnsureFavoriteLedgersScript(ledgersWithFormalBindings, {
-        dismissedRemoteFolderIds: suppressedRemoteDraftFolderIds
-      })
+      buildEnsureFavoriteLedgersScript(
+        ledgersWithFormalBindings,
+        {
+          dismissedRemoteFolderIds: suppressedRemoteDraftFolderIds,
+          remoteDraftKnownFolderIds
+        },
+        remoteDraftBoundFolderIds
+      )
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
@@ -2306,12 +2384,34 @@ export default function App() {
       }
     }
 
-    const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers } = await projectFavoriteLedgersToFormalBindings(
-      accountMid,
-      [targetLedger]
-    )
+    let formalBindings
+    try {
+      formalBindings = await projectFavoriteLedgersToFormalBindings(
+        accountMid,
+        [targetLedger],
+        currentLedgers
+      )
+    } catch {
+      return favoriteRepositoryUnavailableResult()
+    }
+    const {
+      ledgers: ledgersWithFormalBindings,
+      trustedRemoteShardNumbers,
+      remoteDraftKnownFolderIds,
+      remoteDraftBoundFolderIds
+    } = formalBindings
     const result = await runScript(
-      buildEnsureFavoriteLedgersScript(ledgersWithFormalBindings, options)
+      buildEnsureFavoriteLedgersScript(
+        ledgersWithFormalBindings,
+        {
+          ...options,
+          remoteDraftKnownFolderIds: [...new Set([
+            ...(options?.remoteDraftKnownFolderIds ?? []),
+            ...remoteDraftKnownFolderIds
+          ])]
+        },
+        remoteDraftBoundFolderIds
+      )
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
@@ -2466,18 +2566,29 @@ export default function App() {
       : nextLedgers
     const dismissedRemoteFolderIds = await window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid)
       .catch(() => []) ?? []
-    const { ledgers: ledgersWithFormalBindings, trustedRemoteShardNumbers, remoteDraftKnownFolderIds } = await projectFavoriteLedgersToFormalBindings(
-      accountMid,
-      remoteOperationLedgers,
-      allAccountLedgers
-    )
+    let formalBindings
+    try {
+      formalBindings = await projectFavoriteLedgersToFormalBindings(
+        accountMid,
+        remoteOperationLedgers,
+        allAccountLedgers
+      )
+    } catch {
+      return favoriteRepositoryUnavailableResult()
+    }
+    const {
+      ledgers: ledgersWithFormalBindings,
+      trustedRemoteShardNumbers,
+      remoteDraftKnownFolderIds,
+      remoteDraftBoundFolderIds
+    } = formalBindings
 
     const result = await runScript(
       buildSaveFavoriteLedgersScript(ledgersWithFormalBindings, previousLedgers, {
         ...options,
         dismissedRemoteFolderIds,
         remoteDraftKnownFolderIds
-      })
+      }, remoteDraftBoundFolderIds)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
     const refreshFavoriteLedgerStatusAfterBackup = async (preserveBoundLedgerIds: readonly string[] = []) => {
       if (!accountMid) return

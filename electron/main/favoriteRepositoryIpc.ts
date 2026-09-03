@@ -528,7 +528,14 @@ export function registerFavoriteRepositoryIpc(options: {
       logicalLedgerId, logicalTitle, remoteDisplayTitle: remoteTitle, expectedRemoteTitle: remoteTitle,
       remoteFolderId, shardNumber, memberAids: [], ...(allowRemoteRename ? { allowRemoteRename: true } : {})
     })
-    await options.onLedgerBindingAdopted?.(accountMid, logicalLedgerId)
+    try {
+      await options.onLedgerBindingAdopted?.(accountMid, logicalLedgerId)
+    } catch {
+      // The authoritative physical-shard binding has already committed. A
+      // follow-up preference projection can retry on the next account refresh
+      // but must not turn this completed exact-ID adoption into a false remote
+      // binding failure for the confirmation dialog.
+    }
     return result
   })
   options.ipcMain.handle('favorite-repository:preview-ledger-binding-candidates', async (event, requestedAccountMid: string, requestedLedgers: unknown) => {
