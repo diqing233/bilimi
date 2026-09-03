@@ -235,6 +235,40 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(commandOldFavoriteWorkspaceV1).not.toHaveBeenCalled()
   })
 
+  it('keeps a persisted recommendation-origin rule in the upper projection by stable id', () => {
+    const projection = createRecommendationProjection([{
+      id: 'persisted-recommendation', displayName: 'bilimi·已采用推荐', keywords: ['采用推荐'],
+      ruleType: 'author', enabled: true, priority: 10, ruleOrigin: 'recommendation-draft',
+      syncState: 'local-draft', bindingState: 'unbacked', isDefault: false
+    }], [{
+      id: 'persisted-recommendation', displayName: 'bilimi·已采用推荐', kind: 'author',
+      keywords: ['采用推荐'], count: 1, reason: '推荐 UP'
+    }], new Set(['persisted-recommendation']))
+
+    expect(projection.candidateToLedgerId.get('persisted-recommendation')).toBe('persisted-recommendation')
+    expect(projection.ledgerToCandidateId.get('persisted-recommendation')).toBe('persisted-recommendation')
+  })
+
+  it('cancels a persisted recommendation-origin rule without deleting its local rule when no workspace is open', async () => {
+    const deleteFavoriteLedgerDraft = vi.fn().mockResolvedValue(undefined)
+    const saveLedgerEnabled = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = { deleteFavoriteLedgerDraft, writeFavoriteLedgerEnabled: vi.fn().mockResolvedValue(undefined) } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveLedgerEnabled}
+      ledgers={[{
+        id: 'persisted-recommendation-no-workspace', displayName: 'bilimi·已采用推荐', keywords: ['采用推荐'],
+        ruleType: 'author', enabled: true, priority: 10, ruleOrigin: 'recommendation-draft',
+        syncState: 'local-draft', bindingState: 'unbacked', isDefault: false
+      }]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '已采用推荐' }))
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·已采用推荐' }))
+
+    await waitFor(() => expect(saveLedgerEnabled).toHaveBeenCalledWith('persisted-recommendation-no-workspace', false))
+    expect(deleteFavoriteLedgerDraft).not.toHaveBeenCalled()
+  })
+
   it('keeps a promoted recommendation draft and cancels its exact lower adoption when its upper card is unchecked', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

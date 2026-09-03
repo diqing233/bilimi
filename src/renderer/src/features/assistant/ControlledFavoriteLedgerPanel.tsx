@@ -113,23 +113,51 @@ function isPureRecommendedLocalDraft(ledger: FavoriteLedger) {
   const hasRemoteBinding = Boolean(ledger.bilibiliFolderId?.trim()) ||
     (ledger.bilibiliFolderIds ?? []).some((folderId) => folderId.trim())
   return ledger.ruleOrigin === 'recommendation-draft' &&
-    !hasRemoteBinding
+    !hasRemoteBinding &&
+    // A recommendation-origin rule that has already crossed the account
+    // persistence boundary carries an explicit binding state, even when the
+    // legacy transport marker remains `local-draft`.  Only renderer/workspace
+    // drafts without that marker keep the draft-cancellation semantics.
+    !(ledger.syncState === 'local-draft' && ledger.bindingState !== undefined)
 }
 
 function isSavedUpperLedger(ledger: FavoriteLedger) {
   // Missing provenance is a legacy record. Treat it as saved so an ambiguous
   // checkbox click can never silently delete the user's configured rule.
-  return ledger.ruleOrigin !== 'recommendation-draft'
+  return ledger.ruleOrigin !== 'recommendation-draft' ||
+    (ledger.syncState === 'local-draft' && ledger.bindingState !== undefined)
+}
+
+// Display-only guard for legacy records that already have a formal rule with
+// the same title. This prevents two upper cards for one visible rule, but it
+// never creates a candidate mapping or changes binding/deletion identity;
+// all data operations below remain keyed by stable IDs.
+function isRecommendationShadowedByFormalTitle(ledger: FavoriteLedger, ledgers: readonly FavoriteLedger[]) {
+  if (ledger.ruleOrigin !== 'recommendation-draft') return false
+  const title = stripBilimiLedgerPrefix(ledger.displayName).trim()
+  return ledgers.some((candidate) => candidate.id !== ledger.id &&
+    candidate.ruleOrigin !== 'recommendation-draft' &&
+    ((candidate.ruleType ?? 'keyword') === (ledger.ruleType ?? 'keyword') || ledger.keywords.length === 0) &&
+    stripBilimiLedgerPrefix(candidate.displayName).trim() === title)
+}
+
+function isPersistedUpperLedger(ledger: FavoriteLedger, activeWorkspace: boolean, ledgers: readonly FavoriteLedger[]) {
+  return ledger.ruleOrigin !== 'recommendation-draft' ||
+    ledger.bindingState === 'unbacked' ||
+    (activeWorkspace && ledger.syncState === 'local-draft' && ledger.bindingState === undefined)
 }
 
 export function createRecommendationProjection(
   ledgers: readonly FavoriteLedger[],
-  candidates: readonly OldFavoriteWorkspaceRecommendationCandidate[]
+  candidates: readonly OldFavoriteWorkspaceRecommendationCandidate[],
+  persistedLedgerIds?: ReadonlySet<string>
 ): RecommendationProjection {
   const candidateToLedgerId = new Map<string, string>()
   const ledgerToCandidateId = new Map<string, string>()
   const matchedLedgerIds = new Set<string>()
-  const savedLedgers = ledgers.filter(isSavedUpperLedger)
+  const savedLedgers = ledgers.filter((ledger) => persistedLedgerIds
+    ? persistedLedgerIds.has(ledger.id)
+    : isSavedUpperLedger(ledger))
   for (const candidate of candidates) {
     // A saved upper rule can remain locally unbacked while carrying the
     // historical `local-draft` transport state.  Its exact stable ID still
@@ -351,30 +379,33 @@ export function ControlledFavoriteLedgerPanel({
   const visiblePromotedRecommendationLedgers = promotedRecommendationAccountKey === accountKey
     ? promotedRecommendationLedgers
     : []
-  const persistedUpperLedgerIds = new Set(ledgers
-    .filter((ledger) => !remoteOnlyDraftLedgerIds.includes(ledger.id) && isSavedUpperLedger(ledger))
-    .map((ledger) => ledger.id))
   const mergedEffectiveLedgers = mergePromotedRecommendationLedgers(ledgers, visiblePromotedRecommendationLedgers)
   const previewRecommendationSnapshot = isOrganizationSelectionSnapshot(workspace.snapshot)
     ? workspace.snapshot
     : null
+  const persistedUpperLedgerIds = new Set(ledgers
+    .filter((ledger) => !remoteOnlyDraftLedgerIds.includes(ledger.id) && isPersistedUpperLedger(ledger, Boolean(previewRecommendationSnapshot), ledgers))
+    .map((ledger) => ledger.id))
   const effectiveLedgersBeforeDismissal = previewRecommendationSnapshot
     ? (() => {
-        const projection = createRecommendationProjection(mergedEffectiveLedgers, previewRecommendationSnapshot.recommendations.candidates)
+        const projection = createRecommendationProjection(mergedEffectiveLedgers, previewRecommendationSnapshot.recommendations.candidates, persistedUpperLedgerIds)
         const candidateIds = new Set(previewRecommendationSnapshot.recommendations.candidates.map((candidate) => candidate.id))
         return mergedEffectiveLedgers.filter((ledger) => {
           if (ledger.ruleOrigin !== 'recommendation-draft' || !candidateIds.has(ledger.id)) return true
+          if (isRecommendationShadowedByFormalTitle(ledger, ledgers)) return false
           // A generated draft remains visible as its own upper projection only
           // while no saved rule owns the same stable candidate. If a saved
           // rule is already linked, showing both would create a duplicate card.
-          return !projection.candidateToLedgerId.has(ledger.id)
+          const linkedLedgerId = projection.candidateToLedgerId.get(ledger.id)
+          if (linkedLedgerId && linkedLedgerId !== ledger.id) return false
+          return persistedUpperLedgerIds.has(ledger.id) || !linkedLedgerId
         })
       })()
     : mergedEffectiveLedgers
   const effectiveLedgers = effectiveLedgersBeforeDismissal
     .filter((ledger) => !dismissedGeneratedRecommendationLedgerIds.has(ledger.id))
   const organizationUpperLedgerIds = new Set(effectiveLedgers
-    .filter((ledger) => !remoteOnlyDraftLedgerIds.includes(ledger.id))
+    .filter((ledger) => persistedUpperLedgerIds.has(ledger.id))
     .map((ledger) => ledger.id))
   const [enabledStateAccountKey, setEnabledStateAccountKey] = useState(accountKey)
   const updateLedgerEnabledById = useCallback((next: ReadonlyMap<string, boolean>) => {
@@ -485,7 +516,7 @@ export function ControlledFavoriteLedgerPanel({
     if (!isOrganizationSelectionSnapshot(snapshot)) return true
     const selectedIds = new Set(candidateIds)
     const currentLedgers = mergePromotedRecommendationLedgers(ledgers, promotedRecommendationLedgersRef.current)
-    const projection = createRecommendationProjection(currentLedgers, snapshot.recommendations.candidates)
+    const projection = createRecommendationProjection(currentLedgers, snapshot.recommendations.candidates, persistedUpperLedgerIds)
     const existingIds = new Set([
       ...persistedUpperLedgerIds,
       ...currentLedgers
@@ -547,7 +578,7 @@ export function ControlledFavoriteLedgerPanel({
       (!organizationRecommendationIdsRef.current.length && !workspace.recommendedCandidateIds.length && snapshotAdoptedCandidateIds.length > 0)
     const currentCandidateIds = new Set(needsSnapshotHydration ? snapshotAdoptedCandidateIds : organizationRecommendationIdsRef.current)
     const currentLedgers = mergePromotedRecommendationLedgers(ledgers, promotedRecommendationLedgersRef.current)
-    const projection = createRecommendationProjection(currentLedgers, candidates)
+    const projection = createRecommendationProjection(currentLedgers, candidates, persistedUpperLedgerIds)
     const retainedLinkedSavedLedgerIds = new Set(options.retainLinkedSavedLedgerIds ?? [])
     const removedGeneratedDraftLedgerIds = candidates.flatMap((candidate) => {
       if (!currentCandidateIds.has(candidate.id) || nextCandidateIds.includes(candidate.id)) return []
@@ -621,7 +652,7 @@ export function ControlledFavoriteLedgerPanel({
     if (source) return
     const recommendationCandidateIds = new Set(
       isOrganizationSelectionSnapshot(workspace.snapshot)
-        ? createRecommendationProjection(effectiveLedgers, workspace.snapshot.recommendations.candidates).ledgerToCandidateId.keys()
+        ? createRecommendationProjection(effectiveLedgers, workspace.snapshot.recommendations.candidates, persistedUpperLedgerIds).ledgerToCandidateId.keys()
         : [])
     for (const ledger of effectiveLedgers) {
       const previousEnabled = previousEnabledById.get(ledger.id) ?? ledger.enabled
@@ -643,7 +674,7 @@ export function ControlledFavoriteLedgerPanel({
     if (!isOrganizationSelectionSnapshot(snapshot)) return false
     const savedLedger = effectiveLedgers.find((ledger) => ledger.id === ledgerId && organizationUpperLedgerIds.has(ledger.id))
     if (!savedLedger) return false
-    const projection = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates)
+    const projection = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates, persistedUpperLedgerIds)
     // Recommendation drafts normally keep their lower cancellation semantics.
     // The upper card is different: when it already owns the exact stable ID of
     // a candidate, this user action changes round participation rather than
@@ -682,7 +713,7 @@ export function ControlledFavoriteLedgerPanel({
         : priorCandidateIds
       const selectionChanged = JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)
       const next = await workspace.setRoundExcludedLedgerIds([...excludedLedgerIds], {
-        ...(enabled && isSavedUpperLedger(savedLedger) && participatingSavedLedgerIds.length
+        ...(enabled && savedLedger.ruleOrigin !== 'recommendation-draft' && persistedUpperLedgerIds.has(savedLedger.id) && participatingSavedLedgerIds.length
           ? { participatingSavedLedgerIds }
           : {}),
         ...(candidateId && selectionChanged ? { mergeFavoriteRuleHistory: true } : {})
@@ -730,7 +761,7 @@ export function ControlledFavoriteLedgerPanel({
         ? removedCandidateIds[0]
         : undefined
     const linkedSavedLedgerId = isOrganizationSelectionSnapshot(snapshot) && changedCandidateId
-      ? createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates)
+      ? createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates, persistedUpperLedgerIds)
         .candidateToLedgerId.get(changedCandidateId) ??
         ((snapshot.excludedLedgerIds ?? []).includes(changedCandidateId) && organizationUpperLedgerIds.has(changedCandidateId)
           ? changedCandidateId
@@ -755,24 +786,20 @@ export function ControlledFavoriteLedgerPanel({
       const ledger = effectiveLedgers.find((candidate) => candidate.id === ledgerId)
       if (!ledger || ledger.ruleOrigin !== 'recommendation-draft') return false
       if (!enabled && isPureRecommendedLocalDraft(ledger)) {
-        const persisted = ledgers.some((candidate) => candidate.id === ledgerId)
-        if (persisted) {
-          if (!accountKey || !window.bilimiDesktop?.deleteFavoriteLedgerDraft) return false
-          try {
-            await window.bilimiDesktop.deleteFavoriteLedgerDraft(accountKey, ledgerId)
-          } catch {
-            return false
-          }
-        } else if (!persisted) {
-          // A promoted recommendation can exist only in this renderer while
-          // its workspace is being closed.  Remove that local adoption rather
-          // than writing an unknown rule id through the durable toggle path.
-          const nextPromoted = promotedRecommendationLedgersRef.current.filter((candidate) => candidate.id !== ledgerId)
-          promotedRecommendationLedgersRef.current = nextPromoted
-          setPromotedRecommendationLedgers(nextPromoted)
-          setDismissedGeneratedRecommendationLedgerIds((current) => new Set([...current, ledgerId]))
-          organizationRecommendationIdsRef.current = organizationRecommendationIdsRef.current.filter((candidateId) => candidateId !== ledgerId)
+        if (!accountKey || !window.bilimiDesktop?.deleteFavoriteLedgerDraft) return false
+        try {
+          await window.bilimiDesktop.deleteFavoriteLedgerDraft(accountKey, ledgerId)
+        } catch {
+          return false
         }
+        // A promoted recommendation can exist only in this renderer while
+        // its workspace is being closed. Remove that local adoption after the
+        // durable draft transaction succeeds.
+        const nextPromoted = promotedRecommendationLedgersRef.current.filter((candidate) => candidate.id !== ledgerId)
+        promotedRecommendationLedgersRef.current = nextPromoted
+        setPromotedRecommendationLedgers(nextPromoted)
+        setDismissedGeneratedRecommendationLedgerIds((current) => new Set([...current, ledgerId]))
+        organizationRecommendationIdsRef.current = organizationRecommendationIdsRef.current.filter((candidateId) => candidateId !== ledgerId)
         await onRefreshOrganizationState?.()
         return true
       }
@@ -785,7 +812,7 @@ export function ControlledFavoriteLedgerPanel({
         return false
       }
     }
-    const projection = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates)
+    const projection = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates, persistedUpperLedgerIds)
     const candidateId = projection.ledgerToCandidateId.get(ledgerId) ??
       (snapshot.recommendations.candidates.some((candidate) => candidate.id === ledgerId) ? ledgerId : undefined)
     if (!candidateId) return false
@@ -803,13 +830,13 @@ export function ControlledFavoriteLedgerPanel({
       ? [...organizationRecommendationIdsRef.current, candidateId]
       : organizationRecommendationIdsRef.current.filter((currentCandidateId) => currentCandidateId !== candidateId))
     return enabled ? committedIds.includes(candidateId) : !committedIds.includes(candidateId)
-  }, [accountKey, effectiveLedgers, ledgers, onRefreshOrganizationState, onSaveLedgerEnabled, organizationUpperLedgerIds, promotedRecommendationLedgersRef, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.snapshot])
+  }, [accountKey, effectiveLedgers, onRefreshOrganizationState, onSaveLedgerEnabled, organizationUpperLedgerIds, persistedUpperLedgerIds, promotedRecommendationLedgersRef, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.snapshot])
   const handleOrganizationSavedLedgerToggle = useCallback(async (ledgerId: string, enabled: boolean) =>
     setOrganizationSavedLedgerParticipation(ledgerId, enabled), [setOrganizationSavedLedgerParticipation])
   const handleOrganizationSavedLedgerSelectionChange = useCallback(async (selectedLedgerIds: string[]) => {
     const snapshot = workspace.snapshot
     if (!isOrganizationSelectionSnapshot(snapshot)) return false
-    const projection = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates)
+    const projection = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates, persistedUpperLedgerIds)
     const selectableLedgerIds = new Set(effectiveLedgers
       .filter((ledger) => persistedUpperLedgerIds.has(ledger.id))
       .map((ledger) => ledger.id))
@@ -1555,13 +1582,13 @@ export function ControlledFavoriteLedgerPanel({
     enabled: effectiveLedgerEnabledById.get(ledger.id) ?? ledger.enabled
   }))
   const recommendationProjection = isOrganizationSelectionSnapshot(activeSnapshot)
-    ? createRecommendationProjection(displayedLedgers, activeSnapshot.recommendations.candidates)
+    ? createRecommendationProjection(displayedLedgers, activeSnapshot.recommendations.candidates, persistedUpperLedgerIds)
     : undefined
   const authoritativePureRecommendationAdoptionByLedgerId = isOrganizationSelectionSnapshot(activeSnapshot)
     ? new Map(activeSnapshot.recommendations.candidates.flatMap((candidate) => {
       const ledgerId = recommendationProjection!.candidateToLedgerId.get(candidate.id) ?? candidate.id
       const ledger = displayedLedgers.find((item) => item.id === ledgerId)
-      return ledger && isPureRecommendedLocalDraft(ledger)
+      return ledger && ledger.ruleOrigin === 'recommendation-draft'
         ? [[ledgerId, activeSnapshot.recommendations.adoptedCandidateIds.includes(candidate.id)] as const]
         : []
     }))
@@ -1580,7 +1607,7 @@ export function ControlledFavoriteLedgerPanel({
       // Every card rendered in the upper ledger list owns the participation
       // toggle. This includes a promoted recommendation draft; the lower
       // recommendation list has its own cancellation-only path.
-      .filter((ledger) => !remoteOnlyDraftLedgerIds.includes(ledger.id))
+      .filter((ledger) => persistedUpperLedgerIds.has(ledger.id))
       .map((ledger) => [ledger.id,
         organizationSavedLedgerParticipationById.get(ledger.id) ??
         authoritativePureRecommendationAdoptionByLedgerId?.get(ledger.id) ??
