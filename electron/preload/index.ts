@@ -85,10 +85,12 @@ import type { OldFavoriteWorkspaceBilibiliSyncPreflight, OldFavoriteWorkspaceDee
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
-  notifyStartupInputActivity: () => ipcRenderer.send('startup:input-activity'),
+  notifyStartupInputActivity: (activity: 'pointer-move' | 'foreground' = 'foreground') => ipcRenderer.send('startup:input-activity', activity),
   notifyMainWindowFirstFrame: () => ipcRenderer.send('main-window:first-frame'),
   notifyMainWindowInteractive: () => ipcRenderer.send('main-window:interactive-ready'),
+  notifyHomeWebviewGuestAttached: (webContentsId: number) => ipcRenderer.send('home-webview:guest-attached', webContentsId),
   notifyHomeWebviewLoadSettled: () => ipcRenderer.send('home-webview:load-settled'),
+  notifyHomeWebviewLoadTimeout: () => ipcRenderer.send('home-webview:load-timeout'),
   closeAssistantPet: () => ipcRenderer.send('assistant-pet:close'),
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),

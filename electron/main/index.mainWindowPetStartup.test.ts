@@ -85,6 +85,16 @@ describe('main-window first pet startup wiring', () => {
     expect(rendererSource).toContain('homeWebviewLoadSettledRef.current')
   })
 
+  it('does not let the home load watchdog impersonate a real load-settled event', () => {
+    const watchdogStart = rendererSource.indexOf('homeWebviewLoadSettleTimeoutRef.current = window.setTimeout')
+    const watchdogEnd = rendererSource.indexOf('\n    }, HOME_WEBVIEW_LOAD_SETTLE_TIMEOUT_MS)', watchdogStart) +
+      '\n    }, HOME_WEBVIEW_LOAD_SETTLE_TIMEOUT_MS)'.length
+    const watchdog = rendererSource.slice(watchdogStart, watchdogEnd)
+
+    expect(watchdog).toContain('notifyHomeWebviewLoadTimeout')
+    expect(watchdog).not.toContain('notifyHomeWebviewLoadSettled()')
+  })
+
   it('does not auto-mount the home guest webview on a startup timeout', () => {
     expect(rendererSource).not.toContain('const activate = () => setHomeWebviewActivated(true)')
     expect(rendererSource).not.toContain('requestIdleCallback?.(activate, { timeout: 1200 })')
@@ -116,10 +126,9 @@ describe('main-window first pet startup wiring', () => {
     expect(petCreation).toContain("seal.webContents.once('did-finish-load'")
     expect(petCreation).toContain('floatingSealMouseRecovery = createFloatingSealMouseRecoveryController')
     expect(petCreation).toContain('floatingSealWakeController.showWhenReady(seal)')
-    expect(petCreation).toContain('installFloatingSealWhiteStripPolish(seal')
-    expect(petCreation.indexOf('floatingSealWakeController.showWhenReady(seal)')).toBeLessThan(
-      petCreation.indexOf('installFloatingSealWhiteStripPolish(seal')
-    )
+    const readyShow = petCreation.slice(petCreation.indexOf("seal.webContents.once('did-finish-load'"))
+    expect(readyShow).toContain('schedulePostShowStartupStages()')
+    expect(readyShow).not.toContain('installFloatingSealWhiteStripPolish(seal')
     expect(nativePolish).toContain('installFloatingSealWhiteStripFix(seal')
     expect(nativePolish.slice(0, nativePolish.indexOf('function scheduleFloatingSealCaptionPolish'))).not.toContain('setTimeout(')
     expect(mainSource).toContain("'floating-seal:white-strip-recomposite'")
@@ -136,12 +145,16 @@ describe('main-window first pet startup wiring', () => {
 
     expect(showIndex).toBeGreaterThanOrEqual(0)
     expect(petCreation.indexOf('setFloatingSealMouseTransparency(seal, true)')).toBeLessThan(showIndex)
-    expect(petCreation.indexOf('installFixedFloatingSealBoundsGuard(seal)')).toBeGreaterThan(showIndex)
-    expect(petCreation.indexOf('createFloatingSealMouseRecoveryController({')).toBeGreaterThan(showIndex)
-    expect(petCreation.indexOf('seal.setVisibleOnAllWorkspaces')).toBeGreaterThan(showIndex)
-    expect(petCreation.indexOf('seal.removeMenu()')).toBeGreaterThan(showIndex)
-    expect(petCreation).toContain('postShowSetupHandle = scheduleFloatingSealIdleTask')
+    const readyShow = petCreation.slice(showIndex)
+    expect(readyShow).toContain('schedulePostShowStartupStages()')
+    expect(readyShow).not.toContain('installFixedFloatingSealBoundsGuard(seal)')
+    expect(readyShow).not.toContain('createFloatingSealMouseRecoveryController({')
+    expect(readyShow).not.toContain('seal.setVisibleOnAllWorkspaces')
+    expect(readyShow).not.toContain('seal.removeMenu()')
+    expect(petCreation).toContain("scheduleFloatingSealIdleTask(() =>")
     expect(petCreation).toContain('const cancelStartupStages = () =>')
+    expect(petCreation).toContain('const schedulePostShowStartupStages = () =>')
+    expect(petCreation).toContain('schedulePostShowStartupStages()')
   })
 
   it('cancels all queued pet startup stages when the pet is hidden or closed', () => {
@@ -153,13 +166,17 @@ describe('main-window first pet startup wiring', () => {
   it('schedules automatic pet wake through a cancellable idle task', () => {
     const startup = mainSource.slice(mainSource.indexOf('function scheduleAutomaticFloatingSealWake()'))
     expect(startup).toContain('scheduleFloatingSealIdleTask')
+    expect(startup).toContain('ignorePointerMove: true')
     expect(startup).toContain('cancelFloatingSealIdleTask')
     expect(startup).not.toContain('setImmediate(() =>')
   })
 
   it('routes native pet creation through the same cancellable grace scheduler', () => {
-    const controller = mainSource.slice(mainSource.indexOf('const floatingSealWakeController'))
-    expect(controller).toContain("scheduleCreate: (callback) => scheduleFloatingSealIdleTask(callback, 'floating-seal:create')")
+    const controllerStart = mainSource.indexOf('const floatingSealWakeController')
+    const controller = mainSource.slice(controllerStart, mainSource.indexOf('let automaticFloatingSealWakeScheduled', controllerStart))
+    expect(controller).toContain("'floating-seal:create'")
+    expect(controller).toContain('minimumQuietWindowMs: 600')
+    expect(controller).toContain('ignorePointerMove: true')
     expect(controller).toContain('cancelCreate: (handle) => cancelFloatingSealIdleTask(handle as FloatingSealIdleTaskHandle)')
   })
 
@@ -169,10 +186,14 @@ describe('main-window first pet startup wiring', () => {
     expect(idleTaskSource).toContain('noteStartupInputActivity')
   })
 
-  it('releases pet creation through a cancellable event-loop turn after renderer idle instead of a fixed grace delay', () => {
+  it('keeps automatic pet wake behind a 600ms real-interaction grace period while continuous pointer movement is tolerated', () => {
     expect(idleTaskSource).toContain('quietWindowMs: 160')
     expect(idleTaskSource).toContain('startupInputScheduler.schedule')
     expect(idleTaskSource).not.toContain('FLOATING_SEAL_IDLE_GRACE_MS')
+    const startup = mainSource.slice(mainSource.indexOf('function scheduleAutomaticFloatingSealWake()'))
+    expect(startup).toContain('minimumQuietWindowMs: 600')
+    expect(startup).toContain('minimumDelayMs: 600')
+    expect(startup).toContain('ignorePointerMove: true')
     expect(idleTaskSource).not.toContain('setImmediate(() =>')
   })
 
@@ -188,14 +209,64 @@ describe('main-window first pet startup wiring', () => {
   })
 
   it('lets trusted main and guest input defer automatic pet startup without observing input content', () => {
-    expect(mainSource).toContain("target.on('before-input-event'")
-    expect(mainSource).toContain("target.on('input-event'")
+    expect(mainSource).toContain('function isPointerMoveInput(inputType: string | undefined, modifiers: string[] | undefined = [])')
+    expect(mainSource).toContain("inputType !== 'mouseMove'")
+    expect(mainSource).toContain("inputType !== 'pointerMove'")
+    expect(mainSource).toContain("normalizedModifier === 'left'")
+    expect(mainSource).toContain("normalizedModifier === 'middle'")
+    expect(mainSource).toContain("normalizedModifier === 'right'")
+    expect(mainSource).toContain("normalizedModifier.endsWith('buttondown')")
+    expect(mainSource).toContain("target.on('before-input-event', (_event, input) =>")
+    expect(mainSource).toContain("target.on('input-event', (_event, inputEvent) =>")
+    expect(mainSource).toContain("isPointerMoveInput(input.type, input.modifiers) ? 'pointer-move' : 'foreground'")
     expect(mainSource).toContain('installStartupInputObserver(win.webContents)')
     expect(mainSource).toContain('installStartupInputObserver(webContents)')
     expect(mainSource).toContain("win.on('move', noteWindowInput)")
+    expect(mainSource).not.toContain("for (const eventName of ['move', 'resize', 'minimize', 'restore', 'close'])")
     expect(mainSource).toContain("ipcMain.on('startup:input-activity'")
-    expect(mainSource).toContain('noteStartupInputActivity()')
-    expect(preloadSource).toContain("notifyStartupInputActivity: () => ipcRenderer.send('startup:input-activity')")
+    expect(mainSource).toContain("traceStartupPhase(activity === 'pointer-move' ? 'input:pointer-move' : 'input:foreground')")
+    expect(mainSource).toContain("activity === 'pointer-move' ? 'pointer-move' : 'foreground'")
+    expect(preloadSource).toContain("notifyStartupInputActivity: (activity: 'pointer-move' | 'foreground' = 'foreground') => ipcRenderer.send('startup:input-activity', activity)")
+    expect(rendererEntrySource).toContain("window.addEventListener('pointermove', (event) => {")
+    expect(rendererEntrySource).toContain("event.buttons === 0 ? 'pointer-move' : 'foreground'")
+    expect(rendererEntrySource).toContain("notifyStartupInputActivity('foreground')")
+  })
+
+  it('keeps a real home guest load outcome when the renderer identifies the WebView after its event fires', () => {
+    const routingStart = mainSource.indexOf('function installWindowOpenRouting(win: BrowserWindow)')
+    const routing = mainSource.slice(routingStart, mainSource.indexOf('\n}\n\nfunction installStartupInputObservers', routingStart))
+    const homeGateStart = mainSource.indexOf('let mainRendererInteractiveReady = false')
+    const homeGate = mainSource.slice(homeGateStart, mainSource.indexOf('\nfunction scheduleAutomaticFloatingSealWake()', homeGateStart))
+
+    expect(routing).toContain("webContents.once('dom-ready'")
+    expect(routing).toContain("webContents.once('did-stop-loading'")
+    expect(routing).toContain("webContents.once('did-fail-load'")
+    expect(routing).toContain('rememberHomeGuestLoadOutcome(webContents.id)')
+    expect(homeGate).toContain('homeWebviewGuestId')
+    expect(homeGate).toContain('settledHomeGuestIds')
+    expect(homeGate).toContain('registerHomeWebviewGuest')
+    expect(mainSource).toContain("ipcMain.on('home-webview:guest-attached'")
+    expect(preloadSource).toContain("notifyHomeWebviewGuestAttached: (webContentsId: number) => ipcRenderer.send('home-webview:guest-attached', webContentsId)")
+    expect(rendererSource).toContain('window.bilimiDesktop?.notifyHomeWebviewGuestAttached?.(state.webContentsId)')
+  })
+
+  it('cancels queued pet stages when the window is hidden, not only when it is destroyed', () => {
+    const petStart = mainSource.indexOf('function createFloatingSealWindow()')
+    const petEnd = mainSource.indexOf('\n}\n\nconst floatingSealWakeController', petStart)
+    const petCreation = mainSource.slice(petStart, petEnd)
+
+    expect(petCreation).toContain("seal.on('hide'")
+    expect(petCreation).toContain('cancelStartupStages()')
+    expect(petCreation).toContain('removeDisplayChangeListeners()')
+    expect(petCreation).toContain("screen.off('display-metrics-changed', handleFloatingSealDisplayChange)")
+    expect(petCreation).toContain('if (seal.isDestroyed() || floatingSealWindow !== seal || !seal.isVisible()) return')
+  })
+
+  it('requeues post-show setup when an already-ready pet is shown again without forcing opacity', () => {
+    const controllerStart = mainSource.indexOf('const floatingSealWakeController')
+    const controller = mainSource.slice(controllerStart, mainSource.indexOf('let automaticFloatingSealWakeScheduled', controllerStart))
+    expect(controller).toContain('scheduleFloatingSealPostShowStartupStages?.()')
+    expect(controller).not.toContain('setFloatingSealWindowMouseTransparent(false)')
   })
 
   it('loads only the current window renderer module at startup', () => {

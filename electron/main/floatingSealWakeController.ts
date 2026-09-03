@@ -8,6 +8,7 @@ type FloatingSealWakeControllerOptions<TWindow extends WakeableFloatingSealWindo
   createWindow: () => TWindow
   getWindow: () => TWindow | null
   prepareWindow: (window: TWindow) => void
+  onShown?: (window: TWindow) => void
   scheduleCreate: (callback: () => void) => unknown
   cancelCreate: (handle: unknown) => void
 }
@@ -16,6 +17,7 @@ export function createFloatingSealWakeController<TWindow extends WakeableFloatin
   createWindow,
   getWindow,
   prepareWindow,
+  onShown,
   scheduleCreate,
   cancelCreate
 }: FloatingSealWakeControllerOptions<TWindow>) {
@@ -35,6 +37,7 @@ export function createFloatingSealWakeController<TWindow extends WakeableFloatin
     if (window.isDestroyed()) return
     prepareWindow(window)
     window.showInactive()
+    onShown?.(window)
   }
 
   return {
@@ -104,6 +107,7 @@ export function createFloatingSealWakeController<TWindow extends WakeableFloatin
       readyWindows.add(window)
       if (!displayRequested || getWindow() !== window || window.isDestroyed()) return
       window.showInactive()
+      onShown?.(window)
       resolvePendingWake?.()
       resolvePendingWake = null
       pendingWake = null

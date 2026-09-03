@@ -1,5 +1,6 @@
 import {
   createStartupInputScheduler,
+  type StartupInputActivity,
   type StartupInputTaskEvent,
   type StartupInputTaskHandle
 } from './startupInputScheduler'
@@ -17,17 +18,24 @@ const startupInputScheduler = createStartupInputScheduler({
 
 export function scheduleFloatingSealIdleTask(
   callback: () => void | Promise<void>,
-  label = 'floating-seal-background'
+  label = 'floating-seal-background',
+  options: {
+    minimumQuietWindowMs?: number
+    minimumDelayMs?: number
+    ignorePointerMove?: boolean
+    allowConcurrent?: boolean
+    reportDiagnostics?: boolean
+  } = {}
 ): FloatingSealIdleTaskHandle {
-  return startupInputScheduler.schedule(callback, { label })
+  return startupInputScheduler.schedule(callback, { label, ...options })
 }
 
 export function cancelFloatingSealIdleTask(handle: FloatingSealIdleTaskHandle) {
   handle.cancel()
 }
 
-export function noteStartupInputActivity() {
-  startupInputScheduler.noteInputActivity()
+export function noteStartupInputActivity(activity: StartupInputActivity = 'foreground') {
+  startupInputScheduler.noteInputActivity(activity)
 }
 
 export function disposeFloatingSealIdleTaskScheduler() {

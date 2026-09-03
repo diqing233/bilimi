@@ -1067,7 +1067,7 @@ export default function App() {
   }, [])
 
   const handleFavoriteRepositoryTargetState = useCallback((
-    _tabId: string,
+    tabId: string,
     state: FavoriteRepositoryPageTarget & { webview: Electron.WebviewTag }
   ) => {
     favoriteRepositoryTargetStates.current.set(state.webContentsId, {
@@ -1075,6 +1075,9 @@ export default function App() {
       instanceId: state.instanceId,
       navigationEpoch: state.navigationEpoch
     })
+    if (tabId === HOME_TAB_ID) {
+      window.bilimiDesktop?.notifyHomeWebviewGuestAttached?.(state.webContentsId)
+    }
   }, [])
 
   const openInternalTab = useCallback((url: string) => {
@@ -3780,7 +3783,10 @@ export default function App() {
 
     homeWebviewLoadSettleTimeoutRef.current = window.setTimeout(() => {
       homeWebviewLoadSettleTimeoutRef.current = undefined
-      notifyHomeWebviewLoadSettled()
+      // The watchdog is diagnostic only. A timeout means Chromium/network did
+      // not emit a real initial-load outcome; it must not impersonate one and
+      // release the pet's automatic-start gate.
+      window.bilimiDesktop?.notifyHomeWebviewLoadTimeout?.()
     }, HOME_WEBVIEW_LOAD_SETTLE_TIMEOUT_MS)
 
     return () => {

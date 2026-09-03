@@ -75,7 +75,7 @@ type FavoriteLedgerEnabledHistoryOptions = { mergeFavoriteRuleHistory?: true }
 
 type BilimiDesktopApi = {
   version: string
-  notifyStartupInputActivity?: () => void
+  notifyStartupInputActivity?: (activity?: 'pointer-move' | 'foreground') => void
   notifyMainWindowFirstFrame?: () => void
   closeAssistantPet?: () => void
   closeFloatingAssistant?: () => void
@@ -141,7 +141,9 @@ type BilimiDesktopApi = {
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void
   notifyMainWindowInteractive?: () => void
+  notifyHomeWebviewGuestAttached?: (webContentsId: number) => void
   notifyHomeWebviewLoadSettled?: () => void
+  notifyHomeWebviewLoadTimeout?: () => void
   retryBilibiliSessionDirect?: () => Promise<{ mode: 'auto' | 'direct'; effectiveMode: 'direct' | 'system'; temporaryDirect: boolean }>
   readBilibiliAccountMid?: () => Promise<string>
   readBilibiliAccount?: () => Promise<{ mid: string; nickname?: string }>

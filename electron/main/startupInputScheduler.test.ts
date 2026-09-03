@@ -49,6 +49,66 @@ describe('createStartupInputScheduler', () => {
     vi.useRealTimers()
   })
 
+  it('allows a costly background stage to require a longer quiet window when explicitly requested', () => {
+    vi.useFakeTimers()
+    const scheduler = createStartupInputScheduler({ quietWindowMs: 100 })
+    const task = vi.fn()
+
+    scheduler.schedule(task, { label: 'pet-window-create', minimumQuietWindowMs: 600 })
+    scheduler.noteInputActivity()
+    vi.advanceTimersByTime(599)
+    expect(task).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(task).toHaveBeenCalledOnce()
+    scheduler.dispose()
+    vi.useRealTimers()
+  })
+
+  it('lets a pointer-tolerant first stage honor its longer real-interaction guard while pointer movement continues', () => {
+    vi.useFakeTimers()
+    const scheduler = createStartupInputScheduler({ quietWindowMs: 100 })
+    const task = vi.fn()
+
+    scheduler.schedule(task, {
+      label: 'pet-window-create',
+      minimumQuietWindowMs: 600,
+      minimumDelayMs: 600,
+      ignorePointerMove: true
+    })
+    for (let elapsed = 20; elapsed <= 580; elapsed += 20) {
+      vi.advanceTimersByTime(20)
+      scheduler.noteInputActivity('pointer-move')
+    }
+    vi.advanceTimersByTime(19)
+    expect(task).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(task).toHaveBeenCalledOnce()
+    scheduler.dispose()
+    vi.useRealTimers()
+  })
+
+  it('continues to delay a pointer-tolerant first stage after a real foreground interaction', () => {
+    vi.useFakeTimers()
+    const scheduler = createStartupInputScheduler({ quietWindowMs: 100 })
+    const task = vi.fn()
+
+    scheduler.schedule(task, {
+      label: 'pet-window-create',
+      ignorePointerMove: true
+    })
+    vi.advanceTimersByTime(50)
+    scheduler.noteInputActivity('foreground')
+    vi.advanceTimersByTime(99)
+    expect(task).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(task).toHaveBeenCalledOnce()
+    scheduler.dispose()
+    vi.useRealTimers()
+  })
+
   it('starts only one background stage in each quiet window', () => {
     vi.useFakeTimers()
     const scheduler = createStartupInputScheduler({ quietWindowMs: 100 })
@@ -89,6 +149,21 @@ describe('createStartupInputScheduler', () => {
       label: 'pet-window-create',
       status: 'deferred'
     })
+    scheduler.dispose()
+    vi.useRealTimers()
+  })
+
+  it('can suppress high-frequency task diagnostics without changing task scheduling', () => {
+    vi.useFakeTimers()
+    const onTaskStateChange = vi.fn()
+    const scheduler = createStartupInputScheduler({ quietWindowMs: 0, onTaskStateChange })
+    const task = vi.fn()
+
+    scheduler.schedule(task, { label: 'floating-seal:mouse-recovery-poll', reportDiagnostics: false })
+    vi.runAllTimers()
+
+    expect(task).toHaveBeenCalledOnce()
+    expect(onTaskStateChange).not.toHaveBeenCalled()
     scheduler.dispose()
     vi.useRealTimers()
   })
@@ -147,6 +222,54 @@ describe('createStartupInputScheduler', () => {
     finish?.()
     await Promise.resolve()
     expect(events).not.toContain('completed')
+    vi.useRealTimers()
+  })
+
+  it('runs a lightweight pointer-tolerant poll on its own cadence while continuous movement continues', () => {
+    vi.useFakeTimers()
+    const scheduler = createStartupInputScheduler({ quietWindowMs: 160 })
+    const poll = vi.fn()
+
+    scheduler.schedule(poll, {
+      label: 'floating-seal:mouse-recovery-poll',
+      minimumQuietWindowMs: 0,
+      minimumDelayMs: 80,
+      ignorePointerMove: true,
+      allowConcurrent: true,
+      reportDiagnostics: false
+    })
+    for (let elapsed = 0; elapsed < 80; elapsed += 20) {
+      vi.advanceTimersByTime(20)
+      scheduler.noteInputActivity('pointer-move')
+    }
+
+    vi.advanceTimersByTime(1)
+    expect(poll).toHaveBeenCalledOnce()
+    scheduler.dispose()
+    vi.useRealTimers()
+  })
+
+  it('still lets a lightweight poll yield to a real foreground interaction', () => {
+    vi.useFakeTimers()
+    const scheduler = createStartupInputScheduler({ quietWindowMs: 160 })
+    const poll = vi.fn()
+
+    scheduler.schedule(poll, {
+      label: 'floating-seal:mouse-recovery-poll',
+      minimumQuietWindowMs: 0,
+      minimumDelayMs: 80,
+      ignorePointerMove: true,
+      allowConcurrent: true,
+      reportDiagnostics: false
+    })
+    vi.advanceTimersByTime(60)
+    scheduler.noteInputActivity('foreground')
+    vi.advanceTimersByTime(20)
+    expect(poll).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(140)
+    expect(poll).toHaveBeenCalledOnce()
+
+    scheduler.dispose()
     vi.useRealTimers()
   })
 })

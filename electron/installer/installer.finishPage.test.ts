@@ -13,7 +13,7 @@ describe('NSIS finish page window controls', () => {
     expect(installerSource).toContain('GetSystemMenu')
     expect(installerSource).toContain('EnableMenuItem')
     expect(installerSource).toContain('user32::EnableWindow(i r0, i 1)')
-    expect(installerSource).toContain("GetDlgItem $0 $HWNDPARENT 2\n  System::Call 'user32::EnableWindow(i r0, i 1)'")
+    expect(installerSource).toMatch(/GetDlgItem \$0 \$HWNDPARENT 2\r?\n  System::Call 'user32::EnableWindow\(i r0, i 1\)'/)
     expect(installerSource).toContain('SC_CLOSE')
     expect(installerSource).toContain('SC_MINIMIZE')
     expect(installerSource).toContain('MUI_CUSTOMFUNCTION_ABORT')
