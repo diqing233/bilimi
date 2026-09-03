@@ -791,37 +791,6 @@ describe('favorite ledger API scripts', () => {
     })])
   })
 
-  it('backs up a persisted recommendation-origin rule and does not project a duplicate after the binding receipt', async () => {
-    installCookies()
-    const ledger: FavoriteLedger = {
-      id: 'persisted-recommendation', displayName: 'bilimi·推荐', keywords: ['推荐'], enabled: true,
-      priority: 10, isDefault: false, ruleOrigin: 'recommendation-draft', syncState: 'local-draft'
-    }
-    let created = false
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.includes('/x/v3/fav/folder/created/list-all')) {
-        return Response.json({ code: 0, data: { list: created ? [{ id: 88, title: ledger.displayName, media_count: 0 }] : [] } })
-      }
-      if (url.includes('/x/v3/fav/folder/add')) {
-        created = true
-        return Response.json({ code: 0, data: { id: 88 } })
-      }
-      throw new Error(`Unexpected request: ${url} ${String(init?.method ?? '')}`)
-    }))
-
-    const backedUp = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger])) as { ok: boolean; ledgers: FavoriteLedger[] }
-    expect(backedUp).toMatchObject({ ok: true })
-    expect(backedUp.ledgers).toEqual([expect.objectContaining({
-      id: ledger.id, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound'
-    })])
-
-    const projected = await window.eval(buildFavoriteLedgerStatusScript(backedUp.ledgers)) as { ledgers: FavoriteLedger[] }
-    expect(projected.ledgers).toHaveLength(1)
-    expect(projected.ledgers[0]).toEqual(expect.objectContaining({
-      id: ledger.id, bilibiliFolderId: '88', bindingState: 'bound'
-    }))
-  })
-
   it('projects same-name Bilibili folders as separate remote-only drafts by folder id', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

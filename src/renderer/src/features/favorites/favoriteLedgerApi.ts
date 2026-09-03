@@ -648,9 +648,7 @@ export function buildEnsureFavoriteLedgersScript(
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
-        const hasRemoteFolderId = Boolean(ledger.bilibiliFolderId?.trim() || ledger.bilibiliFolderIds?.some((folderId) => folderId.trim()))
-        const isPersistedRecommendation = ledger.ruleOrigin === 'recommendation-draft' && !hasRemoteFolderId
-        if (!ledger.enabled || hasRemoteFolderId || (ledger.syncState === 'local-draft' && !isPersistedRecommendation)) {
+        if (!ledger.enabled || ledger.syncState === 'local-draft' || ledger.bilibiliFolderId) {
           continue;
         }
 
@@ -822,9 +820,7 @@ export function buildSaveFavoriteLedgersScript(
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
-        const hasRemoteFolderId = Boolean(ledger.bilibiliFolderId?.trim() || ledger.bilibiliFolderIds?.some((folderId) => folderId.trim()))
-        const isPersistedRecommendation = ledger.ruleOrigin === 'recommendation-draft' && !hasRemoteFolderId
-        if (!ledger.enabled || hasRemoteFolderId || (ledger.syncState === 'local-draft' && !isPersistedRecommendation)) {
+        if (!ledger.enabled || ledger.syncState === 'local-draft' || ledger.bilibiliFolderId) {
           continue;
         }
 
