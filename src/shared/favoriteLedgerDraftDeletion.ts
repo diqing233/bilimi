@@ -37,7 +37,7 @@ export function isPureRecommendationLedgerDraft(ledger: FavoriteLedger) {
   return ledger.ruleOrigin === 'recommendation-draft' &&
     ledger.syncState === 'local-draft' &&
     !ledger.isDefault &&
-    ledger.bindingState !== 'bound' &&
+    ledger.bindingState === undefined &&
     remoteFolderIds.length === 0
 }
 

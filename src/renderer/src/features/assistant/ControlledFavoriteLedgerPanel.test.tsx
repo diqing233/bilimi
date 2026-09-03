@@ -467,6 +467,40 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(projection.ledgerToCandidateId.has('candidate-only')).toBe(false)
   })
 
+  it('projects a persisted recommendation-origin rule by its stable id', () => {
+    const projection = createRecommendationProjection([{
+      id: 'persisted-recommendation', displayName: 'bilimi·已采用推荐', keywords: ['采用推荐'],
+      ruleType: 'author', enabled: true, priority: 10, ruleOrigin: 'recommendation-draft',
+      syncState: 'local-draft', bindingState: 'unbacked', isDefault: false
+    }], [{
+      id: 'persisted-recommendation', displayName: 'bilimi·已采用推荐', kind: 'author',
+      keywords: ['采用推荐'], count: 1, reason: '推荐 UP'
+    }], new Set(['persisted-recommendation']))
+
+    expect(projection.candidateToLedgerId.get('persisted-recommendation')).toBe('persisted-recommendation')
+    expect(projection.ledgerToCandidateId.get('persisted-recommendation')).toBe('persisted-recommendation')
+  })
+
+  it('does not delete a persisted recommendation-origin rule when cancelling without a workspace', async () => {
+    const deleteFavoriteLedgerDraft = vi.fn().mockResolvedValue(undefined)
+    const saveLedgerEnabled = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = { deleteFavoriteLedgerDraft, writeFavoriteLedgerEnabled: vi.fn().mockResolvedValue(undefined) } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveLedgerEnabled}
+      ledgers={[{
+        id: 'persisted-recommendation-no-workspace', displayName: 'bilimi·已采用推荐', keywords: ['采用推荐'],
+        ruleType: 'author', enabled: true, priority: 10, ruleOrigin: 'recommendation-draft',
+        syncState: 'local-draft', bindingState: 'unbacked', isDefault: false
+      }]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '已采用推荐' }))
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·已采用推荐' }))
+
+    await waitFor(() => expect(saveLedgerEnabled).toHaveBeenCalledWith('persisted-recommendation-no-workspace', false))
+    expect(deleteFavoriteLedgerDraft).not.toHaveBeenCalled()
+  })
+
   it('does not fall back to a candidate id when opening a temporary draft', () => {
     expect(resolveRecommendationOpenLedgerId('candidate-only', [{
       id: 'candidate-only', displayName: 'bilimi·候选草稿', keywords: [], enabled: true, priority: 10,
