@@ -81,5 +81,6 @@ describe('favorite ledger configuration refresh IPC', () => {
     )
     expect(accountOpen).toContain('}).catch(() => undefined)')
     expect(accountOpen).toContain('await reconcileFavoriteLedgerBindingProjection(accountMid)')
+    expect(accountOpen).toContain('suppressedRemoteFolderIds: loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)')
   })
 })

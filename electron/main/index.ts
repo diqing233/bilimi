@@ -1880,11 +1880,6 @@ function registerAssistantPreferenceHandlers() {
       ledger.bilibiliFolderId,
       ...(ledger.bilibiliFolderIds ?? [])
     ]).map((remoteFolderId) => remoteFolderId?.trim()).filter((remoteFolderId): remoteFolderId is string => Boolean(remoteFolderId)))]
-    saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
-      ...current,
-      favoriteLedgers,
-      ...(deletedRecords ? { deletedFavoriteLedgerRecords: deletedRecords } : {})
-    })
     let workspaceSnapshot: Awaited<ReturnType<NonNullable<typeof oldFavoriteWorkspaceCoordinator>['getSnapshot']>> | null = null
     try {
       workspaceSnapshot = await oldFavoriteWorkspaceCoordinator?.getSnapshot(accountMid) ?? null
@@ -1893,6 +1888,11 @@ function registerAssistantPreferenceHandlers() {
       // the local deletion remains authoritative and must not be rolled back.
     }
     const previewingWorkspace = workspaceSnapshot && !('recovery' in workspaceSnapshot) && workspaceSnapshot.status === 'previewing'
+    saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
+      ...current,
+      favoriteLedgers,
+      ...(deletedRecords ? { deletedFavoriteLedgerRecords: deletedRecords } : {})
+    })
     if (previewingWorkspace) {
       try {
         if (oldFavoriteWorkspaceCoordinator) {
@@ -1901,11 +1901,36 @@ function registerAssistantPreferenceHandlers() {
           await reclassifyFavoriteWorkspaceIfPreviewing(accountMid)
         }
       } catch (error) {
-        // The directory and preview are one user-visible rule change. Restore
-        // the exact pre-delete directory before reporting a failed reclassify.
+        // Reconcile before deleting the repository projection, so a failed
+        // preview transaction can restore the exact account directory without
+        // leaving a locally deleted managed folder behind.
         saveFavoriteAccountPreferences(getDesktopStore(), accountMid, current)
         throw error
       }
+    }
+    try {
+      if (!favoriteRepositoryService) throw new Error('Favorite repository is unavailable.')
+      const removedLedgerIds = new Set(removedLedgers.map((ledger) => ledger.id))
+      const repositorySnapshot = await favoriteRepositoryService.getSnapshot(accountMid)
+      const managedLogicalFolderIds = repositorySnapshot.folders
+        .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId && removedLedgerIds.has(folder.logicalLedgerId))
+        .map((folder) => folder.id)
+      if (managedLogicalFolderIds.length) {
+        await favoriteRepositoryService.commit(accountMid, {
+          id: `favorite-delete-local-managed-folders:${randomUUID()}`,
+          accountMid,
+          issuedAt: new Date().toISOString(),
+          type: 'delete-local-managed-folders',
+          payload: { logicalFolderIds: managedLogicalFolderIds }
+        })
+      }
+    } catch (error) {
+      // The account rule remains the source of truth for the repository
+      // projection. Do not leave a deleted rule persisted when its matching
+      // managed folders could not be removed through the existing command.
+      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, current)
+      if (previewingWorkspace) await reclassifyFavoriteWorkspaceIfPreviewing(accountMid).catch(() => undefined)
+      throw error
     }
     markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
@@ -3131,7 +3156,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         accountMid,
         repository: favoriteRepositoryService!,
         ledgers: favoriteAccountPreferences.favoriteLedgers,
-        deletedFavoriteLedgerRecords: favoriteAccountPreferences.deletedFavoriteLedgerRecords
+        deletedFavoriteLedgerRecords: favoriteAccountPreferences.deletedFavoriteLedgerRecords,
+        suppressedRemoteFolderIds: loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)
       })
     },
     // A user-local deletion is not the same as choosing “不再提醒”. The
