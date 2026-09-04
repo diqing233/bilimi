@@ -15,6 +15,8 @@ type OldFavoriteRecommendationStepProps = {
   onCancelPreviewPreparation?: () => void
   onSetRecommendedCandidates: (candidateIds: string[]) => void
   onUpdateRecommendedCandidates?: (update: (current: string[]) => string[]) => void
+  onRecommendationPointerDown?: () => void
+  onRecommendationSelectionChange?: () => void
   viewScope?: OldFavoriteViewScope
   onViewScopeChange?: (scope: OldFavoriteViewScope) => void
   contentAvailable?: boolean
@@ -71,6 +73,8 @@ export function OldFavoriteRecommendationStep({
   onCancelPreviewPreparation = () => undefined,
   onSetRecommendedCandidates,
   onUpdateRecommendedCandidates,
+  onRecommendationPointerDown,
+  onRecommendationSelectionChange,
   viewScope: controlledViewScope,
   onViewScopeChange,
   contentAvailable = true,
@@ -176,7 +180,11 @@ export function OldFavoriteRecommendationStep({
           <label>
             <input type="checkbox" aria-label={`全选 ${group.heading}`} checked={allSelected}
               disabled={loading || selectionLocked || group.allCandidates.length === 0}
-              onChange={(event) => setGroupSelected(group.allCandidates, event.currentTarget.checked)} />
+              onPointerDown={onRecommendationPointerDown}
+              onChange={(event) => {
+                onRecommendationSelectionChange?.()
+                setGroupSelected(group.allCandidates, event.currentTarget.checked)
+              }} />
             <span>全选</span>
           </label>
         </div>
@@ -189,7 +197,9 @@ export function OldFavoriteRecommendationStep({
             return <article key={candidate.id} aria-label={candidateLabel(candidate)} title={candidateTooltip(candidate, wholeRunCount, currentBatchCount, viewScope)}>
               <label>
                 <input type="checkbox" aria-label={candidateLabel(candidate)} checked={adopted} disabled={loading || selectionLocked}
+                  onPointerDown={onRecommendationPointerDown}
                   onChange={(event) => {
+                    onRecommendationSelectionChange?.()
                     if (onUpdateRecommendedCandidates) {
                       const selected = event.currentTarget.checked
                       onUpdateRecommendedCandidates((currentIds) => {

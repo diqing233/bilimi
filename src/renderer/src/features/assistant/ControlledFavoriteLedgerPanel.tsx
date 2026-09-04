@@ -284,25 +284,38 @@ export function ControlledFavoriteLedgerPanel({
     frames: number[]
     userScrolled: boolean
     restoring: boolean
+    ignoreInitialScroll: boolean
+    capturedBeforeFocus: boolean
     cleanup?: () => void
   } | null>(null)
-  const preserveFavoritePanelScrollPosition = useCallback(() => {
+  const preserveFavoritePanelScrollPosition = useCallback((options: { ignoreInitialScroll?: boolean; capturedBeforeFocus?: boolean } = {}) => {
     const panel = favoritePanelRef.current
     if (!panel) return
-    const state = favoritePanelScrollRestoreRef.current ?? {
+    const existingState = favoritePanelScrollRestoreRef.current
+    if (existingState?.frames.length) {
+      for (const frame of existingState.frames) window.cancelAnimationFrame(frame)
+      existingState.cleanup?.()
+      existingState.cleanup = undefined
+      existingState.frames = []
+    }
+    const state = existingState ?? {
       panel,
       top: panel.scrollTop,
       frames: [],
       userScrolled: false,
-      restoring: false
+      restoring: false,
+      ignoreInitialScroll: false,
+      capturedBeforeFocus: false
     }
     for (const frame of state.frames) window.cancelAnimationFrame(frame)
     state.cleanup?.()
     state.panel = panel
     state.top = panel.scrollTop
     state.userScrolled = false
+    state.ignoreInitialScroll = Boolean(options.ignoreInitialScroll)
+    state.capturedBeforeFocus = Boolean(options.capturedBeforeFocus)
     const onScroll = () => {
-      if (!state.restoring) state.userScrolled = true
+      if (!state.restoring && !state.ignoreInitialScroll) state.userScrolled = true
     }
     panel.addEventListener('scroll', onScroll)
     state.cleanup = () => panel.removeEventListener('scroll', onScroll)
@@ -324,6 +337,10 @@ export function ControlledFavoriteLedgerPanel({
     }
     state.frames = [window.requestAnimationFrame(() => restore(1))]
     favoritePanelScrollRestoreRef.current = state
+  }, [])
+  const completeFavoritePanelPointerSelection = useCallback(() => {
+    const state = favoritePanelScrollRestoreRef.current
+    if (state) state.ignoreInitialScroll = false
   }, [])
   useEffect(() => () => {
     for (const frame of favoritePanelScrollRestoreRef.current?.frames ?? []) window.cancelAnimationFrame(frame)
@@ -796,7 +813,11 @@ export function ControlledFavoriteLedgerPanel({
     }
   }, [effectiveLedgers, organizationUpperLedgerIds, persistedUpperLedgerIds, saveLedgerEnabledAndRefreshWorkspace, setOrganizationRecommendedCandidates, updateLedgerEnabledById, updateOrganizationSavedLedgerParticipationById, workspace.setRoundExcludedLedgerIds, workspace.snapshot])
   const updateOrganizationRecommendedCandidates = useCallback((update: (current: string[]) => string[]) => {
-    preserveFavoritePanelScrollPosition()
+    // A pointerdown may already have captured the anchor before the native
+    // focus event scrolls the panel. Keep that earlier anchor instead of
+    // replacing it with the post-focus position during this change handler.
+    const pendingScrollRestore = favoritePanelScrollRestoreRef.current
+    if (!pendingScrollRestore?.frames.length || !pendingScrollRestore.capturedBeforeFocus) preserveFavoritePanelScrollPosition()
     const snapshot = workspace.snapshot
     const snapshotAdoptedCandidateIds = isOrganizationSelectionSnapshot(snapshot)
       ? snapshot.recommendations.adoptedCandidateIds
@@ -1909,6 +1930,8 @@ export function ControlledFavoriteLedgerPanel({
         onAcceptCurrentTags={() => void workspace.acceptCurrentTags()}
         onSetRecommendedCandidates={setOrganizationRecommendedCandidates}
         onUpdateRecommendedCandidates={updateOrganizationRecommendedCandidates}
+        onRecommendationPointerDown={() => preserveFavoritePanelScrollPosition({ ignoreInitialScroll: true, capturedBeforeFocus: true })}
+        onRecommendationSelectionChange={completeFavoritePanelPointerSelection}
         recommendedCandidateIds={workspace.recommendedCandidateIds}
       recommendationSaving={workspace.recommendationSaving || recommendationPromotionSaving}
         recommendationError={workspace.recommendationError}

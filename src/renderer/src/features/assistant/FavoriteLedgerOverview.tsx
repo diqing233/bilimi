@@ -929,7 +929,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const persistVersion = ++persistVersionRef.current
     const next = projectEnabled(draftLedgers).map((ledger) => {
       if (ledger.id !== activeLedgerId || (!isRecoveredRemoteDraft(ledger) && !isTransientNewDraft(ledger) && ledger.ruleOrigin !== 'recommendation-draft')) return ledger
-      const { syncState: _syncState, ruleOrigin: _ruleOrigin, ...savedLedger } = ledger
+      const { syncState: _syncState, ...savedLedger } = ledger
       if (isRecoveredRemoteDraft(ledger) && savedLedger.bilibiliFolderId) {
         return {
           ...savedLedger,
@@ -938,6 +938,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
           pendingRemoteBinding: true,
           pendingRemoteFolderId: savedLedger.bilibiliFolderId
         }
+      }
+      if (ledger.ruleOrigin === 'recommendation-draft') {
+        return savedLedger.bindingState || savedLedger.bilibiliFolderId
+          ? savedLedger
+          : { ...savedLedger, bindingState: 'unbacked' as const }
       }
       return savedLedger.bindingState || savedLedger.bilibiliFolderId
         ? { ...savedLedger, ruleOrigin: 'saved-rule' as const }
@@ -1617,7 +1622,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       </section>
       {backupSkipNotice ? <p className="favorite-ledger-panel__notice" role="alert">{backupSkipNotice}</p> : null}
       {missingLedgerIds.length && !hideRemoteLifecycleStatus ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
-        {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid} onClick={() => void save()}>保存</button><button type="button" onClick={close}>收起</button>{!active.isDefault ? <button type="button" disabled={destructiveActionLocked} onClick={() => requestSingleLedgerDeletion(active)}>删除</button> : null}</div></div>
+        {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid} onClick={() => void save()}>保存</button><button type="button" onClick={close}>收起</button>{!active.isDefault ? <button type="button" disabled={destructiveActionLocked && active.ruleOrigin !== 'recommendation-draft'} onClick={() => requestSingleLedgerDeletion(active)}>删除</button> : null}</div></div>
          {remoteOnlyDraftLedgerIds.includes(active.id) && active.bilibiliFolderId ? <p className="favorite-ledger-panel__remote-draft-notice">
            发现 B 站疑似 bilimi 收藏夹，本地尚未建立绑定，可编辑保存好之后备册；更换电脑时建议先迁移数据。
            {onDismissRemoteDraftReminder ? <button type="button" onClick={() => void onDismissRemoteDraftReminder(active.id, [...new Set([

@@ -269,6 +269,27 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(commandOldFavoriteWorkspaceV1).not.toHaveBeenCalled()
   })
 
+  it('persists a saved recommendation rule toggle without a workspace queue', async () => {
+    const commandOldFavoriteWorkspaceV1 = vi.fn()
+    const saveLedgerEnabled = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = {
+      commandOldFavoriteWorkspaceV1
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onSaveLedgerEnabled={saveLedgerEnabled}
+      ledgers={[{
+        id: 'recommended-saved-no-workspace', displayName: 'bilimi·保存后推荐', keywords: ['保存后推荐'], ruleType: 'keyword',
+        enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
+      }]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '保存后推荐' }))
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·保存后推荐' }))
+
+    await waitFor(() => expect(saveLedgerEnabled).toHaveBeenCalledWith('recommended-saved-no-workspace', false))
+    expect(commandOldFavoriteWorkspaceV1).not.toHaveBeenCalled()
+  })
+
   it('keeps a promoted recommendation draft and cancels its exact lower adoption when its upper card is unchecked', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
@@ -5361,6 +5382,54 @@ describe('ControlledFavoriteLedgerPanel', () => {
       restore?.(performance.now())
       expect(panel.scrollTop).toBe(400)
       expect(requestFrame).toHaveBeenCalledTimes(1)
+    } finally {
+      requestFrame.mockRestore()
+      cancelFrame.mockRestore()
+    }
+  })
+
+  it('restores the captured panel anchor when focus scrolling fires before a lower recommendation changes', async () => {
+    const frames = new Map<number, FrameRequestCallback>()
+    let nextFrameId = 0
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      const frameId = ++nextFrameId
+      frames.set(frameId, callback)
+      return frameId
+    })
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((frameId) => {
+      frames.delete(Number(frameId))
+    })
+    try {
+      const preview = {
+        version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+        mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+        scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+        classifications: {}, recommendations: {
+          candidates: [{ id: 'focus-scroll', displayName: 'Focus scroll', kind: 'author' as const, count: 1, reason: 'Focus scroll' }],
+          adoptedCandidateIds: [] as string[]
+        }, history: { cursor: 0, length: 0 }
+      }
+      window.bilimiDesktop = {
+        openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+        commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
+      } as unknown as typeof window.bilimiDesktop
+      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} ledgers={[]} />)
+      await openPersistedWorkspaceGuide()
+      fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+      const panel = screen.getByRole('dialog', { name: '掌库' })
+      const checkbox = await screen.findByRole('checkbox', { name: 'Focus scroll', checked: false })
+      panel.scrollTop = 240
+      frames.clear()
+
+      fireEvent.pointerDown(checkbox)
+      panel.scrollTop = 999
+      fireEvent.scroll(panel)
+      fireEvent.click(checkbox)
+
+      const restore = [...frames.values()][0]
+      restore?.(performance.now())
+      expect(panel.scrollTop).toBe(240)
     } finally {
       requestFrame.mockRestore()
       cancelFrame.mockRestore()

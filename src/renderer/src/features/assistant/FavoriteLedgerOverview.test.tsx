@@ -589,7 +589,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: '未绑定推荐' })).toBeInTheDocument()
   })
 
-  it('turns an edited recommendation draft into a saved rule before persisting it', async () => {
+  it('keeps the recommendation source when an edited recommendation rule is persisted', async () => {
     const save = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'recommended-up', displayName: 'bilimi·推荐 UP', keywords: ['推荐 UP'], ruleType: 'author',
@@ -600,9 +600,25 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(save).toHaveBeenCalledWith([expect.objectContaining({
-      id: 'recommended-up', ruleOrigin: 'saved-rule', bindingState: 'unbacked'
+      id: 'recommended-up', ruleOrigin: 'recommendation-draft', bindingState: 'unbacked'
     })], { deleteDisabled: false }))
     expect(save.mock.calls[0]?.[0][0]).not.toHaveProperty('syncState')
+  })
+
+  it('still routes a saved recommendation rule through the recommendation toggle', async () => {
+    const save = vi.fn()
+    const toggleRecommendation = vi.fn().mockResolvedValue(true)
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'recommended-after-save', displayName: 'bilimi·保存后推荐', keywords: ['保存后推荐'], ruleType: 'author',
+      enabled: true, priority: 10, syncState: 'local-draft', ruleOrigin: 'recommendation-draft', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={save} onOrganizationRecommendationToggle={toggleRecommendation} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '保存后推荐' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(save).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·保存后推荐' }))
+    await waitFor(() => expect(toggleRecommendation).toHaveBeenCalledWith('recommended-after-save', false))
   })
 
   it('keeps deletion mode open when cancelling a recommendation fails', async () => {
@@ -1310,6 +1326,28 @@ describe('FavoriteLedgerOverview', () => {
 
     await act(async () => analysis.resolve(true))
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+  })
+
+  it('keeps recommendation detail deletion available while rule analysis is running', async () => {
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-analysis'] })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgersLocal
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'recommended-analysis', displayName: 'bilimi·分析中推荐', keywords: ['分析中推荐'], ruleType: 'author',
+      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()}
+      draftRuleAnalysis={{ ledgerId: 'other-rule', status: 'running', completedItemCount: 1, totalItemCount: 10 }} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '分析中推荐' }))
+    expect(screen.getByRole('button', { name: '删除' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['recommended-analysis']))
   })
 
   it('keeps the saved local rule when its follow-up active-round analysis does not complete', async () => {

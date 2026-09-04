@@ -40,6 +40,8 @@ type OldFavoriteGuideProps = {
   onAcceptCurrentTags: () => void
   onSetRecommendedCandidates: (candidateIds: string[]) => void
   onUpdateRecommendedCandidates?: (update: (current: string[]) => string[]) => void
+  onRecommendationPointerDown?: () => void
+  onRecommendationSelectionChange?: () => void
   recommendedCandidateIds?: string[]
   recommendationSaving?: boolean
   recommendationError?: string | null
@@ -139,6 +141,8 @@ export function OldFavoriteGuide({
   onAcceptCurrentTags,
   onSetRecommendedCandidates,
   onUpdateRecommendedCandidates,
+  onRecommendationPointerDown,
+  onRecommendationSelectionChange,
   recommendedCandidateIds,
   recommendationSaving = false,
   recommendationError,
@@ -357,8 +361,10 @@ export function OldFavoriteGuide({
       previewPreparationProgress={previewPreparationProgress}
       previewPreparationError={previewPreparationError}
       onCancelPreviewPreparation={onCancelPreviewPreparation}
-      onSetRecommendedCandidates={onSetRecommendedCandidates}
-      onUpdateRecommendedCandidates={onUpdateRecommendedCandidates}
+       onSetRecommendedCandidates={onSetRecommendedCandidates}
+       onUpdateRecommendedCandidates={onUpdateRecommendedCandidates}
+       onRecommendationPointerDown={onRecommendationPointerDown}
+       onRecommendationSelectionChange={onRecommendationSelectionChange}
       viewScope={viewScope}
       onViewScopeChange={setViewScope}
       contentAvailable={segmentContentAvailable}
