@@ -16,6 +16,8 @@ import type { FavoriteLibraryWorkspaceSelection } from './assistantRuntimeTypes'
 
 type ControlledFavoriteLedgerPanelProps = {
   currentAccountMid?: string
+  /** Signed-out local mode may operate only a persisted unbacked custom toggle. */
+  localFavoriteToggleAccountMid?: string
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
   unboundLedgerIds?: string[]
@@ -250,6 +252,7 @@ function bilibiliBindingCandidatesForLedger(ledger: OldFavoriteWorkspaceBilibili
 
 export function ControlledFavoriteLedgerPanel({
   currentAccountMid,
+  localFavoriteToggleAccountMid,
   ledgers,
   missingLedgerIds,
   unboundLedgerIds,
@@ -331,6 +334,7 @@ export function ControlledFavoriteLedgerPanel({
   }, [])
   const [guideOpen, setGuideOpen] = useState(false)
   const accountKey = normalizeAccountMid(currentAccountMid)
+  const localToggleOnly = !accountKey && Boolean(normalizeAccountMid(localFavoriteToggleAccountMid))
   const reclassifySavedLedgerDirectory = useCallback(async () => {
     const snapshot = workspace.snapshot
     if (!isOrganizationSelectionSnapshot(snapshot) ||
@@ -1752,7 +1756,7 @@ export function ControlledFavoriteLedgerPanel({
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header"><h2 className="sr-only">掌库</h2></div>
         <div className="favorite-ledger-panel__toolbar">
-          <AssistantActionButton type="button" aria-label="备册" aria-busy={ensuringLedgers} disabled={workspace.loading || ensuringLedgers || !hasBackupEligibleLedger}
+          <AssistantActionButton type="button" aria-label="备册" aria-busy={ensuringLedgers} disabled={localToggleOnly || workspace.loading || ensuringLedgers || !hasBackupEligibleLedger}
             onClick={() => void ensureLedgersAndOpenFavoritePage()} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
             label={ensuringLedgers ? '备册中' : '备册'} description={ensuringLedgers ? '正在后台检查并生成 bilimi 收藏夹' : '一键生成 bilimi 收藏夹，用于归类收藏和整理'} />
           <AssistantActionButton type="button" aria-label="整理收藏" disabled={scanStarting || recoveryPreparing || !currentAccountMid}
@@ -1768,6 +1772,7 @@ export function ControlledFavoriteLedgerPanel({
         ref={favoriteLedgerOverviewRef}
         key={normalizeAccountMid(currentAccountMid) ?? 'no-account'}
         currentAccountMid={currentAccountMid}
+        localFavoriteToggleAccountMid={localFavoriteToggleAccountMid}
         ledgers={displayedLedgers}
         missingLedgerIds={missingLedgerIds}
         unboundLedgerIds={unboundLedgerIds}

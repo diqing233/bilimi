@@ -14,6 +14,8 @@ import type { VideoContentContext } from '../recommendation/videoClassifier'
 
 export type AssistantSnapshot = {
   accountMid?: string
+  /** Device-local account identity used only by the saved unbacked ledger toggle. */
+  localFavoriteToggleAccountMid?: string
   preferences: AssistantPreferences
   favoriteLedgerStatus: FavoriteLedgerStatus | null
   videoContentContext: VideoContentContext

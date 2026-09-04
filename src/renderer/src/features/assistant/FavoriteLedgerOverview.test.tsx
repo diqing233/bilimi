@@ -14,6 +14,28 @@ function deferred<T>() {
 }
 
 describe('FavoriteLedgerOverview', () => {
+
+  it('keeps a signed-out local toggle limited to a saved unbacked custom ledger', () => {
+    render(<FavoriteLedgerOverview
+      currentAccountMid=""
+      localFavoriteToggleAccountMid="100"
+      defaultFavoriteSystemEnabled
+      ledgers={[
+        { id: 'custom-unbacked', displayName: 'bilimi·本地', keywords: [], enabled: false, priority: 10, isDefault: false, ruleOrigin: 'saved-rule', bindingState: 'unbacked' },
+        { id: 'default', displayName: 'bilimi·默认', keywords: [], enabled: true, priority: 20, isDefault: true },
+        { id: 'bound-custom', displayName: 'bilimi·已备', keywords: [], enabled: true, priority: 30, isDefault: false, ruleOrigin: 'saved-rule', bindingState: 'bound', bilibiliFolderId: '9' }
+      ]}
+      missingLedgerIds={['custom-unbacked']}
+      onSaveLedgers={vi.fn()}
+      onSaveLedgerEnabled={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '加入同步 bilimi·本地' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '移出同步 bilimi·默认' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '移出同步 bilimi·已备' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '新建收藏夹' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '备册收藏夹' })).toBeDisabled()
+  })
   it.each([
     ['keyword', '关键词', '多个关键词可用顿号、空格、逗号、斜杠或换行分隔。建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。'],
     ['author', 'UP 名字', '多个 UP 名可用顿号、空格、逗号、斜杠或换行分隔。填写一个或多个 UP 名，命中作者时会优先存入这个收藏夹。'],
@@ -1747,6 +1769,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: `${String.fromCodePoint(0x79fb, 0x51fa, 0x540c, 0x6b65)} bilimi\u00b7\u97f3\u4e50` })).toHaveAttribute('data-enabled', 'true')
 
     await waitFor(() => expect(screen.getByRole('button', { name: actionName })).toHaveAttribute('data-enabled', 'false'))
+    expect(screen.getByRole('alert')).toHaveTextContent('收藏夹启用状态保存失败，请稍后重试。')
   })
 
   it('keeps required defaults selected while a custom target is removed during a round', async () => {

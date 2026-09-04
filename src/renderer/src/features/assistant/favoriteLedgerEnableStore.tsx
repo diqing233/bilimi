@@ -5,6 +5,7 @@ export type FavoriteLedgerEnableEntry = {
   enabled: boolean
   operable: boolean
   forceEnabledOnBulk?: boolean
+  saveError?: string
 }
 
 type EnableSummary = {
@@ -28,6 +29,7 @@ export class FavoriteLedgerEnableStore {
   getSummary = () => this.summary
   isEnabled = (id: string) => this.entries.get(id)?.enabled ?? false
   isOperable = (id: string) => this.entries.get(id)?.operable ?? false
+  getSaveError = (id: string) => this.entries.get(id)?.saveError
   getEnabledById = () => new Map([...this.entries].map(([id, entry]) => [id, entry.enabled]))
 
   subscribe = (listener: () => void) => {
@@ -52,7 +54,7 @@ export class FavoriteLedgerEnableStore {
     for (const id of [...changed]) {
       const before = previous.get(id)
       const after = this.entries.get(id)
-      if (before?.enabled === after?.enabled && before?.operable === after?.operable) changed.delete(id)
+      if (before?.enabled === after?.enabled && before?.operable === after?.operable && before?.saveError === after?.saveError) changed.delete(id)
     }
     this.publish(changed)
   }
@@ -60,7 +62,8 @@ export class FavoriteLedgerEnableStore {
   reconcile(entries: FavoriteLedgerEnableEntry[]) {
     const next = entries.map((entry) => ({
       ...entry,
-      enabled: this.entries.get(entry.id)?.enabled ?? entry.enabled
+      enabled: this.entries.get(entry.id)?.enabled ?? entry.enabled,
+      saveError: this.entries.get(entry.id)?.saveError
     }))
     this.reset(next)
   }
@@ -88,6 +91,14 @@ export class FavoriteLedgerEnableStore {
     }
     this.idListeners.get(id)?.forEach((listener) => listener())
     this.listeners.forEach((listener) => listener())
+    return true
+  }
+
+  setSaveError(id: string, saveError: string | undefined) {
+    const entry = this.entries.get(id)
+    if (!entry || entry.saveError === saveError) return false
+    this.entries.set(id, { ...entry, saveError })
+    this.idListeners.get(id)?.forEach((listener) => listener())
     return true
   }
 
@@ -147,12 +158,14 @@ export function FavoriteLedgerEnableButton({
   store: FavoriteLedgerEnableStore
   id: string
   onToggle?: () => void
-  children: (state: { enabled: boolean; toggle: () => void }) => ReactNode
+  children: (state: { enabled: boolean; saveError: string | undefined; toggle: () => void }) => ReactNode
 }) {
   const subscribe = useCallback((listener: () => void) => store.subscribeId(id, listener), [id, store])
   const getSnapshot = useCallback(() => store.isEnabled(id), [id, store])
+  const getSaveError = useCallback(() => store.getSaveError(id), [id, store])
   const enabled = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  return children({ enabled, toggle: onToggle ?? (() => { store.toggle(id) }) })
+  const saveError = useSyncExternalStore(subscribe, getSaveError, getSaveError)
+  return children({ enabled, saveError, toggle: onToggle ?? (() => { store.toggle(id) }) })
 }
 
 export function FavoriteLedgerEnableSummary({

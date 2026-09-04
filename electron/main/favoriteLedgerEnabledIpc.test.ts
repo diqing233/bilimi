@@ -22,6 +22,16 @@ describe('favorite ledger enabled narrow IPC', () => {
     expect(mainSource).toContain("target.webContents.send('assistant:favorite-ledger-enabled-changed', patch, normalizedMeta)")
   })
 
+  it('permits a local ledger-enabled write only for the sole local account while signed out', () => {
+    expect(mainSource).toContain('if (currentAccountMid && accountMid !== currentAccountMid)')
+    expect(mainSource).toContain('const localToggleAccountMid = resolveLocalFavoriteLedgerToggleAccountMid(')
+    expect(mainSource).toContain('if (!currentAccountMid && accountMid !== localToggleAccountMid)')
+    expect(mainSource).toContain('getFavoriteLedgerHistoryState(accountMid)')
+    expect(mainSource).toContain('.catch((error) =>')
+    expect(mainSource).toContain("error.message === 'Old favorite workspace has not been started.'")
+    expect(mainSource).not.toContain('if (!accountMid || accountMid !== currentAccountMid)')
+  })
+
   it('accepts an explicit history-merge option without overloading preference-patch metadata', () => {
     expect(preloadSource).toContain('historyOptions?: FavoriteLedgerEnabledHistoryOptions')
     expect(rendererTypesSource).toContain('historyOptions?: FavoriteLedgerEnabledHistoryOptions')
