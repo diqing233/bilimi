@@ -779,6 +779,49 @@ describe('App runtime integration', () => {
     expect(readBilibiliAccountMid).toHaveBeenCalledTimes(3)
   })
 
+  it('keeps the assistant snapshot signed out when B站 has no current account', async () => {
+    const loadPreferences = vi.fn().mockResolvedValue(createAppPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [{
+            id: 'custom-unbacked', displayName: 'bilimi·本地', keywords: [], enabled: false,
+            priority: 10, isDefault: false, ruleOrigin: 'saved-rule', bindingState: 'unbacked'
+          }]
+        }
+      }
+    }))
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('')
+    })
+
+    await waitFor(() => expect(loadPreferences).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByText('设置')).toBeInTheDocument())
+
+    await expect(requestRuntime({ id: 'snapshot-signed-out-sole-local-account', type: 'snapshot' }))
+      .resolves.toEqual(expect.objectContaining({ accountMid: '', localFavoriteToggleAccountMid: '100' }))
+  })
+
+  it('does not guess a local favorite account after B站 signs out when multiple accounts exist', async () => {
+    const loadPreferences = vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          '100': { defaultFavoriteSystemEnabled: true, favoriteLedgers: [] },
+          '200': { defaultFavoriteSystemEnabled: true, favoriteLedgers: [] }
+        }
+      }))
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('')
+    })
+
+    await waitFor(() => expect(loadPreferences).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByText('设置')).toBeInTheDocument())
+
+    await expect(requestRuntime({ id: 'snapshot-signed-out-multiple-local-accounts', type: 'snapshot' }))
+      .resolves.toEqual(expect.objectContaining({ accountMid: '' }))
+  })
+
   it('clears a stale snapshot account when the authoritative reader rejects', async () => {
     const readBilibiliAccountMid = vi.fn()
       .mockResolvedValueOnce('100')

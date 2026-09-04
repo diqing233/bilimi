@@ -677,6 +677,7 @@ function GlobalStatusLight({
 
 type LedgerWorkspacePanelProps = {
   currentAccountMid?: string
+  localFavoriteToggleAccountMid?: string
   ledgers: AssistantPreferences['favoriteLedgers']
   missingLedgerIds: string[]
   unboundLedgerIds?: string[]
@@ -703,8 +704,8 @@ type LedgerWorkspacePanelProps = {
   onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderIds: string[]) => Promise<void> | void
 }
 
-const LedgerWorkspacePanel = memo(function LedgerWorkspacePanel(props: LedgerWorkspacePanelProps) {
-  return <ControlledFavoriteLedgerPanel {...props} />
+const LedgerWorkspacePanel = memo(function LedgerWorkspacePanel({ localFavoriteToggleAccountMid, ...props }: LedgerWorkspacePanelProps) {
+  return <ControlledFavoriteLedgerPanel {...props} localFavoriteToggleAccountMid={localFavoriteToggleAccountMid} />
 })
 
 function useStableCallback<Args extends unknown[], Result>(callback: (...args: Args) => Result) {
@@ -3700,6 +3701,7 @@ export function FloatingAssistantApp({
   }, [])
 
   const resolvedSnapshot = snapshot ?? createFallbackSnapshot()
+  const localFavoriteToggleAccountMid = resolvedSnapshot.localFavoriteToggleAccountMid ?? ''
   const probeSelectedTranscriptionGpu = useCallback(async () => {
     if (selectedTranscriptionModelId !== 'faster-whisper-large-v3' && selectedTranscriptionModelId !== 'faster-whisper-large-v3-turbo') return
     setTranscriptionGpuProbe(undefined)
@@ -3752,7 +3754,7 @@ export function FloatingAssistantApp({
     commentIntentOpen ||
     commentIntentBusy
   const hasBilibiliPageOpen = BILIBILI_PAGE_PATTERN.test(resolvedSnapshot.activeTabUrl?.trim() ?? '')
-  const configuredFavoriteLedgers = preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.favoriteLedgers ??
+  const configuredFavoriteLedgers = preferences.favoriteAccountPreferences?.[(resolvedSnapshot.accountMid || localFavoriteToggleAccountMid) ?? '']?.favoriteLedgers ??
     preferences.favoriteLedgers
   const activeFavoriteLedgers = useMemo(
     () => projectFavoriteLedgerDraft(configuredFavoriteLedgers, requestedLedgerId, requestedLedgerTitle),
@@ -5145,24 +5147,15 @@ export function FloatingAssistantApp({
       const normalized = value?.trim() ?? ''
       return /^\d+$/.test(normalized) && BigInt(normalized) > 0n ? BigInt(normalized).toString() : ''
     }
-    const accountMid = normalizeAccount(resolvedSnapshot.accountMid)
+    const signedInAccountMid = normalizeAccount(resolvedSnapshot.accountMid)
+    const localToggleAccountMid = signedInAccountMid ? '' : resolvedSnapshot.localFavoriteToggleAccountMid
+    const accountMid = signedInAccountMid || localToggleAccountMid
     if (!accountMid || !window.bilimiDesktop?.writeFavoriteLedgerEnabled) {
       throw new Error('当前账号无法保存收藏夹启用状态。')
     }
     const snapshotAccountMid = normalizeAccount(snapshotRef.current?.accountMid)
-    if (snapshotAccountMid && snapshotAccountMid !== accountMid) {
+    if (signedInAccountMid && snapshotAccountMid && snapshotAccountMid !== accountMid) {
       throw new Error('当前账号已切换，请刷新后重试。')
-    }
-    if (window.bilimiDesktop.readBilibiliAccountMid) {
-      let observedAccountMid = ''
-      try {
-        observedAccountMid = normalizeAccount(await window.bilimiDesktop.readBilibiliAccountMid())
-      } catch {
-        throw new Error('当前账号无法核验，请刷新后重试。')
-      }
-      if (!observedAccountMid || observedAccountMid !== accountMid) {
-        throw new Error('当前账号已切换，请刷新后重试。')
-      }
     }
     const patch = { accountMid, ledgerId, enabled }
     const previousEnabled = applyIndexedFavoriteLedgerEnabledPatch(favoriteLedgerEnabledIndexRef.current, patch)
@@ -5558,6 +5551,7 @@ export function FloatingAssistantApp({
           <div className="floating-assistant-view" hidden={activeView !== 'ledger'}>
             <LedgerWorkspacePanel
             currentAccountMid={resolvedSnapshot.accountMid}
+            localFavoriteToggleAccountMid={localFavoriteToggleAccountMid}
             ledgers={activeFavoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
             unboundLedgerIds={favoriteLedgerStatus?.unboundLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}

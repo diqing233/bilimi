@@ -17,6 +17,7 @@ import type {
   VideoNoteExtractionResult,
   VideoAudioTranscriptionQueueSnapshot
 } from '@shared/types'
+import { findSoleFavoriteAccountMid } from '@shared/favoriteAccountFallback'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { runVisualFavoriteFallback } from './features/actions/visualFavoriteFallback'
 import { executeAssistantAction } from './features/actions/actionExecutor'
@@ -3369,6 +3370,9 @@ export default function App() {
 
     return {
       accountMid: assistantSnapshotCacheRef.current.accountMid,
+      localFavoriteToggleAccountMid: assistantSnapshotCacheRef.current.accountMid
+        ? undefined
+        : findSoleFavoriteAccountMid(preferencesRef.current.favoriteAccountPreferences),
       preferences: preferencesRef.current,
       favoriteLedgerStatus,
       videoContentContext,

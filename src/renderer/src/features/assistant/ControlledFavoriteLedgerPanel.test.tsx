@@ -25,6 +25,23 @@ async function openPersistedWorkspaceGuide() {
 }
 
 describe('ControlledFavoriteLedgerPanel', () => {
+  it('disables toolbar backup in signed-out local-toggle-only mode', () => {
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid=""
+      localFavoriteToggleAccountMid="100"
+      ledgers={[{
+        id: 'local-only', displayName: 'bilimi·本地', keywords: [], enabled: true, priority: 10,
+        ruleOrigin: 'saved-rule', bindingState: 'unbacked', isDefault: false
+      }]}
+      missingLedgerIds={['local-only']}
+      onEnsureLedgers={vi.fn()}
+      onSyncLedgers={vi.fn()}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '备册' })).toBeDisabled()
+  })
+
   it('disables the toolbar backup when no saved and enabled ledger is available', () => {
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100"

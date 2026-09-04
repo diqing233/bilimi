@@ -191,6 +191,26 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(saveFunction).toContain('catch (error)')
   })
 
+  it('allows the current local account to save a ledger toggle when B站 is signed out', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgerEnabled'),
+      source.indexOf('async function saveFavoriteLedgerRules')
+    )
+
+    expect(saveFunction).not.toContain('readBilibiliAccountMid')
+    expect(saveFunction).toContain('resolvedSnapshot.localFavoriteToggleAccountMid')
+    expect(saveFunction).toContain('if (signedInAccountMid && snapshotAccountMid && snapshotAccountMid !== accountMid)')
+  })
+
+  it('keeps the default favorite system bound to the real signed-in snapshot account', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    expect(source).toContain('const currentAccountMid = snapshot?.accountMid ?? \'\'')
+    expect(source).toContain('const localFavoriteToggleAccountMid = resolvedSnapshot.localFavoriteToggleAccountMid ?? \'\'')
+    expect(source).toContain('accountMid={resolvedSnapshot.accountMid}')
+    expect(source).toContain('localFavoriteToggleAccountMid={localFavoriteToggleAccountMid}')
+  })
+
   it('passes the direct enabled callback through the isolated ledger panel', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const panelStart = source.indexOf('<LedgerWorkspacePanel')

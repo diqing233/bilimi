@@ -187,6 +187,7 @@ import { assertDeepSeekRequestEnabled } from './deepseekFeatureAccess'
 import { resolveMediaToolPaths } from './mediaToolPaths'
 import { runStartupDiagnostics } from './startupDiagnostics'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
+import { resolveLocalFavoriteLedgerToggleAccountMid } from '../../src/shared/favoriteAccountFallback'
 import { classifyVideoContent } from '../../src/shared/recommendation/videoClassifier'
 import { createNotePosterText } from '../../src/shared/videoNoteArchive'
 import { normalizeAssistantPreferencePatchMeta } from '../../src/shared/assistantPreferencePatchMeta'
@@ -1743,14 +1744,33 @@ function registerAssistantPreferenceHandlers() {
     if (historyOptions !== undefined && !mergeFavoriteRuleHistory) {
       throw new Error('Favorite ledger history merge options are invalid.')
     }
-    // The narrow enabled-state path is still account-scoped. Do not accept a
-    // stale renderer snapshot after the user switches Bilibili accounts;
-    // otherwise a click could write an override into the wrong account.
+    // The narrow enabled-state path is account-scoped. When a Bilibili
+    // account is present, reject a stale renderer snapshot after a switch;
+    // a signed-out Bilibili session must not block a local-only rule toggle.
     const currentAccountMid = await readCurrentBilibiliAccountMid()
-    if (!accountMid || accountMid !== currentAccountMid) {
+    if (!accountMid) {
       throw new Error('Favorite ledger account is no longer current.')
     }
+    if (currentAccountMid && accountMid !== currentAccountMid) {
+      throw new Error('Favorite ledger account is no longer current.')
+    }
+    const localToggleAccountMid = resolveLocalFavoriteLedgerToggleAccountMid(
+      loadAssistantPreferences(getDesktopStore()).favoriteAccountPreferences,
+      ledgerId
+    )
+    if (!currentAccountMid && accountMid !== localToggleAccountMid) {
+      throw new Error('Favorite ledger account is no longer current.')
+    }
+    // History is optional: a user may toggle a local rule before ever starting
+    // the organize workspace. Preserve other coordinator failures, but do not
+    // make that absent workspace block the durable local override.
     const beforeHistoryState = await oldFavoriteWorkspaceCoordinator?.getFavoriteLedgerHistoryState(accountMid)
+      .catch((error) => {
+        if (error instanceof Error && error.message === 'Old favorite workspace has not been started.') {
+          return undefined
+        }
+        throw error
+      })
     const patch = await writeFavoriteLedgerEnabled(undefined, accountMid, ledgerId, enabled)
     // In-round participation is projected through the coordinator's
     // recommendation/exclusion commands. Reclassifying here would queue a
