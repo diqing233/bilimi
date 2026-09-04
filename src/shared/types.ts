@@ -111,6 +111,10 @@ export type FavoriteLedgerSaveOptions = {
   rebindRemoteFolderIds?: Record<FavoriteLedgerId, string>
   /** All confirmed physical Bilibili folders for one recovered logical ledger. */
   rebindRemoteFolders?: Record<FavoriteLedgerId, Array<{ id: string; title: string; memberCount?: number }>>
+  /** The owner explicitly approved renaming already formal bound shards listed by the read-only preflight. */
+  confirmBoundRename?: boolean
+  /** Exact formal Bilibili shard tuples displayed by the bound-rename preflight; confirmation fails closed if they change. */
+  boundRenameShards?: Record<FavoriteLedgerId, Array<{ remoteFolderId: string; shardNumber: number }>>
 }
 
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
@@ -395,6 +399,22 @@ export type AssistantAutomationResult = {
   remoteOnlyDraftLedgerIds?: FavoriteLedgerId[]
   /** Remote Bilibili folder ids confirmed by a successful favorite API call. */
   favoriteFolderIdsByLedgerId?: Record<string, string>
+  /** Read-only exact-ID preflight for title-different formal bound shards. */
+  boundRenameCandidates?: FavoriteLedgerBoundRenameCandidate[]
+}
+
+export type FavoriteLedgerBoundRenameCandidate = {
+  ledgerId: FavoriteLedgerId
+  logicalTitle: string
+  logicalVideoCount: number
+  shards: Array<{
+    /** Internal confirmation token; the UI must never render this remote ID. */
+    remoteFolderId: string
+    shardNumber: number
+    currentRemoteTitle: string
+    remoteMemberCount: number
+    targetTitle: string
+  }>
 }
 
 export type VisualAutomationContext = {

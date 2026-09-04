@@ -640,6 +640,34 @@ describe('favorite ledger API scripts', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toBe(true)
   })
 
+  it('omits a persisted pure remote draft whose exact id was confirmed deleted while preserving a saved rule', async () => {
+    installCookies()
+    const knowledge: FavoriteLedger = {
+      id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], enabled: true,
+      priority: 10, isDefault: true, bindingState: 'unbacked', managedFolderDeletedByUser: true,
+      confirmedDeletedRemoteFolderIds: ['4020631311']
+    }
+    const remoteDraft: FavoriteLedger = {
+      id: 'custom-remote-4020631311', displayName: '知识学习你好', keywords: [], enabled: false,
+      priority: 20, isDefault: false, bilibiliFolderId: '4020631311', bilibiliFolderIds: ['4020631311'],
+      bindingState: 'unbound', syncState: 'local-draft'
+    }
+    const savedRule: FavoriteLedger = {
+      id: 'saved-knowledge', displayName: '知识学习你好', keywords: ['学习'], enabled: true,
+      priority: 30, isDefault: false, bilibiliFolderId: '4020631311', bilibiliFolderIds: ['4020631311'],
+      bindingState: 'unbound', syncState: 'local-draft', ruleOrigin: 'saved-rule'
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) return Response.json({ code: 0, data: { list: [] } })
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([knowledge, remoteDraft, savedRule]))
+
+    expect(result.ledgers.map((ledger: FavoriteLedger) => ledger.id)).toEqual(['knowledge', 'saved-knowledge'])
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+  })
+
   it('still requires confirmation for a different same-name folder after ignoring an exact confirmed-deleted residue', async () => {
     installCookies()
     const ledger = {

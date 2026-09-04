@@ -1091,11 +1091,13 @@ function escapeRegExp(value: string) {
 function recoverableManagedFolders(
   sourceFolders: ScanOverview['sourceFolders'],
   managedMembers: Record<string, number[]>,
-  deletedDefaultLedgerIds: ReadonlySet<string> = new Set()
+  deletedDefaultLedgerIds: ReadonlySet<string> = new Set(),
+  confirmedDeletedRemoteFolderIds: ReadonlySet<string> = new Set()
 ) {
   const defaults = createDefaultFavoriteLedgers()
   const candidates: RecoverableManagedFolder[] = []
   for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder || candidate.isBilimiWorkFolderCandidate)) {
+    if (confirmedDeletedRemoteFolderIds.has(folder.id)) continue
     const title = folder.title.trim()
     const memberAids = [...new Set(managedMembers[folder.id] ?? [])].sort((left, right) => left - right)
     // A same-name remote folder is only a discovery candidate while its
@@ -1254,6 +1256,7 @@ export class OldFavoriteWorkspaceCoordinator {
     loadFavoriteLedgerHistoryLedgers?: (accountMid: string) => Promise<FavoriteLedger[]>
     saveRecoveredLedgerDrafts?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>
+    getConfirmedDeletedRemoteFolderIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>
     onManagedFolderDeletion?: (accountMid: string, deletions: Array<{
       logicalLedgerId: string
       remoteFolderIds: string[]
@@ -1371,6 +1374,9 @@ export class OldFavoriteWorkspaceCoordinator {
       return { recoveredCount: 0, pendingCount: 0 }
     }
     const deletedDefaultLedgerIds = new Set(await this.options.getUserDeletedDefaultLedgerIds?.(workspace.accountMid) ?? [])
+    const confirmedDeletedRemoteFolderIds = new Set((await this.options.getConfirmedDeletedRemoteFolderIds?.(workspace.accountMid) ?? [])
+      .map((folderId) => folderId.trim())
+      .filter(Boolean))
     const storedManagedMembers = await this.options.workspaceStore.readManagedMembers(workspace.accountMid, workspace.id)
     let committedRecoveredCount = 0
     let committedPendingCount = 0
@@ -1387,9 +1393,15 @@ export class OldFavoriteWorkspaceCoordinator {
         const mirrored = snapshot.memberships[`bilibili:${folder.id}`] ?? []
         return [folder.id, folder.isBilimiWorkFolder && stored?.length === folder.itemCount ? stored : mirrored]
       }))
-      const candidates = recoverableManagedFolders(overview.sourceFolders, memberAidsByFolderId, deletedDefaultLedgerIds)
+      const candidates = recoverableManagedFolders(
+        overview.sourceFolders,
+        memberAidsByFolderId,
+        deletedDefaultLedgerIds,
+        confirmedDeletedRemoteFolderIds
+      )
       const persistedCustomCandidates = snapshot.physicalShards.flatMap((shard): RecoverableManagedFolder[] => {
-        if (!shard.logicalLedgerId.startsWith('custom-') || shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
+        if (!shard.logicalLedgerId.startsWith('custom-') || shard.bindingState !== 'bound' || !shard.remoteFolderId ||
+          confirmedDeletedRemoteFolderIds.has(shard.remoteFolderId)) return []
         const folder = overview.sourceFolders.find((candidate) => candidate.id === shard.remoteFolderId)
         if (!folder?.isBilimiWorkFolder) return []
         return [{
@@ -2973,6 +2985,9 @@ export class OldFavoriteWorkspaceCoordinator {
       if (expectedRunId && this.scanRuns.get(workspace.accountMid) !== expectedRunId) return clone(workspace)
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
       const deletedDefaultLedgerIds = new Set(await this.options.getUserDeletedDefaultLedgerIds?.(workspace.accountMid) ?? [])
+      const confirmedDeletedRemoteFolderIds = new Set((await this.options.getConfirmedDeletedRemoteFolderIds?.(workspace.accountMid) ?? [])
+        .map((folderId) => folderId.trim())
+        .filter(Boolean))
       const itemsByAid = new Map<number, CurrentSegmentItem>()
       await this.options.workspaceStore.visitScanPages(workspace.accountMid, workspace.id, (page) => {
         for (const item of page.items) {
@@ -3081,7 +3096,12 @@ export class OldFavoriteWorkspaceCoordinator {
         knownRemoteFolderIds?: string[]
         remoteMemberCount: number
       }>
-      for (const candidate of recoverableManagedFolders(sourceFolders, managedMembers, deletedDefaultLedgerIds)) {
+      for (const candidate of recoverableManagedFolders(
+        sourceFolders,
+        managedMembers,
+        deletedDefaultLedgerIds,
+        confirmedDeletedRemoteFolderIds
+      )) {
         const target = `${candidate.logicalLedgerId}:${candidate.shardNumber}`
         const candidateRemoteFolderIds = candidate.bindingState === 'bound'
           ? [candidate.remoteFolderId]

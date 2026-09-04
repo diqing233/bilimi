@@ -187,7 +187,14 @@ function sharedScriptHelpers(): string {
           .map((folder) => [String(findFolderId(folder) || ''), folder])
           .filter(([folderId]) => folderId)
       );
-      return ledgers.map((ledger) => {
+      const confirmedDeletedFolderIds = new Set(ledgers.flatMap((ledger) => Array.isArray(ledger.confirmedDeletedRemoteFolderIds)
+        ? ledger.confirmedDeletedRemoteFolderIds
+        : []).map((folderId) => String(folderId || '').trim()).filter(Boolean));
+      return ledgers.filter((ledger) => {
+        const folderIds = ledgerRemoteFolderIds(ledger);
+        return !isPureRemoteObservationDraft(ledger) || !folderIds.length ||
+          !folderIds.every((folderId) => confirmedDeletedFolderIds.has(folderId));
+      }).map((ledger) => {
         const normalizedLedgerTitle = normalizeLogicalFolderTitle(ledger.displayName);
         const candidates = remoteFolderCandidates(ledger, folders);
         const selectedRemoteFolderId = String(selectedRemoteFolderIds?.[ledger.id] || '').trim();
@@ -357,6 +364,9 @@ function sharedScriptHelpers(): string {
       const boundFolderIds = new Set((Array.isArray(remoteDraftBoundFolderIds) ? remoteDraftBoundFolderIds : [])
         .map((folderId) => String(folderId || '').trim())
         .filter(Boolean));
+      const confirmedDeletedFolderIds = new Set(ledgers.flatMap((ledger) => Array.isArray(ledger.confirmedDeletedRemoteFolderIds)
+        ? ledger.confirmedDeletedRemoteFolderIds
+        : []).map((folderId) => String(folderId || '').trim()).filter(Boolean));
       for (const ledger of nextLedgers) {
         if (ledger.syncState === 'local-draft' || ledger.bindingState !== 'bound') continue;
         for (const folderId of ledgerRemoteFolderIds(ledger)) boundFolderIds.add(folderId);
@@ -364,7 +374,8 @@ function sharedScriptHelpers(): string {
       const deduplicatedLedgers = nextLedgers.filter((ledger) => {
         if (!isPureRemoteObservationDraft(ledger)) return true;
         const folderIds = ledgerRemoteFolderIds(ledger);
-        return !folderIds.length || !folderIds.every((folderId) => boundFolderIds.has(folderId));
+        return !folderIds.length || (!folderIds.every((folderId) => boundFolderIds.has(folderId)) &&
+          !folderIds.every((folderId) => confirmedDeletedFolderIds.has(folderId)));
       });
       ledgerIndexById.clear();
       remoteDraftIndexByFolderId.clear();

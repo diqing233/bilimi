@@ -8,6 +8,17 @@ function normalizedRemoteFolderIds(ledger: FavoriteLedger) {
     .filter((id): id is string => Boolean(id)))]
 }
 
+function isPureRemoteObservationDraft(ledger: FavoriteLedger, deletedRemoteFolderIds: ReadonlySet<string>) {
+  const folderIds = normalizedRemoteFolderIds(ledger)
+  return ledger.syncState === 'local-draft' &&
+    ledger.bindingState === 'unbound' &&
+    ledger.ruleOrigin !== 'saved-rule' &&
+    !ledger.enabled &&
+    !ledger.keywords.some((keyword) => keyword.trim()) &&
+    folderIds.length === 1 &&
+    deletedRemoteFolderIds.has(folderIds[0]!)
+}
+
 export function restoreDefaultFavoriteLedgerAfterLocalDeletion(ledger: FavoriteLedger): FavoriteLedger {
   const template = createDefaultFavoriteLedgers().find((candidate) => candidate.id === ledger.id)
   if (!ledger.isDefault || !template) return ledger
@@ -23,7 +34,11 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
   ledgers: FavoriteLedger[],
   deletedRemoteFolderIdsByLedger: ReadonlyMap<string, ReadonlySet<string>>
 ): FavoriteLedger[] {
-  return ledgers.map((ledger) => {
+  const confirmedDeletedRemoteFolderIds = new Set([...deletedRemoteFolderIdsByLedger.values()]
+    .flatMap((ids) => [...ids])
+    .map((id) => id.trim())
+    .filter(Boolean))
+  const settledLedgers = ledgers.map((ledger) => {
     const deleted = deletedRemoteFolderIdsByLedger.get(ledger.id)
     if (!deleted?.size) return ledger
     const formalRemoteFolderIds = [...new Set([ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])]
@@ -109,6 +124,7 @@ export function applyConfirmedManagedFavoriteRemoteFolderDeletion(
       confirmedDeletedRemoteFolderIds
     }
   })
+  return settledLedgers.filter((ledger) => !isPureRemoteObservationDraft(ledger, confirmedDeletedRemoteFolderIds))
 }
 
 /** Clears only bindings whose Bilibili folders were actually deleted, without removing local rules. */

@@ -39,7 +39,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'resolveSavedLedgerRule' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService' | 'onManagedFolderDeletion' | 'restoreFavoriteLedgerHistoryState' | 'loadFavoriteLedgerHistoryLedgers' | 'listSavedLedgers' | 'listSavedEnabledLedgers'> & { getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; initializeOnOpen?: boolean } = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'resolveSavedLedgerRule' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService' | 'onManagedFolderDeletion' | 'restoreFavoriteLedgerHistoryState' | 'loadFavoriteLedgerHistoryLedgers' | 'listSavedLedgers' | 'listSavedEnabledLedgers'> & { getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; getConfirmedDeletedRemoteFolderIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; initializeOnOpen?: boolean } = {}
 ) {
   const { initializeOnOpen = true, ...coordinatorOptions } = options
   const coordinator = new OldFavoriteWorkspaceCoordinator({
@@ -4981,6 +4981,45 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const restored = await repository.getSnapshot('100')
     expect(restored.physicalShards.some((shard) => shard.logicalLedgerId === 'music')).toBe(false)
     expect(restored.folders.some((folder) => folder.id === 'bilimi-logical:music')).toBe(false)
+  })
+
+  it('does not recover or persist a custom remote-observation draft for a confirmed deleted exact id', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    await first.open('100')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: '4020631311', title: 'bilimi·知识学习你好', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await first.recordManagedMembers('100', { '4020631311': [1] })
+    await first.finishScan('100')
+    const completedMarker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'clear-deleted-custom-observation', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'clear-local-repository',
+      payload: { preserveTombstones: true }
+    })
+    await repository.commit('100', {
+      id: 'restore-deleted-custom-workspace', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace',
+      payload: completedMarker
+    })
+
+    const saved = vi.fn(async (_accountMid: string, _ledgers: FavoriteLedger[]) => undefined)
+    const reopened = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:01.000Z' }),
+      new OldFavoriteWorkspaceStore({ root }),
+      {
+        initializeOnOpen: false,
+        saveRecoveredLedgerDrafts: saved,
+        getConfirmedDeletedRemoteFolderIds: () => ['4020631311']
+      }
+    )
+
+    await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 0, pendingCount: 0 })
+    expect(saved).not.toHaveBeenCalled()
+    const restored = await repository.getSnapshot('100')
+    expect(restored.physicalShards.some((shard) => shard.remoteFolderId === '4020631311' || shard.knownRemoteFolderIds?.includes('4020631311'))).toBe(false)
+    expect(restored.folders.some((folder) => folder.logicalLedgerId === 'custom-remote-4020631311')).toBe(false)
   })
 
   it('recovers the staging folder and a unique custom Bilimi workspace with stable logical identities', async () => {
