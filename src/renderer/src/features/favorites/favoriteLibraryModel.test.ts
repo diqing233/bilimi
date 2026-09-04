@@ -92,17 +92,17 @@ describe('favoriteLibraryModel', () => {
     expect(navigation).toContainEqual(expect.objectContaining({ folderId: 'local:inbox', title: 'bilimi·暂存' }))
   })
 
-  it('keeps metadata refresh and collection position labels separate', () => {
+  it('keeps metadata refresh, sync, and collection ownership labels separate', () => {
     expect(formatFavoriteLibraryMetadataStatus('synced', true)).toBe('资料待刷新')
     expect(formatFavoriteLibraryMetadataStatus('synced', false)).toBe('资料已刷新')
     expect(formatFavoriteLibraryMetadataStatus('failed', false)).toBe('资料刷新失败')
-    expect(formatFavoriteLibraryPositionStatus('failed')).toBe('未同步')
-    expect(formatFavoriteLibraryPositionStatus('aligned')).toBe('已同步')
-    expect(formatFavoriteLibraryPositionStatus('local-only-change')).toBe('未同步')
+    expect(formatFavoriteLibraryPositionStatus('failed')).toBe('归属不一致')
+    expect(formatFavoriteLibraryPositionStatus('aligned')).toBe('位置一致')
+    expect(formatFavoriteLibraryPositionStatus('local-only-change')).toBe('归属不一致')
   })
 
-  it('does not describe an unobserved Bilibili mapping as aligned', () => {
-    expect(formatFavoriteLibraryPositionStatus('aligned', false)).toBe('未同步')
+  it('reports an unobserved Bilibili mapping as not scanned instead of an ownership result', () => {
+    expect(formatFavoriteLibraryPositionStatus('aligned', false)).toBe('尚未扫描B站归属')
   })
 
   it('derives the detail sync label from position state instead of pending work', () => {

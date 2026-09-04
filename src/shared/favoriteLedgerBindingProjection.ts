@@ -31,7 +31,21 @@ export function projectFavoriteLedgersFromPhysicalShards(
 
   return ledgers.map((ledger) => {
     const remoteFolderIds = boundIdsByLedger.get(ledger.id)
-    if (!remoteFolderIds?.length) return ledger
+    if (!remoteFolderIds?.length) {
+      // The repository is authoritative for formal bindings. When the last
+      // shard is removed, discard stale account-level remote fields so the
+      // assistant and Favorite Library converge on the same unbacked state.
+      if (ledger.bindingState !== 'bound') return ledger
+      const {
+        bilibiliFolderId: _bilibiliFolderId,
+        bilibiliFolderIds: _bilibiliFolderIds,
+        bilibiliFolderTitle: _bilibiliFolderTitle,
+        bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
+        bindingState: _bindingState,
+        ...unboundLedger
+      } = ledger
+      return { ...unboundLedger, bindingState: 'unbacked' as const }
+    }
     return {
       ...ledger,
       bilibiliFolderId: remoteFolderIds[0],

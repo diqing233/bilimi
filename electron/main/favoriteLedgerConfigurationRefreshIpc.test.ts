@@ -82,6 +82,11 @@ describe('favorite ledger configuration refresh IPC', () => {
     expect(accountOpen).toMatch(/recoverPersistedManagedBindings\(accountMid,\s*\{[\s\S]*suppressedRemoteFolderIds[\s\S]*\}\)\.catch\(\(\) => undefined\)/)
   })
 
+  it('reprojects account bindings after releasing default physical shards', () => {
+    const handler = handlerSource('assistant:release-default-favorite-ledger-bindings')
+    expect(handler).toContain('refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid)')
+  })
+
   it('feeds deleted recommendation remote ids into every account-open recovery gate', () => {
     expect(mainSource).toContain('function getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid: string)')
     expect(mainSource).toContain("record.ledger.ruleOrigin === 'recommendation-draft'")

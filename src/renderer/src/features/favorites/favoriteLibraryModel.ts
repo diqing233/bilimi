@@ -169,7 +169,8 @@ export function formatFavoriteLibraryMetadataStatus(status: string | undefined, 
 }
 
 export function formatFavoriteLibraryPositionStatus(state: string | undefined, hasRemoteMapping = true) {
-  return hasRemoteMapping && state === 'aligned' ? '已同步' : '未同步'
+  if (!hasRemoteMapping) return '尚未扫描B站归属'
+  return state === 'aligned' ? '位置一致' : '归属不一致'
 }
 
 /** Position reconciliation is the source of truth for the detail sync dimension. */

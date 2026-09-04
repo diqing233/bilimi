@@ -40,4 +40,20 @@ describe('projectFavoriteLedgersFromPhysicalShards', () => {
       }
     ])).toEqual(ledgers)
   })
+
+  it('clears stale account binding fields when the authoritative repository has no bound shard', () => {
+    const [ledger] = projectFavoriteLedgersFromPhysicalShards([
+      {
+        id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], enabled: true,
+        priority: 10, isDefault: true, bindingState: 'bound', bilibiliFolderId: '4099023854',
+        bilibiliFolderIds: ['4099023854'], bilibiliFolderTitle: 'bilimi·游戏专区',
+        bilibiliFolderVideoCount: 12
+      }
+    ], [])
+
+    expect(ledger).toEqual({
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], enabled: true,
+      priority: 10, isDefault: true, bindingState: 'unbacked'
+    })
+  })
 })
