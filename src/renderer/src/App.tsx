@@ -1841,7 +1841,7 @@ export default function App() {
       reportedFailureLedgerIds.every((ledgerId) => renamedLedgerIds.has(ledgerId))
     const hasRemainingFailure = remainingMissingTargets.length > 0 || remainingUnboundLedgerIds.length > 0 ||
       remainingCandidates.length > 0 || (result.backupConflictLedgerIds?.length ?? 0) > 0
-    const resolvedTransientRenameProjection = result.verified !== false && !hasRemainingFailure && onlyReportedFailuresAreRenamedTargets
+    const resolvedTransientRenameProjection = result.verified === true && !hasRemainingFailure && onlyReportedFailuresAreRenamedTargets
     return {
       ...result,
       ledgers,
