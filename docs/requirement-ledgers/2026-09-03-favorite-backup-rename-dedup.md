@@ -285,6 +285,30 @@
 
 > 开始
 
+### R023
+
+时间：2026-09-04
+
+原文：
+
+> 虽然改名，但是需要弹窗
+
+### R024
+
+时间：2026-09-04
+
+截图：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-966415b0-ca58-43f0-ae8e-95bb392fc489.png`（图一：掌库正在编辑 `bilimi·知识学习`，状态显示未备册；B 站收藏夹列表中未见 `bilimi·知识学习你好`；待日志与界面验收）
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-faac60ee-397d-48f6-91f2-39b456319260.png`（图二：掌库正在编辑 `知识学习你好`，状态显示未保存·未绑定且显示“B站绑定：1个收藏夹”；B 站收藏夹列表中未见该名称；待日志与界面验收）
+
+截图目标区域：右侧掌库的知识学习卡片、名称输入框、`未备册`或`未保存·未绑定`状态、`B站绑定：1个收藏夹`说明和“检测到 B 站中有 4 个疑似 bilimi 工作夹：4 个未保存未绑定”提示；左侧 B 站实际收藏夹列表中缺失已删除的 `bilimi·知识学习你好`。截图只能作为现象证据，不能替代精确 `folderId`、删除 IPC 回执、正式物理分册账本和删除后目录快照。
+
+原文：
+
+> 我对知识学习改名知识学习你好，备册后改名成功，但删除改名后的知识学习你好后，b站实际已经没有了，为什么还会识别未保存未绑定的知识学习你好草稿
+> <image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-966415b0-ca58-43f0-ae8e-95bb392fc489.png">![Image #1](C:\Users\diqing\AppData\Local\Temp\codex-clipboard-966415b0-ca58-43f0-ae8e-95bb392fc489.png)</image><image name=[Image #2] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-faac60ee-397d-48f6-91f2-39b456319260.png">![Image #2](C:\Users\diqing\AppData\Local\Temp\codex-clipboard-faac60ee-397d-48f6-91f2-39b456319260.png)</image>
+
 ## 逐项索引
 
 | 编号 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
@@ -311,6 +335,8 @@
 | I018 | R020 | 对同一精确远端 ID `4106106611` 的确认绑定，必须在一次明确确认内完成“按掌库当前名称改名 → 复读确认 → 正式绑定账本标题提交”；任何一个阶段未完成都不得把本地偏好伪装为已备册，也不得要求用户靠第二次点击补齐。删除预检应继续阻止标题失真的远端删除。 | 确认绑定弹窗、`App.tsx` 绑定登记与本地偏好回写、`favoriteRepositoryBindingService.ts`、精确远端库存复读、正式 `physicalShards` 与删除预检。 | 仅用户勾选并确认该精确 ID时执行 B 站改名；被动刷新、普通保存、删除预检不改名。远端标题已到目标而正式账本旧时只提交标题修复，不二次改名。 | 成功时 B 站标题、正式账本 `remoteTitle`、本地 `bilibiliFolderTitle` 都等于掌库当前名称，弹窗关闭；失败时只显示实际失败阶段并保留同一精确 ID的可恢复候选。 | 允许一次明确绑定产生一次 B 站改名及一次正式账本提交；不得创建第二个收藏夹、不得写视频、不得按名称认领其他 ID。 | 不把后续工作区扫描当作本次改名确认；不弱化删除前标题一致性保护；不改动推荐、整理分类或已有远端夹。 | 显式选择参数、`allowRemoteRename`、改名桥回执、精确 ID库存读取、仓库 commit、偏好保存、删除同步预检。 | 已确认，待用户明确开始后实施 | R020 截图约 11:56 显示 `4106106611` 仍为 `bilimi·游戏专区` 且确认失败；11:52 的工作区库存也记录旧标题。12:02 的新工作区同 ID已记录为 `bilimi·游戏专区哈哈`，证明未创建第二个 ID且远端最终发生改名；但 12:02 正式仓库 generation `3cc6234b…` 仍为旧 `remoteTitle`、无本次 `favorite-adoption-title-repair:game` 命令，导致删除预检报标题过期。当前运行时没有把确认按钮 → IPC → 改名回执 → 每次复读 → commit 以同一操作 ID可审计记录下来；因此尚不能从已有日志断言改名请求在哪个边界被遗漏。 |
 
 | I019 | R021/R022 | 已存在正式物理分册绑定、且精确远端 ID未变时，用户修改掌库名称后点击备册应走“已绑定分册的明确改名”路径，而不是重新确认/认领/绑定。 | 已备册收藏夹编辑与保存、备册按钮、B 站 `folder/edit`、正式分册账本标题回写、删除预检。 | 前提为正式账本存在同一 `logicalLedgerId + shardNumber + remoteFolderId` 且状态为 `bound`；仅用户明确备册确认后的改名可远端写入。首次发现陌生 ID或未绑定候选仍走显式认领流程。 | 点击备册后直接对既有精确 ID按掌库当前名称发送一次改名；改名确认后更新同一正式分册的账本标题和本地标题，保持“已备册”，不弹出“确认绑定 bilimi 收藏夹”。若本地仍声明同一精确 ID为`bound`而权威三元组缺失、或 IPC 不可用，必须在页面脚本前报改名阶段失败；只有短暂旧投影且失败仅属本次已改名目标时，才以提交快照收敛为成功。 | 允许一次改名及同一正式绑定的标题更新；不新建、不解绑、不认领、不写视频、不影响其它分册。 | 不因普通保存、被动刷新、整理收藏或删除预检自动改名；不按名称找 ID；不弱化远端操作的确认与失败可见性。 | 正式 `physicalShards`、本地规则标题、备册路由、改名 bridge、精确 ID复读、账本 commit、状态刷新。 | 已实施待真实账号验证 | 当前 `game` 的 `4106106611` 已是 `bound`；`projectFavoriteLedgersToFormalBindings` 返回正式分册元数据，`renameExplicitlyBoundFavoriteLedgers` 在明确 `backupTargetLedgerIds` 或单册 `lightweightBackup` 前调用 `renameFavoriteRepositoryBoundLedgerShard`；结果回写同一 ledger 并传入注册器的跳过集合，因此不进入 adoption。独立审查后补足三条 fail-closed 回归：正式三元组缺失、改名 IPC 缺失时均不运行页面备册脚本/认领/创建；直接改名成功但目录读取产生无关失败时保持失败；同一目标仅因短暂旧`unbound`投影失败时显示“已按掌库当前名称完成已绑定收藏夹改名。”。新鲜验证：`App.test.tsx` 149/149；与 `favoriteRepositoryBindingService.test.ts`、`favoriteRepositoryIpc.test.ts` 合计 247/247；`npm run build` 退出码 0；`git diff --check` 通过。两次全量 `npm test -- --run` 和一次单工作进程全量均在既有 `oldFavoriteWorkspaceCoordinator.test.ts` 大套件中长时间未退出；已只停止本轮启动的测试进程树，未得到全量终态，不能将其写作通过。仍待真实账号验证 B 站最终标题、弹窗关闭和删除预检。 |
+| I020 | R021/R023 | 对已正式绑定分册，仍走精确 ID 的“改名”而不是绑定；但在任何 B 站改名前必须显示独立的改名确认弹窗。R023 明确替代 I019 中“直接改名、不弹出任何确认窗口”的交互部分；R021 的“不走绑定”继续有效。 | 已备册收藏夹的备册入口、独立改名确认弹窗、现有直接改名 IPC。 | 仅正式三元组存在、掌库当前名称与该精确远端标题不一致，且用户明确点击备册时显示；名称一致时不显示弹窗、不发远端写入。未绑定候选继续使用既有“确认绑定 bilimi 收藏夹”弹窗。 | 弹窗确认前不调用改名 IPC、不改写 B 站、不更改绑定状态；确认后仅对弹窗内列出的同一精确 ID分册执行现有直接改名，再回写正式标题。取消只关闭弹窗。 | 允许用户确认后对既有 B站收藏夹改名；不新建、不认领、不重新绑定、不解绑、不写视频。 | 不将弹窗命名或实现为“确认绑定”；不在普通保存、被动刷新、整理收藏或删除预检时弹出或改名；不显示远端 ID。 | I019 正式三元组投影、直接改名 IPC、现有备册候选/绑定弹窗分流、标题差异判断。 | 已确认，弹窗精确文案待用户决定 | R023 仅确认“虽然改名，但是需要弹窗”；标题、逐分册文案和按钮的精确文字尚未给出，不能凭空定稿。 |
+| I021 | R024 | 已删除的精确 B站收藏夹在删除后的状态刷新中不得再被投影或持久化为“未保存·未绑定”的同名/同 ID草稿；需查明为什么删除后仍出现 `知识学习你好` 草稿。 | 删除模式完成回执、正式物理分册/本地规则、远端目录快照、远端观察草稿投影、右侧掌库状态。 | 用户已删除精确远端夹、B站实际目录不再含该 ID后触发；若删除回执或目录快照不能证明不存在，则不能按标题或截图盲目清除本地事实。 | 先按操作 ID追踪删除前状态、删除回执、正式解绑/本地保存、删除后目录快照与草稿投影来源；根因确认后再界定正确的收敛行为。 | 不因观察到草稿而重新创建、重新绑定或改名 B站；不得删除用户独立本地规则。 | 不按名称、数量或截图推测同一远端身份；不影响尚未删除的正式绑定、未知远端观察或已有删除知情同意。 | 删除同步服务、删除回执、`physicalShards` 持久化、远端目录读取、`appendRemoteOnlyDrafts`/历史草稿清理和状态刷新。 | 已确认，根因调查中 | R024 两张截图显示B站列表缺失目标夹，但掌库仍显示 `知识学习你好` 为“未保存·未绑定”并同时有“B站绑定：1个收藏夹”；需以日志、精确 ID和删除后权威快照判断是旧缓存、删除提交遗漏、观察草稿重投影还是独立本地规则。 |
 ## 讨论阶段边界
 
 - 本轮当前处于讨论模式，不修改业务代码，不执行 B 站创建、绑定、改名、删除或视频写入。
@@ -395,3 +421,11 @@ R015 明确授权在新分支实施本轮已确认需求。以下状态更新以
 | 原文/索引 | 实施状态 | 本次新鲜验证证据 | 真实界面/账号验收边界 |
 | --- | --- | --- | --- |
 | R021/R022 · I019 | 已实施待真实账号验证 | 在隔离工作树 `codex/bound-favorite-rename` 重新运行 `npm test -- --run electron/main/favoriteRepositoryBindingService.test.ts electron/main/favoriteRepositoryIpc.test.ts src/renderer/src/App.test.tsx`：3 个测试文件、247 项通过；重新运行 `npm run build`：退出码 0。`git status --short --branch` 为干净分支，`git diff --check main...HEAD` 通过。测试输出含既有 React `act(...)` 警告，但无测试失败。 | 当前唯一已打开的 Bilimi Electron 窗口属于另一工作树 `favorite-ledger-toggle-local-persistence`；本分支因应用单实例锁不能另起独立窗口。为避免影响用户正在使用的窗口，没有关闭、登录、改名、绑定、删除或写入 B 站，故不能把该窗口的显示或响应作为本分支真实界面证据。真实账号仍须验证：改掌库名称后明确点击“备册”不进入确认绑定/认领，B 站同一精确 ID改为掌库名，正式 `physical-shard-bindings.jsonl` 的 `remoteTitle` 回写，删除预检通过；多分册以及鼠标移动、点击、滚动、缩放、最小化、恢复、关闭也须在本分支开发版验收。 |
+
+## R024 根因追踪记录（2026-09-04，讨论中）
+
+- 已确认的精确对象是远端 `folderId` `4020631311`，不是按“知识学习你好”名称猜测：当前账号配置同时保留默认规则 `knowledge` 的 `confirmedDeletedRemoteFolderIds: ["4020631311"]`、`managedFolderDeletedByUser: true`、`bindingState: "unbacked"`，以及纯远端观察草稿 `custom-remote-4020631311`（`displayName: "知识学习你好"`、`syncState: "local-draft"`、`bindingState: "unbound"`、同一 `bilibiliFolderId`）。
+- 仓库命令历史给出了顺序证据：`favorite-remote-delete:…:remove-confirmed-binding:4020631311` 在 `2026-09-04T09:37:25.322Z` 提交（revision 57）后，`old-favorite-workspace:recover-persisted-bindings:…` 在 `2026-09-04T09:37:25.478Z` 立刻又写入 `bilimi:custom-remote-4020631311:001`（revision 58）。当前仓库仍含旧镜像 `bilibili:4020631311` 和该 `custom-remote-4020631311` 的 `pending-reconcile` 分册；这解释了图二的“未保存·未绑定”和“B站绑定：1个收藏夹”并存。它不是 B 站当前目录中真的仍有该收藏夹，而是历史本地镜像/草稿事实未收敛。
+- 源头边界：`oldFavoriteWorkspaceCoordinator.recoverPersistedManagedBindings` 只从上一次完成扫描的 `sourceFolders` 恢复候选；删除保护仅向它传递“默认规则 ID 已被用户删除”，没有传递“精确远端 ID 已确认删除”。因此同一旧 ID可被归为新的 `custom-remote-*` 观察候选，并通过 `saveRecoveredLedgerDrafts` 持久化。
+- 第二道缺口：`applyConfirmedManagedFavoriteRemoteFolderDeletion` 只清理逻辑 ID 为 `knowledge` 的正式规则；`custom-remote-4020631311` 是另一逻辑 ID，未被删除。渲染端 `appendRemoteOnlyDrafts` 仅在同 ID仍被正式 `bound` 时清理已有纯观察草稿；对已确认删除的 ID只阻止“新增发现”，不会移除已经持久化的草稿。
+- 结论：根因是删除确认的精确远端 ID没有成为跨恢复、持久化和渲染投影的统一墓碑，导致“旧扫描恢复 → 同 ID的 custom 观察草稿”绕过了删除收敛。修复必须以精确 `folderId` 为键：删除完成后清理对应纯远端观察草稿，并让恢复/投影拒绝该已确认删除 ID；不得按标题删除、不得创建、重新绑定或影响用户保存的独立规则。
