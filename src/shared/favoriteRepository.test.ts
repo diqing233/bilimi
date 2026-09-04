@@ -1506,6 +1506,86 @@ describe('account favorite repository contracts', () => {
     ]))
   })
 
+  it('preserves existing logical members and their local intent when binding the first physical shard', () => {
+    const now = '2026-09-05T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      folders: [{
+        id: 'bilimi-logical:game', title: 'bilimi·游戏专区', kind: 'bilimi-logical' as const,
+        logicalLedgerId: 'game', syncState: 'pending-reconcile' as const
+      }],
+      memberships: { 'bilimi-logical:game': [7, 9] },
+      positions: {
+        '100:7': {
+          accountMid: '100', aid: 7, localDesiredFolderIds: ['bilimi-logical:game'],
+          remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+          positionState: 'local-only-change' as const, updatedAt: now, revision: 0
+        },
+        '100:9': {
+          accountMid: '100', aid: 9, localDesiredFolderIds: ['bilimi-logical:game'],
+          remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+          positionState: 'local-only-change' as const, updatedAt: now, revision: 0
+        }
+      }
+    }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'bind-game-first-shard', accountMid: '100', issuedAt: now, type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: 'remote-game'
+      }
+    }, now)
+
+    expect(result.memberships).toMatchObject({
+      'bilimi-logical:game': [7, 9],
+      'bilimi:game:001': [7, 9]
+    })
+    expect(result.positions['100:7']?.localDesiredFolderIds).toEqual(['bilimi-logical:game'])
+    expect(result.positions['100:9']?.localDesiredFolderIds).toEqual(['bilimi-logical:game'])
+  })
+
+  it('projects a moved placement through bound physical shards without retaining the old logical member', () => {
+    const now = '2026-09-05T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      folders: [
+        { id: 'bilimi-logical:staging', title: 'bilimi·暂存', kind: 'bilimi-logical' as const, logicalLedgerId: 'staging', syncState: 'bound' as const },
+        { id: 'bilimi-logical:game', title: 'bilimi·游戏专区', kind: 'bilimi-logical' as const, logicalLedgerId: 'game', syncState: 'bound' as const }
+      ],
+      memberships: {
+        'bilimi-logical:staging': [7], 'bilimi:staging:001': [7],
+        'bilimi-logical:game': [], 'bilimi:game:001': []
+      },
+      physicalShards: [
+        { logicalLedgerId: 'staging', folderId: 'bilimi:staging:001', shardNumber: 1, remoteFolderId: 'remote-staging', remoteTitle: 'bilimi·暂存', bindingState: 'bound' as const },
+        { logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1, remoteFolderId: 'remote-game', remoteTitle: 'bilimi·游戏专区', bindingState: 'bound' as const }
+      ],
+      positions: {
+        '100:7': {
+          accountMid: '100', aid: 7, localDesiredFolderIds: ['bilimi-logical:staging'],
+          remoteObservedPhysicalFolderIds: ['remote-staging'], remoteObservedLogicalFolderIds: ['bilimi-logical:staging'],
+          positionState: 'aligned' as const, updatedAt: now, revision: 0
+        }
+      }
+    }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'move-staging-to-game', accountMid: '100', issuedAt: now, type: 'set-favorite-placement',
+      payload: {
+        aid: 7, adjustmentKind: 'local-move', localDesiredFolderIds: ['bilimi-logical:game'],
+        remoteObservedPhysicalFolderIds: ['remote-staging'], remoteObservedLogicalFolderIds: ['bilimi-logical:staging'],
+        updatedAt: now
+      }
+    }, now)
+
+    expect(result.memberships).toMatchObject({
+      'bilimi-logical:staging': [], 'bilimi:staging:001': [],
+      'bilimi-logical:game': [7], 'bilimi:game:001': [7]
+    })
+    expect(result.positions['100:7']?.localDesiredFolderIds).toEqual(['bilimi-logical:game'])
+  })
+
   it('keeps each organization recovery record immutable and projects a confirmed remove from logical membership', () => {
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' }),

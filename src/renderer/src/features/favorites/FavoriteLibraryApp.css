@@ -96,6 +96,7 @@
 .favorite-library__folder-floating-menu button.favorite-library__danger-action:hover, .favorite-library__folder-floating-menu button.favorite-library__danger-action:focus-visible { background: #fff4f3; color: #9d2e2e; }
 .favorite-library__toolbar { display: grid; gap: 6px; margin: 0 0 8px; padding: 8px 10px; border: 1px solid #c9dcf5; border-radius: 10px; background: #fff; }
 .favorite-library__toolbar-primary, .favorite-library__toolbar-secondary, .favorite-library__batch-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.favorite-library__clear-filters { padding: 4px 7px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; font-size: 12px; cursor: pointer; }
 .favorite-library__selection-controls { display: inline-flex; align-items: center; gap: 10px; min-height: 30px; white-space: nowrap; }
 .favorite-library__selection-summary { color: #64748b; font-size: 13px; line-height: 1; }
 .favorite-library__toolbar-primary input[type='search'] { margin-left: auto; }

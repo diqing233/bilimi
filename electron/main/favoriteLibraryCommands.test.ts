@@ -389,6 +389,20 @@ describe('registerFavoriteLibraryCommandsIpc', () => {
     expect(commands.cancelWaitingTranscription).toHaveBeenCalledWith('100', [1, 3])
   })
 
+  it('resolves an all-results selection for a pausable renderer batch', async () => {
+    const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
+    const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }
+    const resolveSelection = vi.fn().mockResolvedValue([7, 9])
+    registerFavoriteLibraryCommandsIpc({ ipcMain, commands: { syncSelection: vi.fn(), enqueueTranscription: vi.fn() } as never, isTrustedLibrarySender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSelection })
+
+    await expect(handlers.get('favorite-library:resolve-selection')?.({ sender: { id: 8 } }, '100', {
+      kind: 'scope', scope: { kind: 'folder', folderId: 'bilimi-logical:music' }, options: { query: 'needle', sort: 'title-asc' }, excludedAids: [3]
+    } as never)).resolves.toEqual([7, 9])
+    expect(resolveSelection).toHaveBeenCalledWith('100', expect.objectContaining({
+      scope: { kind: 'folder', folderId: 'bilimi-logical:music' }, options: { query: 'needle', sort: 'title-asc' }, excludedAids: [3]
+    }))
+  })
+
   it('rejects a scope action when the account changes while main-process selection resolution is pending', async () => {
     const handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
     const ipcMain = { handle: (channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) => handlers.set(channel, handler) }

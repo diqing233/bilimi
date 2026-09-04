@@ -1743,6 +1743,7 @@ export function applyFavoriteRepositoryCommand(
     const localDesiredFolderIds = normalizeFolderIds(payload.localDesiredFolderIds)
     const remoteObservedPhysicalFolderIds = normalizeFolderIds(payload.remoteObservedPhysicalFolderIds)
     const remoteObservedLogicalFolderIds = normalizeFolderIds(payload.remoteObservedLogicalFolderIds)
+    const explicitPlacementChange = Boolean((payload as { adjustmentKind?: FavoriteRepositoryAdjustmentKind }).adjustmentKind)
     positions[key] = {
       accountMid: snapshot.accountMid, aid: payload.aid, localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
       positionState: deriveFavoriteRepositoryPositionState({ localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
@@ -1755,7 +1756,7 @@ export function applyFavoriteRepositoryCommand(
     }
     const formalFolderIds = Object.keys(memberships).filter((folderId) =>
       (folderId.startsWith('local:') && folderId !== 'local:inbox') ||
-      (folderId.startsWith('bilimi-logical:') && !physicalShards.some((shard) => shard.logicalLedgerId === folderId.slice('bilimi-logical:'.length))))
+      (folderId.startsWith('bilimi-logical:') && (explicitPlacementChange || !physicalShards.some((shard) => `bilimi-logical:${shard.logicalLedgerId}` === folderId))))
     const nextFormalFolderIds = new Set(localDesiredFolderIds)
     for (const folderId of new Set([...formalFolderIds, ...nextFormalFolderIds])) {
       const members = new Set(memberships[folderId] ?? [])
@@ -1763,6 +1764,20 @@ export function applyFavoriteRepositoryCommand(
       else members.delete(payload.aid)
       memberships = { ...memberships, [folderId]: [...members].sort((left, right) => left - right) }
       affectedFolderIds.push(folderId)
+    }
+    if (explicitPlacementChange) {
+      const physicalShardByLogicalFolderId = new Map(physicalShards.map((shard) => [
+        `bilimi-logical:${shard.logicalLedgerId}`, shard
+      ]))
+      for (const logicalFolderId of new Set([...formalFolderIds, ...nextFormalFolderIds])) {
+        const shard = physicalShardByLogicalFolderId.get(logicalFolderId)
+        if (!shard) continue
+        const shardMembers = new Set(memberships[shard.folderId] ?? [])
+        if (nextFormalFolderIds.has(logicalFolderId)) shardMembers.add(payload.aid)
+        else shardMembers.delete(payload.aid)
+        memberships = { ...memberships, [shard.folderId]: [...shardMembers].sort((left, right) => left - right) }
+        affectedFolderIds.push(shard.folderId)
+      }
     }
     const inbox = new Set(memberships['local:inbox'] ?? [])
     if (localDesiredFolderIds.length) inbox.delete(payload.aid)
@@ -1859,9 +1874,16 @@ export function applyFavoriteRepositoryCommand(
     folders = folders.map((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId === logicalLedgerId
       ? { ...folder, syncState: logicalSyncState }
       : folder)
-    memberships = { ...memberships, [folderId]: uniquePositiveAids(payload.memberAids) }
     const logicalFolderId = `bilimi-logical:${logicalLedgerId}`
-    const logicalMembers = new Set<number>()
+    const existingShardMembers = new Set(memberships[folderId] ?? [])
+    const existingLogicalMembers = new Set(memberships[logicalFolderId] ?? [])
+    const nextShardMembers = uniquePositiveAids([
+      ...existingShardMembers,
+      ...payload.memberAids,
+      ...(existingShard || payload.memberAids.length ? [] : existingLogicalMembers)
+    ])
+    memberships = { ...memberships, [folderId]: nextShardMembers }
+    const logicalMembers = new Set<number>(existingLogicalMembers)
     for (const shard of physicalShards.filter((candidate) => candidate.logicalLedgerId === logicalLedgerId)) {
       for (const aid of memberships[shard.folderId] ?? []) logicalMembers.add(aid)
     }

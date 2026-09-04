@@ -329,6 +329,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library:sync-selection', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
   synchronizeFavoriteLibraryPlacements: (accountMid: string, selection: FavoriteLibrarySyncSelection | FavoriteLibraryOperationSelection) =>
     ipcRenderer.invoke('favorite-library:synchronize-placements', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
+  resolveFavoriteLibrarySelection: (accountMid: string, selection: Exclude<FavoriteLibraryOperationSelection, number[]>) =>
+    ipcRenderer.invoke('favorite-library:resolve-selection', accountMid, selection) as Promise<number[]>,
   setFavoriteLibraryLocalPlacements: (accountMid: string, placements: Array<{ aid: number; folderIds: string[] }>, expectedRevision: number, synchronize = false) =>
     ipcRenderer.invoke('favorite-library:set-local-placements', accountMid, placements, expectedRevision, synchronize) as Promise<FavoriteLibraryCommandResult>,
   adoptFavoriteLibraryRemotePlacement: (accountMid: string, aid: number, expectedRevision: number) =>

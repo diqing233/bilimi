@@ -54,6 +54,9 @@ export type FloatingAssistantWorkspaceRequest = {
   action?: AssistantAction
   anchor?: { screenX: number; screenY: number }
   openNoteArchive?: boolean
+  /** Selects the exact archive/version when opening the note archive panel. */
+  archiveId?: string
+  versionId?: string
   organizeOldFavorites?: boolean
   /** Explicit Favorite Library selection for a small reorganization workspace. */
   selectedFavoriteAids?: number[]

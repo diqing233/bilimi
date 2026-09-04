@@ -45,6 +45,29 @@ describe('FavoriteRepositoryBindingService', () => {
     })
   })
 
+  it('keeps existing local members when adopting a bound shard with no remote member payload', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'seed-local-game', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilimi-logical:game': [7, 9] },
+        folders: [{ id: 'bilimi-logical:game', title: 'bilimi·游戏专区', kind: 'bilimi-logical', logicalLedgerId: 'game', syncState: 'local-only' }]
+      }
+    })
+    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+
+    await service.preparePhysicalShard('100', {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteDisplayTitle: 'B-game-001-a1b2c3', shardNumber: 1,
+      memberAids: [], remoteFolderId: 'remote-game', observedAccountMid: '100',
+      inventory: [{ id: 'remote-game', title: 'B-game-001-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.memberships['bilimi-logical:game']).toEqual([7, 9])
+    expect(snapshot.memberships['bilimi:game:001']).toEqual([7, 9])
+    expect(snapshot.physicalShards[0]).toMatchObject({ bindingState: 'bound', remoteFolderId: 'remote-game' })
+  })
+
   it('keeps accounts isolated when they use the same logical ledger id', async () => {
     const repository = await createRepository()
     const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })

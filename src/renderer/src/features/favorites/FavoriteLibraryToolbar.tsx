@@ -76,6 +76,8 @@ type FavoriteLibraryToolbarProps = {
   onBatchPlacement?: (action: 'copy' | 'move', folderIds: string[]) => void
   searchQuery?: string
   onSearchChange?: (query: string) => void
+  hasActiveFilters?: boolean
+  onClearFilters?: () => void
   deferSearchChange?: boolean
   browsingOnly?: boolean
   children?: ReactNode
@@ -83,7 +85,7 @@ type FavoriteLibraryToolbarProps = {
 
 export function FavoriteLibraryToolbar({
   pageCount, selectedCount, allCurrentPageSelected, onTogglePage, onBatchAction, onBatchDownload, batchDisabled = false, disabledActions, allowedActions, logicalFolders, onBatchPlacement,
-  searchQuery = '', onSearchChange, deferSearchChange = false, browsingOnly = false, children
+  searchQuery = '', onSearchChange, deferSearchChange = false, browsingOnly = false, hasActiveFilters = false, onClearFilters, children
 }: FavoriteLibraryToolbarProps) {
   const [searchDraft, setSearchDraft] = useState(searchQuery)
   const searchCommitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -105,6 +107,7 @@ export function FavoriteLibraryToolbar({
       {!browsingOnly ? <span className="favorite-library__selection-controls"><label className="favorite-library__select-page"><input type="checkbox" aria-label="全选" checked={allCurrentPageSelected} disabled={!pageCount} onChange={onTogglePage} />全选</label>
       <small className="favorite-library__selection-summary">{`已选 ${selectedCount} 项`}</small></span> : null}
       <input type="search" aria-label="搜索收藏库" placeholder="搜索标题、UP主或标签" value={searchDraft} onChange={(event) => updateSearch(event.currentTarget.value)} />
+      {hasActiveFilters ? <button type="button" className="favorite-library__clear-filters" onClick={onClearFilters}>清除全部条件</button> : null}
     </div>
     {!browsingOnly ? <BatchActions disabled={batchDisabled} disabledActions={disabledActions} allowedActions={allowedActions} onAction={onBatchAction} onDownload={onBatchDownload} logicalFolders={logicalFolders} onBatchPlacement={onBatchPlacement} /> : null}
     {children}

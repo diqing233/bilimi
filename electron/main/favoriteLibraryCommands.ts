@@ -535,6 +535,15 @@ export function registerFavoriteLibraryCommandsIpc(options: {
     await assertCurrentAccount(accountMid)
     return options.commands.synchronizeSelection(accountMid, resolved)
   })
+  options.ipcMain.handle('favorite-library:resolve-selection', async (event, requestedAccountMid: string, selection: unknown) => {
+    assertLibrary(event)
+    const accountMid = await assertCurrentAccount(requestedAccountMid)
+    const parsed = librarySelection(selection)
+    if (parsed.kind !== 'scope' || !options.resolveSelection) throw new Error('所选视频无效。')
+    const resolved = await options.resolveSelection(accountMid, parsed)
+    await assertCurrentAccount(accountMid)
+    return resolved
+  })
   options.ipcMain.handle('favorite-library:enqueue-transcription', async (event, requestedAccountMid: string, input: unknown) => {
     assertLibrary(event)
     const parsed = transcriptionInput(input)
