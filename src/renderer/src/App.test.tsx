@@ -150,6 +150,16 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     setAssistantPetHint: vi.fn(),
     savePreferences: vi.fn(async (preferences: AssistantPreferences) => preferences),
     adoptFavoriteRepositoryLedgerBinding: vi.fn().mockResolvedValue(undefined),
+    renameFavoriteRepositoryBoundLedgerShard: vi.fn(async (_accountMid, input) => ({
+      shards: [{
+        logicalLedgerId: input.logicalLedgerId,
+        shardNumber: input.shardNumber,
+        remoteFolderId: input.remoteFolderId,
+        remoteTitle: input.logicalTitle,
+        remoteMemberCount: 0,
+        bindingState: 'bound' as const
+      }]
+    })),
     openFavoriteRepositoryAccount: vi.fn(async (accountMid: string) => ({
       version: 1,
       accountMid,
@@ -3133,6 +3143,198 @@ describe('App runtime integration', () => {
         })
       })
     }))
+  })
+
+  it('stops an explicit bound backup before scripts, adoption, or creation when its formal shard is absent', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      displayName: 'bilimi·游戏专区哈哈',
+      bilibiliFolderId: '4106106611',
+      bilibiliFolderIds: ['4106106611'],
+      bilibiliFolderTitle: 'bilimi·游戏专区',
+      bindingState: 'bound' as const
+    }
+    const renameFavoriteRepositoryBoundLedgerShard = vi.fn()
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn()
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      renameFavoriteRepositoryBoundLedgerShard,
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (_script: string, userGesture?: boolean) => userGesture === true
+        ? { hasUserId: true, hasCsrf: true }
+        : { ok: true, verified: true, ledgers: [game], steps: ['api:ledger:add'], missingTargets: [], message: '已备册' })
+    })
+
+    await expect(requestRuntime({
+      id: 'bound-rename-formal-shard-absent', type: 'save-ledgers', ledgers: [game],
+      options: { backupTargetLedgerIds: ['game'], confirmCreateAndBind: true }
+    })).resolves.toMatchObject({
+      ok: false,
+      steps: ['favorite:bound-shard-rename'],
+      message: expect.stringContaining('正式绑定分册不存在')
+    })
+
+    expect(renameFavoriteRepositoryBoundLedgerShard).not.toHaveBeenCalled()
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+    expect(webview.executeJavaScript).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails closed instead of falling back when the direct bound-rename bridge is unavailable', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      displayName: 'bilimi·游戏专区哈哈',
+      bilibiliFolderId: '4106106611',
+      bilibiliFolderIds: ['4106106611'],
+      bilibiliFolderTitle: 'bilimi·游戏专区',
+      bindingState: 'bound' as const
+    }
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn()
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      adoptFavoriteRepositoryLedgerBinding,
+      renameFavoriteRepositoryBoundLedgerShard: undefined,
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-04T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 1,
+        physicalShards: [{
+          logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+          remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区', bindingState: 'bound'
+        }],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (_script: string, userGesture?: boolean) => userGesture === true
+        ? { hasUserId: true, hasCsrf: true }
+        : { ok: true, verified: true, ledgers: [game], steps: ['api:ledger:add'], missingTargets: [], message: '已备册' })
+    })
+
+    await expect(requestRuntime({
+      id: 'bound-rename-bridge-absent', type: 'save-ledgers', ledgers: [game],
+      options: { backupTargetLedgerIds: ['game'], confirmCreateAndBind: true }
+    })).resolves.toMatchObject({
+      ok: false,
+      steps: ['favorite:bound-shard-rename'],
+      message: expect.stringContaining('改名服务不可用')
+    })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+    expect(webview.executeJavaScript).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps an unrelated post-rename script failure failed instead of reporting the rename as full success', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      displayName: 'bilimi·游戏专区哈哈',
+      bilibiliFolderId: '4106106611',
+      bilibiliFolderIds: ['4106106611'],
+      bilibiliFolderTitle: 'bilimi·游戏专区',
+      bindingState: 'bound' as const
+    }
+    const renameFavoriteRepositoryBoundLedgerShard = vi.fn().mockResolvedValue({
+      shards: [{
+        logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+        remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区哈哈',
+        bindingState: 'bound', remoteMemberCount: 0
+      }]
+    })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      renameFavoriteRepositoryBoundLedgerShard,
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-04T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 1,
+        physicalShards: [{
+          logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+          remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区', bindingState: 'bound'
+        }],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: false, verified: false, steps: ['api:ledger:list'],
+        missingTargets: [], unboundLedgerIds: [], unboundCandidates: [],
+        message: 'B 站目录读取失败。'
+      }))
+    })
+
+    await expect(requestRuntime({
+      id: 'bound-rename-keeps-generic-script-failure', type: 'save-ledgers', ledgers: [game],
+      options: { backupTargetLedgerIds: ['game'], rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({ ok: false, message: 'B 站目录读取失败。' })
+
+    expect(renameFavoriteRepositoryBoundLedgerShard).toHaveBeenCalledTimes(1)
+  })
+
+  it('replaces only a stale direct-rename target failure with the committed rename success message', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      displayName: 'bilimi·游戏专区哈哈',
+      bilibiliFolderId: '4106106611',
+      bilibiliFolderIds: ['4106106611'],
+      bilibiliFolderTitle: 'bilimi·游戏专区',
+      bindingState: 'bound' as const
+    }
+    const renameFavoriteRepositoryBoundLedgerShard = vi.fn().mockResolvedValue({
+      shards: [{
+        logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+        remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区哈哈',
+        bindingState: 'bound', remoteMemberCount: 0
+      }]
+    })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      renameFavoriteRepositoryBoundLedgerShard,
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-04T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 1,
+        physicalShards: [{
+          logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+          remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区', bindingState: 'bound'
+        }],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: false, verified: true, ledgers: [{ ...game, bindingState: 'unbound' as const }],
+        steps: ['api:ledger:list'], missingTargets: [], unboundLedgerIds: ['game'],
+        unboundCandidates: [{ ledgerId: 'game', candidates: [] }],
+        message: '发现 1 个未绑定收藏夹。'
+      }))
+    })
+
+    await expect(requestRuntime({
+      id: 'bound-rename-replaces-stale-target-result', type: 'save-ledgers', ledgers: [game],
+      options: { backupTargetLedgerIds: ['game'], rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({
+      ok: true,
+      message: '已按掌库当前名称完成已绑定收藏夹改名。',
+      unboundLedgerIds: [],
+      unboundCandidates: []
+    })
   })
 
   it('does not rename a bound shard during a local-only rule save', async () => {

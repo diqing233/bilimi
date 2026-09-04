@@ -130,3 +130,31 @@ Completed in commit `7cd6acbb`; the branch worktree is clean. The root `main`
 worktree has unrelated uncommitted recommendation-toggle changes, so merging
 this branch there would mix topics and is intentionally left for a separately
 authorized clean working-tree step.
+
+### Post-implementation audit: prevent direct-rename fallback
+
+**Files:**
+- Modify: `src/renderer/src/App.test.tsx`
+- Modify: `src/renderer/src/App.tsx`
+- Modify: `docs/项目功能项目书.md`
+- Modify: `docs/requirement-ledgers/2026-09-03-favorite-backup-rename-dedup.md`
+
+- [x] **Step 1: Add failing fallback regressions**
+
+Cover a local target still declared `bound` whose formal tuple is absent, a missing direct-rename preload API, a generic post-rename script failure, and a transient old `unbound` projection for the same already-renamed target.
+
+- [x] **Step 2: Observe RED**
+
+`npm test -- --run src/renderer/src/App.test.tsx` initially reported four expected failures: absent tuple and absent API continued to the page script, generic downstream failure became `ok: true`, and stale target output retained an unbound failure message.
+
+- [x] **Step 3: Fail closed and preserve unrelated failures**
+
+Require the original explicit target's bound ID set to match a formal shard before page automation; report an unavailable direct IPC as a direct-rename failure; apply only allowed formal shard tuples from returned snapshots; and convert only a verified, target-only stale projection into a clear rename-success message.
+
+- [x] **Step 4: Re-run the App regression**
+
+Run: `npm test -- --run src/renderer/src/App.test.tsx`
+
+Expected: all App tests pass; login checks are allowed, but neither page backup script nor adoption runs in the two new fail-closed cases.
+
+**Verification record:** `App.test.tsx` passed 149/149. The direct renderer, service, and IPC suite passed 247/247, and `npm run build` exited 0. Three attempts at an otherwise-unrelated all-suite run remained inside the pre-existing 359-test `oldFavoriteWorkspaceCoordinator.test.ts` suite without a final process exit; only those newly created test process trees were stopped to protect interactive responsiveness. This is not a full-suite pass and requires a clean-environment re-run.
