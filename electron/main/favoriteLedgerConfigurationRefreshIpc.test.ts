@@ -79,7 +79,7 @@ describe('favorite ledger configuration refresh IPC', () => {
     expect(accountOpen).toContain('const suppressedRemoteFolderIds = [...new Set([')
     expect(accountOpen).toContain('}).catch(() => undefined)')
     expect(accountOpen).toContain('await reconcileFavoriteLedgerBindingProjection(accountMid)')
-    expect(accountOpen).toContain('suppressedRemoteFolderIds\n      }).catch(() => undefined)')
+    expect(accountOpen).toMatch(/recoverPersistedManagedBindings\(accountMid,\s*\{[\s\S]*suppressedRemoteFolderIds[\s\S]*\}\)\.catch\(\(\) => undefined\)/)
   })
 
   it('feeds deleted recommendation remote ids into every account-open recovery gate', () => {
