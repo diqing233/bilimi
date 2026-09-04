@@ -16,7 +16,10 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, u
 import { createPortal } from 'react-dom'
 import { OldFavoriteModal } from './OldFavoriteModal'
 import { resolveSidebarTooltipPosition } from './sidebarTooltipPosition'
-import { managedFavoriteFolderDeletionSucceeded } from './managedFavoriteFolderDeletionFeedback'
+import {
+  managedFavoriteFolderDeletionFailureMessage,
+  managedFavoriteFolderDeletionSucceeded
+} from './managedFavoriteFolderDeletionFeedback'
 import {
   FavoriteLedgerEnableButton,
   FavoriteLedgerEnableStore,
@@ -125,6 +128,14 @@ type ManagedRemoteDeletionResult = {
     outcome: 'failed' | 'result-unknown'
     message: string
   }>
+}
+
+function managedDeletionErrorMessage(error: unknown) {
+  const detail = error instanceof Error ? error.message : ''
+  if (/csrf-missing|account-mismatch|account changed|remote account mismatch|page target is unavailable|target-unavailable|favorite-repository-binding-title-stale|remote folder verification failed|response-category=html|network-failure|remote-timeout|invalid-response|remote-ambiguous|http-status=/i.test(detail)) {
+    return managedFavoriteFolderDeletionFailureMessage(error)
+  }
+  return '删除未成功，请稍后重试。'
 }
 
 const LEDGER_SYNC_HINTS = [
@@ -1245,8 +1256,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       setDeletionConfirmed(false)
       setDeletionAcknowledgedUnbound(false)
       setDeletionError(null)
-    } catch {
-      setDeletionError('删除未成功，请稍后重试。')
+    } catch (error) {
+      setDeletionError(managedDeletionErrorMessage(error))
     }
   }
   const deletePersistedDraftLedgers = async (accountMid: string, ledgerIds: readonly string[]) => {
@@ -1480,7 +1491,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         : []
       const finalized = await finalizeManagedDeletionPlan({ ...deletionPlan, confirmedRemoteFolderIds }, accountMid, { localCleanupFailed })
       if (!finalized) return
-    } catch {
+    } catch (error) {
       const confirmedRemoteFolderIds = confirmedRemoteFolderIdsFromDeletionResult(remoteDeletionResult)
       const unknownRemoteFolderIds = isManagedRemoteDeletionResult(remoteDeletionResult)
         ? remoteDeletionResult.unknownRemoteFolderIds
@@ -1489,7 +1500,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         ? '删除结果待核对：B 站未返回可靠回执，请重新打开删除确认核对后再试。'
         : confirmedRemoteFolderIds.length
           ? 'B 站已删除，本地状态待保存，请刷新或重试。'
-          : '删除未成功，请稍后重试。')
+          : managedDeletionErrorMessage(error))
     } finally {
       setDeletionExecuting(false)
     }
