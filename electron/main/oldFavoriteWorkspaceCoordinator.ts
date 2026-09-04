@@ -1378,6 +1378,8 @@ export class OldFavoriteWorkspaceCoordinator {
     }
     const deletedDefaultLedgerIds = new Set(await this.options.getUserDeletedDefaultLedgerIds?.(workspace.accountMid) ?? [])
     const confirmedDeletedRemoteFolderIds = new Set((await this.options.getConfirmedDeletedRemoteFolderIds?.(workspace.accountMid) ?? [])
+      .map((folderId) => folderId.trim())
+      .filter(Boolean))
     const suppressedRemoteFolderIds = new Set((options.suppressedRemoteFolderIds ?? [])
       .map((folderId) => folderId.trim())
       .filter(Boolean))
