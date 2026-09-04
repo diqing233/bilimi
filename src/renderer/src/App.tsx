@@ -1612,6 +1612,199 @@ export default function App() {
     ]
   }
 
+  type FormalBoundFavoriteShard = {
+    logicalLedgerId: string
+    shardNumber: number
+    remoteFolderId: string
+    remoteTitle: string
+    remoteMemberCount?: number
+  }
+
+  type BoundRenameFailure = {
+    ledgerId: string
+    reason: string
+    detail: string
+  }
+
+  function favoriteLedgerBoundRenameFailure(error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error ?? '').trim()
+    if (/formal binding is absent/i.test(detail)) {
+      return { reason: '正式绑定分册不存在，已停止改名；请刷新收藏夹状态后重试。', detail }
+    }
+    if (/remote shard rename rejected/i.test(detail)) {
+      return { reason: 'B 站拒绝了已绑定收藏夹的改名，未重新绑定。请检查登录状态和名称后重试。', detail }
+    }
+    if (/remote shard rename result-unknown/i.test(detail)) {
+      return { reason: 'B 站改名结果暂时无法确认，已保留原正式绑定，请刷新后重试。', detail }
+    }
+    if (/remote shard rename is not confirmed/i.test(detail)) {
+      return { reason: 'B 站改名尚未得到确认，已保留原正式绑定，请刷新后重试。', detail }
+    }
+    if (/remote shard is absent from inventory/i.test(detail)) {
+      return { reason: '已绑定的 B 站收藏夹未出现在当前清单中，未重新绑定。请刷新后重试。', detail }
+    }
+    return { reason: '已绑定收藏夹改名未完成，未重新绑定或创建收藏夹，请稍后重试。', detail }
+  }
+
+  function boundRenameSnapshotShard(result: unknown, expected: FormalBoundFavoriteShard) {
+    const shards = result && typeof result === 'object' && !Array.isArray(result) &&
+      Array.isArray((result as { shards?: unknown }).shards)
+      ? (result as { shards: Array<{
+          logicalLedgerId?: unknown
+          shardNumber?: unknown
+          remoteFolderId?: unknown
+          remoteTitle?: unknown
+          remoteMemberCount?: unknown
+          bindingState?: unknown
+        }> }).shards
+      : []
+    return shards.find((shard) =>
+      shard.logicalLedgerId === expected.logicalLedgerId &&
+      shard.shardNumber === expected.shardNumber &&
+      shard.remoteFolderId === expected.remoteFolderId &&
+      shard.bindingState === 'bound' &&
+      typeof shard.remoteTitle === 'string' && shard.remoteTitle.trim()
+    )
+  }
+
+  function applyBoundRenameSnapshot(
+    ledger: FavoriteLedger,
+    result: unknown,
+    formalShards: readonly FormalBoundFavoriteShard[]
+  ): FavoriteLedger {
+    const resultShards = result && typeof result === 'object' && !Array.isArray(result) &&
+      Array.isArray((result as { shards?: unknown }).shards)
+      ? (result as { shards: Array<{
+          logicalLedgerId?: unknown
+          shardNumber?: unknown
+          remoteFolderId?: unknown
+          remoteTitle?: unknown
+          remoteMemberCount?: unknown
+          bindingState?: unknown
+        }> }).shards.filter((shard) =>
+          shard.logicalLedgerId === ledger.id && shard.bindingState === 'bound' &&
+          typeof shard.remoteFolderId === 'string' && shard.remoteFolderId.trim() &&
+          typeof shard.remoteTitle === 'string' && shard.remoteTitle.trim()
+        )
+      : []
+    const relevantShards = resultShards.length
+      ? resultShards
+      : formalShards
+        .filter((shard) => shard.logicalLedgerId === ledger.id)
+        .map((shard) => ({
+          logicalLedgerId: shard.logicalLedgerId,
+          shardNumber: shard.shardNumber,
+          remoteFolderId: shard.remoteFolderId,
+          remoteTitle: shard.remoteTitle,
+          remoteMemberCount: shard.remoteMemberCount,
+          bindingState: 'bound' as const
+        }))
+    if (!relevantShards.length) return ledger
+    const sorted = [...relevantShards].sort((left, right) => Number(left.shardNumber) - Number(right.shardNumber))
+    const primary = sorted.find((shard) => Number(shard.shardNumber) === 1) ?? sorted[0]
+    const remoteFolderIds = sorted
+      .map((shard) => String(shard.remoteFolderId ?? '').trim())
+      .filter(Boolean)
+    const memberCounts = sorted.map((shard) => Number(shard.remoteMemberCount)).filter((count) => Number.isSafeInteger(count) && count >= 0)
+    return {
+      ...ledger,
+      bilibiliFolderId: String(primary.remoteFolderId).trim(),
+      bilibiliFolderIds: [...new Set(remoteFolderIds)],
+      bilibiliFolderTitle: String(primary.remoteTitle).trim(),
+      ...(memberCounts.length === sorted.length ? { bilibiliFolderVideoCount: memberCounts.reduce((sum, count) => sum + count, 0) } : {}),
+      bindingState: 'bound' as const,
+      pendingRemoteBinding: false,
+      pendingRemoteFolderId: undefined,
+      pendingRemoteFolderTitle: undefined
+    }
+  }
+
+  async function renameExplicitlyBoundFavoriteLedgers(
+    accountMid: string,
+    ledgers: FavoriteLedger[],
+    formalShards: readonly FormalBoundFavoriteShard[],
+    targetLedgerIds: ReadonlySet<string>
+  ): Promise<{ ledgers: FavoriteLedger[]; renamedLedgerIds: Set<string>; failures: BoundRenameFailure[] }> {
+    const api = window.bilimiDesktop?.renameFavoriteRepositoryBoundLedgerShard
+    const updatedByLedgerId = new Map<string, FavoriteLedger>()
+    const renamedLedgerIds = new Set<string>()
+    const failures: BoundRenameFailure[] = []
+    for (const ledger of ledgers) {
+      if (!targetLedgerIds.has(ledger.id)) continue
+      const shards = formalShards
+        .filter((shard) => shard.logicalLedgerId === ledger.id)
+        .filter((shard, index, entries) => entries.findIndex((candidate) =>
+          candidate.remoteFolderId === shard.remoteFolderId && candidate.shardNumber === shard.shardNumber) === index)
+      if (!shards.length) continue
+      if (!api) {
+        // Older renderer bridges do not expose the new direct-rename channel.
+        // The current preload always does; keeping this as a no-op preserves
+        // compatibility for read-only/test bridges without opening a fallback
+        // adoption path when the channel is available.
+        continue
+      }
+      let updatedLedger = ledger
+      let ledgerFailed = false
+      for (const shard of shards) {
+        try {
+          const result = await api(accountMid, {
+            logicalLedgerId: shard.logicalLedgerId,
+            logicalTitle: ledger.displayName,
+            remoteFolderId: shard.remoteFolderId,
+            shardNumber: shard.shardNumber
+          })
+          if (!boundRenameSnapshotShard(result, shard)) {
+            throw new Error('Favorite repository bound shard rename returned no matching bound shard.')
+          }
+          updatedLedger = applyBoundRenameSnapshot(updatedLedger, result, formalShards)
+        } catch (error) {
+          const failure = favoriteLedgerBoundRenameFailure(error)
+          failures.push({ ledgerId: ledger.id, ...failure })
+          ledgerFailed = true
+          break
+        }
+      }
+      if (!ledgerFailed) {
+        updatedByLedgerId.set(ledger.id, updatedLedger)
+        renamedLedgerIds.add(ledger.id)
+      }
+    }
+    return {
+      ledgers: ledgers.map((ledger) => updatedByLedgerId.get(ledger.id) ?? ledger),
+      renamedLedgerIds,
+      failures
+    }
+  }
+
+  function mergeBoundRenameIntoAutomationResult(
+    result: AssistantAutomationResult & Partial<FavoriteLedgerStatus>,
+    renamedLedgers: FavoriteLedger[],
+    renamedLedgerIds: ReadonlySet<string>
+  ) {
+    if (!renamedLedgerIds.size) return result
+    const renamedById = new Map(renamedLedgers
+      .filter((ledger) => renamedLedgerIds.has(ledger.id))
+      .map((ledger) => [ledger.id, ledger]))
+    const resultLedgers = Array.isArray(result.ledgers) ? result.ledgers : []
+    const resultIds = new Set(resultLedgers.map((ledger) => ledger.id))
+    const ledgers = [
+      ...resultLedgers.map((ledger) => renamedById.get(ledger.id) ?? ledger),
+      ...renamedLedgers.filter((ledger) => renamedLedgerIds.has(ledger.id) && !resultIds.has(ledger.id))
+    ]
+    const remainingMissingTargets = (result.missingTargets ?? []).filter((target) => !renamedLedgerIds.has(target))
+    const remainingUnboundLedgerIds = (result.unboundLedgerIds ?? []).filter((id) => !renamedLedgerIds.has(id))
+    const remainingCandidates = (result.unboundCandidates ?? []).filter((entry) => !renamedLedgerIds.has(entry.ledgerId))
+    const hasRemainingFailure = remainingMissingTargets.length > 0 || remainingUnboundLedgerIds.length > 0 || remainingCandidates.length > 0
+    return {
+      ...result,
+      ledgers,
+      missingTargets: remainingMissingTargets,
+      unboundLedgerIds: remainingUnboundLedgerIds,
+      unboundCandidates: remainingCandidates,
+      ok: result.ok === true || !hasRemainingFailure
+    }
+  }
+
   async function projectFavoriteLedgersToFormalBindings(
     accountMid: string,
     favoriteLedgers: FavoriteLedger[],
@@ -1674,6 +1867,17 @@ export default function App() {
       shardNumbers.set(shard.remoteFolderId, shard.shardNumber)
       trustedRemoteShardNumbers.set(shard.logicalLedgerId, shardNumbers)
     }
+    const formalBoundShards: FormalBoundFavoriteShard[] = repositoryShards
+      .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId?.trim() && !managedFolderDeletedLedgerIds.has(shard.logicalLedgerId))
+      .map((shard) => ({
+        logicalLedgerId: shard.logicalLedgerId,
+        shardNumber: shard.shardNumber,
+        remoteFolderId: shard.remoteFolderId!.trim(),
+        remoteTitle: shard.remoteTitle,
+        ...(Number.isSafeInteger(shard.remoteMemberCount) && shard.remoteMemberCount >= 0
+          ? { remoteMemberCount: shard.remoteMemberCount }
+          : {})
+      }))
     // Older summaries may omit shard details, but an explicit zero means the
     // logical folder has no formal binding.  Never recover authority from a
     // stale logical-folder remote ID in that case.
@@ -1686,6 +1890,15 @@ export default function App() {
         }
         trustedRemoteFolderIds.set(folder.logicalLedgerId, [folder.remoteFolderId])
         trustedRemoteShardNumbers.set(folder.logicalLedgerId, new Map([[folder.remoteFolderId, 1]]))
+        formalBoundShards.push({
+          logicalLedgerId: folder.logicalLedgerId,
+          shardNumber: 1,
+          remoteFolderId: folder.remoteFolderId,
+          remoteTitle: folder.title,
+          ...(Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0
+            ? { remoteMemberCount: folder.memberCount }
+            : {})
+        })
       }
     }
 
@@ -1694,6 +1907,7 @@ export default function App() {
       trustedRemoteShardNumbers,
       remoteDraftKnownFolderIds: [...remoteDraftKnownFolderIds].sort(),
       remoteDraftBoundFolderIds: [...remoteDraftBoundFolderIds].sort(),
+      formalBoundShards,
       repositoryRevision: typeof repositorySummary?.revision === 'number' ? repositorySummary.revision : undefined,
       ledgers: favoriteLedgers.map((ledger) => {
         // A right-side local deletion deliberately resets a default rule while
@@ -1828,7 +2042,8 @@ export default function App() {
     resultLedgers: FavoriteLedger[],
     rebindRemoteFolderIds?: Record<string, string>,
     rebindRemoteFolders?: Record<string, Array<{ id: string; title: string; memberCount?: number; shardNumber?: number }>>,
-    trustedRemoteShardNumbers?: ReadonlyMap<string, ReadonlyMap<string, number>>
+    trustedRemoteShardNumbers?: ReadonlyMap<string, ReadonlyMap<string, number>>,
+    skipLedgerIds: ReadonlySet<string> = new Set()
   ): Promise<FavoriteLedgerBindingRegistrationResult> {
     const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const shardNumberFromTitle = (title: string, baseTitle: string): number | undefined => {
@@ -1858,6 +2073,7 @@ export default function App() {
       allowRemoteRename: boolean
     }> = []
     for (const ledger of resultLedgers) {
+      if (skipLedgerIds.has(ledger.id)) continue
       // A discovered same-name candidate remains explicitly unbound until the
       // owner confirms it in the rebind dialog. Older successful create
       // responses may omit bindingState, so only an explicit unbound state is
@@ -2466,11 +2682,32 @@ export default function App() {
       ledgers: ledgersWithFormalBindings,
       trustedRemoteShardNumbers,
       remoteDraftKnownFolderIds,
-      remoteDraftBoundFolderIds
+      remoteDraftBoundFolderIds,
+      formalBoundShards
     } = formalBindings
+    const explicitBackupTargetIds = new Set<string>([
+      ...(options?.backupTargetLedgerIds ?? []),
+      ...(options?.lightweightBackup === true ? [ledgerId] : [])
+    ])
+    const directRename = await renameExplicitlyBoundFavoriteLedgers(
+      accountMid,
+      ledgersWithFormalBindings,
+      formalBoundShards,
+      explicitBackupTargetIds
+    )
+    if (directRename.failures.length) {
+      const failed = directRename.failures[0]
+      return {
+        ok: false,
+        steps: ['favorite:bound-shard-rename'],
+        missingTargets: directRename.failures.map((failure) => failure.ledgerId),
+        message: failed.reason
+      }
+    }
+    const ledgersAfterDirectRename = directRename.ledgers
     const result = await runScript(
       buildEnsureFavoriteLedgersScript(
-        ledgersWithFormalBindings,
+        ledgersAfterDirectRename,
         {
           ...options,
           remoteDraftKnownFolderIds: [...new Set([
@@ -2481,10 +2718,11 @@ export default function App() {
         remoteDraftBoundFolderIds
       )
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
+    const mergedResult = mergeBoundRenameIntoAutomationResult(result, ledgersAfterDirectRename, directRename.renamedLedgerIds)
 
-    if (Array.isArray(result.ledgers)) {
-      const formalLedgerById = new Map(ledgersWithFormalBindings.map((ledger) => [ledger.id, ledger]))
-      const resultLedgers = result.ledgers.map((ledger) => {
+    if (Array.isArray(mergedResult.ledgers)) {
+      const formalLedgerById = new Map(ledgersAfterDirectRename.map((ledger) => [ledger.id, ledger]))
+      const resultLedgers = mergedResult.ledgers.map((ledger) => {
         const confirmedFolders = options?.rebindRemoteFolders?.[ledger.id] ?? []
         if (!confirmedFolders.length) return ledger
         const formalLedger = formalLedgerById.get(ledger.id)
@@ -2511,9 +2749,10 @@ export default function App() {
         resultLedgers,
         options?.rebindRemoteFolderIds,
         options?.rebindRemoteFolders,
-        trustedRemoteShardNumbers
+        trustedRemoteShardNumbers,
+        directRename.renamedLedgerIds
       )
-      const persistedLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult, ledgersWithFormalBindings)
+      const persistedLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult, ledgersAfterDirectRename)
       if (bindingResult.failures.length) {
         const nextPreferences = createInitialAssistantPreferences({
           ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgers)
@@ -2526,7 +2765,7 @@ export default function App() {
           setPreferences(savedPreferences)
         }
         return {
-          ...result,
+          ...mergedResult,
           ok: false,
           ledgers: persistedLedgers,
           unboundLedgerIds: bindingResult.failures.map((failure) => failure.ledgerId),
@@ -2549,10 +2788,10 @@ export default function App() {
       }
       favoriteLedgerStatusCacheRef.current = undefined
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
-      return { ...result, ledgers: persistedLedgers }
+      return { ...mergedResult, ledgers: persistedLedgers }
     }
 
-    return result
+    return mergedResult
   }
 
   async function saveFavoriteLedgers(
@@ -2648,16 +2887,34 @@ export default function App() {
       ledgers: ledgersWithFormalBindings,
       trustedRemoteShardNumbers,
       remoteDraftKnownFolderIds,
-      remoteDraftBoundFolderIds
+      remoteDraftBoundFolderIds,
+      formalBoundShards
     } = formalBindings
+    const directRename = await renameExplicitlyBoundFavoriteLedgers(
+      accountMid,
+      ledgersWithFormalBindings,
+      formalBoundShards,
+      backupTargetLedgerIdSet
+    )
+    if (directRename.failures.length) {
+      const failed = directRename.failures[0]
+      return {
+        ok: false,
+        steps: ['favorite:bound-shard-rename'],
+        missingTargets: directRename.failures.map((failure) => failure.ledgerId),
+        message: failed.reason
+      }
+    }
+    const ledgersAfterDirectRename = directRename.ledgers
 
     const result = await runScript(
-      buildSaveFavoriteLedgersScript(ledgersWithFormalBindings, previousLedgers, {
+      buildSaveFavoriteLedgersScript(ledgersAfterDirectRename, previousLedgers, {
         ...options,
         dismissedRemoteFolderIds,
         remoteDraftKnownFolderIds
       }, remoteDraftBoundFolderIds)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
+    const mergedResult = mergeBoundRenameIntoAutomationResult(result, ledgersAfterDirectRename, directRename.renamedLedgerIds)
     const refreshFavoriteLedgerStatusAfterBackup = async (preserveBoundLedgerIds: readonly string[] = []) => {
       if (!accountMid) return
       favoriteLedgerStatusCacheRef.current = null
@@ -2685,15 +2942,15 @@ export default function App() {
       favoriteLedgerStatusRefreshPromisesRef.current.set(accountMid, pending)
       await pending
     }
-    const observedRemoteOnlyDrafts = Array.isArray(result.remoteOnlyDraftLedgerIds) && result.remoteOnlyDraftLedgerIds.length > 0
+    const observedRemoteOnlyDrafts = Array.isArray(mergedResult.remoteOnlyDraftLedgerIds) && mergedResult.remoteOnlyDraftLedgerIds.length > 0
     const releaseObservedRemoteDraftRediscovery = async () => {
-      if (!options?.rediscoverDeletedRemoteDrafts || !(result.ok === true || observedRemoteOnlyDrafts)) return
+      if (!options?.rediscoverDeletedRemoteDrafts || !(mergedResult.ok === true || observedRemoteOnlyDrafts)) return
       await window.bilimiDesktop?.consumeFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid)
     }
 
-    if (Array.isArray(result.ledgers)) {
-      const formalLedgerById = new Map(ledgersWithFormalBindings.map((ledger) => [ledger.id, ledger]))
-      const resultLedgers = result.ledgers.map((ledger) => {
+    if (Array.isArray(mergedResult.ledgers)) {
+      const formalLedgerById = new Map(ledgersAfterDirectRename.map((ledger) => [ledger.id, ledger]))
+      const resultLedgers = mergedResult.ledgers.map((ledger) => {
         const confirmedFolders = options?.rebindRemoteFolders?.[ledger.id] ?? []
         if (!confirmedFolders.length) return ledger
         const formalLedger = formalLedgerById.get(ledger.id)
@@ -2716,13 +2973,14 @@ export default function App() {
       })
       const bindingResult = await registerNewFavoriteLedgerBindings(
         accountMid,
-        ledgersWithFormalBindings,
+        ledgersAfterDirectRename,
         resultLedgers,
         options?.rebindRemoteFolderIds,
         options?.rebindRemoteFolders,
-        trustedRemoteShardNumbers
+        trustedRemoteShardNumbers,
+        directRename.renamedLedgerIds
       )
-      const backupLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult, ledgersWithFormalBindings)
+      const backupLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult, ledgersAfterDirectRename)
       const remoteOperationLedgerIds = new Set(remoteOperationLedgers.map((ledger) => ledger.id))
       const formalRemoteFolderIdsByLedger = new Map(ledgersWithFormalBindings
         .filter((ledger) => ledger.bindingState === 'bound')
@@ -2776,7 +3034,7 @@ export default function App() {
         await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)
         window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
         return {
-          ...result,
+          ...mergedResult,
           ok: false,
           ledgers: persistedLedgersWithHistory,
           unboundLedgerIds: visibleFailures.map((failure) => failure.ledgerId),
@@ -2807,17 +3065,17 @@ export default function App() {
       await releaseObservedRemoteDraftRediscovery()
       await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
-      return { ...result, ledgers: persistedLedgersWithHistory }
+      return { ...mergedResult, ledgers: persistedLedgersWithHistory }
     }
 
-    return Array.isArray(result.ledgers) && options?.rebindRemoteFolders
-      ? { ...result, ledgers: result.ledgers.map((ledger) => {
+    return Array.isArray(mergedResult.ledgers) && options?.rebindRemoteFolders
+      ? { ...mergedResult, ledgers: mergedResult.ledgers.map((ledger) => {
         const confirmedFolders = options.rebindRemoteFolders?.[ledger.id] ?? []
         return confirmedFolders.length
           ? { ...ledger, bilibiliFolderId: confirmedFolders[0].id, bilibiliFolderIds: confirmedFolders.map((folder) => folder.id), bilibiliFolderTitle: confirmedFolders[0].title }
           : ledger
       }) }
-      : result
+      : mergedResult
   }
 
   async function openBilibiliFavorites(): Promise<AssistantAutomationResult> {

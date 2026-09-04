@@ -3062,6 +3062,170 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('directly renames an already formal bound shard during explicit backup without reopening rebind confirmation', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      displayName: 'bilimi·游戏专区哈哈',
+      bilibiliFolderId: '4106106611',
+      bilibiliFolderIds: ['4106106611'],
+      bilibiliFolderTitle: 'bilimi·游戏专区',
+      bindingState: 'bound' as const
+    }
+    const renameFavoriteRepositoryBoundLedgerShard = vi.fn().mockResolvedValue({
+      shards: [{
+        logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+        remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区哈哈',
+        bindingState: 'bound', remoteMemberCount: 0
+      }]
+    })
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn()
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      savePreferences,
+      adoptFavoriteRepositoryLedgerBinding,
+      renameFavoriteRepositoryBoundLedgerShard,
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-04T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 1,
+        physicalShards: [{
+          logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+          remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区', bindingState: 'bound'
+        }],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: true,
+        verified: true,
+        ledgers: [{ ...game, bilibiliFolderTitle: 'bilimi·游戏专区哈哈' }],
+        steps: ['api:ledger:list'], missingTargets: [], message: '已备册'
+      }))
+    })
+
+    await expect(requestRuntime({
+      id: 'rename-existing-bound-game', type: 'save-ledgers', ledgers: [game],
+      options: { backupTargetLedgerIds: ['game'], rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({
+      ok: true,
+      ledgers: expect.arrayContaining([expect.objectContaining({
+        id: 'game', bindingState: 'bound', bilibiliFolderId: '4106106611',
+        bilibiliFolderTitle: 'bilimi·游戏专区哈哈'
+      })])
+    })
+
+    expect(renameFavoriteRepositoryBoundLedgerShard).toHaveBeenCalledWith(accountMid, {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1
+    })
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        [accountMid]: expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([
+            expect.objectContaining({ id: 'game', bindingState: 'bound', bilibiliFolderTitle: 'bilimi·游戏专区哈哈' })
+          ])
+        })
+      })
+    }))
+  })
+
+  it('does not rename a bound shard during a local-only rule save', async () => {
+    const renameFavoriteRepositoryBoundLedgerShard = vi.fn()
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          '100': { defaultFavoriteSystemEnabled: true, favoriteLedgers: createDefaultFavoriteLedgers() }
+        }
+      })),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      renameFavoriteRepositoryBoundLedgerShard
+    })
+
+    const nextLedgers = createDefaultFavoriteLedgers().map((ledger) => ledger.id === game.id
+      ? { ...ledger, displayName: 'bilimi·游戏专区哈哈', bindingState: 'bound' as const,
+          bilibiliFolderId: '4106106611', bilibiliFolderIds: ['4106106611'] }
+      : ledger)
+    await expect(requestRuntime({
+      id: 'local-save-does-not-rename-bound-shard', type: 'save-ledgers', ledgers: nextLedgers
+    })).resolves.toMatchObject({ ok: true })
+
+    expect(renameFavoriteRepositoryBoundLedgerShard).not.toHaveBeenCalled()
+  })
+
+  it('uses the direct rename transaction for an explicit single-ledger backup', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      displayName: 'bilimi·游戏专区哈哈',
+      bilibiliFolderId: '4106106611',
+      bilibiliFolderIds: ['4106106611'],
+      bilibiliFolderTitle: 'bilimi·游戏专区',
+      bindingState: 'bound' as const
+    }
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [game] }
+      }
+    })
+    const renameFavoriteRepositoryBoundLedgerShard = vi.fn().mockResolvedValue({
+      shards: [{
+        logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+        remoteTitle: 'bilimi·游戏专区哈哈', bindingState: 'bound', remoteMemberCount: 0
+      }]
+    })
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn()
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      savePreferences,
+      renameFavoriteRepositoryBoundLedgerShard,
+      adoptFavoriteRepositoryLedgerBinding,
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-04T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 1,
+        physicalShards: [{ logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+          remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区', bindingState: 'bound' }],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: true, verified: true, ledgers: [game], steps: ['api:ledger:list'], missingTargets: [], message: '已备册'
+      }))
+    })
+
+    await expect(requestRuntime({
+      id: 'rename-single-bound-game', type: 'ensure-ledger', logicalFolderId: 'bilimi-logical:game',
+      options: { lightweightBackup: true }
+    })).resolves.toMatchObject({ ok: true })
+    expect(renameFavoriteRepositoryBoundLedgerShard).toHaveBeenCalledWith(accountMid, {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1
+    })
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        [accountMid]: expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([
+            expect.objectContaining({ id: 'game', bindingState: 'bound', bilibiliFolderTitle: 'bilimi·游戏专区哈哈' })
+          ])
+        })
+      })
+    }))
+  })
+
   it('registers a same-title recovery folder after the formally bound main shard', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!

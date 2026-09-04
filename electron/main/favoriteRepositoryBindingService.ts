@@ -37,6 +37,13 @@ export type AdoptExistingPhysicalShardInput = {
   allowRemoteRename?: boolean
 }
 
+export type RenameBoundPhysicalShardInput = {
+  logicalLedgerId: string
+  logicalTitle: string
+  remoteFolderId: string
+  shardNumber: number
+}
+
 export type FavoriteRepositoryBindingSnapshot = {
   logicalLedgers: Array<{ id: string; title: string; syncState: 'bound' | 'pending-reconcile' }>
   shards: Array<{
@@ -167,6 +174,17 @@ function normalizeAdoptionInput(input: AdoptExistingPhysicalShardInput) {
   return { logicalLedgerId, logicalTitle, remoteFolderId, expectedRemoteTitle, memberAids, allowRemoteRename: input.allowRemoteRename === true }
 }
 
+function normalizeBoundRenameInput(input: RenameBoundPhysicalShardInput) {
+  const logicalLedgerId = input.logicalLedgerId.trim()
+  const logicalTitle = input.logicalTitle.trim()
+  const remoteFolderId = input.remoteFolderId.trim()
+  if (!logicalLedgerId || !logicalTitle || !remoteFolderId ||
+    !Number.isSafeInteger(input.shardNumber) || input.shardNumber < 1) {
+    throw new Error('Favorite repository bound shard rename is invalid.')
+  }
+  return { logicalLedgerId, logicalTitle, remoteFolderId, shardNumber: input.shardNumber }
+}
+
 function bindingSnapshot(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositoryBindingSnapshot {
   const logicalLedgers = snapshot.folders
     .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
@@ -213,6 +231,126 @@ export class FavoriteRepositoryBindingService {
     const account = normalizedAccountMid(accountMid)
     return this.options.remoteOperations?.run(account, () => this.adoptExistingPhysicalShardUnsafe(account, input)) ??
       this.adoptExistingPhysicalShardUnsafe(account, input)
+  }
+
+  /**
+   * Renames an already formalized physical shard. This is deliberately
+   * separate from adoption: an existing remote binding is never re-claimed,
+   * substituted by a matching title, or created again just because its title
+   * drifted from the current logical display title.
+   */
+  async renameBoundPhysicalShard(accountMid: string, input: RenameBoundPhysicalShardInput) {
+    const account = normalizedAccountMid(accountMid)
+    return this.options.remoteOperations?.run(account, () => this.renameBoundPhysicalShardUnsafe(account, input)) ??
+      this.renameBoundPhysicalShardUnsafe(account, input)
+  }
+
+  private async renameBoundPhysicalShardUnsafe(account: string, input: RenameBoundPhysicalShardInput) {
+    const normalized = normalizeBoundRenameInput(input)
+    const snapshot = await this.options.repository.getSnapshot(account)
+    const exactExisting = snapshot.physicalShards.find((shard) =>
+      shard.logicalLedgerId === normalized.logicalLedgerId &&
+      shard.shardNumber === normalized.shardNumber &&
+      shard.remoteFolderId === normalized.remoteFolderId &&
+      shard.bindingState === 'bound')
+    if (!exactExisting) throw new Error('Favorite repository formal binding is absent.')
+
+    const pageBridgeManager = this.options.pageBridgeManager
+    if (!pageBridgeManager) throw new Error('Favorite repository page bridge is unavailable.')
+    const runId = `favorite-bound-rename:${normalized.logicalLedgerId}:${normalized.shardNumber}:${randomUUID()}`
+    const expectedManagedTitle = favoriteRepositoryManagedShardTitleForDisplay(
+      normalized.logicalLedgerId, normalized.shardNumber, 'bound-rename', normalized.logicalTitle
+    )
+    await pageBridgeManager.bind(account, runId)
+    try {
+      const bridge = pageBridgeManager.pageBridge(account, runId)
+      let inventory
+      try {
+        inventory = await bridge.readFolderInventory({
+          accountMid: account,
+          operationKey: `${runId}:inventory:${normalized.remoteFolderId}`
+        })
+      } catch {
+        throw new Error('Favorite repository remote folder inventory is unavailable.')
+      }
+      if (normalizedAccountMid(inventory.observedAccountMid) !== account) {
+        throw new Error('Favorite repository remote account mismatch.')
+      }
+      const exactRemoteMatches = inventory.folders.filter((folder) => folder.id === normalized.remoteFolderId)
+      if (exactRemoteMatches.length !== 1) throw new Error('Favorite repository remote shard is absent from inventory.')
+      let remote = exactRemoteMatches[0]
+      if (!Number.isSafeInteger(remote.memberCount) || remote.memberCount < 0 ||
+        remote.memberCount > REMOTE_FAVORITE_SHARD_CAPACITY) {
+        throw new Error('Favorite repository remote shard inventory is invalid.')
+      }
+
+      const requiresRename = comparableManagedShardTitle(remote.title) !== comparableManagedShardTitle(expectedManagedTitle)
+      if (requiresRename) {
+        const renameResult = await bridge.renameFolder({
+          accountMid: account,
+          operationKey: `${runId}:rename:${normalized.remoteFolderId}`,
+          folderId: normalized.remoteFolderId,
+          title: expectedManagedTitle
+        })
+        if (renameResult?.status === 'rejected') throw remoteRenameFailure(renameResult)
+        const renameResultUnknown = renameResult?.status === 'unknown'
+        let verifiedRemote: FavoriteRepositoryRemoteFolderInventory | undefined
+        for (const [attempt, delayMs] of EXPLICIT_RENAME_CONFIRMATION_RETRY_DELAYS.entries()) {
+          if (attempt > 0) await this.waitForInventoryRetry(delayMs)
+          let verifiedInventory
+          try {
+            verifiedInventory = await bridge.readFolderInventory({
+              accountMid: account,
+              operationKey: `${runId}:verify-rename:${normalized.remoteFolderId}${attempt ? `-recheck-${attempt}` : ''}`
+            })
+          } catch {
+            if (renameResultUnknown) throw remoteRenameFailure(renameResult)
+            throw new Error('Favorite repository remote shard rename is not confirmed.')
+          }
+          if (normalizedAccountMid(verifiedInventory.observedAccountMid) !== account) {
+            throw new Error('Favorite repository remote account mismatch.')
+          }
+          const verifiedMatches = verifiedInventory.folders.filter((folder) => folder.id === normalized.remoteFolderId)
+          if (verifiedMatches.length === 1 &&
+            comparableManagedShardTitle(verifiedMatches[0].title) === comparableManagedShardTitle(expectedManagedTitle)) {
+            verifiedRemote = verifiedMatches[0]
+            break
+          }
+        }
+        if (!verifiedRemote) {
+          if (renameResultUnknown) throw remoteRenameFailure(renameResult)
+          throw new Error('Favorite repository remote shard rename is not confirmed.')
+        }
+        remote = verifiedRemote
+      }
+
+      if (comparableManagedShardTitle(exactExisting.remoteTitle) === comparableManagedShardTitle(remote.title)) {
+        return this.getBindings(account)
+      }
+      const existingLogicalTitle = snapshot.folders.find((folder) =>
+        folder.kind === 'bilimi-logical' && folder.logicalLedgerId === normalized.logicalLedgerId)?.title
+      await this.options.repository.commit(account, {
+        id: requiresRename
+          ? `favorite-bound-rename:${normalized.logicalLedgerId}:${normalized.shardNumber}:${normalized.remoteFolderId}:${randomUUID()}`
+          : `favorite-bound-rename-title-repair:${normalized.logicalLedgerId}:${normalized.shardNumber}:${normalized.remoteFolderId}:${randomUUID()}`,
+        accountMid: account,
+        issuedAt: this.now(),
+        type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId: normalized.logicalLedgerId,
+          logicalTitle: existingLogicalTitle ?? normalized.logicalTitle,
+          shardNumber: normalized.shardNumber,
+          memberAids: snapshot.memberships[exactExisting.folderId] ?? [],
+          remoteTitle: remote.title,
+          bindingState: 'bound',
+          remoteFolderId: normalized.remoteFolderId,
+          remoteMemberCount: remote.memberCount
+        }
+      })
+      return this.getBindings(account)
+    } finally {
+      pageBridgeManager.release(account, runId)
+    }
   }
 
   private async adoptExistingPhysicalShardUnsafe(account: string, input: AdoptExistingPhysicalShardInput) {

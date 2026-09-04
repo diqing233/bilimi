@@ -55,6 +55,55 @@ describe('registerFavoriteRepositoryIpc', () => {
     })
   })
 
+  it('renames only an explicitly addressed formally bound shard without adoption', async () => {
+    const ipcMain = new FakeIpcMain()
+    const renameBoundPhysicalShard = vi.fn().mockResolvedValue({ logicalLedgerId: 'game' })
+    const adoptExistingPhysicalShard = vi.fn()
+    const onLedgerBindingAdopted = vi.fn().mockResolvedValue(undefined)
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary: vi.fn() } as never,
+      bindingService: { adoptExistingPhysicalShard, renameBoundPhysicalShard },
+      onLedgerBindingAdopted,
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:rename-bound-ledger-shard', 7, '100', {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1
+    })).resolves.toEqual({ logicalLedgerId: 'game' })
+
+    expect(renameBoundPhysicalShard).toHaveBeenCalledWith('100', {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1
+    })
+    expect(adoptExistingPhysicalShard).not.toHaveBeenCalled()
+    expect(onLedgerBindingAdopted).toHaveBeenCalledWith('100', 'game')
+  })
+
+  it('rejects an invalid or failed bound-shard rename before preference projection', async () => {
+    const ipcMain = new FakeIpcMain()
+    const renameBoundPhysicalShard = vi.fn().mockRejectedValue(new Error('bound shard is absent'))
+    const onLedgerBindingAdopted = vi.fn()
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary: vi.fn() } as never,
+      bindingService: { adoptExistingPhysicalShard: vi.fn(), renameBoundPhysicalShard },
+      onLedgerBindingAdopted,
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:rename-bound-ledger-shard', 7, '100', {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteFolderId: '', shardNumber: 1
+    })).rejects.toThrow('input is invalid')
+    expect(renameBoundPhysicalShard).not.toHaveBeenCalled()
+
+    await expect(ipcMain.invoke('favorite-repository:rename-bound-ledger-shard', 7, '100', {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteFolderId: '4106106611', shardNumber: 1
+    })).rejects.toThrow('bound shard is absent')
+    expect(onLedgerBindingAdopted).not.toHaveBeenCalled()
+  })
+
   it('notifies preference persistence only after formal ledger adoption succeeds', async () => {
     const ipcMain = new FakeIpcMain()
     const adoptExistingPhysicalShard = vi.fn().mockResolvedValue({ logicalLedgerId: 'music' })

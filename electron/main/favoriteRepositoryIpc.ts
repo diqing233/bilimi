@@ -413,6 +413,12 @@ export function registerFavoriteRepositoryIpc(options: {
       memberAids: number[]
       allowRemoteRename?: boolean
     }) => Promise<unknown>
+    renameBoundPhysicalShard?: (accountMid: string, input: {
+      logicalLedgerId: string
+      logicalTitle: string
+      remoteFolderId: string
+      shardNumber: number
+    }) => Promise<unknown>
     previewLedgerBindingCandidates?: (accountMid: string, ledgers: Array<{ ledgerId: string; title: string }>) => Promise<Array<{
       ledgerId: string
       candidates: Array<{ id: string; title: string; memberCount: number }>
@@ -536,6 +542,33 @@ export function registerFavoriteRepositoryIpc(options: {
       // follow-up preference projection can retry on the next account refresh
       // but must not turn this completed exact-ID adoption into a false remote
       // binding failure for the confirmation dialog.
+    }
+    return result
+  })
+  options.ipcMain.handle('favorite-repository:rename-bound-ledger-shard', async (event, requestedAccountMid: string, requestedInput: unknown) => {
+    assertTrusted(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    if (!options.bindingService?.renameBoundPhysicalShard) throw new Error('Favorite repository bound shard rename is unavailable.')
+    if (!requestedInput || typeof requestedInput !== 'object' || Array.isArray(requestedInput)) {
+      throw new Error('Favorite repository bound shard rename input is invalid.')
+    }
+    const input = requestedInput as Record<string, unknown>
+    const logicalLedgerId = typeof input.logicalLedgerId === 'string' ? input.logicalLedgerId.trim() : ''
+    const logicalTitle = typeof input.logicalTitle === 'string' ? input.logicalTitle.trim() : ''
+    const remoteFolderId = typeof input.remoteFolderId === 'string' ? input.remoteFolderId.trim() : ''
+    const shardNumber = Number(input.shardNumber)
+    if (!logicalLedgerId || !logicalTitle || !remoteFolderId || !Number.isSafeInteger(shardNumber) || shardNumber < 1) {
+      throw new Error('Favorite repository bound shard rename input is invalid.')
+    }
+    const result = await options.bindingService.renameBoundPhysicalShard(accountMid, {
+      logicalLedgerId, logicalTitle, remoteFolderId, shardNumber
+    })
+    try {
+      await options.onLedgerBindingAdopted?.(accountMid, logicalLedgerId)
+    } catch {
+      // The authoritative exact-ID title update already committed. Preference
+      // projection can safely catch up during a later account refresh.
     }
     return result
   })
