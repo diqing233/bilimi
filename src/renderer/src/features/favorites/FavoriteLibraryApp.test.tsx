@@ -2723,6 +2723,35 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(synchronizeFavoriteLibraryPlacements).toHaveBeenNthCalledWith(1, '100', { kind: 'aids', aids: [1] }))
     await waitFor(() => expect(synchronizeFavoriteLibraryPlacements).toHaveBeenNthCalledWith(2, '100', { kind: 'aids', aids: [2] }))
   })
+  it('reports queued and result-unknown batch sync outcomes separately from failures', async () => {
+    const synchronizeFavoriteLibraryPlacements = vi.fn()
+      .mockResolvedValueOnce({ status: 'queued', completedOperationCount: 0, totalOperationCount: 1 })
+      .mockResolvedValueOnce({ status: 'result-unknown', completedOperationCount: 0, totalOperationCount: 1 })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 2, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 1, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, totalCount: 2, items: [
+        { video: { aid: 1, title: '排队同步视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] },
+        { video: { aid: 2, title: '待确认同步视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }
+      ] }),
+      synchronizeFavoriteLibraryPlacements,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 排队同步视频' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 待确认同步视频' }))
+    fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步到B站' }))
+
+    await waitFor(() => expect(synchronizeFavoriteLibraryPlacements).toHaveBeenNthCalledWith(2, '100', { kind: 'aids', aids: [2] }))
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent('同步完成：0/2')
+    expect(status).toHaveTextContent('排队 1')
+    expect(status).toHaveTextContent('结果待确认 1')
+    expect(status).not.toHaveTextContent('失败')
+  })
   it('does not offer singleton move outside a bilimi logical folder scope', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -3097,7 +3126,7 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).toHaveTextContent('收藏归属')
     expect(detail).toHaveTextContent('收藏库归属：音乐')
     expect(detail).toHaveTextContent('B站收藏夹：音乐')
-    expect(detail).toHaveTextContent('归属状态：已同步')
+    expect(detail).toHaveTextContent('归属状态：位置一致')
     expect(detail).toHaveTextContent('已整理')
     expect(detail).toHaveTextContent('已保护')
     expect(detail).toHaveTextContent('已同步')
@@ -3406,11 +3435,11 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('Refresh keeps detail'))
     expect(await screen.findByRole('button', { name: '同步状态说明' })).toHaveTextContent('未同步')
-    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('归属状态：未同步')
+    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('归属状态：归属不一致')
     revision = 3
     await act(async () => { notifyRepositoryChange?.() })
     await waitFor(() => expect(screen.getByRole('button', { name: '同步状态说明' })).toHaveTextContent('已同步'))
-    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('归属状态：已同步')
+    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('归属状态：位置一致')
     expect(getFavoriteRepositoryLibraryVideoDetail).toHaveBeenCalledTimes(2)
   })
 

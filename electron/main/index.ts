@@ -2008,6 +2008,7 @@ function registerAssistantPreferenceHandlers() {
         payload: { remoteFolderId }
       })
     }
+    await refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid)
     notifyFloatingAssistantSnapshotChanged()
     return { status: 'succeeded' as const, ledgerIds: selectedLedgerIds, remoteFolderIds }
   })

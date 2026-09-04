@@ -696,7 +696,7 @@ export function FavoriteLibraryApp({
   const [workspaceSyncSelection, setWorkspaceSyncSelection] = useState<string[]>([])
   const [workspaceSyncConfirmationOpen, setWorkspaceSyncConfirmationOpen] = useState(false)
   const [workspaceSyncExecuting, setWorkspaceSyncExecuting] = useState(false)
-  const [batchSyncRun, setBatchSyncRun] = useState<{ status: 'running' | 'paused' | 'completed' | 'stopped'; completed: number; total: number; failed: number }>()
+  const [batchSyncRun, setBatchSyncRun] = useState<{ status: 'running' | 'paused' | 'completed' | 'stopped'; completed: number; total: number; failed: number; queued: number; unknown: number }>()
   const batchSyncPauseRef = useRef(false)
   const batchSyncStopRef = useRef(false)
   const [workspaceBindingCandidates, setWorkspaceBindingCandidates] = useState<LightweightBackupBindingCandidate[]>()
@@ -1317,6 +1317,9 @@ export function FavoriteLibraryApp({
   const runAction = async (action: () => Promise<unknown>) => {
     try {
       setError(undefined)
+      setWorkspaceSyncResult(undefined)
+      setBatchEligibilityNotice(undefined)
+      setBatchSyncRun(undefined)
       await action()
       if (accountMid) await refresh(accountMid)
     } catch (error) {
@@ -1326,6 +1329,9 @@ export function FavoriteLibraryApp({
   const runDetailAction = async (action: () => Promise<void>, refreshLibrary = false) => {
     try {
       setError(undefined)
+      setWorkspaceSyncResult(undefined)
+      setBatchEligibilityNotice(undefined)
+      setBatchSyncRun(undefined)
       await action()
       if (refreshLibrary && accountMid) {
         await refresh(accountMid)
@@ -1340,6 +1346,9 @@ export function FavoriteLibraryApp({
   const runBatchPlacementSync = async (selection: FavoriteLibraryOperationSelection, aids: number[]) => {
     const api = window.bilimiDesktop
     if (!accountMid || !api?.synchronizeFavoriteLibraryPlacements) throw new Error(text.unavailable)
+    setError(undefined)
+    setWorkspaceSyncResult(undefined)
+    setBatchEligibilityNotice(undefined)
     let resolvedAids: number[]
     if (!Array.isArray(selection) && api.resolveFavoriteLibrarySelection) {
       resolvedAids = await api.resolveFavoriteLibrarySelection(accountMid, selection)
@@ -1348,9 +1357,16 @@ export function FavoriteLibraryApp({
       // existing scope call as a compatibility fallback.
       batchSyncPauseRef.current = false
       batchSyncStopRef.current = false
-      setBatchSyncRun({ status: 'running', completed: 0, total: Math.max(0, aids.length), failed: 0 })
+      setBatchSyncRun({ status: 'running', completed: 0, total: Math.max(0, aids.length), failed: 0, queued: 0, unknown: 0 })
       const result = await api.synchronizeFavoriteLibraryPlacements(accountMid, selection)
-      setBatchSyncRun({ status: result.status === 'succeeded' ? 'completed' : 'stopped', completed: result.completedOperationCount ?? 0, total: result.totalOperationCount ?? aids.length, failed: result.status === 'failed' ? 1 : 0 })
+      setBatchSyncRun({
+        status: 'completed',
+        completed: result.status === 'succeeded' ? result.completedOperationCount ?? 0 : 0,
+        total: result.totalOperationCount ?? aids.length,
+        failed: result.status === 'failed' ? 1 : 0,
+        queued: result.status === 'queued' ? 1 : 0,
+        unknown: result.status === 'result-unknown' ? 1 : 0
+      })
       await refresh(accountMid)
       return
     } else {
@@ -1359,9 +1375,11 @@ export function FavoriteLibraryApp({
     const uniqueAids = [...new Set(resolvedAids)].sort((left, right) => left - right)
     batchSyncPauseRef.current = false
     batchSyncStopRef.current = false
-    setBatchSyncRun({ status: 'running', completed: 0, total: uniqueAids.length, failed: 0 })
+    setBatchSyncRun({ status: 'running', completed: 0, total: uniqueAids.length, failed: 0, queued: 0, unknown: 0 })
     let completed = 0
     let failed = 0
+    let queued = 0
+    let unknown = 0
     for (const aid of uniqueAids) {
       if (batchSyncStopRef.current) break
       while (batchSyncPauseRef.current && !batchSyncStopRef.current) {
@@ -1372,14 +1390,15 @@ export function FavoriteLibraryApp({
       try {
         const result = await api.synchronizeFavoriteLibraryPlacements(accountMid, { kind: 'aids', aids: [aid] })
         if (result.status === 'succeeded') completed += result.completedOperationCount ?? 1
-        else failed += 1
+        else if (result.status === 'queued') queued += 1
+        else if (result.status === 'result-unknown') unknown += 1
+        else if (result.status === 'failed') failed += 1
       } catch {
         failed += 1
       }
-      setBatchSyncRun({ status: 'running', completed, total: uniqueAids.length, failed })
-      await refresh(accountMid)
+      setBatchSyncRun({ status: 'running', completed, total: uniqueAids.length, failed, queued, unknown })
     }
-    setBatchSyncRun({ status: batchSyncStopRef.current ? 'stopped' : failed ? 'completed' : 'completed', completed, total: uniqueAids.length, failed })
+    setBatchSyncRun({ status: batchSyncStopRef.current ? 'stopped' : 'completed', completed, total: uniqueAids.length, failed, queued, unknown })
     await refresh(accountMid)
   }
   const applyLibraryStateFilters = (next: FavoriteLibraryStateFilterSelection) => {
@@ -2227,6 +2246,27 @@ export function FavoriteLibraryApp({
     return typeof document === 'undefined' ? null : createPortal(picker, document.body)
   }
 
+  const workspaceFeedbackContent = (() => {
+    if (error) {
+      return <p role="alert" className="favorite-library__error">{error}</p>
+    }
+    if (batchSyncRun) {
+      return batchSyncRun.status === 'running' || batchSyncRun.status === 'paused'
+        ? <div className="favorite-library__batch-sync-status" role="status">
+          <span>{`同步进度：${batchSyncRun.completed}/${batchSyncRun.total}${batchSyncRun.queued ? `，排队 ${batchSyncRun.queued}` : ''}${batchSyncRun.unknown ? `，结果待确认 ${batchSyncRun.unknown}` : ''}${batchSyncRun.failed ? `，失败 ${batchSyncRun.failed}` : ''}`}</span>
+          <button type="button" onClick={() => { batchSyncPauseRef.current = !batchSyncPauseRef.current; setBatchSyncRun((current) => current ? { ...current, status: batchSyncPauseRef.current ? 'paused' : 'running' } : current) }}>{batchSyncPauseRef.current ? '继续同步' : '暂停同步'}</button>
+          <button type="button" onClick={() => { batchSyncStopRef.current = true; batchSyncPauseRef.current = false; setBatchSyncRun((current) => current ? { ...current, status: 'stopped' } : current) }}>结束整理</button>
+        </div>
+        : <p className="favorite-library__batch-sync-status" role="status">{batchSyncRun.status === 'stopped' ? `同步已结束：${batchSyncRun.completed}/${batchSyncRun.total}` : `同步完成：${batchSyncRun.completed}/${batchSyncRun.total}`}{batchSyncRun.queued ? `，排队 ${batchSyncRun.queued}` : ''}{batchSyncRun.unknown ? `，结果待确认 ${batchSyncRun.unknown}` : ''}{batchSyncRun.failed ? `，失败 ${batchSyncRun.failed}` : ''}</p>
+    }
+    if (workspaceSyncResult) return <p role="status">{workspaceSyncResult}</p>
+    if (batchEligibilityNotice) return <p role="alert">{batchEligibilityNotice}</p>
+    return null
+  })()
+  const workspaceFeedback = workspaceFeedbackContent
+    ? <div className="favorite-library__workspace-feedback" data-testid="favorite-library-workspace-feedback" aria-live="polite">{workspaceFeedbackContent}</div>
+    : null
+
   return (
     <main className="favorite-library" data-embedded={embedded || undefined} aria-label={text.library}>
       {embedded ? null : <div className="favorite-library__header-spacer" aria-hidden="true" />}
@@ -2276,7 +2316,6 @@ export function FavoriteLibraryApp({
           })() : null}
         </div> : null}
       </section> : null}
-      {error ? <p role="alert" className="favorite-library__error">{error}</p> : null}
       {!embedded && remoteReconciliations.filter((item) => item.kind === 'unfavorite').length ? <div className="favorite-library__remote-reconciliation" role="status">
         <p>远程结果待确认：请先逐项对账，不能自动重试或再次执行。</p>
         {remoteReconciliations.filter((item) => item.kind === 'unfavorite').map((remoteReconciliation) => <button key={`${remoteReconciliation.kind}:${remoteReconciliation.operationId}`} type="button" onClick={() => void runDetailAction(() => reconcileRemoteOperation(remoteReconciliation))}>对账取消收藏结果</button>)}
@@ -2489,10 +2528,10 @@ export function FavoriteLibraryApp({
             }
           }}
         />
-        {workspaceSyncResult ? <p className="favorite-library__batch-eligibility" role="status">{workspaceSyncResult}</p> : null}
         <section className="favorite-library__results" aria-label={text.results}>
           <div className="favorite-library__workspace-heading">
             <h2 {...(!page ? { role: 'status', 'aria-label': workspaceTitle } : {})}>{workspaceTitle}{workspaceVideoCount !== undefined ? <small className="favorite-library__workspace-video-count"> {workspaceVideoCount} 个视频</small> : null}</h2>
+            {workspaceFeedback}
             {currentLedgerBindingStatus ? <span className="favorite-library__ledger-binding-status" data-state={currentLedgerBindingStatus.kind}>
               <strong>{currentLedgerBindingStatus.label}</strong>
               {currentLedgerBindingStatus.actionLabel && currentFolder?.logicalLedgerId ? <button type="button" onClick={() => void runAction(async () => {
@@ -2652,12 +2691,6 @@ export function FavoriteLibraryApp({
               setBatchRemoteDeletionChoice({ selection, requestedAids: Array.isArray(selection) ? selection : [], includeOtherWorkFolders: false })
             }
           }}>
-            {batchEligibilityNotice ? <p role="alert" className="favorite-library__batch-eligibility">{batchEligibilityNotice}</p> : null}
-            {batchSyncRun && (batchSyncRun.status === 'running' || batchSyncRun.status === 'paused') ? <div className="favorite-library__batch-sync-status" role="status">
-              <span>{`同步进度：${batchSyncRun.completed}/${batchSyncRun.total}${batchSyncRun.failed ? `，失败 ${batchSyncRun.failed}` : ''}`}</span>
-              <button type="button" onClick={() => { batchSyncPauseRef.current = !batchSyncPauseRef.current; setBatchSyncRun((current) => current ? { ...current, status: batchSyncPauseRef.current ? 'paused' : 'running' } : current) }}>{batchSyncPauseRef.current ? '继续同步' : '暂停同步'}</button>
-              <button type="button" onClick={() => { batchSyncStopRef.current = true; batchSyncPauseRef.current = false; setBatchSyncRun((current) => current ? { ...current, status: 'stopped' } : current) }}>结束整理</button>
-            </div> : batchSyncRun ? <p className="favorite-library__batch-sync-status" role="status">{batchSyncRun.status === 'stopped' ? `同步已结束：${batchSyncRun.completed}/${batchSyncRun.total}` : `同步完成：${batchSyncRun.completed}/${batchSyncRun.total}`}{batchSyncRun.failed ? `，失败 ${batchSyncRun.failed}` : ''}</p> : null}
           </FavoriteLibraryToolbar>
           }}</FavoriteLibrarySelectionSubscriber>
           <div className="favorite-library__list-card">
