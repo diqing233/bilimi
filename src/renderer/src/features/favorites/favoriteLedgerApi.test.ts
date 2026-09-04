@@ -1073,6 +1073,25 @@ describe('favorite ledger API scripts', () => {
     expect(result.missingLedgerIds).toContain('unbacked-enabled')
   })
 
+  it('does not report a completed verification when an enabled unbacked ledger is missing', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([{
+      id: 'unbacked-message', displayName: 'bilimi·未备册提示', keywords: [], enabled: true, priority: 1, isDefault: false,
+      bindingState: 'unbacked'
+    }])) as { ok: boolean; missingLedgerIds: string[]; message: string }
+
+    expect(result.ok).toBe(false)
+    expect(result.missingLedgerIds).toEqual(['unbacked-message'])
+    expect(result.message).not.toBe('册目查验已毕。')
+  })
+
   it('treats a bound folder with a changed title as an unbound exact-id candidate', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -1130,6 +1149,50 @@ describe('favorite ledger API scripts', () => {
       bindingState: 'unbound',
       syncState: 'local-draft'
     })])
+  })
+
+  it('removes an existing pure remote observation draft when its exact folder id is suppressed', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·你好', media_count: 6 }, { id: 89, title: 'bilimi·你好', media_count: 3 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([
+      {
+        id: createRemoteObservationFavoriteLedgerId('88'), displayName: 'bilimi·你好', keywords: [], enabled: false, priority: 1,
+        bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+      },
+      {
+        id: createRemoteObservationFavoriteLedgerId('89'), displayName: 'bilimi·你好', keywords: [], enabled: false, priority: 2,
+        bilibiliFolderId: '89', bilibiliFolderIds: ['89'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+      }
+    ], ['88'])) as { ledgers: FavoriteLedger[] }
+
+    expect(result.ledgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ bilibiliFolderId: '88' })
+    ]))
+    expect(result.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ bilibiliFolderId: '89' })
+    ]))
+  })
+
+  it.each([
+    ['status', () => buildFavoriteLedgerStatusScript([{ id: 'safe-status', displayName: 'bilimi·安全', keywords: [], enabled: true, priority: 1, isDefault: false, bindingState: 'unbacked' }])],
+    ['ensure', () => buildEnsureFavoriteLedgersScript([{ id: 'safe-ensure', displayName: 'bilimi·安全', keywords: [], enabled: true, priority: 1, isDefault: false, bindingState: 'unbacked' }], { confirmCreateAndBind: true })],
+    ['save', () => buildSaveFavoriteLedgersScript([{ id: 'safe-save', displayName: 'bilimi·安全', keywords: [], enabled: true, priority: 1, isDefault: false, bindingState: 'unbacked' }], [])]
+  ])('fails closed on a malformed successful folder list before any remote write (%s)', async (_operation, buildScript) => {
+    installCookies()
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) return Response.json({ code: 0, data: {} })
+      throw new Error(`Unexpected remote write: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(window.eval(buildScript())).rejects.toThrow('favorite folder list returned an invalid folder list')
+    expect(fetchSpy.mock.calls.filter(([url]) => !String(url).includes('/x/v3/fav/folder/created/list-all'))).toHaveLength(0)
   })
 
   it('recognizes bilimi folders written with a space or without punctuation', async () => {

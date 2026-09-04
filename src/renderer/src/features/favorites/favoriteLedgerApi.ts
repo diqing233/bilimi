@@ -137,6 +137,12 @@ function sharedScriptHelpers(): string {
       return url.toString();
     };
     const findFolderId = (folder) => folder?.id ?? folder?.fid;
+    const readFavoriteFolderList = (json) => {
+      if (!Array.isArray(json?.data?.list)) {
+        throw createApiError('favorite folder list returned an invalid folder list.', { kind: 'schema' });
+      }
+      return json.data.list;
+    };
     const normalizeFolderTitle = (title) => String(title || '')
       .trim()
       .replace(/^bilimi\\s*[·:：\-]?\\s*/iu, '')
@@ -371,11 +377,15 @@ function sharedScriptHelpers(): string {
         if (ledger.syncState === 'local-draft' || ledger.bindingState !== 'bound') continue;
         for (const folderId of ledgerRemoteFolderIds(ledger)) boundFolderIds.add(folderId);
       }
+      const suppressedFolderIds = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : [])
+        .map((folderId) => String(folderId || '').trim())
+        .filter(Boolean));
       const deduplicatedLedgers = nextLedgers.filter((ledger) => {
         if (!isPureRemoteObservationDraft(ledger)) return true;
         const folderIds = ledgerRemoteFolderIds(ledger);
         return !folderIds.length || (!folderIds.every((folderId) => boundFolderIds.has(folderId)) &&
-          !folderIds.every((folderId) => confirmedDeletedFolderIds.has(folderId)));
+          !folderIds.every((folderId) => confirmedDeletedFolderIds.has(folderId)) &&
+          !folderIds.every((folderId) => suppressedFolderIds.has(folderId)));
       });
       ledgerIndexById.clear();
       remoteDraftIndexByFolderId.clear();
@@ -386,7 +396,7 @@ function sharedScriptHelpers(): string {
         }
       });
       const dismissedIds = new Set([
-        ...(Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : []),
+        ...suppressedFolderIds,
         ...ledgers.flatMap((ledger) => Array.isArray(ledger.confirmedDeletedRemoteFolderIds)
           ? ledger.confirmedDeletedRemoteFolderIds
           : [])
@@ -500,7 +510,7 @@ export function buildFavoriteLedgerStatusScript(
 
       const response = await fetch(buildListUrl(mid), { credentials: 'include' });
       const json = await ensureApiOk(response, 'favorite folder list');
-      const folders = Array.isArray(json.data?.list) ? json.data.list : [];
+      const folders = readFavoriteFolderList(json);
       const remoteDraftProjection = projectRemoteOnlyDrafts(
         syncLedgerFolderIds(payload.ledgers, folders),
         folders,
@@ -527,7 +537,11 @@ export function buildFavoriteLedgerStatusScript(
         unboundLedgerIds,
         unboundCandidates,
         remoteOnlyDraftLedgerIds,
-        message: unboundLedgerIds.length === 0 ? '册目查验已毕。' : '发现未绑定的 bilimi 收藏夹，请在备册时主动确认复用对应收藏夹。'
+        message: unboundLedgerIds.length > 0
+          ? '发现未绑定的 bilimi 收藏夹，请在备册时主动确认复用对应收藏夹。'
+          : missingLedgerIds.length > 0
+            ? '发现尚未备册的 bilimi 收藏夹，请在备册时完成确认。'
+            : '册目查验已毕。'
       };
     })();
   `
@@ -547,7 +561,7 @@ export function buildFavoriteLedgerWriteCapacityScript(
       if (!csrf || !mid) return { ok: false, missingTargets: ['favorite-api-user'], message: 'B 站登录凭证不可用，无法检查收藏夹分区。' };
       const response = await fetch(buildListUrl(mid), { credentials: 'include' });
       const json = await ensureApiOk(response, 'favorite folder list');
-      const folders = Array.isArray(json.data?.list) ? json.data.list : [];
+      const folders = readFavoriteFolderList(json);
       const folderById = new Map(folders.map((folder) => [String(findFolderId(folder) || ''), folder]));
       const fullLedgerIds = [];
       const missingLedgerIds = [];
@@ -589,7 +603,7 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
       if (!csrf || !mid) return { ok: false, missingTargets: ['favorite-api-user'], message: 'B 站登录凭证不可用，无法备册新分区。' };
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
-      const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
+      const folders = readFavoriteFolderList(listJson);
       if (folders.length >= 99) {
         return { ok: false, missingTargets: ['favorite-folder-limit'], message: 'B 站收藏夹数量已达到 99 个上限，无法备册新的分区。' };
       }
@@ -677,7 +691,7 @@ export function buildEnsureFavoriteLedgersScript(
       const steps = ['api:ledger:list'];
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
-      const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
+      const folders = readFavoriteFolderList(listJson);
       let remoteDraftProjection = projectRemoteOnlyDrafts(
         syncLedgerFolderIds(payload.ledgers, folders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
           folders,
@@ -724,7 +738,7 @@ export function buildEnsureFavoriteLedgersScript(
 
         const recheckResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
         const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
-        const recheckedFolders = Array.isArray(recheckJson.data?.list) ? recheckJson.data.list : [];
+        const recheckedFolders = readFavoriteFolderList(recheckJson);
         const recheckedCandidates = remoteFolderCandidates(ledger, recheckedFolders);
         remoteDraftProjection = projectRemoteOnlyDrafts(
           syncLedgerFolderIds(nextLedgers, recheckedFolders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
@@ -857,7 +871,7 @@ export function buildSaveFavoriteLedgersScript(
       const steps = ['api:ledger:list'];
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
-      const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
+      const folders = readFavoriteFolderList(listJson);
       let remoteDraftProjection = projectRemoteOnlyDrafts(
         syncLedgerFolderIds(payload.nextLedgers, folders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
         folders,
@@ -904,7 +918,7 @@ export function buildSaveFavoriteLedgersScript(
 
         const recheckResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
         const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
-        const recheckedFolders = Array.isArray(recheckJson.data?.list) ? recheckJson.data.list : [];
+        const recheckedFolders = readFavoriteFolderList(recheckJson);
         const recheckedCandidates = remoteFolderCandidates(ledger, recheckedFolders);
         remoteDraftProjection = projectRemoteOnlyDrafts(
           syncLedgerFolderIds(nextLedgers, recheckedFolders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
@@ -1591,7 +1605,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           }
           throw error;
         }
-        const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
+        const folders = readFavoriteFolderList(listJson);
         const normalizedLedgerName = (value) => String(value ?? '')
           .trim()
           .replace(/^bilimi[·\\s\\-路]*/i, '')
@@ -2848,7 +2862,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
               if (!mid) throw createApiError('favorite folder list requires an account', { kind: 'credentials' });
               const response = await fetch(buildListUrl(mid), { credentials: 'include' });
               const json = await ensureApiOk(response, 'favorite folder list');
-              const folders = Array.isArray(json.data?.list) ? json.data.list : [];
+              const folders = readFavoriteFolderList(json);
               return folders.map((folder) => ({
                 id: String(findFolderId(folder) || ''),
                 title: String(folder?.title || ''),
@@ -2980,7 +2994,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
 
           const response = await fetch(buildListUrl(mid), { credentials: 'include' });
           const json = await ensureApiOk(response, 'favorite folder list');
-          const folders = Array.isArray(json.data?.list) ? json.data.list : [];
+          const folders = readFavoriteFolderList(json);
           const folder = folders.find((candidate) => candidate?.title === targetDisplayName);
           const folderId = findFolderId(folder);
           return folderId ? String(folderId) : '';

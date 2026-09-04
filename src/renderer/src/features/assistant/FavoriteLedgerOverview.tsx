@@ -118,7 +118,6 @@ type ManagedDeletionPlan = {
   localCustomLedgerIds: string[]
   localDefaultLedgerIds: string[]
   draftLedgerIds: string[]
-  recommendationCancellationLedgerIds: string[]
   candidates: ManagedFolderDeletionCandidate[]
   confirmedRemoteFolderIds?: string[]
 }
@@ -359,33 +358,25 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const isPureLocalLedger = (ledger: FavoriteLedger) => !ledger.isDefault &&
     !hasRemoteDeletionFacts(ledger) &&
     !isRemoteOnlyDraft(ledger)
-  const isRecommendationCancellationOnly = (ledger: FavoriteLedger) =>
-    ledger.ruleOrigin === 'recommendation-draft' &&
-    (organizationRecommendationEnabledById?.get(ledger.id) === true ||
-      (organizationRecommendationEnabledById?.get(ledger.id) === undefined && ledger.enabled)) &&
-    Boolean(onOrganizationRecommendationToggle)
-  const cancelRecommendation = async (ledgerId: string) => {
-    if (!onOrganizationRecommendationToggle) return false
-    try {
-      const result = await onOrganizationRecommendationToggle(ledgerId, false)
-      if (result === false) throw new Error('Recommendation cancellation failed.')
-      return true
-    } catch {
-      setDeletionError('删除未成功，请稍后重试。')
-      setDraftDeletionError('删除未成功，请稍后重试。')
-      return false
-    }
-  }
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
   const [ledgerHintVisible, setLedgerHintVisible] = useState(false)
   const [ledgerHintPosition, setLedgerHintPosition] = useState({ top: 0, left: 0 })
   const ledgerHintPanelRef = useRef<HTMLElement>(null)
   const ledgerHintTriggerRef = useRef<HTMLButtonElement>(null)
   const ledgerHintTooltipRef = useRef<HTMLDivElement>(null)
-  const ledgerScrollRestoreRef = useRef<{ container: HTMLElement; top: number; frames: number[] }>({
+  const ledgerScrollRestoreRef = useRef<{
+    container: HTMLElement
+    top: number
+    frames: number[]
+    userScrolled: boolean
+    restoring: boolean
+    removeScrollListener?: () => void
+  }>({
     container: ledgerHintPanelRef.current as HTMLElement,
     top: 0,
-    frames: []
+    frames: [],
+    userScrolled: false,
+    restoring: false
   })
   const preserveLedgerScroll = () => {
     const origin = ledgerHintPanelRef.current
@@ -394,17 +385,39 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const state = ledgerScrollRestoreRef.current
     state.container = container
     state.top = container.scrollTop
+    state.userScrolled = false
+    state.restoring = false
+    state.removeScrollListener?.()
+    const onUserScroll = () => {
+      if (state.restoring) return
+      state.userScrolled = true
+      state.removeScrollListener?.()
+      state.removeScrollListener = undefined
+    }
+    container.addEventListener('scroll', onUserScroll, { passive: true, once: true })
+    state.removeScrollListener = () => container.removeEventListener('scroll', onUserScroll)
     for (const frame of state.frames) window.cancelAnimationFrame(frame)
     const restore = (remainingFrames: number) => {
-      if (!state.container.isConnected) return
-      if (state.container.scrollTop !== state.top) state.container.scrollTop = state.top
+      if (!state.container.isConnected || state.userScrolled) {
+        state.frames = []
+        state.removeScrollListener?.()
+        state.removeScrollListener = undefined
+        return
+      }
+      if (state.container.scrollTop !== state.top) {
+        state.restoring = true
+        state.container.scrollTop = state.top
+        state.restoring = false
+      }
       if (remainingFrames > 0) {
         state.frames = [window.requestAnimationFrame(() => restore(remainingFrames - 1))]
       } else {
         state.frames = []
+        state.removeScrollListener?.()
+        state.removeScrollListener = undefined
       }
     }
-    state.frames = [window.requestAnimationFrame(() => restore(1))]
+    state.frames = [window.requestAnimationFrame(() => restore(3))]
   }
   const [draftLedgers, setDraftLedgers] = useState(ledgers)
   const draftLedgersRef = useRef(draftLedgers)
@@ -517,6 +530,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setDraftDeletionError(null)
   }, [externalLedgerSignature])
   useEffect(() => () => {
+    const scrollRestore = ledgerScrollRestoreRef.current
+    for (const frame of scrollRestore.frames) window.cancelAnimationFrame(frame)
+    scrollRestore.frames = []
+    scrollRestore.removeScrollListener?.()
+    scrollRestore.removeScrollListener = undefined
     if (toggleSaveTimerRef.current !== null) window.clearTimeout(toggleSaveTimerRef.current)
     toggleSaveTimerRef.current = null
     const pending = pendingToggleSaveRef.current
@@ -1077,11 +1095,20 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       return
     }
     const selectedLedgers = currentLedgers.filter((ledger) => deletionStore.isEnabled(ledger.id))
-    const recommendationCancellationLedgerIds = selectedLedgers.filter(isRecommendationCancellationOnly).map((ledger) => ledger.id)
-    const deletionLedgers = selectedLedgers.filter((ledger) => !recommendationCancellationLedgerIds.includes(ledger.id))
-    const draftLedgerIds = deletionLedgers.filter(isDraftDirectlyDeletable).map((ledger) => ledger.id)
+    const deletionLedgers = selectedLedgers
+    // Recommendation rules are local configuration even when an earlier
+    // explicit backup created a remote folder. Deletion mode is an explicit
+    // local-rule deletion, never a shortcut to a Bilibili deletion flow.
+    const selectedRecommendationLedgerIds = new Set(
+      deletionLedgers
+        .filter((ledger) => ledger.ruleOrigin === 'recommendation-draft')
+        .map((ledger) => ledger.id)
+    )
+    const draftLedgerIds = deletionLedgers
+      .filter((ledger) => !selectedRecommendationLedgerIds.has(ledger.id) && isDraftDirectlyDeletable(ledger))
+      .map((ledger) => ledger.id)
     const remoteDraftTargets = Object.fromEntries(deletionLedgers
-      .filter(isRemoteOnlyDraft)
+      .filter((ledger) => !selectedRecommendationLedgerIds.has(ledger.id) && isRemoteOnlyDraft(ledger))
       .flatMap((ledger) => {
         const remoteFolderId = ledger.bilibiliFolderId?.trim()
         return remoteFolderId ? [[ledger.id, { remoteFolderId, title: ledger.displayName }]] : []
@@ -1095,7 +1122,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         title: ledger.historicalBilibiliFolderTitle ?? ledger.bilibiliFolderTitle ?? ledger.displayName
       }))]))
     const remoteCustomLedgerIds = selectedCustomLedgers
-      .filter((ledger) => ledger.bindingState === 'bound' && remoteBindingIdsForLedger(ledger).length > 0)
+      .filter((ledger) => !selectedRecommendationLedgerIds.has(ledger.id) && ledger.bindingState === 'bound' && remoteBindingIdsForLedger(ledger).length > 0)
       .map((ledger) => ledger.id)
     const remoteDefaultLedgerIds = selectedDefaultLedgers
       .filter((ledger) => remoteBindingIdsForLedger(ledger).length > 0 ||
@@ -1103,18 +1130,19 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         ledger.bindingState === 'unbound')
       .map((ledger) => ledger.id)
     const localCustomLedgerIds = selectedCustomLedgers
-      .filter((ledger) => !remoteCustomLedgerIds.includes(ledger.id))
+      .filter((ledger) => selectedRecommendationLedgerIds.has(ledger.id) || !remoteCustomLedgerIds.includes(ledger.id))
       .map((ledger) => ledger.id)
     const localDefaultLedgerIds = selectedDefaultLedgers
       .filter((ledger) => !remoteDefaultLedgerIds.includes(ledger.id))
       .map((ledger) => ledger.id)
-    const plan = { remoteCustomLedgerIds, remoteDefaultLedgerIds, remoteDraftTargets, historicalBindingTargets, localCustomLedgerIds, localDefaultLedgerIds, draftLedgerIds, recommendationCancellationLedgerIds, candidates: [] }
+    const plan = { remoteCustomLedgerIds, remoteDefaultLedgerIds, remoteDraftTargets, historicalBindingTargets, localCustomLedgerIds, localDefaultLedgerIds, draftLedgerIds, candidates: [] }
     await requestManagedDeletion(plan)
   }
   const deleteLocalFavoriteLedgers = async (ledgerIds: readonly string[], sourceLedgers = projectEnabled(draftLedgers)) => {
     const deletedIds = new Set(ledgerIds)
     const selectedLedgers = draftLedgers.filter((ledger) => deletedIds.has(ledger.id) && !ledger.isDefault)
     if (!selectedLedgers.length) return true
+    preserveLedgerScroll()
     for (const ledgerId of deletedIds) awaitingParentLedgerIdsRef.current.delete(ledgerId)
     const persistedLedgers = selectedLedgers.filter((ledger) => ledgers.some((item) => item.id === ledger.id))
     if (persistedLedgers.length) {
@@ -1161,6 +1189,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   }
   const deleteUnsavedDraft = async (ledger: FavoriteLedger) => {
     if (destructiveActionLocked || !isDraftDirectlyDeletable(ledger)) return
+    preserveLedgerScroll()
     const wasPersisted = ledgers.some((item) => item.id === ledger.id)
     awaitingParentLedgerIdsRef.current.delete(ledger.id)
     if (wasPersisted) {
@@ -1230,7 +1259,6 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       localCustomLedgerIds: !ledger.isDefault && !remoteBindingIds.length && !remoteDraftFolderId ? [ledger.id] : [],
       localDefaultLedgerIds: ledger.isDefault && !remoteBindingIds.length && !historicalIds.length ? [ledger.id] : [],
       draftLedgerIds: remoteDraftFolderId ? [ledger.id] : [],
-      recommendationCancellationLedgerIds: []
     }
     void requestManagedDeletion(plan)
   }
@@ -1239,7 +1267,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     const ledgerIds = [...plan.remoteCustomLedgerIds, ...plan.remoteDefaultLedgerIds]
     const remoteDraftLedgerIds = new Set(Object.keys(plan.remoteDraftTargets))
     const remotePlanLedgerIds = new Set([...ledgerIds, ...remoteDraftLedgerIds])
-    const localCandidateLedgerIds = [...plan.localCustomLedgerIds, ...plan.localDefaultLedgerIds, ...plan.draftLedgerIds, ...plan.recommendationCancellationLedgerIds]
+    const localCandidateLedgerIds = [...plan.localCustomLedgerIds, ...plan.localDefaultLedgerIds, ...plan.draftLedgerIds]
       .filter((ledgerId, index, ids) => !remotePlanLedgerIds.has(ledgerId) && ids.indexOf(ledgerId) === index)
     const localCandidates = localCandidateLedgerIds.flatMap((ledgerId) => {
       const ledger = draftLedgersRef.current.find((item) => item.id === ledgerId)
@@ -1315,10 +1343,6 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     accountMid = '',
     options: { localCleanupFailed?: boolean } = {}
   ) => {
-    for (const ledgerId of plan.recommendationCancellationLedgerIds) {
-      const result = await onOrganizationRecommendationToggle?.(ledgerId, false)
-      if (result === false) throw new Error('Recommendation cancellation failed.')
-    }
     const locallyReleasedDefaultLedgerIds = deletionScope === 'local-only'
       ? plan.remoteDefaultLedgerIds
       : []
@@ -1417,6 +1441,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const confirmManagedDeletion = async () => {
     if (!deletionPlan || !deletionConfirmed || destructiveActionLocked || deletionExecuting) return
     if (deletionScope === 'bilibili' && deletionPlan.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !deletionAcknowledgedUnbound) return
+    preserveLedgerScroll()
     const persistedLedgerIds = new Set(ledgers.map((ledger) => ledger.id))
     const accountRequiredLedgerIds = [
       ...deletionPlan.remoteCustomLedgerIds,

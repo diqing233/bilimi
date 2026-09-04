@@ -75,7 +75,11 @@ describe('favorite ledger configuration refresh IPC', () => {
     const accountOpenStart = mainSource.indexOf('onAccountOpen: async (accountMid) => {')
     const accountOpenEnd = mainSource.indexOf('\n    },', accountOpenStart)
     const accountOpen = mainSource.slice(accountOpenStart, accountOpenEnd)
-    expect(accountOpen).toContain('await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid).catch(() => undefined)')
+    expect(accountOpen).toContain('await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid, {')
+    expect(accountOpen).toContain(
+      'suppressedRemoteFolderIds: loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)'
+    )
+    expect(accountOpen).toContain('}).catch(() => undefined)')
     expect(accountOpen).toContain('await reconcileFavoriteLedgerBindingProjection(accountMid)')
   })
 })

@@ -5178,6 +5178,19 @@ export function FloatingAssistantApp({
     const mutationId = ++favoriteLedgerRuleMutationIdRef.current
     const accountMid = resolvedSnapshot.accountMid
     const previousPreferences = preferencesRef.current
+    const snapshotAccountMid = snapshotRef.current?.accountMid ?? ''
+    if (accountMid && snapshotAccountMid !== accountMid) {
+      throw new Error('当前账号已切换，请刷新后重试。')
+    }
+    if (accountMid && window.bilimiDesktop?.writeFavoriteLedgerRules) {
+      const persisted = await window.bilimiDesktop.writeFavoriteLedgerRules(accountMid, favoriteLedgers)
+      if (persisted.accountMid !== accountMid || snapshotRef.current?.accountMid !== accountMid) {
+        throw new Error('收藏夹规则账号校验失败，请刷新后重试。')
+      }
+      const nextPreferences = withFavoriteLedgersForAccount(preferencesRef.current, accountMid, persisted.favoriteLedgers)
+      applyPreferenceSnapshot(nextPreferences)
+      return createDefaultResult('收藏夹规则已保存。')
+    }
     const nextPreferences = accountMid
       ? withFavoriteLedgersForAccount(previousPreferences, accountMid, favoriteLedgers)
       : { ...previousPreferences, favoriteLedgers }
