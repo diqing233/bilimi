@@ -327,3 +327,18 @@ R015 明确授权在新分支实施本轮已确认需求。以下状态更新以
 - 已确认并纳入实施：R001、R002、R003（仅按实际存在功能解释）、R004、R005、R006、R007、R008、R009、R010、R011、R012、R013、R014、R015、R016、R017、R018。
 - 本轮没有用户明确排除的已确认需求；R003 的“推荐草稿不存在”仅限制内部状态名不得被当作用户功能，不新增推荐入口。
 - 仍待用户/现场决定或验收：所有截图中的精确文案、颜色、位置、弹窗自动关闭、真实 B 站改名/删除副作用、鼠标流畅度，以及 R014/R016 具体账号案例的原始 IPC 分支。未取得证据前不声称这些条目已完成。
+
+## R019 / I017 实施核对补充（2026-09-04，本轮“开始”后）
+
+| 原文/索引 | 实施状态 | 实际代码位置与自动化证据 | 真实界面/账号验收边界 |
+| --- | --- | --- | --- |
+| R019 · I017 | 已实施待真实账号验证 | 项目书 9.5.7 新增“正式绑定账本标题修复幂等不变量”；`electron/main/favoriteRepositoryBindingService.ts` 在精确 ID 已正式绑定但 `remoteTitle` 落后时提交一次 `favorite-adoption-title-repair`，远端标题已正确且账本一致时才幂等返回，不重复调用 `renameFolder`。回归 `repairs a stale formal binding title when the exact remote title is already correct without renaming again` 先失败后通过；绑定服务文件 45 项通过。 | 仍需当前登录账号用真实精确 `folderId` 复现标题落后场景，点击一次确认后核验 B 站标题、正式 `physical-shard-bindings.jsonl`、删除预检和弹窗关闭；本地测试未执行远端写入。 |
+| R019 · I017 / I016 | 已实施待真实账号验证 | `src/renderer/src/features/assistant/FavoriteLedgerOverview.tsx` 接入已有 `managedFavoriteFolderDeletionFailureMessage`：删除预览或确认抛出 `favorite-repository-binding-title-stale` 等阶段错误时显示对应原因，未知错误保留原通用提示以避免改变既有语义。回归 `shows the binding-ledger title expiry when deletion preview is blocked by stale metadata` 先失败后通过；收藏夹总览 136 项通过。 | 仍需真实删除模式验证：标题账本过期时不调用 B 站删除、提示“绑定账本标题已过期”；修复绑定后明确删除成功时 B 站夹消失且掌库变为“未备册”。 |
+| R008/R015 · I007 | 已实施待真实界面验证 | 本轮只增加一次账本修复提交和错误映射，不增加同步扫描、阻塞等待或鼠标路径工作；`git diff --check` 无错误，基线全量测试 246 文件/4335 项通过，定向绑定/总览 181 项通过。 | 仍需在 Electron 开发版实际移动鼠标、点击、滚动、缩放、最小化、恢复和关闭，确认无卡顿；未进行 B 站真实改名/删除。 |
+
+## R019 / I017 提交前验证补充（2026-09-04）
+
+| 原文/索引 | 实施状态 | 本次新鲜验证证据 | 仍待现场验收 |
+| --- | --- | --- | --- |
+| R019 · I017 | 已实施待真实账号验证 | 新鲜定向测试 `electron/main/favoriteRepositoryBindingService.test.ts` 与 `src/renderer/src/features/assistant/FavoriteLedgerOverview.test.tsx` 共 181/181 通过；绑定服务回归确认账本标题落后时提交一次 `favorite-adoption-title-repair` 且不重复改名，删除预检阶段错误显示“绑定账本标题已过期”。 | 需在当前账号用精确 `folderId` 验证一次绑定确认后 B 站标题、`physical-shard-bindings.jsonl`、删除预检及弹窗关闭。 |
+| R001–R018 受保护回归 | 已实施待真实账号/界面验证 | 新鲜全量 `npm test -- --run`：246 个测试文件、4337 项全部通过；`npm run build` 退出码 0；`git diff --check` 无错误。输出中的 React `act(...)` 警告和既有主进程诊断日志未形成失败。 | 需在真实 Electron 开发版继续验收鼠标移动、点击、滚动、缩放、最小化、恢复和关闭，以及真实 B 站改名/删除副作用；自动化不能替代现场证据。 |

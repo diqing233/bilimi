@@ -316,7 +316,14 @@ export class FavoriteRepositoryBindingService {
         }
         remote = verifiedRemote
       }
-      if (exactExisting && !requiresRename) return this.getBindings(account)
+      // A remote title that is already correct does not need another Bilibili
+      // rename, but a formally bound shard may still carry an older title in
+      // the local ledger. Commit that repair once so deletion preflight and
+      // future idempotent adoptions observe the same authoritative title.
+      if (exactExisting && !requiresRename &&
+        comparableManagedShardTitle(exactExisting.remoteTitle) === comparableManagedShardTitle(remote.title)) {
+        return this.getBindings(account)
+      }
       await this.options.repository.commit(account, {
         id: exactExisting
           ? `favorite-adoption-title-repair:${normalized.logicalLedgerId}:${input.shardNumber}:${normalized.remoteFolderId}:${randomUUID()}`

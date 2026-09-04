@@ -1142,6 +1142,31 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: '自建' })).toBeInTheDocument()
   })
 
+  it('shows the binding-ledger title expiry when deletion preview is blocked by stale metadata', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockRejectedValue(
+      new Error('favorite-repository-binding-title-stale')
+    )
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'knowledge', displayName: 'bilimi·知识学习', keywords: ['知识学习'], enabled: true, priority: 10,
+      bilibiliFolderId: '4020619811', bilibiliFolderIds: ['4020619811'],
+      bilibiliFolderTitle: 'bilimi·知识学习', bindingState: 'bound', isDefault: true
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·知识学习' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    await waitFor(() => expect(previewManagedFavoriteFolderDeletion).toHaveBeenCalled())
+    expect(screen.getByRole('alert')).toHaveTextContent('绑定账本标题已过期；已停止删除')
+  })
+
   it('summarizes each right-side deletion candidate without repeating remote deletion details', async () => {
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
       { logicalLedgerId: 'knowledge', remoteFolderId: 'remote-knowledge', title: 'bilimi·知识学习', memberCount: 310, state: 'bound', requiresUnboundAcknowledgement: false },

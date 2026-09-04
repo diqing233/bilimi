@@ -939,6 +939,52 @@ describe('FavoriteRepositoryBindingService', () => {
     })
   })
 
+  it('repairs a stale formal binding title when the exact remote title is already correct without renaming again', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'stale-knowledge-binding', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z',
+      type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'knowledge', logicalTitle: 'bilimi·知识学习你好', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·知识学习', bindingState: 'bound', remoteFolderId: 'knowledge-1', remoteMemberCount: 0
+      }
+    })
+    const commit = vi.spyOn(repository, 'commit')
+    const renameFolder = vi.fn()
+    const readFolderInventory = vi.fn().mockResolvedValue({
+      observedAccountMid: '100',
+      folders: [{ id: 'knowledge-1', title: 'bilimi·知识学习你好', memberCount: 0 }]
+    })
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory, renameFolder,
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'knowledge', logicalTitle: 'bilimi·知识学习你好',
+      remoteDisplayTitle: 'bilimi·知识学习', expectedRemoteTitle: 'bilimi·知识学习',
+      remoteFolderId: 'knowledge-1', shardNumber: 1, memberAids: [], allowRemoteRename: true
+    })).resolves.toMatchObject({
+      shards: [expect.objectContaining({
+        logicalLedgerId: 'knowledge', remoteFolderId: 'knowledge-1',
+        remoteTitle: 'bilimi·知识学习你好', bindingState: 'bound'
+      })]
+    })
+
+    expect(renameFolder).not.toHaveBeenCalled()
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      id: expect.stringMatching(/^favorite-adoption-title-repair:knowledge:1:knowledge-1:/),
+      type: 'upsert-physical-shard-binding',
+      payload: expect.objectContaining({ remoteTitle: 'bilimi·知识学习你好', remoteFolderId: 'knowledge-1', bindingState: 'bound' })
+    }))
+  })
+
   it.each([
     ['missing remote id', { id: 'different', title: 'bilimi\u00b7\u6682\u5b58', memberCount: 7 }, 'absent'],
     ['wrong remote id', { id: '4070414411', title: 'bilimi\u00b7\u6682\u5b58', memberCount: 7 }, 'absent'],
