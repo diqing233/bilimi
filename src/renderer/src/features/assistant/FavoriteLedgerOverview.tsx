@@ -1096,19 +1096,19 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     }
     const selectedLedgers = currentLedgers.filter((ledger) => deletionStore.isEnabled(ledger.id))
     const deletionLedgers = selectedLedgers
-    // Recommendation rules are local configuration even when an earlier
-    // explicit backup created a remote folder. Deletion mode is an explicit
-    // local-rule deletion, never a shortcut to a Bilibili deletion flow.
-    const selectedRecommendationLedgerIds = new Set(
+    // A remote observation can retain a recommendation source while still
+    // being only an unbound draft. It keeps the existing draft deletion path;
+    // a saved recommendation rule must otherwise use the normal delete plan.
+    const selectedRecommendationObservationLedgerIds = new Set(
       deletionLedgers
-        .filter((ledger) => ledger.ruleOrigin === 'recommendation-draft')
+        .filter((ledger) => ledger.ruleOrigin === 'recommendation-draft' && isRemoteOnlyDraft(ledger))
         .map((ledger) => ledger.id)
     )
     const draftLedgerIds = deletionLedgers
-      .filter((ledger) => !selectedRecommendationLedgerIds.has(ledger.id) && isDraftDirectlyDeletable(ledger))
+      .filter((ledger) => !selectedRecommendationObservationLedgerIds.has(ledger.id) && isDraftDirectlyDeletable(ledger))
       .map((ledger) => ledger.id)
     const remoteDraftTargets = Object.fromEntries(deletionLedgers
-      .filter((ledger) => !selectedRecommendationLedgerIds.has(ledger.id) && isRemoteOnlyDraft(ledger))
+      .filter((ledger) => !selectedRecommendationObservationLedgerIds.has(ledger.id) && isRemoteOnlyDraft(ledger))
       .flatMap((ledger) => {
         const remoteFolderId = ledger.bilibiliFolderId?.trim()
         return remoteFolderId ? [[ledger.id, { remoteFolderId, title: ledger.displayName }]] : []
@@ -1122,7 +1122,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         title: ledger.historicalBilibiliFolderTitle ?? ledger.bilibiliFolderTitle ?? ledger.displayName
       }))]))
     const remoteCustomLedgerIds = selectedCustomLedgers
-      .filter((ledger) => !selectedRecommendationLedgerIds.has(ledger.id) && ledger.bindingState === 'bound' && remoteBindingIdsForLedger(ledger).length > 0)
+      .filter((ledger) => ledger.bindingState === 'bound' && remoteBindingIdsForLedger(ledger).length > 0)
       .map((ledger) => ledger.id)
     const remoteDefaultLedgerIds = selectedDefaultLedgers
       .filter((ledger) => remoteBindingIdsForLedger(ledger).length > 0 ||
@@ -1130,7 +1130,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         ledger.bindingState === 'unbound')
       .map((ledger) => ledger.id)
     const localCustomLedgerIds = selectedCustomLedgers
-      .filter((ledger) => selectedRecommendationLedgerIds.has(ledger.id) || !remoteCustomLedgerIds.includes(ledger.id))
+      .filter((ledger) => selectedRecommendationObservationLedgerIds.has(ledger.id) || !remoteCustomLedgerIds.includes(ledger.id))
       .map((ledger) => ledger.id)
     const localDefaultLedgerIds = selectedDefaultLedgers
       .filter((ledger) => !remoteDefaultLedgerIds.includes(ledger.id))
@@ -1221,8 +1221,15 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     }
   }
   const requestSingleLedgerDeletion = (ledger: FavoriteLedger) => {
-    if (ledger.ruleOrigin === 'recommendation-draft' && !ledger.isDefault) {
-      void deleteLocalFavoriteLedgers([ledger.id])
+    // A recommendation source is an account rule even if a stale remote
+    // observation currently marks it as an unbound local draft. Route it to
+    // the existing local confirmation so the main process can clear matching
+    // managed-folder remnants by the stable rule ID.
+    if (ledger.ruleOrigin === 'recommendation-draft' && isRemoteOnlyDraft(ledger)) {
+      void requestManagedDeletion({
+        remoteCustomLedgerIds: [], remoteDefaultLedgerIds: [], remoteDraftTargets: {}, historicalBindingTargets: {},
+        localCustomLedgerIds: [ledger.id], localDefaultLedgerIds: [], draftLedgerIds: [], candidates: []
+      })
       return
     }
     if (isDraftDirectlyDeletable(ledger)) {

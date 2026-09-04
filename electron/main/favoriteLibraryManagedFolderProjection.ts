@@ -118,10 +118,19 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
    * a same-title remote folder to be claimed.
    */
   deletedFavoriteLedgerRecords?: readonly DeletedFavoriteLedgerRecord[]
+  /** Exact remote IDs temporarily or durably suppressed after a local deletion. */
+  suppressedRemoteFolderIds?: Iterable<string>
   /** Retained for persisted-call compatibility; legacy dismissals no longer suppress discovery. */
   dismissedRemoteFolderIds: Iterable<string>
 }): FavoriteLibraryManagedFolderProjection[] {
   void input.dismissedRemoteFolderIds
+  const recommendationDeletedRemoteFolderIds = (input.deletedFavoriteLedgerRecords ?? [])
+    .filter((record) => record.ledger.ruleOrigin === 'recommendation-draft')
+    .flatMap((record) => [record.ledger.bilibiliFolderId, ...(record.ledger.bilibiliFolderIds ?? [])])
+  const suppressedRemoteFolderIds = new Set([
+    ...(input.suppressedRemoteFolderIds ?? []),
+    ...recommendationDeletedRemoteFolderIds
+  ].map((remoteFolderId) => remoteFolderId?.trim()).filter((remoteFolderId): remoteFolderId is string => Boolean(remoteFolderId)))
   const configuredLedgersByRemoteId = new Map(input.ledgers
     .filter((ledger) => ledger.bilibiliFolderId?.trim())
     .map((ledger) => [ledger.bilibiliFolderId!.trim(), ledger]))
@@ -132,6 +141,10 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     .map((ledger) => [normalizedLedgerDisplayTitle(ledger.displayName), ledger] as const)
     .filter(([title]) => Boolean(title)))
   const deletedRecordsByLogicalLedgerId = new Map((input.deletedFavoriteLedgerRecords ?? [])
+    // A recommendation deletion is terminal local state, not a recovery
+    // authority. Existing non-recommendation deleted-rule recovery remains
+    // intentionally unchanged below.
+    .filter((record) => record.ledger.ruleOrigin !== 'recommendation-draft')
     .filter((record) => record.logicalLedgerId.trim() && record.ledger?.id === record.logicalLedgerId)
     .map((record) => [record.logicalLedgerId, record]))
   const deletedRecordsByRemoteFolderId = new Map<string, DeletedFavoriteLedgerRecord>()
@@ -148,6 +161,7 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
 
   for (const folder of input.snapshot.folders) {
     if (folder.kind !== 'bilibili' || !folder.remoteFolderId) continue
+    if (suppressedRemoteFolderIds.has(folder.remoteFolderId)) continue
     if (resolveFavoriteFolderCapabilities(folder).identity !== 'ambiguous-bilimi-like') continue
     const title = folder.title.trim()
     if (!isBilimiManagedLedgerName(title)) continue
@@ -208,7 +222,8 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     .filter((candidate) => candidate.bindingState === 'bound' && candidate.remoteFolderId)
     .map((candidate) => candidate.remoteFolderId!))
   for (const shard of input.snapshot.physicalShards) {
-    if (shard.bindingState !== 'bound' || !shard.remoteFolderId || projectedBoundRemoteIds.has(shard.remoteFolderId)) continue
+    if (shard.bindingState !== 'bound' || !shard.remoteFolderId ||
+      suppressedRemoteFolderIds.has(shard.remoteFolderId) || projectedBoundRemoteIds.has(shard.remoteFolderId)) continue
     const ledger = input.ledgers.find((candidate) => candidate.id === shard.logicalLedgerId) ??
       deletedRecordsByLogicalLedgerId.get(shard.logicalLedgerId)?.ledger
     if (!ledger) continue
@@ -249,9 +264,29 @@ export async function restoreFavoriteLibraryManagedFolderProjection(input: {
   repository: ProjectionRepository
   ledgers: FavoriteLedger[]
   deletedFavoriteLedgerRecords?: readonly DeletedFavoriteLedgerRecord[]
+  suppressedRemoteFolderIds?: Iterable<string>
   now?: () => string
 }) {
   let snapshot = await input.repository.getSnapshot(input.accountMid)
+  const deletedRecommendationLogicalLedgerIds = new Set((input.deletedFavoriteLedgerRecords ?? [])
+    .filter((record) => record.ledger.ruleOrigin === 'recommendation-draft')
+    .map((record) => record.logicalLedgerId.trim())
+    .filter(Boolean))
+  const legacyDeletedRecommendationLogicalFolderIds = snapshot.folders
+    .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId &&
+      deletedRecommendationLogicalLedgerIds.has(folder.logicalLedgerId))
+    .map((folder) => folder.id)
+    .sort()
+  if (legacyDeletedRecommendationLogicalFolderIds.length) {
+    await input.repository.commit(input.accountMid, {
+      id: `favorite-library:remove-deleted-recommendation-managed:${snapshot.revision}`,
+      accountMid: input.accountMid,
+      issuedAt: input.now?.() ?? new Date().toISOString(),
+      type: 'delete-local-managed-folders',
+      payload: { logicalFolderIds: legacyDeletedRecommendationLogicalFolderIds }
+    })
+    snapshot = await input.repository.getSnapshot(input.accountMid)
+  }
   for (const logicalLedgerId of emptyCustomPendingDuplicateLedgerIds(snapshot, input.ledgers)) {
     await input.repository.commit(input.accountMid, {
       id: `favorite-library:remove-duplicate-managed:${logicalLedgerId}:${snapshot.revision}`,
@@ -266,6 +301,7 @@ export async function restoreFavoriteLibraryManagedFolderProjection(input: {
     snapshot: currentSnapshot,
     ledgers: input.ledgers,
     deletedFavoriteLedgerRecords: input.deletedFavoriteLedgerRecords,
+    suppressedRemoteFolderIds: input.suppressedRemoteFolderIds,
     dismissedRemoteFolderIds: []
   })
   const candidates = plan(snapshot)

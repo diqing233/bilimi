@@ -479,3 +479,15 @@
 | 编号 | 原文引用 | 精确目标 | 目标界面 / 数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化 / 迁移 / B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | I024 | R026；约束 I021-I023 | 推荐收藏夹不得引入新的删除产品设计、独立确认语义或平行远端事务；必须复用现有“未备册直接删除 / 只删除规则 / 同时删除 B 站”功能及其确认、失败和墓碑语义，仅补齐推荐规则以稳定 ID进入既有事务和完成后本地收束的适配。 | 现有详情删除入口、删除模式、删除预检与确认弹窗、既有本地/远端删除 IPC。 | 依据既有删除功能已定义的绑定状态和用户选择分流；推荐来源身份只用于路由到现有实现，不能改变普通规则的删除体验。 | 推荐规则在三个已有分流中得到与普通新建收藏夹一致的删除结果；不增设推荐专用弹窗、按钮、二次选择或额外状态。 | 远端副作用严格复用现有删除功能：未备册和只删规则不写 B 站；同时删 B 站仅在既有明确确认后删除精确 ID。 | 不重写或重设计现有删除产品流程；不修改普通收藏夹、远端删除确认、备册/改名、视频同步；不因复用而按名称猜测身份。 | I023、现有删除实现与测试、推荐稳定 ID/来源标识、本地仓库收束与恢复抑制。 | 已确认，待实施授权 | 待验证代码只复用现有删除命令/确认契约；推荐新增测试仅覆盖路由、完整本地收束和不复活，不断言或引入新的删除交互。 |
+### R023-R026 实施验收补录（2026-09-05）
+
+本补录只登记本轮在 `codex/recommendation-existing-delete-reuse` 隔离分支上的实施和新鲜自动化证据。它不改写原文或把自动化测试表述为真实 Electron / 真实账号验收；分支不会在本补录后自动合并。
+
+| 编号 | 状态更新 | 实际代码位置 | RED / GREEN 与自动化证据 | B 站副作用与真实 Electron 验收 |
+| --- | --- | --- | --- | --- |
+| I021 | 已实施待真实验证 | `FavoriteLedgerOverview.tsx:1097-1139,1223-1259,1437-1542`；`electron/main/index.ts:1868-1938`。 | `FavoriteLedgerOverview.test.tsx` 先覆盖“已备册推荐”在详情与删除模式均打开既有删除范围，再覆盖选择现有“同时从 B 站删除收藏夹”时只传稳定规则 ID及预览给出的精确 `folderId`、远端成功后再调用现有本地删除 IPC。定向渲染器 147/147 通过；最终五文件定向 557/557、全量 247 文件/4388 项通过。 | 本地范围的既有测试断言 `deleteManagedRemoteFolders` 为零；远端范围仅在已选既有单选项、已确认且返回精确成功 ID后调用。未对真实账号执行删除。 |
+| I022 | 已实施待真实验证 | `electron/main/index.ts:1883-1934` 在账号规则持久化后复用 `delete-local-managed-folders`；`favoriteLibraryManagedFolderProjection.ts:270-299` 收束旧版本已留下的同稳定 ID逻辑夹。 | `favoriteLedgerDraftDeletionIpc.test.ts` 先 RED：IPC 未调用仓库；GREEN 后断言只查询 `bilimi-logical` 且提交一次既有批量本地删除命令。`favoriteLibraryManagedFolderProjection.test.ts` 覆盖旧残留逻辑夹/物理分册走同一命令；主进程定向 42/42 通过。 | 该命令不传 `confirmedRemoteFolderIds`，故本地删除不删除 B 站镜像；没有按名称、视频数或同标题删除。真实 Electron 的详情页即时清空和滚动保持仍待验收。 |
+| I023 | 已实施待真实验证 | 同 I021/I022；远端恢复抑制位于 `favoriteLibraryManagedFolderProjection.ts:127-133,143-149,161,222-223,300-305`，账号打开传参在 `electron/main/index.ts:3153-3161`。 | 投影测试先 RED：已删推荐记录会被恢复为 `bound`；GREEN 后断言该精确远端 ID不产生规则/观察草稿，同名不同 ID仍独立保留。既有非推荐“已删除规则恢复”测试继续通过。协调器回归 368/368 通过。 | 未备册直接删除与仅删规则不写 B 站；第三分流仍严格复用已有远端确认。真实重启、状态核验和第二轮整理尚未在测试账号执行。 |
+| I024 | 已实施待真实验证 | 只修改 `FavoriteLedgerOverview` 的推荐来源路由、现有主进程本地删除收束和既有恢复投影；未新建删除 UI、弹窗、IPC 或远端事务。 | 详情删除、删除模式、本地范围、远端范围、旧残留收束和同名不同 ID回归均为既有组件/命令的测试；主进程 42/42、渲染器 147/147、协调器 368/368 通过；最终五文件定向 557/557、全量 247 文件/4388 项通过。 | 现有 `preserveLedgerScroll()` 与有界异步链未改为同步扫描或阻塞循环；真实 Electron 鼠标、滚动、缩放、最小化、恢复、关闭仍须逐项验收，不能由本表自动化替代。 |
+
+最终门禁（2026-09-05）：`npm.cmd test -- src/renderer/src/features/assistant/FavoriteLedgerOverview.test.tsx electron/main/favoriteLedgerDraftDeletionIpc.test.ts electron/main/favoriteLedgerConfigurationRefreshIpc.test.ts electron/main/favoriteLibraryManagedFolderProjection.test.ts electron/main/oldFavoriteWorkspaceCoordinator.test.ts --silent` 通过，5 个文件/557 项；`npm.cmd test -- --silent` 通过，247 个文件/4388 项；`npm.cmd run build` 退出码 0；`git diff --check` 无空白错误（仅 Git LF/CRLF 提示）。R001–R026 原文和 I021–I024 的实现/自动化证据已在提交前重新通读核对。真实 Electron/真实账号尚未执行三种删除分流、重启后的状态核验、第二轮整理联动、滚动保持和鼠标移动/点击/滚动/缩放/最小化/恢复/关闭的连续响应验收，因此上述项目继续为“已实施待真实验证”，不得以自动化结果声称真实界面已验收。

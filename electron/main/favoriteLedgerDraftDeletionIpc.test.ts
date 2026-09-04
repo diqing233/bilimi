@@ -78,7 +78,7 @@ describe('favorite ledger draft deletion narrow IPC', () => {
     expect(handler).not.toContain('requestMainAssistantRuntime')
   })
 
-  it('removes selected custom configurations locally and leaves repository and B站 calls out of the handler', () => {
+  it('removes selected custom configurations locally and reuses managed-folder cleanup without a B站 delete', () => {
     const { handlerStart, handler } = handlerSource('assistant:delete-favorite-ledgers-local')
 
     expect(handlerStart).toBeGreaterThan(-1)
@@ -89,11 +89,19 @@ describe('favorite ledger draft deletion narrow IPC', () => {
     expect(handler).toContain('removedLedgers.map((ledger) => ({')
     expect(handler).toContain('markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)')
     expect(handler).toContain('saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {')
+    expect(handler).toContain("if (!favoriteRepositoryService) throw new Error('Favorite repository is unavailable.')")
+    expect(handler).toContain('favoriteRepositoryService.getSnapshot(accountMid)')
+    expect(handler).toContain("folder.kind === 'bilimi-logical' && folder.logicalLedgerId")
+    expect(handler).toContain("type: 'delete-local-managed-folders'")
+    expect(handler).toContain('payload: { logicalFolderIds: managedLogicalFolderIds }')
     expect(handler).toContain('sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))')
     expect(handler).toContain('notifyFloatingAssistantSnapshotChanged()')
-    expect(handler).not.toContain('favoriteRepository')
     expect(handler).not.toContain('removeRemoteFolder')
     expect(handler).not.toContain('deleteManagedFavoriteFolders')
+    expect(handler).not.toContain('confirmedRemoteFolderIds')
+    expect(handler.indexOf("const previewingWorkspace = workspaceSnapshot")).toBeLessThan(
+      handler.indexOf('const repositorySnapshot = await favoriteRepositoryService.getSnapshot(accountMid)')
+    )
   })
 
   it('releases only selected default physical bindings without a B站 delete or logical-membership command', () => {
