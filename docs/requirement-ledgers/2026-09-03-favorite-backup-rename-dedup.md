@@ -389,3 +389,9 @@ R015 明确授权在新分支实施本轮已确认需求。以下状态更新以
 | 原文/索引 | 实施状态 | 实际代码位置与自动化证据 | 真实界面/账号验收边界 |
 | --- | --- | --- | --- |
 | R021 · I019 | 已实施待真实账号验证 | `App.tsx` 的 `projectFavoriteLedgersToFormalBindings` 返回精确正式 `bound` 分册元数据；`renameExplicitlyBoundFavoriteLedgers` 仅在明确 `backupTargetLedgerIds` 或单册 `lightweightBackup` 备册前调用 `renameFavoriteRepositoryBoundLedgerShard`，按 `logicalLedgerId + shardNumber + remoteFolderId` 更新同一 ledger。`registerNewFavoriteLedgerBindings` 接收直接改名集合并跳过 adoption，页面脚本结果中的暂时旧标题/未绑定字段也按直接改名快照收敛。普通本地保存未进入该 helper。`App.test.tsx` 的批量、单册和本地保存回归，以及 `favoriteRepositoryBindingService.test.ts` 48 项、`favoriteRepositoryIpc.test.ts` 50 项均通过；全量 `npm test -- --run` 为 246 个测试文件/4345 项通过，`npm run build` 通过，`git diff --check` 通过。 | 尚未执行真实账号改名；需要在开发版确认掌库改名后点击“备册”不弹绑定窗口、B 站名称按掌库名称生效、正式账本 `remoteTitle` 更新、删除预检通过，以及多分册场景。鼠标移动、点击、滚动、缩放、最小化、恢复、关闭仍需现场复核。 |
+
+## R021 / I019 本次恢复后的验证记录（2026-09-04）
+
+| 原文/索引 | 实施状态 | 本次新鲜验证证据 | 真实界面/账号验收边界 |
+| --- | --- | --- | --- |
+| R021/R022 · I019 | 已实施待真实账号验证 | 在隔离工作树 `codex/bound-favorite-rename` 重新运行 `npm test -- --run electron/main/favoriteRepositoryBindingService.test.ts electron/main/favoriteRepositoryIpc.test.ts src/renderer/src/App.test.tsx`：3 个测试文件、247 项通过；重新运行 `npm run build`：退出码 0。`git status --short --branch` 为干净分支，`git diff --check main...HEAD` 通过。测试输出含既有 React `act(...)` 警告，但无测试失败。 | 当前唯一已打开的 Bilimi Electron 窗口属于另一工作树 `favorite-ledger-toggle-local-persistence`；本分支因应用单实例锁不能另起独立窗口。为避免影响用户正在使用的窗口，没有关闭、登录、改名、绑定、删除或写入 B 站，故不能把该窗口的显示或响应作为本分支真实界面证据。真实账号仍须验证：改掌库名称后明确点击“备册”不进入确认绑定/认领，B 站同一精确 ID改为掌库名，正式 `physical-shard-bindings.jsonl` 的 `remoteTitle` 回写，删除预检通过；多分册以及鼠标移动、点击、滚动、缩放、最小化、恢复、关闭也须在本分支开发版验收。 |

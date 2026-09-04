@@ -120,6 +120,8 @@ Expected: exit code `0` for each command.
 
 Open the development app without performing Bilibili writes. Check mouse movement, click, scrolling, resize, minimize/restore, and close responsiveness. Record actual observations in the ledger; leave real Bilibili rename/delete verification explicitly pending if not performed.
 
+**Current evidence (2026-09-04):** the only open Bilimi window belongs to the separate `favorite-ledger-toggle-local-persistence` worktree. The application single-instance lock prevents this worktree from opening a separate window. Do not close or repurpose that user-visible window as a substitute; this step remains unchecked until this branch can be launched independently. No Bilibili write was performed.
+
 - [x] **Step 4: Inspect the final patch and commit only this topic**
 
 Run: `git status --short`, `git diff --stat`, and `git diff --check`.
