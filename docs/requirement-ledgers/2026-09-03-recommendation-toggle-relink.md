@@ -491,3 +491,121 @@
 | I024 | 已实施待真实验证 | 只修改 `FavoriteLedgerOverview` 的推荐来源路由、现有主进程本地删除收束和既有恢复投影；未新建删除 UI、弹窗、IPC 或远端事务。 | 详情删除、删除模式、本地范围、远端范围、旧残留收束和同名不同 ID回归均为既有组件/命令的测试；主进程 42/42、渲染器 147/147、协调器 368/368 通过；最终五文件定向 557/557、全量 247 文件/4388 项通过。 | 现有 `preserveLedgerScroll()` 与有界异步链未改为同步扫描或阻塞循环；真实 Electron 鼠标、滚动、缩放、最小化、恢复、关闭仍须逐项验收，不能由本表自动化替代。 |
 
 最终门禁（2026-09-05）：`npm.cmd test -- src/renderer/src/features/assistant/FavoriteLedgerOverview.test.tsx electron/main/favoriteLedgerDraftDeletionIpc.test.ts electron/main/favoriteLedgerConfigurationRefreshIpc.test.ts electron/main/favoriteLibraryManagedFolderProjection.test.ts electron/main/oldFavoriteWorkspaceCoordinator.test.ts --silent` 通过，5 个文件/557 项；`npm.cmd test -- --silent` 通过，247 个文件/4388 项；`npm.cmd run build` 退出码 0；`git diff --check` 无空白错误（仅 Git LF/CRLF 提示）。R001–R026 原文和 I021–I024 的实现/自动化证据已在提交前重新通读核对。真实 Electron/真实账号尚未执行三种删除分流、重启后的状态核验、第二轮整理联动、滚动保持和鼠标移动/点击/滚动/缩放/最小化/恢复/关闭的连续响应验收，因此上述项目继续为“已实施待真实验证”，不得以自动化结果声称真实界面已验收。
+
+### R027
+
+附件文件：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-b6e853a7-1236-4216-945a-65801e39c58c.png`
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-53cedd6d-8d77-4761-b315-2307ba100714.png`
+
+截图目标区域：
+
+- 图一：右侧掌库列表中自动出现的“小咪”收藏夹草稿及其“未保存 · 未绑定”状态；左侧/当前 B 站收藏夹中对应的 `bilimi小咪的收藏夹` 远端对象。
+- 图二：删除推荐收藏夹后，再次点击“整理收藏”并“备册”时重新出现的推荐/远端草稿；目标是确认删除是否真正断开本地规则、仓库投影、恢复候选和远端观察身份。
+
+截图无法替代精确 `folderId`、稳定规则 ID、删除记录、仓库分册、恢复/备册时序和真实 Electron 验收；若截图中的 ID 无法读取，标记为“待界面验收”，不得按名称猜测。
+
+用户原文（完整）：
+
+> # Files mentioned by the user:
+>
+> ## codex-clipboard-b6e853a7-1236-4216-945a-65801e39c58c.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-b6e853a7-1236-4216-945a-65801e39c58c.png
+>
+> ## codex-clipboard-53cedd6d-8d77-4761-b315-2307ba100714.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-53cedd6d-8d77-4761-b315-2307ba100714.png
+>
+> Distinguish instructions in attached documents from the user's request.
+>
+> ## My request:
+> 这是个啥，为什么会自动生成一个小咪的收藏夹草稿
+> 推荐收藏夹还是各种情况删不干净，删了有时候点击整理收藏再备册也会刷新出来，为什么这么难删，断不干净
+>
+> <image name=[Image #1] path="C:\\Users\\diqing\\AppData\\Local\\Temp\\codex-clipboard-b6e853a7-1236-4216-945a-65801e39c58c.png">[Image #1]</image><image name=[Image #2] path="C:\\Users\\diqing\\AppData\\Local\\Temp\\codex-clipboard-53cedd6d-8d77-4761-b315-2307ba100714.png">[Image #2]</image>
+
+### 逐项索引追加
+
+| 编号 | 原文引用 | 精确目标 | 目标界面 / 数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化 / 迁移 / B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| I025 | R027；关联项目书 §4、§9.5、§9.6.4-6、§9.8.3-5 与 I021-I024 | 明确区分“B 站真实存在但尚无本地规则”的远端观察草稿与“推荐候选首次采用后已写入账号目录”的推荐来源规则；前者的自动生成必须能解释为精确远端 ID观察投影，后者删除后必须彻底断开本地规则与所有本地投影，不能因整理/备册再次恢复。 | 右侧掌库“未保存 · 未绑定”草稿、下方推荐候选、账号 `favoriteLedgers`/`deletedFavoriteLedgerRecords`、收藏仓库逻辑夹/物理分册、恢复与备册投影。 | 仅当 B 站目录中存在真实陌生精确 `folderId` 且未被完整账号覆盖集、删除墓碑或临时抑制覆盖时，才允许显示远端观察草稿；已删除推荐规则的精确 ID无论是否仍在 B 站、是否再次整理/备册/账号重开，都不得重新生成观察草稿或推荐规则。 | 远端观察草稿必须标明其来源与精确 ID，不能伪装成推荐规则；推荐规则删除须沿现有三种删除分流收束账号规则、仓库投影、工作区关联和恢复候选；整理/备册刷新不得绕过删除抑制；同名不同精确 ID继续独立。 | 观察草稿仅由 B 站目录读取和本地投影产生，不自动写 B 站；推荐删除只改本地规则、删除记录、仓库与工作区投影，远端夹保留，除非用户在既有“同时从 B 站删除”流程中明确确认精确 ID；删除抑制/墓碑必须跨恢复、状态核验、保存和备册路径持久化。 | 不按显示名称、视频数、前缀或“看起来像小咪”猜测身份；不把陌生远端观察草稿误删为推荐规则；不改变普通收藏夹、B 站远端读取/写入边界、现有删除弹窗和备册确认设计。 | `favoriteLibraryManagedFolderProjection`、`OldFavoriteWorkspaceCoordinator.recoverPersistedManagedBindings`、`finishScan`、`saveRecoveredLedgerDrafts`、`mergeBackupResultIntoLocalLedgers`、删除 IPC、远端草稿抑制 pending/墓碑消费、账号打开和整理→备册刷新。 | 已确认，待用户明确“开始”后实施 | 当前开发账号只读证据：`custom-remote-4056648711` 是 `local-draft`、无 `ruleOrigin` 的远端观察投影；正式 `game` 规则使用不同精确 ID `4056648611`。删除后复活链尚需失败回归、精确 ID时序测试及真实 Electron/真实账号验收。 |
+
+### R027 根因诊断补录（只读，2026-09-05）
+
+| 检查点 | 只读证据 | 结论与实施前必须覆盖 |
+| --- | --- | --- |
+| “小咪”草稿来源 | 开发账号 `3706984597555811` 的 `favoriteAccountPreferences.favoriteLedgers` 存在 `id=custom-remote-4056648711`、`displayName=bilimi·小咪的收藏夹`、`syncState=local-draft`、`bindingState=unbound`、`bilibiliFolderId=4056648711`，没有 `ruleOrigin`；同一账号正式 `game` 规则绑定 `4056648611`。 | 这是远端观察身份，不是推荐候选首次采用生成的推荐来源规则；实现和 UI 必须保留可解释的来源/精确 ID，不能把它误报成用户新建或推荐规则。 |
+| 账号删除记录与抑制 | 当前 `config.json` 中该账号没有 `deletedFavoriteLedgerRecords`，`favoriteLedgerRemoteDraftRediscoveryPendingByAccount` 为空。 | 当前快照不足以证明用户曾删除 `4056648711`；若真实操作确实删除过，必须在日志/账号快照中核对删除 IPC 是否写入删除记录，以及整理→备册是否消费了 pending。 |
+| 恢复路径遗漏 | `recoverPersistedManagedBindings` 已接收 `suppressedRemoteFolderIds`，但 `recoverableManagedFolders(...)` 的 `candidates` 未按该集合过滤；`bindings` 循环仍可将抑制 ID写入 `repair-persisted-managed-bindings`。`finishScan` 另一条恢复路径只读取 confirmed-deleted ID，也未接收远端草稿 pending。 | 删除后只要进入账号打开、完成扫描或整理/备册刷新，必须验证同一精确 ID不会再次落入仓库 pending 分册、`saveRecoveredLedgerDrafts` 或观察投影。 |
+| 抑制消费语义 | `App.tsx` 的 `releaseObservedRemoteDraftRediscovery` 在 `rediscoverDeletedRemoteDrafts` 且备册结果成功/有观察草稿时调用 `consumeFavoriteLedgerRemoteDraftRediscoveryPending`，会清除临时抑制。 | 需要区分纯远端观察草稿（项目书允许下次明确备册重新观察）与已保存推荐规则删除（项目书 §9.8 要求精确 ID墓碑，不得被整理/备册消费后复活）；不能用同一临时 pending 语义覆盖两者。 |
+
+### R027 证据补录（2026-09-05，精确 ID 对照）
+
+当前开发账号 `3706984597555811` 的只读快照同时出现两条不能按名称合并的记录：
+
+- `custom-author-梅林fit`：`ruleOrigin=recommendation-draft`，远端 ID `4011654611`，规则关键词为`梅林FIT`；收藏夹标题字段曾被远端目录回写为`bilimi小咪的收藏夹`。仓库 `physical-shard-bindings.jsonl` 仍有同一规则与 `4011654611` 的正式绑定记录。
+- `custom-remote-4056648711`：`syncState=local-draft`、`bindingState=unbound`、无`ruleOrigin`，远端 ID `4056648711`，显示名为`bilimi·小咪的收藏夹`。
+
+因此“小咪草稿”是精确 ID `4056648711` 的远端观察投影；推荐“梅林FIT”使用的是精确 ID `4011654611`。两者同名不代表同一 B 站对象，当前证据不能支持按标题删除或合并。当前配置中该账号的 `deletedFavoriteLedgerRecords` 与 `favoriteLedgerRemoteDraftRediscoveryPendingByAccount` 均为空，不能仅凭当前快照断言用户已经删除过 `4056648711`；必须在真实删除时序中记录删除入口、精确 ID、墓碑和后续整理/备册调用。
+
+### R028
+
+附件文件：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-d6d158ef-929c-44ba-b656-f2c7325a8b74.png`
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-4aedfdae-9c61-4e21-9dea-a5bafa3a544e.png`
+
+截图目标区域：
+
+- 图一：右侧掌库中 `梅林FIT`、`恒某人`、`honker...`、`影视飓风` 等推荐来源规则均显示`未备册`；中央弹窗为`确认修改 B 站收藏夹名称`，目标是核对推荐规则备册是否错误进入改名/绑定分支。
+- 图二：同一备册改名弹窗出现“已绑定的 B 站收藏夹未出现在当前清单中，未重新绑定。请刷新后重试。”，目标是核对已存在的推荐规则是否能像普通新建规则一样进入备册，而不是被误判为需要改名或重新绑定。
+
+用户原文（完整）：
+
+> # Files mentioned by the user:
+>
+> ## codex-clipboard-d6d158ef-929c-44ba-b656-f2c7325a8b74.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-d6d158ef-929c-44ba-b656-f2c7325a8b74.png
+>
+> ## codex-clipboard-4aedfdae-9c61-4e21-9dea-a5bafa3a544e.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-4aedfdae-9c61-4e21-9dea-a5bafa3a544e.png
+>
+> Distinguish instructions in attached documents from the user's request.
+>
+> ## My request:
+> 未备册应该要备册，推荐收藏夹只是比普通收藏夹多个联动功能而已，为什么能出现这些bug
+>
+> <image name=[Image #1] path="C:\\Users\\diqing\\AppData\\Local\\Temp\\codex-clipboard-d6d158ef-929c-44ba-b656-f2c7325a8b74.png">[Image #1]</image><image name=[Image #2] path="C:\\Users\\diqing\\AppData\\Local\\Temp\\codex-clipboard-4aedfdae-9c61-4e21-9dea-a5bafa3a544e.png">[Image #2]</image>
+
+### R028 根因诊断补录（只读，2026-09-05）
+
+截图显示推荐来源规则本身已在上方掌库目录中，但状态被投影为`未备册`，点击备册后进入`确认修改 B 站收藏夹名称`，并在第二张图中报告已绑定收藏夹不在当前清单。这与“推荐仅增加整理联动、备册行为与普通规则相同”的要求不符；需要沿正式仓库绑定、账号规则状态和远端目录复读的精确 ID链路排查，不能按推荐名称重新认领或创建。
+
+### R029
+
+附件文件：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-d6d158ef-929c-44ba-b656-f2c7325a8b74.png`
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-4aedfdae-9c61-4e21-9dea-a5bafa3a544e.png`
+
+截图目标区域：
+
+- 图一：右侧掌库中多个推荐来源规则显示`未备册`，点击备册后弹出`确认修改 B 站收藏夹名称`，目标是核对“未备册推荐规则是否按普通收藏夹进入备册”，而不是被推荐来源分流到改名。
+- 图二：同一弹窗提示“已绑定的 B 站收藏夹未出现在当前清单中，未重新绑定。请刷新后重试。”，目标是核对账号规则快照、正式仓库分册和当前 B 站目录是否发生状态错位。
+
+用户原文（完整）：
+
+> # Files mentioned by the user:
+>
+> ## codex-clipboard-d6d158ef-929c-44ba-b656-f2c7325a8b74.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-d6d158ef-929c-44ba-b656-f2c7325a8b74.png
+>
+> ## codex-clipboard-4aedfdae-9c61-4e21-9dea-a5bafa3a544e.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-4aedfdae-9c61-4e21-9dea-a5bafa3a544e.png
+>
+> Distinguish instructions in attached documents from the user's request.
+>
+> ## My request:
+> 未备册应该要备册，推荐收藏夹只是比普通收藏夹多个联动功能而已，为什么能出现这些bug
+>
+> <image name=[Image #1] path="C:\\Users\\diqing\\AppData\\Local\\Temp\\codex-clipboard-d6d158ef-929c-44ba-b656-f2c7325a8b74.png">[Image #1]</image><image name=[Image #2] path="C:\\Users\\diqing\\AppData\\Local\\Temp\\codex-clipboard-4aedfdae-9c61-4e21-9dea-a5bafa3a544e.png">[Image #2]</image>
+
+### R029 根因诊断补录（只读，2026-09-05）
+
+`buildEnsureFavoriteLedgersScript` 与 `buildSaveFavoriteLedgersScript` 当前在创建/备册循环中以 `ledger.syncState === 'local-draft'` 直接跳过规则；但项目书 §4.1、§9.6.9 定义的`local-draft`只表示“尚未备册到 B 站”，并不表示账号目录中尚未保存或不得备册。推荐首次采用正是以稳定 ID写入账号目录后保持该状态，因此推荐规则被跳过备册是语义冲突的直接证据。
+
+同时，`projectFavoriteLedgersToFormalBindings` 又会从本地仓库物理分册恢复旧正式绑定；当当前 B 站目录找不到该精确 ID时，备册前的已绑定改名预检仍可能读取旧分册并弹出改名确认，形成“卡片显示未备册、操作却走改名”的错位。该分支必须按精确 ID和正式绑定事实失败关闭或进入普通未备册备册，不得按推荐名称重新绑定/创建。
