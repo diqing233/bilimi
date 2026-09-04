@@ -2303,6 +2303,76 @@ describe('FavoriteLedgerOverview', () => {
     })))
   })
 
+  it('requires a separate bound-rename confirmation without exposing an id or calling sync again on cancel', async () => {
+    const sync = vi.fn().mockResolvedValue({
+      ok: false,
+      boundRenameCandidates: [{
+        ledgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', logicalVideoCount: 0,
+        shards: [{ shardNumber: 1, remoteFolderId: '4106106611', currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0, targetTitle: 'bilimi·游戏专区哈哈' }]
+      }]
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'game', displayName: 'bilimi·游戏专区哈哈', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: '4106106611', bilibiliFolderIds: ['4106106611'], bindingState: 'bound', isDefault: true
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const dialog = await screen.findByRole('dialog', { name: '确认修改 B 站收藏夹名称' })
+    expect(dialog).toHaveTextContent('游戏专区哈哈（共 0 个视频）')
+    expect(dialog).toHaveTextContent('分册 1：bilimi·游戏专区（0 个视频，确认后 B站收藏夹名字会更改为 bilimi·游戏专区哈哈）')
+    expect(dialog).not.toHaveTextContent('ID：')
+    expect(sync).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
+    expect(sync).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument()
+  })
+
+  it('reruns only the preflight targets after confirming a bound rename', async () => {
+    const candidates = [{
+      ledgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', logicalVideoCount: 0,
+      shards: [{ shardNumber: 1, remoteFolderId: '4106106611', currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0, targetTitle: 'bilimi·游戏专区哈哈' }]
+    }]
+    const sync = vi.fn()
+      .mockResolvedValueOnce({ ok: false, boundRenameCandidates: candidates })
+      .mockResolvedValueOnce({ ok: true })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'game', displayName: 'bilimi·游戏专区哈哈', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: '4106106611', bilibiliFolderIds: ['4106106611'], bindingState: 'bound', isDefault: true
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const dialog = await screen.findByRole('dialog', { name: '确认修改 B 站收藏夹名称' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认改名' }))
+
+    await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), {
+      backupTargetLedgerIds: ['game'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, confirmBoundRename: true,
+      boundRenameShards: { game: [{ remoteFolderId: '4106106611', shardNumber: 1 }] }
+    }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument())
+  })
+
+  it('keeps the bound-rename confirmation open and shows the actual failure after confirmation', async () => {
+    const candidates = [{
+      ledgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', logicalVideoCount: 0,
+      shards: [{ shardNumber: 1, remoteFolderId: '4106106611', currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0, targetTitle: 'bilimi·游戏专区哈哈' }]
+    }]
+    const sync = vi.fn()
+      .mockResolvedValueOnce({ ok: false, boundRenameCandidates: candidates })
+      .mockResolvedValueOnce({ ok: false, message: 'B 站改名被拒绝。' })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'game', displayName: 'bilimi·游戏专区哈哈', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: '4106106611', bilibiliFolderIds: ['4106106611'], bindingState: 'bound', isDefault: true
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const dialog = await screen.findByRole('dialog', { name: '确认修改 B 站收藏夹名称' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认改名' }))
+
+    await waitFor(() => expect(dialog).toHaveTextContent('B 站改名被拒绝。'))
+    expect(screen.getByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).toBeInTheDocument()
+  })
+
   it('shows every locked unbacked backup target as selected before confirming creation', async () => {
     const sync = vi.fn()
       .mockResolvedValueOnce({ ok: false, unboundCandidates: [

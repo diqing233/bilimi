@@ -90,4 +90,29 @@ describe('applyManagedFavoriteLedgerDeletion', () => {
     expect(next).not.toHaveProperty('historicalBilibiliFolderIds')
     expect(next).not.toHaveProperty('historicalBilibiliFolderTitle')
   })
+
+  it('removes only a pure remote-observation draft sharing the exact confirmed-deleted id', () => {
+    const next = applyConfirmedManagedFavoriteRemoteFolderDeletion([
+      {
+        id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], enabled: true, priority: 10, isDefault: true,
+        bilibiliFolderId: '4020631311', bilibiliFolderIds: ['4020631311'], bindingState: 'bound'
+      },
+      {
+        id: 'custom-remote-4020631311', displayName: '知识学习你好', keywords: [], enabled: false, priority: 20,
+        bilibiliFolderId: '4020631311', bilibiliFolderIds: ['4020631311'], bindingState: 'unbound', syncState: 'local-draft', isDefault: false
+      },
+      {
+        id: 'saved-knowledge', displayName: '知识学习你好', keywords: ['学习'], enabled: true, priority: 30,
+        bilibiliFolderId: '4020631311', bilibiliFolderIds: ['4020631311'], bindingState: 'unbound', syncState: 'local-draft', ruleOrigin: 'saved-rule', isDefault: false
+      }
+    ], new Map([['knowledge', new Set(['4020631311'])]]))
+
+    expect(next.map((ledger) => ledger.id)).toEqual(['knowledge', 'saved-knowledge'])
+    expect(next[0]).toEqual(expect.objectContaining({
+      id: 'knowledge', bindingState: 'unbacked', confirmedDeletedRemoteFolderIds: ['4020631311']
+    }))
+    expect(next[1]).toEqual(expect.objectContaining({
+      id: 'saved-knowledge', bilibiliFolderId: '4020631311', keywords: ['学习'], enabled: true
+    }))
+  })
 })

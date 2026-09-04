@@ -11,7 +11,12 @@ import {
   restoreDefaultFavoriteLedgerAfterLocalDeletion
 } from '@shared/favoriteLedgerDeletion'
 import { isUnsavedFavoriteLedgerDraft } from '@shared/favoriteLedgerDraftDeletion'
-import type { FavoriteLedger, FavoriteLedgerRuleType, FavoriteLedgerSaveOptions } from '@shared/types'
+import type {
+  FavoriteLedger,
+  FavoriteLedgerBoundRenameCandidate,
+  FavoriteLedgerRuleType,
+  FavoriteLedgerSaveOptions
+} from '@shared/types'
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { OldFavoriteModal } from './OldFavoriteModal'
@@ -435,6 +440,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const [newLedger, setNewLedger] = useState(false)
   const [deletionPlan, setDeletionPlan] = useState<ManagedDeletionPlan | null>(null)
   const [rebindCandidates, setRebindCandidates] = useState<RebindCandidateEntry[] | null>(null)
+  const [boundRenameCandidates, setBoundRenameCandidates] = useState<FavoriteLedgerBoundRenameCandidate[] | null>(null)
+  const [boundRenameConfirming, setBoundRenameConfirming] = useState(false)
+  const [boundRenameError, setBoundRenameError] = useState<string | null>(null)
   const [rebindSelections, setRebindSelections] = useState<Record<string, string>>({})
   const [rebindSelectedFolderIds, setRebindSelectedFolderIds] = useState<Record<string, string[]>>({})
   const [deletionConfirmed, setDeletionConfirmed] = useState(false)
@@ -1028,7 +1036,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       }) as {
         ok?: boolean
         unboundCandidates?: RebindCandidateEntry[]
+        boundRenameCandidates?: FavoriteLedgerBoundRenameCandidate[]
       } | undefined
+      if (result?.boundRenameCandidates?.length) {
+        setBoundRenameCandidates(result.boundRenameCandidates)
+        setBoundRenameError(null)
+        return result
+      }
       if (result?.unboundCandidates?.length) {
         if (options?.suppressConfirmationDialog) return result
         setRebindCandidates(result.unboundCandidates)
@@ -1562,6 +1576,45 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       setRebindSelectedFolderIds({})
     }
   }
+  const confirmBoundRename = async () => {
+    if (!boundRenameCandidates || destructiveActionLocked || boundRenameConfirming) return
+    setBoundRenameConfirming(true)
+    setBoundRenameError(null)
+    try {
+      const result = await onSyncLedgers(projectEnabled(draftLedgers), {
+        backupTargetLedgerIds: boundRenameCandidates.map((entry) => entry.ledgerId),
+        deleteDisabled: false,
+        rediscoverDeletedRemoteDrafts: true,
+        confirmBoundRename: true,
+        boundRenameShards: Object.fromEntries(boundRenameCandidates.map((entry) => [
+          entry.ledgerId,
+          entry.shards.map((shard) => ({
+            remoteFolderId: shard.remoteFolderId,
+            shardNumber: shard.shardNumber
+          }))
+        ]))
+      }) as {
+        ok?: boolean
+        message?: string
+        boundRenameCandidates?: FavoriteLedgerBoundRenameCandidate[]
+      } | undefined
+      if (result?.boundRenameCandidates?.length) {
+        setBoundRenameCandidates(result.boundRenameCandidates)
+        setBoundRenameError(result.message || 'B 站收藏夹状态已变化，请确认最新名称后继续。')
+        return
+      }
+      if (result?.ok === false) {
+        setBoundRenameError(result.message || '已绑定收藏夹改名未完成，请稍后重试。')
+        return
+      }
+      setBoundRenameCandidates(null)
+      onBackupConfirmationFinished?.(result)
+    } catch (error) {
+      setBoundRenameError(error instanceof Error ? error.message : '已绑定收藏夹改名未完成，请稍后重试。')
+    } finally {
+      setBoundRenameConfirming(false)
+    }
+  }
   const remoteDeletionCounts = deletionPlan
     ? deletionPlan.candidates.reduce((counts, candidate) => {
       // A historical ID confirmed absent from the current Bilibili inventory
@@ -1689,6 +1742,18 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         <label><input type="checkbox" checked={deletionConfirmed} onChange={(event) => setDeletionConfirmed(event.currentTarget.checked)} />我已确认</label>
         {deletionScope === 'bilibili' && deletionPlan.candidates.some((candidate) => candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={deletionAcknowledgedUnbound} onChange={(event) => setDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到未绑定的 bilimi 收藏夹。请确认名称识别候选不是你在 B 站手动创建的同名普通收藏夹，并确认历史分册候选的精确 ID后再勾选。</label> : null}
         {deletionError ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
+      </OldFavoriteModal> : null}
+      {boundRenameCandidates ? <OldFavoriteModal title="确认修改 B 站收藏夹名称" confirmLabel="确认改名" confirmDisabled={boundRenameConfirming || destructiveActionLocked} extraActions={<button type="button" data-variant="secondary" onClick={() => { if (boundRenameConfirming) return; setBoundRenameCandidates(null); setBoundRenameError(null) }}>取消</button>} onCancel={() => { if (boundRenameConfirming) return; setBoundRenameCandidates(null); setBoundRenameError(null) }} onConfirm={() => void confirmBoundRename()}>
+        <p>本次仅修改已绑定收藏夹的 B 站名称，不重新绑定、不创建收藏夹、不处理视频同步。</p>
+        {boundRenameCandidates.map((entry) => <div key={entry.ledgerId} className="favorite-ledger-panel__rebind-choice">
+          <strong>{displayTitle(entry.logicalTitle)}（共 {entry.logicalVideoCount} 个视频）</strong>
+          <div className="favorite-ledger-panel__rebind-candidates">
+            {entry.shards.map((shard) => <p key={`${entry.ledgerId}:${shard.shardNumber}`}>
+              分册 {shard.shardNumber}：{shard.currentRemoteTitle}（{shard.remoteMemberCount} 个视频，确认后 B站收藏夹名字会更改为 {shard.targetTitle}）
+            </p>)}
+          </div>
+        </div>)}
+        {boundRenameError ? <p role="alert" className="favorite-ledger-panel__notice">{boundRenameError}</p> : null}
       </OldFavoriteModal> : null}
       {rebindCandidates ? <OldFavoriteModal title={rebindHasCreationTarget ? '确认创建并绑定 bilimi 收藏夹' : '确认绑定 bilimi 收藏夹'} confirmLabel={rebindHasCreationTarget ? '确认创建并绑定' : '确认绑定'} confirmDisabled={rebindCandidates.some((entry) => entry.candidates.length > 0 && !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
          {rebindHasCreationTarget

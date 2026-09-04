@@ -2818,6 +2818,10 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getUserDeletedDefaultLedgerIds: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
       .filter((ledger) => ledger.isDefault && ledger.managedFolderDeletedByUser)
       .map((ledger) => ledger.id),
+    getConfirmedDeletedRemoteFolderIds: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+      .flatMap((ledger) => ledger.confirmedDeletedRemoteFolderIds ?? [])
+      .map((folderId) => folderId.trim())
+      .filter(Boolean),
     onManagedFolderDeletion: async (accountMid, deletions) => {
       await persistConfirmedManagedFolderDeletion(accountMid, deletions, {
         load: (targetAccountMid) => loadFavoriteAccountPreferences(getDesktopStore(), targetAccountMid),
