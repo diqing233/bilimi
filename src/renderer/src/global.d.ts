@@ -225,6 +225,7 @@ type BilimiDesktopApi = {
   dismissFavoriteLedgerRemoteDraftReminder?: (accountMid: string, remoteFolderId: string) => Promise<unknown>
   syncFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibrarySyncSelection | FavoriteLibraryOperationSelection) => Promise<FavoriteLibraryCommandResult>
   synchronizeFavoriteLibraryPlacements?: (accountMid: string, selection: FavoriteLibrarySyncSelection | FavoriteLibraryOperationSelection) => Promise<FavoriteLibraryCommandResult>
+  resolveFavoriteLibrarySelection?: (accountMid: string, selection: Exclude<FavoriteLibraryOperationSelection, number[]>) => Promise<number[]>
   setFavoriteLibraryLocalPlacements?: (accountMid: string, placements: Array<{ aid: number; folderIds: string[] }>, expectedRevision: number, synchronize?: boolean) => Promise<FavoriteLibraryCommandResult>
   adoptFavoriteLibraryRemotePlacement?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>
   deleteFavoriteLibraryVideo?: (accountMid: string, aid: number, expectedRevision: number) => Promise<FavoriteLibraryCommandResult>

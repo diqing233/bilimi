@@ -299,7 +299,7 @@ type FloatingAssistantAppProps = {
   onRequestCollapse?: () => void
   onOpenInTab?: (url: string) => void
   workspaceRequestsEnabled?: boolean
-  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; ledgerTitle?: string; createLedger?: boolean; requestId?: number; openNoteArchive?: boolean; organizeOldFavorites?: boolean; selectedFavoriteAids?: number[]; selectedFavoriteSelection?: FavoriteLibraryWorkspaceSelection }
+  workspaceRequest?: { tab: AssistantWorkspaceTab; ledgerId?: string; ledgerTitle?: string; createLedger?: boolean; requestId?: number; openNoteArchive?: boolean; archiveId?: string; versionId?: string; organizeOldFavorites?: boolean; selectedFavoriteAids?: number[]; selectedFavoriteSelection?: FavoriteLibraryWorkspaceSelection }
 }
 
 export function findArchivedSummaryTextForNote(
@@ -3016,11 +3016,15 @@ export function FloatingAssistantApp({
   const loadVideoNoteArchives = useCallback(async ({
     silent = false,
     accountMid = snapshotRef.current?.accountMid,
-    announceOpen = false
+    announceOpen = false,
+    archiveId,
+    versionId
   }: {
     silent?: boolean
     accountMid?: string
     announceOpen?: boolean
+    archiveId?: string
+    versionId?: string
   } = {}) => {
     const loadGeneration = ++videoNoteArchiveLoadGeneration.current
     if (!silent) {
@@ -3032,6 +3036,15 @@ export function FloatingAssistantApp({
     const canPublish = canPublishVideoNoteArchiveLoad(loadGeneration, videoNoteArchiveLoadGeneration.current)
     if (canPublish) {
       setVideoNoteArchives(accountArchives)
+      if (archiveId) {
+        const archive = accountArchives.find((entry) => entry.id === archiveId)
+        const version = archive && (versionId ? archive.versions.find((entry) => entry.id === versionId) : archive.versions.at(-1))
+        if (archive && version) {
+          const selection = { archiveId: archive.id, versionId: version.id, activeResultTab: null } as VideoNoteArchiveSelection
+          setVideoNoteArchiveSelection(selection)
+          saveSessionVideoNoteArchiveSelection(selection)
+        }
+      }
     }
 
     if (announceOpen && canPublish) {
@@ -4673,7 +4686,7 @@ export function FloatingAssistantApp({
       if (payload.createLedger) setCreateLedgerRequestVersion((current) => current + 1)
 
       if (payload.openNoteArchive) {
-        void loadVideoNoteArchives({ announceOpen: true })
+        void loadVideoNoteArchives({ announceOpen: true, archiveId: payload.archiveId, versionId: payload.versionId })
         setActiveTab(payload.tab, { view: 'noteArchive' })
       } else {
         setActiveTab(payload.tab, {
@@ -5119,7 +5132,7 @@ export function FloatingAssistantApp({
     setCreateLedgerRequested(Boolean(workspaceRequest.createLedger))
     if (workspaceRequest.createLedger) setCreateLedgerRequestVersion(workspaceRequest.requestId ?? 0)
     if (workspaceRequest.openNoteArchive) {
-      void loadVideoNoteArchives({ announceOpen: true })
+      void loadVideoNoteArchives({ announceOpen: true, archiveId: workspaceRequest.archiveId, versionId: workspaceRequest.versionId })
       setActiveTab(workspaceRequest.tab, { view: 'noteArchive' })
     } else {
       setActiveTab(workspaceRequest.tab)
