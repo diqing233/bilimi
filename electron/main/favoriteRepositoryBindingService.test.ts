@@ -200,6 +200,31 @@ describe('FavoriteRepositoryBindingService', () => {
     expect((await service.getBindings('100')).shards[0]).toMatchObject({ bindingState: 'bound', remoteFolderId: 'remote-music' })
   })
 
+  it('does not reconcile a pending shard whose exact remote id is deletion-suppressed', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'pending-deleted-recommendation', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'recommended-up', logicalTitle: '专属 UP 追更', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·专属 UP 追更', bindingState: 'pending-reconcile', remoteFolderId: 'deleted-recommendation-remote' }
+    })
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
+            { id: 'deleted-recommendation-remote', title: 'bilimi·专属 UP 追更', memberCount: 4 }
+          ]}), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await service.reconcilePendingBindingsFromRemote('100', { suppressedRemoteFolderIds: ['deleted-recommendation-remote'] })
+
+    expect((await service.getBindings('100')).shards[0]).toMatchObject({
+      bindingState: 'pending-reconcile', remoteFolderId: 'deleted-recommendation-remote'
+    })
+  })
+
   it('keeps scan-discovered candidate ids pending until the user confirms recovery', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

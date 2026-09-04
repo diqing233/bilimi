@@ -1591,6 +1591,16 @@ export default function App() {
     return accountMid ? favoriteLedgersForAccount(currentPreferences, accountMid) : currentPreferences.favoriteLedgers
   }
 
+  function deletedRecommendationRemoteFolderIdsForAccount(accountMid: string): string[] {
+    if (!accountMid) return []
+    const records = preferencesRef.current.favoriteAccountPreferences?.[accountMid]?.deletedFavoriteLedgerRecords ?? []
+    return [...new Set(records
+      .filter((record) => record.ledger.ruleOrigin === 'recommendation-draft')
+      .flatMap((record) => [record.ledger.bilibiliFolderId, ...(record.ledger.bilibiliFolderIds ?? [])])
+      .map((folderId) => folderId?.trim())
+      .filter((folderId): folderId is string => Boolean(folderId)))]
+  }
+
   function preferencesWithFavoriteLedgers(
     currentPreferences: AssistantPreferences,
     accountMid: string,
@@ -1603,13 +1613,16 @@ export default function App() {
 
   function mergeBackupResultIntoLocalLedgers(
     currentLedgers: FavoriteLedger[],
-    resultLedgers: FavoriteLedger[]
+    resultLedgers: FavoriteLedger[],
+    suppressedLedgerIds: ReadonlySet<string> = new Set()
   ): FavoriteLedger[] {
-    const resultById = new Map(resultLedgers.map((ledger) => [ledger.id, ledger]))
-    const currentIds = new Set(currentLedgers.map((ledger) => ledger.id))
+    const activeCurrentLedgers = currentLedgers.filter((ledger) => !suppressedLedgerIds.has(ledger.id))
+    const activeResultLedgers = resultLedgers.filter((ledger) => !suppressedLedgerIds.has(ledger.id))
+    const resultById = new Map(activeResultLedgers.map((ledger) => [ledger.id, ledger]))
+    const currentIds = new Set(activeCurrentLedgers.map((ledger) => ledger.id))
     return [
-      ...currentLedgers.map((ledger) => resultById.get(ledger.id) ?? ledger),
-      ...resultLedgers.filter((ledger) => !currentIds.has(ledger.id))
+      ...activeCurrentLedgers.map((ledger) => resultById.get(ledger.id) ?? ledger),
+      ...activeResultLedgers.filter((ledger) => !currentIds.has(ledger.id))
     ]
   }
 
@@ -2443,6 +2456,7 @@ export default function App() {
       window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid).catch(() => []) ?? [],
       window.bilimiDesktop?.getFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid).catch(() => []) ?? []
     ])
+    const deletedRecommendationRemoteFolderIds = deletedRecommendationRemoteFolderIdsForAccount(accountMid)
     const suppressedRemoteDraftFolderIds = [...new Set([
       ...dismissedRemoteDraftReminderIds,
       ...pendingRemoteDraftRediscoveryIds
@@ -2454,7 +2468,8 @@ export default function App() {
           ledgersWithRepositoryCandidates,
           suppressedRemoteDraftFolderIds,
           remoteDraftKnownFolderIds,
-          remoteDraftBoundFolderIds
+          remoteDraftBoundFolderIds,
+          deletedRecommendationRemoteFolderIds
         )
       ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
     } catch {
@@ -2622,6 +2637,7 @@ export default function App() {
       window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid).catch(() => []) ?? [],
       window.bilimiDesktop?.getFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid).catch(() => []) ?? []
     ])
+    const deletedRecommendationRemoteFolderIds = deletedRecommendationRemoteFolderIdsForAccount(accountMid)
     const suppressedRemoteDraftFolderIds = [...new Set([
       ...dismissedRemoteDraftReminderIds,
       ...pendingRemoteDraftRediscoveryIds
@@ -2634,7 +2650,8 @@ export default function App() {
           dismissedRemoteFolderIds: suppressedRemoteDraftFolderIds,
           remoteDraftKnownFolderIds
         },
-        remoteDraftBoundFolderIds
+        remoteDraftBoundFolderIds,
+        deletedRecommendationRemoteFolderIds
       )
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
@@ -2791,6 +2808,7 @@ export default function App() {
       remoteDraftBoundFolderIds,
       formalBoundShards
     } = formalBindings
+    const deletedRecommendationRemoteFolderIds = deletedRecommendationRemoteFolderIdsForAccount(accountMid)
     const explicitBackupTargetIds = new Set<string>([
       ...(options?.backupTargetLedgerIds ?? []),
       ...(options?.lightweightBackup === true ? [ledgerId] : [])
@@ -2836,7 +2854,8 @@ export default function App() {
             ...remoteDraftKnownFolderIds
           ])]
         },
-        remoteDraftBoundFolderIds
+        remoteDraftBoundFolderIds,
+        deletedRecommendationRemoteFolderIds
       )
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
     const mergedResult = mergeBoundRenameIntoAutomationResult(result, ledgersAfterDirectRename, directRename.renamedLedgerIds)
@@ -2995,6 +3014,12 @@ export default function App() {
       : nextLedgers
     const dismissedRemoteFolderIds = await window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid)
       .catch(() => []) ?? []
+    const deletedRecommendationLedgerIds = new Set(
+      (preferencesRef.current.favoriteAccountPreferences?.[accountMid]?.deletedFavoriteLedgerRecords ?? [])
+        .filter((record) => record.ledger.ruleOrigin === 'recommendation-draft')
+        .map((record) => record.logicalLedgerId)
+    )
+    const deletedRecommendationRemoteFolderIds = deletedRecommendationRemoteFolderIdsForAccount(accountMid)
     let formalBindings
     try {
       formalBindings = await projectFavoriteLedgersToFormalBindings(
@@ -3049,9 +3074,15 @@ export default function App() {
         ...options,
         dismissedRemoteFolderIds,
         remoteDraftKnownFolderIds
-      }, remoteDraftBoundFolderIds)
+      }, remoteDraftBoundFolderIds, deletedRecommendationRemoteFolderIds)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
     const mergedResult = mergeBoundRenameIntoAutomationResult(result, ledgersAfterDirectRename, directRename.renamedLedgerIds)
+    const visibleMergedResult = Array.isArray(mergedResult.ledgers)
+      ? {
+          ...mergedResult,
+          ledgers: mergedResult.ledgers.filter((ledger) => !deletedRecommendationLedgerIds.has(ledger.id))
+        }
+      : mergedResult
     const refreshFavoriteLedgerStatusAfterBackup = async (preserveBoundLedgerIds: readonly string[] = []) => {
       if (!accountMid) return
       favoriteLedgerStatusCacheRef.current = null
@@ -3079,15 +3110,15 @@ export default function App() {
       favoriteLedgerStatusRefreshPromisesRef.current.set(accountMid, pending)
       await pending
     }
-    const observedRemoteOnlyDrafts = Array.isArray(mergedResult.remoteOnlyDraftLedgerIds) && mergedResult.remoteOnlyDraftLedgerIds.length > 0
+    const observedRemoteOnlyDrafts = Array.isArray(visibleMergedResult.remoteOnlyDraftLedgerIds) && visibleMergedResult.remoteOnlyDraftLedgerIds.length > 0
     const releaseObservedRemoteDraftRediscovery = async () => {
       if (!options?.rediscoverDeletedRemoteDrafts || !(mergedResult.ok === true || observedRemoteOnlyDrafts)) return
       await window.bilimiDesktop?.consumeFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid)
     }
 
-    if (Array.isArray(mergedResult.ledgers)) {
+    if (Array.isArray(visibleMergedResult.ledgers)) {
       const formalLedgerById = new Map(ledgersAfterDirectRename.map((ledger) => [ledger.id, ledger]))
-      const resultLedgers = mergedResult.ledgers.map((ledger) => {
+      const resultLedgers = visibleMergedResult.ledgers.map((ledger) => {
         const confirmedFolders = options?.rebindRemoteFolders?.[ledger.id] ?? []
         if (!confirmedFolders.length) return ledger
         const formalLedger = formalLedgerById.get(ledger.id)
@@ -3138,7 +3169,7 @@ export default function App() {
           .map((ledger) => ledger.id)
       ])]
       const persistedLedgers = options?.rediscoverDeletedRemoteDrafts || backupTargetLedgerIdSet.size
-        ? mergeBackupResultIntoLocalLedgers(previousLedgers, backupLedgers)
+        ? mergeBackupResultIntoLocalLedgers(previousLedgers, backupLedgers, deletedRecommendationLedgerIds)
         : backupLedgers
       const persistedLedgersWithHistory = persistedLedgers.map((ledger) => {
         const historicalSource = ledgersWithFormalBindings.find((candidate) => candidate.id === ledger.id)
@@ -3171,7 +3202,7 @@ export default function App() {
         await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)
         window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
         return {
-          ...mergedResult,
+          ...visibleMergedResult,
           ok: false,
           ledgers: persistedLedgersWithHistory,
           unboundLedgerIds: visibleFailures.map((failure) => failure.ledgerId),
@@ -3202,17 +3233,17 @@ export default function App() {
       await releaseObservedRemoteDraftRediscovery()
       await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
-      return { ...mergedResult, ledgers: persistedLedgersWithHistory }
+      return { ...visibleMergedResult, ledgers: persistedLedgersWithHistory }
     }
 
-    return Array.isArray(mergedResult.ledgers) && options?.rebindRemoteFolders
-      ? { ...mergedResult, ledgers: mergedResult.ledgers.map((ledger) => {
+    return Array.isArray(visibleMergedResult.ledgers) && options?.rebindRemoteFolders
+      ? { ...visibleMergedResult, ledgers: visibleMergedResult.ledgers.map((ledger) => {
         const confirmedFolders = options.rebindRemoteFolders?.[ledger.id] ?? []
         return confirmedFolders.length
           ? { ...ledger, bilibiliFolderId: confirmedFolders[0].id, bilibiliFolderIds: confirmedFolders.map((folder) => folder.id), bilibiliFolderTitle: confirmedFolders[0].title }
           : ledger
       }) }
-      : mergedResult
+      : visibleMergedResult
   }
 
   async function openBilibiliFavorites(): Promise<AssistantAutomationResult> {

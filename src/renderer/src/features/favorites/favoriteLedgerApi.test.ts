@@ -1427,6 +1427,99 @@ describe('favorite ledger API scripts', () => {
     expect(createRequest?.body).toContain(`title=${encodeURIComponent(ledgers[1].displayName)}`)
   })
 
+  it('backs up saved recommendation local-draft rules but excludes pure remote observations', async () => {
+    installCookies()
+    const recommendationLedger: FavoriteLedger = {
+      id: 'recommendation-rule', displayName: 'bilimi·推荐作者', keywords: ['推荐作者'], enabled: true,
+      priority: 20, isDefault: false, bindingState: 'unbacked', syncState: 'local-draft',
+      ruleOrigin: 'recommendation-draft'
+    }
+    const remoteObservation: FavoriteLedger = {
+      id: 'custom-remote-88', displayName: '远端观察夹', keywords: [], enabled: false,
+      priority: 30, isDefault: false, bilibiliFolderId: '88', bilibiliFolderIds: ['88'],
+      bindingState: 'unbound', syncState: 'local-draft'
+    }
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      requests.push(`${url} ${init?.method ?? 'GET'}`)
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [] } })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        return Response.json({ code: 0, data: { id: 99 } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript(
+      [recommendationLedger, remoteObservation],
+      { confirmCreateAndBind: true }
+    ))
+
+    expect(result.ok).toBe(true)
+    expect(result.missingTargets).toEqual([])
+    expect(result.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'recommendation-rule', bilibiliFolderId: '99', bindingState: 'bound' })
+    ]))
+    expect(result.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'custom-remote-88', bindingState: 'unbacked' })
+    ]))
+    expect(requests.filter((request) => request.includes('/x/v3/fav/folder/add'))).toHaveLength(1)
+  })
+
+  it('fails closed when a formal repository binding is absent from the current remote inventory', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'recommendation-stale-binding', displayName: 'bilimi·旧推荐', keywords: ['旧推荐'], enabled: true,
+      priority: 20, isDefault: false, bindingState: 'bound', syncState: 'local-draft',
+      ruleOrigin: 'recommendation-draft', bilibiliFolderId: '42', bilibiliFolderIds: ['42']
+    }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) return Response.json({ code: 0, data: { list: [] } })
+      if (url.includes('/x/v3/fav/folder/add')) return Response.json({ code: 0, data: { id: 43 } })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript(
+      [ledger],
+      { confirmCreateAndBind: true },
+      ['42']
+    ))
+
+    expect(result.ok).toBe(false)
+    expect(result.missingTargets).toEqual(['recommendation-stale-binding'])
+    expect(result.message).toContain('刷新')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toBe(false)
+  })
+
+  it('keeps a deleted recommendation remote id suppressed across status, ensure, and save projections', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: '77', title: 'bilimi·已删除推荐', media_count: 3 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const buildStatus = buildFavoriteLedgerStatusScript as unknown as (...args: unknown[]) => string
+    const buildEnsure = buildEnsureFavoriteLedgersScript as unknown as (...args: unknown[]) => string
+    const buildSave = buildSaveFavoriteLedgersScript as unknown as (...args: unknown[]) => string
+    const deletedRecommendationIds = ['77']
+
+    const status = await window.eval(buildStatus([], [], [], [], deletedRecommendationIds))
+    expect(status.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(status.ledgers).toEqual([])
+
+    const ensure = await window.eval(buildEnsure([], { confirmCreateAndBind: true }, [], deletedRecommendationIds))
+    expect(ensure.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(ensure.ledgers).toEqual([])
+
+    const save = await window.eval(buildSave([], [], { confirmCreateAndBind: true }, [], deletedRecommendationIds))
+    expect(save.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(save.ledgers).toEqual([])
+  })
+
   it('keeps every newly created default folder bound while later batch rechecks observe it', async () => {
     installCookies()
     const createdByTitle = new Map<string, { id: string; title: string }>()

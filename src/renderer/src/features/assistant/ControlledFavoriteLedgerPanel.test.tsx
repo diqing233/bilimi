@@ -55,6 +55,22 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '备册' })).toBeDisabled()
   })
 
+  it('keeps an enabled saved recommendation local-draft eligible for ordinary backup', () => {
+    const ensure = vi.fn().mockResolvedValue({ ok: true })
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100"
+      ledgers={[{
+        id: 'recommendation-draft', displayName: 'bilimi·推荐', keywords: ['推荐'], enabled: true, priority: 10,
+        syncState: 'local-draft', ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
+      }]}
+      missingLedgerIds={['recommendation-draft']}
+      onEnsureLedgers={ensure}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    expect(screen.getByRole('button', { name: '备册' })).toBeEnabled()
+  })
+
   it('uses one backup flow for the toolbar and the收藏夹 backup action', async () => {
     const ensure = vi.fn().mockResolvedValue({ ok: true })
     const sync = vi.fn((_: unknown, options?: { rebindRemoteFolderIds?: Record<string, string> }) =>

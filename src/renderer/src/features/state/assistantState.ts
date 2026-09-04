@@ -14,6 +14,7 @@ import type {
   FavoriteKeywordSuggestion,
   FavoriteArchiveMultiMode,
   FavoriteAccountPreferences,
+  DeletedFavoriteLedgerRecord,
   MainWindowCloseBehavior,
   RecommendationKind,
   VideoAudioTranscriptionThreadLimit
@@ -92,6 +93,19 @@ function normalizeFavoriteAccountPreferenceMap(
       return [[accountMid, {
         defaultFavoriteSystemEnabled: accountPreferences.defaultFavoriteSystemEnabled !== false,
         favoriteLedgers: normalizeFavoriteLedgers(accountPreferences.favoriteLedgers),
+        ...(Array.isArray(accountPreferences.deletedFavoriteLedgerRecords)
+          ? {
+              deletedFavoriteLedgerRecords: accountPreferences.deletedFavoriteLedgerRecords.flatMap((record) => {
+                if (!record || typeof record !== 'object' || typeof record.logicalLedgerId !== 'string' ||
+                  typeof record.deletedAt !== 'string' || !record.ledger || typeof record.ledger !== 'object') return []
+                return [{
+                  logicalLedgerId: record.logicalLedgerId,
+                  deletedAt: record.deletedAt,
+                  ledger: normalizeFavoriteLedgers([record.ledger as DeletedFavoriteLedgerRecord['ledger']])[0]!
+                }]
+              })
+            }
+          : {}),
         ...(accountPreferences.transcriptionModelId === 'sensevoice-small' ||
         accountPreferences.transcriptionModelId === 'whisper-small' ||
         accountPreferences.transcriptionModelId === 'faster-whisper-large-v3-turbo' ||

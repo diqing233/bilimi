@@ -1734,7 +1734,7 @@ export function ControlledFavoriteLedgerPanel({
     .filter((ledger) => ledger.enabled)
     .map((ledger) => ledger.id))
   const hasBackupEligibleLedger = displayedLedgersWithLiveEnabled.some((ledger) =>
-    ledger.enabled && (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule') &&
+    ledger.enabled && (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule' || ledger.ruleOrigin === 'recommendation-draft') &&
     (defaultFavoriteSystemEnabled !== false || !ledger.isDefault || ledger.id === 'inbox'))
   const ensureLedgersAndOpenFavoritePage = async () => {
     if (ensuringLedgersRef.current) return
