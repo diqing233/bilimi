@@ -5121,6 +5121,37 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(saved).not.toHaveBeenCalled()
   })
 
+  it('does not repair a suppressed remote folder after its local managed folder was deleted', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const firstCoordinator = createCoordinator(repository, store)
+    await firstCoordinator.open('100')
+    await firstCoordinator.beginScan('100', 'incremental')
+    await firstCoordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'deleted-recommendation-remote', title: 'bilimi·专属 UP 追更', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await firstCoordinator.recordManagedMembers('100', { 'deleted-recommendation-remote': [7] })
+    await firstCoordinator.finishScan('100')
+
+    const beforeDelete = await repository.getSnapshot('100')
+    const logicalFolderId = beforeDelete.folders.find((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId?.startsWith('custom-'))?.id
+    if (!logicalFolderId) throw new Error('expected recovered custom logical folder')
+    await repository.commit('100', {
+      id: 'delete-recommendation-logical-folder', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z',
+      type: 'delete-local-managed-folders', payload: { logicalFolderIds: [logicalFolderId] }
+    })
+
+    const saved = vi.fn(async (_accountMid: string, _ledgers: FavoriteLedger[]) => undefined)
+    const repair = vi.spyOn(repository, 'commit')
+    const reopened = createCoordinator(repository, store, { initializeOnOpen: false, saveRecoveredLedgerDrafts: saved })
+    await reopened.recoverPersistedManagedBindings('100', { suppressedRemoteFolderIds: ['deleted-recommendation-remote'] })
+
+    expect(saved).not.toHaveBeenCalled()
+    expect(repair.mock.calls.some(([, command]) => command.type === 'repair-persisted-managed-bindings' &&
+      command.payload.bindings.some((binding) => binding.knownRemoteFolderIds?.includes('deleted-recommendation-remote') || binding.remoteFolderId === 'deleted-recommendation-remote'))).toBe(false)
+  })
+
   it('bounds scan-time deterministic binding repairs to one hundred targets per atomic command', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

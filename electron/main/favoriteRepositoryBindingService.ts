@@ -613,11 +613,16 @@ export class FavoriteRepositoryBindingService {
   async reconcilePendingBindings(accountMid: string, input: {
     observedAccountMid: string
     inventory: FavoriteRepositoryRemoteFolderInventory[]
-  }) {
+  }, options: { suppressedRemoteFolderIds?: readonly string[] } = {}) {
     const account = normalizedAccountMid(accountMid)
     if (normalizedAccountMid(input.observedAccountMid) !== account) throw new Error('Favorite repository remote account mismatch.')
     const snapshot = await this.options.repository.getSnapshot(account)
+    const suppressedRemoteFolderIds = new Set((options.suppressedRemoteFolderIds ?? [])
+      .map((folderId) => folderId.trim())
+      .filter(Boolean))
     for (const shard of snapshot.physicalShards.filter((candidate) => candidate.bindingState === 'pending-reconcile')) {
+      if ([shard.remoteFolderId, ...(shard.knownRemoteFolderIds ?? [])]
+        .some((folderId) => folderId && suppressedRemoteFolderIds.has(folderId))) continue
       const known = new Set(shard.knownRemoteFolderIds ?? [])
       // A migrated shard may carry its last known Bilibili ID.  Prefer that
       // immutable identity so a remote rename does not create a duplicate or
@@ -661,7 +666,7 @@ export class FavoriteRepositoryBindingService {
   }
 
   /** Reads the current Bilibili inventory before accepting migrated/pending bindings. */
-  async reconcilePendingBindingsFromRemote(accountMid: string) {
+  async reconcilePendingBindingsFromRemote(accountMid: string, options: { suppressedRemoteFolderIds?: readonly string[] } = {}) {
     const account = normalizedAccountMid(accountMid)
     const run = async () => {
       const pageBridgeManager = this.options.pageBridgeManager
@@ -678,7 +683,7 @@ export class FavoriteRepositoryBindingService {
         return this.reconcilePendingBindings(account, {
           observedAccountMid: inventory.observedAccountMid,
           inventory: inventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
-        })
+        }, options)
       } finally {
         pageBridgeManager.release(account, runId)
       }

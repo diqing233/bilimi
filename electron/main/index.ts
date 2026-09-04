@@ -1091,12 +1091,25 @@ function notifyFloatingAssistantSnapshotChanged() {
   sendAssistantSnapshotChangedToTargets([mainWindow, assistant])
 }
 
+function getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid: string) {
+  const preferences = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+  return [...new Set((preferences.deletedFavoriteLedgerRecords ?? [])
+    .filter((record) => record.ledger.ruleOrigin === 'recommendation-draft')
+    .flatMap((record) => [record.ledger.bilibiliFolderId, ...(record.ledger.bilibiliFolderIds ?? [])])
+    .map((folderId) => folderId?.trim())
+    .filter((folderId): folderId is string => Boolean(folderId)))]
+}
+
 async function reconcileFavoriteLedgerBindingProjection(accountMid: string) {
   const store = getDesktopStore()
   const current = loadFavoriteAccountPreferences(store, accountMid)
   const repositorySnapshot = await favoriteRepositoryService?.getSnapshot(accountMid).catch(() => null)
   if (!repositorySnapshot) return false
-  const projectedLedgers = projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, repositorySnapshot.physicalShards)
+  const deletedRecommendationRemoteFolderIds = new Set(getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid))
+  const physicalShards = repositorySnapshot.physicalShards.filter((shard) =>
+    ![shard.remoteFolderId, ...(shard.knownRemoteFolderIds ?? [])]
+      .some((folderId) => folderId && deletedRecommendationRemoteFolderIds.has(folderId)))
+  const projectedLedgers = projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, physicalShards)
   const favoriteLedgers = projectedLedgers
   if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return false
   saveFavoriteAccountPreferences(store, accountMid, { ...current, favoriteLedgers })
@@ -2857,8 +2870,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getUserDeletedDefaultLedgerIds: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
       .filter((ledger) => ledger.isDefault && ledger.managedFolderDeletedByUser)
       .map((ledger) => ledger.id),
-    getConfirmedDeletedRemoteFolderIds: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
-      .flatMap((ledger) => ledger.confirmedDeletedRemoteFolderIds ?? [])
+    getConfirmedDeletedRemoteFolderIds: (accountMid) => [
+      ...loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+        .flatMap((ledger) => ledger.confirmedDeletedRemoteFolderIds ?? []),
+      ...getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid)
+    ]
       .map((folderId) => folderId.trim())
       .filter(Boolean),
     onManagedFolderDeletion: async (accountMid, deletions) => {
@@ -2923,24 +2939,22 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       .filter((ledger) => {
         if (!ledger.enabled) return false
         if (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule') return true
-        // A locally adopted recommendation has no remote folder yet, but it
-        // is still a real current-round backup target. Keep observed remote
-        // drafts out of this list by requiring the absence of every remote ID.
-        return ledger.ruleOrigin === 'recommendation-draft' &&
-          !ledger.bilibiliFolderId?.trim() && !(ledger.bilibiliFolderIds ?? []).some((id) => id.trim())
+        // Recommendation origin is linkage metadata, not a lifecycle gate.
+        // Any account-saved recommendation is a real backup target; only a
+        // remote observation without a rule origin is excluded.
+        return ledger.ruleOrigin === 'recommendation-draft'
       })
       .map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
     listSavedLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
       .filter((ledger) => {
         if (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule') return true
-        return ledger.ruleOrigin === 'recommendation-draft' &&
-          !ledger.bilibiliFolderId?.trim() && !(ledger.bilibiliFolderIds ?? []).some((id) => id.trim())
+        return ledger.ruleOrigin === 'recommendation-draft'
       })
       .map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
     resolveSavedLedgerRule: async (accountMid, logicalLedgerId) => {
       const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
         .find((candidate) => candidate.id === logicalLedgerId &&
-          (candidate.syncState !== 'local-draft' || candidate.ruleOrigin === 'saved-rule'))
+          (candidate.syncState !== 'local-draft' || candidate.ruleOrigin === 'saved-rule' || candidate.ruleOrigin === 'recommendation-draft'))
       if (!ledger) return undefined
       const ruleType = ledger.ruleType ?? 'keyword'
       if (ruleType === 'deepseek') return undefined
@@ -3140,14 +3154,19 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       await reconcileFavoriteLedgerBindingProjection(accountMid)
     },
     onAccountOpen: async (accountMid) => {
+      const deletedRecommendationRemoteFolderIds = getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid)
+      const suppressedRemoteFolderIds = [...new Set([
+        ...loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid),
+        ...deletedRecommendationRemoteFolderIds
+      ])]
       // Validate pending/migrated bindings against the current remote inventory
       // before any persisted scan projection is allowed to restore them.
-      await favoriteRepositoryBindingService!.reconcilePendingBindingsFromRemote(accountMid).catch(() => undefined)
+      await favoriteRepositoryBindingService!.reconcilePendingBindingsFromRemote(accountMid, { suppressedRemoteFolderIds }).catch(() => undefined)
       // A previous complete scan can still restore local same-device bindings;
       // imported bindings are pending until the live inventory check above has
       // proved a unique matching remote folder.
       await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid, {
-        suppressedRemoteFolderIds: loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)
+        suppressedRemoteFolderIds
       }).catch(() => undefined)
       await reconcileFavoriteLedgerBindingProjection(accountMid)
       const store = getDesktopStore()
@@ -3157,7 +3176,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         repository: favoriteRepositoryService!,
         ledgers: favoriteAccountPreferences.favoriteLedgers,
         deletedFavoriteLedgerRecords: favoriteAccountPreferences.deletedFavoriteLedgerRecords,
-        suppressedRemoteFolderIds: loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)
+        suppressedRemoteFolderIds
       })
     },
     // A user-local deletion is not the same as choosing “不再提醒”. The

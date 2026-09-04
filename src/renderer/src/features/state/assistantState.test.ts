@@ -17,6 +17,42 @@ import { classifyVideoContent } from '../recommendation/videoClassifier'
 const LIKE_ACTION = '赞' as AssistantAction
 
 describe('assistant state', () => {
+  it('preserves account recommendation deletion tombstones during preference normalization', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [],
+          deletedFavoriteLedgerRecords: [{
+            logicalLedgerId: 'deleted-recommendation',
+            deletedAt: '2026-09-05T00:00:00.000Z',
+            ledger: {
+              id: 'deleted-recommendation',
+              displayName: 'bilimi·已删除推荐',
+              keywords: ['已删除推荐'],
+              enabled: true,
+              priority: 10,
+              ruleOrigin: 'recommendation-draft',
+              bindingState: 'unbacked',
+              bilibiliFolderId: '77',
+              isDefault: false
+            }
+          }]
+        }
+      }
+    })
+
+    expect(preferences.favoriteAccountPreferences?.['100']?.deletedFavoriteLedgerRecords).toEqual([
+      expect.objectContaining({
+        logicalLedgerId: 'deleted-recommendation',
+        ledger: expect.objectContaining({
+          ruleOrigin: 'recommendation-draft',
+          bilibiliFolderId: '77'
+        })
+      })
+    ])
+  })
+
   it('applies one account ledger enabled patch without rebuilding unrelated accounts or ledgers', () => {
     const preferences = createInitialAssistantPreferences({
       favoriteAccountPreferences: {

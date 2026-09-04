@@ -335,6 +335,18 @@ describe('App runtime integration', () => {
     expect(effect).not.toContain('setPreferences')
   })
 
+  it('passes deleted recommendation remote ids through the single-ledger backup path', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const ensureStart = source.indexOf(
+      'buildEnsureFavoriteLedgersScript(',
+      source.indexOf('const ledgersAfterDirectRename')
+    )
+    const ensureEnd = source.indexOf('\n      ) as AssistantAutomationResult', ensureStart)
+    const ensureCall = source.slice(ensureStart, ensureEnd)
+
+    expect(ensureCall).toContain('remoteDraftBoundFolderIds, deletedRecommendationRemoteFolderIds')
+  })
+
   it('updates a 30k-ledger runtime ref in constant work without rerendering the browser tree', async () => {
     let enabledReads = 0
     const ledgers = Array.from({ length: 30_000 }, (_, index) => {
@@ -4062,6 +4074,64 @@ describe('App runtime integration', () => {
       expect.objectContaining({ id: 'unchecked', enabled: false }),
       expect.objectContaining({ id: 'draft', syncState: 'local-draft' })
     ]))
+  })
+
+  it('does not merge a deleted recommendation back into account ledgers from a backup result', async () => {
+    const accountMid = '100'
+    const deletedRecommendation = {
+      id: 'deleted-recommendation', displayName: 'bilimi·已删除推荐', keywords: ['已删除推荐'],
+      enabled: true, priority: 30, isDefault: false, ruleOrigin: 'recommendation-draft' as const,
+      bindingState: 'unbacked' as const, bilibiliFolderId: '77'
+    }
+    const initialPreferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [],
+          deletedFavoriteLedgerRecords: [{
+            logicalLedgerId: deletedRecommendation.id,
+            deletedAt: '2026-09-05T00:00:00.000Z',
+            ledger: deletedRecommendation
+          }]
+        }
+      }
+    })
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-05T00:00:00.000Z',
+        videoCount: 0, folderCount: 0, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 0, syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        if (script.includes(LEDGER_SAVE_SCRIPT_MARKER)) {
+          return { ok: true, verified: true, ledgers: [{ ...deletedRecommendation, bindingState: 'bound' as const, bilibiliFolderId: '77' }], steps: ['api:ledger:list'], missingTargets: [], message: '已备册' }
+        }
+        if (isLedgerStatusScript(script)) return { ...emptyLedgerStatus(), ledgers: [] }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    const backupResult = await requestRuntime({
+      id: 'deleted-recommendation-merge-guard', type: 'save-ledgers', ledgers: [deletedRecommendation],
+      options: { backupTargetLedgerIds: [deletedRecommendation.id], confirmCreateAndBind: true, rediscoverDeletedRemoteDrafts: true }
+    })
+    expect(backupResult).toMatchObject({ ok: true })
+    expect(backupResult?.ledgers ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: deletedRecommendation.id })]))
+
+    expect(savePreferences).toHaveBeenCalled()
+    const persistedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? []
+    expect(persistedLedgers).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: deletedRecommendation.id })]))
   })
 
   it('passes complete repository coverage into a single-target backup without widening its write target', async () => {

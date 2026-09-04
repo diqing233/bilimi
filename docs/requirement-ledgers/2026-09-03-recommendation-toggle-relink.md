@@ -609,3 +609,29 @@
 `buildEnsureFavoriteLedgersScript` 与 `buildSaveFavoriteLedgersScript` 当前在创建/备册循环中以 `ledger.syncState === 'local-draft'` 直接跳过规则；但项目书 §4.1、§9.6.9 定义的`local-draft`只表示“尚未备册到 B 站”，并不表示账号目录中尚未保存或不得备册。推荐首次采用正是以稳定 ID写入账号目录后保持该状态，因此推荐规则被跳过备册是语义冲突的直接证据。
 
 同时，`projectFavoriteLedgersToFormalBindings` 又会从本地仓库物理分册恢复旧正式绑定；当当前 B 站目录找不到该精确 ID时，备册前的已绑定改名预检仍可能读取旧分册并弹出改名确认，形成“卡片显示未备册、操作却走改名”的错位。该分支必须按精确 ID和正式绑定事实失败关闭或进入普通未备册备册，不得按推荐名称重新绑定/创建。
+
+### R030
+
+用户原文（完整）：
+
+> 先迭代项目书，再按照项目书和账本改，开始，开一个分支做完等我说合并
+
+本条确认本轮实施顺序和 Git 边界：先更新项目书，再按项目书与本账本实施；在隔离分支完成并提交，但不得在用户明确说“合并”前合并回根目录 `main`。本条不扩大推荐收藏夹业务范围。
+
+## 逐项索引追加
+
+| 编号 | 原文引用 | 精确目标 | 目标界面 / 数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化 / 迁移 / B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| I026 | R029、R030；项目书 §9.9 | 推荐来源规则在账号目录中写入后与普通新建收藏夹具有相同备册资格；只有纯远端观察草稿被排除；旧正式绑定缺失时按精确 ID失败关闭；已删除推荐精确 ID不可在任何恢复/刷新路径复活。 | `favoriteLedgerApi` 备册目标计算与创建循环；账号规则快照；`projectFavoriteLedgersToFormalBindings`；扫描/状态/确保/保存/账号打开恢复投影；偏好规范化。单个收藏夹备册入口也将推荐删除墓碑传入同一脚本边界。 | 账号规则存在且 `bindingState=unbacked` 时可进入普通备册；纯远端观察记录才排除；正式绑定仅在同精确 ID可核验时复用；墓碑 ID始终隐藏。 | 推荐备册后绑定状态与普通规则一致；删除后账号、仓库、工作区和观察投影全部收束；第二轮整理按稳定规则 ID联动且不重复创建。 | 推荐勾选/取消/刷新仍只本地写入；备册仅在用户明确既有流程中写 B 站；删除墓碑和覆盖集持久化；`createInitialAssistantPreferences` 必须保留推荐删除记录及精确远端 ID；不按名称猜测，不自动远端写入。 | 不新增删除设计，不改普通收藏夹、既有备册改名/确认、远端删除确认、视频同步、启动和其他主题。 | `buildEnsureFavoriteLedgersScript`、`buildSaveFavoriteLedgersScript`、`buildFavoriteLedgerStatusScript`、`App.tsx`、`assistantState.ts`、`favoriteLibraryManagedFolderProjection`、`OldFavoriteWorkspaceCoordinator`、删除 IPC、工作区恢复。 | 已实施待真实验证 | RED/GREEN：`favoriteLedgerApi.test.ts` 推荐 `local-draft` 进入创建/纯观察排除、旧正式绑定精确 ID缺失失败关闭与已删除远端 ID跨状态/确保/保存抑制；`App.test.tsx` 删除推荐不从备册结果合并复活，并以源代码契约回归单个备册入口传递推荐删除远端 ID；`assistantState.test.ts` 规范化保留删除墓碑；`ControlledFavoriteLedgerPanel.test.tsx` 推荐 `local-draft` 备册按钮可用；相关定向测试通过。真实账号删除后重开、第二轮整理、B 站写入 spy 与 Electron 鼠标/滚动/窗口连续响应仍待验收。 |
+
+### R030 实施验证补录（2026-09-05）
+
+本补录只追加本轮最终验证证据，不改写 R001–R030 原文或 I026 的真实 Electron 待验收边界。首次全量运行出现 1 个跨套件偶发失败（`FavoriteLibraryApp > opens the existing local-only deletion confirmation for a standalone staging folder`）；该测试单独运行、与前置协调器套件组合运行均通过，随后再次执行完整命令稳定通过，未修改无关测试基础设施。
+
+| 验证项 | 结果 | 证据 |
+| --- | --- | --- |
+| 推荐定向回归 | 相关 favorite ledger API、App、状态、推荐面板、工作区协调器和投影测试通过；最近一次定向命令 3 个文件/573 项通过，单文件 `FavoriteLibraryApp` 155/155 通过 | `npm.cmd test -- src/renderer/src/App.test.tsx electron/main/oldFavoriteWorkspaceCoordinator.test.ts electron/main/favoriteRepositoryBindingService.test.ts --silent`；`npm.cmd test -- src/renderer/src/features/favorites/FavoriteLibraryApp.test.tsx --silent` |
+| 全量回归 | 247 个测试文件、4398/4398 通过（复跑确认） | `npm.cmd test -- --silent` |
+| 生产构建 | 退出码 0 | `npm.cmd run build` |
+| 差异检查 | 无空白错误；仅有 Git LF/CRLF 提示 | `git diff --check` |
+| 真实 Electron | 未执行真实账号勾选、三种删除分流、第二轮整理重开、B 站写入 spy 和鼠标/滚动/缩放/最小化/恢复/关闭连续响应；继续保持 I026“已实施待真实验证” | 无安全测试账号，自动化不能替代界面验收 |

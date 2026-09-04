@@ -1092,12 +1092,13 @@ function recoverableManagedFolders(
   sourceFolders: ScanOverview['sourceFolders'],
   managedMembers: Record<string, number[]>,
   deletedDefaultLedgerIds: ReadonlySet<string> = new Set(),
-  confirmedDeletedRemoteFolderIds: ReadonlySet<string> = new Set()
+  confirmedDeletedRemoteFolderIds: ReadonlySet<string> = new Set(),
+  suppressedRemoteFolderIds: ReadonlySet<string> = new Set()
 ) {
   const defaults = createDefaultFavoriteLedgers()
   const candidates: RecoverableManagedFolder[] = []
   for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder || candidate.isBilimiWorkFolderCandidate)) {
-    if (confirmedDeletedRemoteFolderIds.has(folder.id)) continue
+    if (confirmedDeletedRemoteFolderIds.has(folder.id) || suppressedRemoteFolderIds.has(folder.id)) continue
     const title = folder.title.trim()
     const memberAids = [...new Set(managedMembers[folder.id] ?? [])].sort((left, right) => left - right)
     // A same-name remote folder is only a discovery candidate while its
@@ -1383,6 +1384,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const suppressedRemoteFolderIds = new Set((options.suppressedRemoteFolderIds ?? [])
       .map((folderId) => folderId.trim())
       .filter(Boolean))
+    const blockedRemoteFolderIds = new Set([...confirmedDeletedRemoteFolderIds, ...suppressedRemoteFolderIds])
     const storedManagedMembers = await this.options.workspaceStore.readManagedMembers(workspace.accountMid, workspace.id)
     let committedRecoveredCount = 0
     let committedPendingCount = 0
@@ -1403,11 +1405,12 @@ export class OldFavoriteWorkspaceCoordinator {
         overview.sourceFolders,
         memberAidsByFolderId,
         deletedDefaultLedgerIds,
-        confirmedDeletedRemoteFolderIds
+        confirmedDeletedRemoteFolderIds,
+        blockedRemoteFolderIds
       )
       const persistedCustomCandidates = snapshot.physicalShards.flatMap((shard): RecoverableManagedFolder[] => {
         if (!shard.logicalLedgerId.startsWith('custom-') || shard.bindingState !== 'bound' || !shard.remoteFolderId ||
-          confirmedDeletedRemoteFolderIds.has(shard.remoteFolderId)) return []
+          blockedRemoteFolderIds.has(shard.remoteFolderId)) return []
         const folder = overview.sourceFolders.find((candidate) => candidate.id === shard.remoteFolderId)
         if (!folder?.isBilimiWorkFolder) return []
         return [{
@@ -1422,7 +1425,7 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       const recoveredCustomDrafts = [...new Map([...candidates, ...persistedCustomCandidates]
         .filter((candidate) => candidate.bindingState === 'pending-reconcile' && candidate.logicalLedgerId.startsWith('custom-'))
-        .filter((candidate) => !suppressedRemoteFolderIds.has(candidate.remoteFolderId))
+        .filter((candidate) => !blockedRemoteFolderIds.has(candidate.remoteFolderId))
         .map((candidate) => [candidate.logicalLedgerId, candidate])).values()]
         .map((candidate, index): FavoriteLedger => ({
           id: candidate.logicalLedgerId,
