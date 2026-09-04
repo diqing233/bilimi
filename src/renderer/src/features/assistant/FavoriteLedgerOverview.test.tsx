@@ -516,6 +516,8 @@ describe('FavoriteLedgerOverview', () => {
 
   it('deletes a selected bound recommendation locally without opening a remote deletion flow', async () => {
     const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-bound'] })
+    const provisionOldFavoriteWorkspaceBilibiliExecutionPreflightShardsV1 = vi.fn()
+    const releaseDefaultFavoriteLedgerBindings = vi.fn()
     const deleteManagedRemoteFolders = vi.fn()
     const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([{
       logicalLedgerId: 'recommended-bound', remoteFolderId: 'remote-recommended-bound', title: 'bilimi·已备册推荐', memberCount: 0,
@@ -527,6 +529,8 @@ describe('FavoriteLedgerOverview', () => {
       value: {
         readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
         deleteFavoriteLedgersLocal,
+        provisionOldFavoriteWorkspaceBilibiliExecutionPreflightShardsV1,
+        releaseDefaultFavoriteLedgerBindings,
         deleteManagedRemoteFolders,
         previewManagedFavoriteFolderDeletion
       }
@@ -543,6 +547,8 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['recommended-bound']))
     expect(onOrganizationRecommendationToggle).not.toHaveBeenCalled()
+    expect(provisionOldFavoriteWorkspaceBilibiliExecutionPreflightShardsV1).not.toHaveBeenCalled()
+    expect(releaseDefaultFavoriteLedgerBindings).not.toHaveBeenCalled()
     expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
     expect(deleteManagedRemoteFolders).not.toHaveBeenCalled()
   })
@@ -579,36 +585,76 @@ describe('FavoriteLedgerOverview', () => {
     expect(registration).toBeLessThan(saveCall)
   })
 
-  it('confirms a selected unbound recommendation before cancelling it in bulk', async () => {
-    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-unbound'] })
+  it('deletes a selected bound recommendation locally in deletion mode without a remote deletion flow', async () => {
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-bound-delete-mode'] })
     const onOrganizationRecommendationToggle = vi.fn(() => true)
+    const deleteManagedRemoteFolders = vi.fn()
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
         readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-        deleteFavoriteLedgersLocal
+        deleteFavoriteLedgersLocal,
+        deleteManagedRemoteFolders
       }
     })
     render(<FavoriteLedgerOverview ledgers={[{
-      id: 'recommended-unbound', displayName: 'bilimi·未绑定推荐', keywords: ['未绑定推荐'], ruleType: 'keyword',
-      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbound', isDefault: false
+      id: 'recommended-bound-delete-mode', displayName: 'bilimi·已备册推荐', keywords: ['已备册推荐'], ruleType: 'keyword',
+      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'bound', bilibiliFolderId: 'remote-recommendation', isDefault: false
     }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()}
-      organizationRecommendationEnabledById={new Map([['recommended-unbound', true]])}
+      organizationRecommendationEnabledById={new Map([['recommended-bound-delete-mode', true]])}
       onOrganizationRecommendationToggle={onOrganizationRecommendationToggle} />)
 
     fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
-    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·未绑定推荐' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·已备册推荐' }))
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
-    expect(dialog).toHaveTextContent('bilimi·未绑定推荐')
-    expect(onOrganizationRecommendationToggle).not.toHaveBeenCalled()
+    expect(dialog).toHaveTextContent('bilimi·已备册推荐')
     fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
 
-    await waitFor(() => expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-unbound', false))
-    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: '未绑定推荐' })).toBeInTheDocument()
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['recommended-bound-delete-mode']))
+    expect(onOrganizationRecommendationToggle).not.toHaveBeenCalled()
+    expect(deleteManagedRemoteFolders).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: '已备册推荐' })).not.toBeInTheDocument()
+  })
+
+  it('deletes a recommendation marked as a remote observation locally in deletion mode', async () => {
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-observation-delete-mode'] })
+    const deleteFavoriteLedgerDraft = vi.fn()
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'recommended-observation-delete-mode', remoteFolderId: 'remote-recommendation-observation', title: 'bilimi·观察推荐', memberCount: 0, state: 'unbound-name-match', requiresUnboundAcknowledgement: true }
+    ])
+    const deleteManagedRemoteFolders = vi.fn()
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgersLocal,
+        deleteFavoriteLedgerDraft,
+        previewManagedFavoriteFolderDeletion,
+        deleteManagedRemoteFolders
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'recommended-observation-delete-mode', displayName: 'bilimi·观察推荐', keywords: [], ruleType: 'author',
+      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', syncState: 'local-draft', bindingState: 'unbound',
+      bilibiliFolderId: 'remote-recommendation-observation', isDefault: false
+    }]} remoteOnlyDraftLedgerIds={['recommended-observation-delete-mode']} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·观察推荐' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['recommended-observation-delete-mode']))
+    expect(deleteFavoriteLedgerDraft).not.toHaveBeenCalled()
+    expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
+    expect(deleteManagedRemoteFolders).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: '观察推荐' })).not.toBeInTheDocument()
   })
 
   it('keeps the recommendation source when an edited recommendation rule is persisted', async () => {
@@ -643,14 +689,20 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(toggleRecommendation).toHaveBeenCalledWith('recommended-after-save', false))
   })
 
-  it('keeps deletion mode open when cancelling a recommendation fails', async () => {
-    const onOrganizationRecommendationToggle = vi.fn().mockResolvedValue(false)
+  it('keeps deletion mode open when local recommendation deletion fails', async () => {
+    const deleteFavoriteLedgersLocal = vi.fn().mockRejectedValue(new Error('local deletion failed'))
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'recommended-failed', displayName: 'bilimi·失败推荐', keywords: ['失败推荐'], ruleType: 'keyword',
-      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'bound', bilibiliFolderId: 'remote-recommended-failed', isDefault: false
-    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()}
-      organizationRecommendationEnabledById={new Map([['recommended-failed', true]])}
-      onOrganizationRecommendationToggle={onOrganizationRecommendationToggle} />)
+      enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgersLocal
+      }
+    })
 
     fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·失败推荐' }))
@@ -659,13 +711,13 @@ describe('FavoriteLedgerOverview', () => {
     const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
     fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
-    await waitFor(() => expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-failed', false))
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['recommended-failed']))
     expect(screen.getByRole('button', { name: /取消删除模式/ })).toBeInTheDocument()
-    expect(screen.getByRole('alert')).toHaveTextContent('删除未成功，请稍后重试。')
+    expect(screen.getByRole('alert')).toHaveTextContent('B 站已删除，本地状态待保存，请刷新或重试。')
   })
 
-  it('cancels every selected recommendation in bulk before any local or remote deletion', async () => {
-    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-missing'] })
+  it('deletes every selected recommendation locally in bulk without remote deletion', async () => {
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-missing', 'recommended-unbound-mixed'] })
     const onOrganizationRecommendationToggle = vi.fn(() => true)
     const onDeleteLedger = vi.fn()
     Object.defineProperty(window, 'bilimiDesktop', {
@@ -692,22 +744,27 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
     fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
 
-    await waitFor(() => expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-missing', false))
-    expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-unbound-mixed', false)
-    expect(deleteFavoriteLedgersLocal).not.toHaveBeenCalled()
-    expect(onDeleteLedger).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: '未备册推荐' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '未绑定推荐' })).toBeInTheDocument()
+    await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['recommended-missing', 'recommended-unbound-mixed']))
+    expect(onOrganizationRecommendationToggle).not.toHaveBeenCalled()
+    expect(onDeleteLedger).toHaveBeenCalledWith('recommended-missing')
+    expect(onDeleteLedger).toHaveBeenCalledWith('recommended-unbound-mixed')
+    expect(screen.queryByRole('button', { name: '未备册推荐' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '未绑定推荐' })).not.toBeInTheDocument()
   })
 
-  it('waits for unbacked recommendation cancellation before leaving deletion mode', async () => {
+  it('waits for unbacked recommendation local deletion before leaving deletion mode', async () => {
     const cleanup = deferred<boolean>()
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'recommended-unbacked', displayName: 'bilimi·未备册推荐', keywords: ['未备册推荐'], ruleType: 'keyword',
       enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
-    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()}
-      organizationRecommendationEnabledById={new Map([['recommended-unbacked', true]])}
-      onOrganizationRecommendationToggle={vi.fn(() => cleanup.promise)} />)
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgersLocal: vi.fn(() => cleanup.promise.then(() => ({ status: 'succeeded', ledgerIds: ['recommended-unbacked'] })))
+      }
+    })
 
     fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·未备册推荐' }))
@@ -1650,6 +1707,99 @@ describe('FavoriteLedgerOverview', () => {
       expect(frames).toHaveLength(1)
       frames.shift()!(performance.now())
       expect(panel.scrollTop).toBe(240)
+    } finally {
+      requestFrame.mockRestore()
+      cancelFrame.mockRestore()
+    }
+  })
+
+  it('keeps the master-library scroll position across detail deletion and yields to a later user scroll', async () => {
+    const frames: FrameRequestCallback[] = []
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined)
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-delete-scroll'] })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { readBilibiliAccountMid: vi.fn().mockResolvedValue('100'), deleteFavoriteLedgersLocal }
+    })
+    try {
+      render(<section role="dialog" aria-label="掌库">
+        <FavoriteLedgerOverview ledgers={[{
+          id: 'recommended-delete-scroll', displayName: 'bilimi·删除滚动推荐', keywords: ['删除滚动推荐'], ruleType: 'author',
+          enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
+        }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onDeleteLedger={vi.fn()} />
+      </section>)
+      const panel = screen.getByRole('dialog', { name: '掌库' })
+      panel.scrollTop = 240
+
+      fireEvent.click(screen.getByRole('button', { name: '删除滚动推荐' }))
+      fireEvent.click(screen.getByRole('button', { name: '删除' }))
+      await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['recommended-delete-scroll']))
+
+      expect(frames).toHaveLength(1)
+      panel.scrollTop = 0
+      frames.shift()!(performance.now())
+      expect(panel.scrollTop).toBe(240)
+
+      panel.scrollTop = 96
+      fireEvent.scroll(panel)
+      expect(frames).toHaveLength(1)
+      frames.shift()!(performance.now())
+      expect(panel.scrollTop).toBe(96)
+    } finally {
+      requestFrame.mockRestore()
+      cancelFrame.mockRestore()
+    }
+  })
+
+  it('does not mistake its own deletion scroll restoration event for a user scroll', async () => {
+    const frames: FrameRequestCallback[] = []
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined)
+    const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['recommended-delete-native-scroll'] })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { readBilibiliAccountMid: vi.fn().mockResolvedValue('100'), deleteFavoriteLedgersLocal }
+    })
+    try {
+      render(<section role="dialog" aria-label="掌库">
+        <FavoriteLedgerOverview ledgers={[{
+          id: 'recommended-delete-native-scroll', displayName: 'bilimi·原生滚动推荐', keywords: ['原生滚动推荐'], ruleType: 'author',
+          enabled: true, priority: 10, ruleOrigin: 'recommendation-draft', bindingState: 'unbacked', isDefault: false
+        }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onDeleteLedger={vi.fn()} />
+      </section>)
+      const panel = screen.getByRole('dialog', { name: '掌库' })
+      let nativeScrollTop = 240
+      Object.defineProperty(panel, 'scrollTop', {
+        configurable: true,
+        get: () => nativeScrollTop,
+        set: (value: number) => {
+          nativeScrollTop = value
+          // Chromium can dispatch `scroll` for an imperative scrollTop write.
+          panel.dispatchEvent(new Event('scroll'))
+        }
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: '原生滚动推荐' }))
+      fireEvent.click(screen.getByRole('button', { name: '删除' }))
+      await waitFor(() => expect(deleteFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['recommended-delete-native-scroll']))
+
+      // A repaint moves the container. The first restore itself fires native
+      // `scroll`; that event is not an intentional user scroll and must not
+      // cancel the remaining restoration frame.
+      nativeScrollTop = 0
+      frames.shift()!(performance.now())
+      expect(nativeScrollTop).toBe(240)
+      nativeScrollTop = 0
+      expect(frames).toHaveLength(1)
+      frames.shift()!(performance.now())
+      expect(nativeScrollTop).toBe(240)
     } finally {
       requestFrame.mockRestore()
       cancelFrame.mockRestore()
@@ -3176,6 +3326,18 @@ describe('FavoriteLedgerOverview', () => {
 
   it('allows a stable recommendation draft to be cancelled after the workspace is closed', async () => {
     const onOrganizationRecommendationToggle = vi.fn().mockResolvedValue(true)
+    const onSyncLedgers = vi.fn()
+    const provisionOldFavoriteWorkspaceBilibiliExecutionPreflightShardsV1 = vi.fn()
+    const releaseDefaultFavoriteLedgerBindings = vi.fn()
+    const deleteManagedRemoteFolders = vi.fn()
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        provisionOldFavoriteWorkspaceBilibiliExecutionPreflightShardsV1,
+        releaseDefaultFavoriteLedgerBindings,
+        deleteManagedRemoteFolders
+      }
+    })
     render(<FavoriteLedgerOverview
       ledgers={[{
         id: 'recommended-after-end', displayName: 'bilimi·结束后推荐', keywords: ['结束后'], enabled: true,
@@ -3185,11 +3347,16 @@ describe('FavoriteLedgerOverview', () => {
       organizationActive={false}
       onOrganizationRecommendationToggle={onOrganizationRecommendationToggle}
       onSaveLedgers={vi.fn()}
+      onSyncLedgers={onSyncLedgers}
     />)
 
     fireEvent.click(screen.getByRole('button', { name: '移出同步 bilimi·结束后推荐' }))
 
     await waitFor(() => expect(onOrganizationRecommendationToggle).toHaveBeenCalledWith('recommended-after-end', false))
+    expect(provisionOldFavoriteWorkspaceBilibiliExecutionPreflightShardsV1).not.toHaveBeenCalled()
+    expect(releaseDefaultFavoriteLedgerBindings).not.toHaveBeenCalled()
+    expect(deleteManagedRemoteFolders).not.toHaveBeenCalled()
+    expect(onSyncLedgers).not.toHaveBeenCalled()
   })
 
   it('confirms a remote draft and saved custom ledger together before local deletion', async () => {

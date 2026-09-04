@@ -1726,6 +1726,20 @@ function registerAssistantPreferenceHandlers() {
     sendAssistantPreferencePatchChanged(written, meta)
     return written
   })
+  ipcMain.handle('assistant:write-favorite-ledger-rules', async (event, accountMid: string, favoriteLedgers: FavoriteLedger[]) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    if (!accountMid || accountMid !== await readCurrentBilibiliAccountMid()) {
+      throw new Error('Favorite ledger account is no longer current.')
+    }
+    const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
+    const saved = saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
+      ...current,
+      favoriteLedgers
+    })
+    sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    notifyFloatingAssistantSnapshotChanged()
+    return { accountMid, favoriteLedgers: saved.favoriteLedgers }
+  })
   ipcMain.handle('assistant:write-favorite-ledger-enabled', async (
     event,
     accountMid: string,
@@ -3103,7 +3117,9 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       // A previous complete scan can still restore local same-device bindings;
       // imported bindings are pending until the live inventory check above has
       // proved a unique matching remote folder.
-      await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid).catch(() => undefined)
+      await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid, {
+        suppressedRemoteFolderIds: loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)
+      }).catch(() => undefined)
       await reconcileFavoriteLedgerBindingProjection(accountMid)
       const store = getDesktopStore()
       const favoriteAccountPreferences = loadFavoriteAccountPreferences(store, accountMid)

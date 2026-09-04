@@ -1360,7 +1360,10 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   /** Restores only complete, uniquely identifiable Bilimi folders from an existing scan. */
-  async recoverPersistedManagedBindings(accountMid: string) {
+  async recoverPersistedManagedBindings(
+    accountMid: string,
+    options: { suppressedRemoteFolderIds?: readonly string[] } = {}
+  ) {
     // Serialize only restoration: the expensive persisted-member read and
     // revision-guarded repair remain outside the interactive command FIFO.
     const workspace = await this.open(accountMid)
@@ -1371,6 +1374,9 @@ export class OldFavoriteWorkspaceCoordinator {
       return { recoveredCount: 0, pendingCount: 0 }
     }
     const deletedDefaultLedgerIds = new Set(await this.options.getUserDeletedDefaultLedgerIds?.(workspace.accountMid) ?? [])
+    const suppressedRemoteFolderIds = new Set((options.suppressedRemoteFolderIds ?? [])
+      .map((folderId) => folderId.trim())
+      .filter(Boolean))
     const storedManagedMembers = await this.options.workspaceStore.readManagedMembers(workspace.accountMid, workspace.id)
     let committedRecoveredCount = 0
     let committedPendingCount = 0
@@ -1404,6 +1410,7 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       const recoveredCustomDrafts = [...new Map([...candidates, ...persistedCustomCandidates]
         .filter((candidate) => candidate.bindingState === 'pending-reconcile' && candidate.logicalLedgerId.startsWith('custom-'))
+        .filter((candidate) => !suppressedRemoteFolderIds.has(candidate.remoteFolderId))
         .map((candidate) => [candidate.logicalLedgerId, candidate])).values()]
         .map((candidate, index): FavoriteLedger => ({
           id: candidate.logicalLedgerId,

@@ -672,6 +672,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('layout:assistant-sidebar-width-save', widthPx) as Promise<number | null>,
   writePreferencePatch: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) =>
     ipcRenderer.invoke('assistant:write-preference-patch', patch, meta) as Promise<Partial<AssistantPreferences>>,
+  writeFavoriteLedgerRules: (accountMid: string, favoriteLedgers: FavoriteLedger[]) =>
+    ipcRenderer.invoke('assistant:write-favorite-ledger-rules', accountMid, favoriteLedgers) as Promise<{ accountMid: string; favoriteLedgers: FavoriteLedger[] }>,
   writeFavoriteLedgerEnabled: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta, historyOptions?: FavoriteLedgerEnabledHistoryOptions) =>
     ipcRenderer.invoke('assistant:write-favorite-ledger-enabled', accountMid, ledgerId, enabled, meta, historyOptions) as Promise<FavoriteLedgerEnabledPatch>,
   deleteFavoriteLedgerDraft: (accountMid: string, ledgerId: string) =>

@@ -326,6 +326,7 @@ type BilimiDesktopApi = {
   patchPreferences?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => Promise<AssistantPreferences>
   saveAssistantSidebarWidth?: (widthPx: number | null) => Promise<number | null>
   writePreferencePatch?: (patch: Partial<AssistantPreferences>, meta?: AssistantPreferencePatchMeta) => Promise<Partial<AssistantPreferences>>
+  writeFavoriteLedgerRules?: (accountMid: string, favoriteLedgers: FavoriteLedger[]) => Promise<{ accountMid: string; favoriteLedgers: FavoriteLedger[] }>
   writeFavoriteLedgerEnabled?: (accountMid: string, ledgerId: string, enabled: boolean, meta?: AssistantPreferencePatchMeta, historyOptions?: FavoriteLedgerEnabledHistoryOptions) => Promise<FavoriteLedgerEnabledPatch>
   deleteFavoriteLedgerDraft?: (accountMid: string, ledgerId: string) => Promise<{ status: 'succeeded'; ledgerId: string }>
   deleteFavoriteLedgersLocal?: (accountMid: string, ledgerIds: string[]) => Promise<{ status: 'succeeded'; ledgerIds: string[] }>

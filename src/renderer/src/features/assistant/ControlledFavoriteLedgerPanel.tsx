@@ -617,8 +617,31 @@ export function ControlledFavoriteLedgerPanel({
       return result
     })
     for (const addition of additions) pendingRecommendationSavesRef.current.set(addition.id, saveOperation)
-    return saveOperation.then(() => {
-      additions.forEach((addition) => awaitingPromotedRecommendationAcknowledgementRef.current.add(addition.id))
+    return saveOperation.then(async () => {
+      const cancelledAdditions = additions.filter((addition) =>
+        !organizationRecommendationIdsRef.current.includes(addition.id))
+      if (cancelledAdditions.length) {
+        // The first local rule save cannot be cancelled after it reaches the
+        // preference scheduler.  If the user has already removed the lower
+        // candidate, complete the newer intent with a narrow enabled=false
+        // write rather than letting the late save re-promote the rule.  This
+        // preserves the saved recommendation for a later round; explicit
+        // detail/delete-mode deletion remains the only removal transaction.
+        await Promise.all(cancelledAdditions.map(async (addition) => {
+          const result = await saveLedgerEnabledAndRefreshWorkspace(addition.id, false)
+          if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
+            throw new Error('Recommendation ledger cancellation save failed.')
+          }
+        }))
+        const cancelledIds = new Set(cancelledAdditions.map((addition) => addition.id))
+        const settledPromoted = promotedRecommendationLedgersRef.current.map((ledger) =>
+          cancelledIds.has(ledger.id) ? { ...ledger, enabled: false } : ledger)
+        promotedRecommendationLedgersRef.current = settledPromoted
+        setPromotedRecommendationLedgers(settledPromoted)
+      }
+      additions
+        .filter((addition) => !cancelledAdditions.includes(addition))
+        .forEach((addition) => awaitingPromotedRecommendationAcknowledgementRef.current.add(addition.id))
       return true
     }).catch(() => {
       const failedIds = new Set(additions.map((ledger) => ledger.id))
@@ -633,7 +656,7 @@ export function ControlledFavoriteLedgerPanel({
       }
       if (!pendingRecommendationSavesRef.current.size) setRecommendationPromotionSaving(false)
     })
-  }, [ledgers, persistedUpperLedgerIds, saveLedgersAndRefreshWorkspace, workspace.snapshot])
+  }, [ledgers, persistedUpperLedgerIds, saveLedgerEnabledAndRefreshWorkspace, saveLedgersAndRefreshWorkspace, workspace.snapshot])
   const setOrganizationRecommendedCandidates = useCallback(async (
     candidateIds: string[],
     options: { retainLinkedSavedLedgerIds?: readonly string[] } = {}
@@ -849,40 +872,6 @@ export function ControlledFavoriteLedgerPanel({
     const linkedSavedLedger = linkedSavedLedgerId
       ? effectiveLedgers.find((ledger) => ledger.id === linkedSavedLedgerId && organizationUpperLedgerIds.has(ledger.id))
       : undefined
-    const isExactPersistedRecommendationCancellation = Boolean(
-      linkedSavedLedger &&
-      removedCandidateIds.length === 1 &&
-      changedCandidateId === linkedSavedLedger.id &&
-      persistedUpperLedgerIds.has(linkedSavedLedger.id) &&
-      linkedSavedLedger.ruleOrigin === 'recommendation-draft'
-    )
-    if (isExactPersistedRecommendationCancellation && linkedSavedLedger) {
-      if (!accountKey || !window.bilimiDesktop?.deleteFavoriteLedgersLocal) return
-      void (async () => {
-        try {
-          pendingRecommendationCancellationLedgerIdsRef.current.add(linkedSavedLedger.id)
-          await window.bilimiDesktop!.deleteFavoriteLedgersLocal!(accountKey, [linkedSavedLedger.id])
-          setDismissedGeneratedRecommendationLedgerIds((current) => new Set([...current, linkedSavedLedger.id]))
-          organizationRecommendationIdsRef.current = next
-          workspace.stageRecommendedCandidateSelection(next)
-          // The main-process local-delete transaction already removes this
-          // candidate from the active preview and reclassifies its projection
-          // atomically. Renderer refreshes are deliberately best effort: a
-          // read failure must not make the completed local deletion appear to
-          // have failed or reintroduce the old rule from a stale snapshot.
-          await workspace.refresh().catch(() => undefined)
-          await Promise.resolve(onRefreshOrganizationState?.()).catch(() => undefined)
-        } catch {
-          // Do not stage the lower cancellation until the local rule removal
-          // has succeeded. The selected candidate therefore remains intact
-          // and can be retried without silently losing the local rule.
-          onTransientFeedback?.('删除未成功，请稍后重试。')
-        } finally {
-          pendingRecommendationCancellationLedgerIdsRef.current.delete(linkedSavedLedger.id)
-        }
-      })()
-      return
-    }
     if (linkedSavedLedger) {
       void setOrganizationSavedLedgerParticipation(linkedSavedLedger.id, addedCandidateIds.length === 1)
       return

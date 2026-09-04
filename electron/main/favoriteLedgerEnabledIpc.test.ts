@@ -38,4 +38,13 @@ describe('favorite ledger enabled narrow IPC', () => {
     expect(mainSource).toContain('historyOptions?: FavoriteLedgerEnabledHistoryOptions')
     expect(mainSource).toContain('mergeWithLatestClassification: true')
   })
+
+  it('persists an account rule directory only after validating the current Bilibili account', () => {
+    expect(preloadSource).toContain("writeFavoriteLedgerRules: (accountMid: string, favoriteLedgers: FavoriteLedger[])")
+    expect(preloadSource).toContain("ipcRenderer.invoke('assistant:write-favorite-ledger-rules'")
+    expect(rendererTypesSource).toContain('writeFavoriteLedgerRules?: (accountMid: string, favoriteLedgers: FavoriteLedger[])')
+    expect(mainSource).toContain("ipcMain.handle('assistant:write-favorite-ledger-rules'")
+    expect(mainSource).toContain("if (!accountMid || accountMid !== await readCurrentBilibiliAccountMid())")
+    expect(mainSource).toContain('saveFavoriteAccountPreferences(getDesktopStore(), accountMid')
+  })
 })

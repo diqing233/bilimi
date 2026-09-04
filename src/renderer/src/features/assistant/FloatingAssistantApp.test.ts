@@ -265,6 +265,23 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(saveFunction).not.toContain('persistPreferences(')
   })
 
+  it('persists an account recommendation adoption through the current-account checked narrow rule IPC', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const saveFunction = source.slice(
+      source.indexOf('async function saveFavoriteLedgerRules'),
+      source.indexOf('async function setDefaultFavoriteSystemEnabled')
+    )
+
+    expect(saveFunction).toContain('writeFavoriteLedgerRules')
+    expect(saveFunction).toContain('snapshotAccountMid !== accountMid')
+    expect(saveFunction).toContain('persisted.accountMid')
+    const accountSave = saveFunction.slice(
+      saveFunction.indexOf('if (accountMid && window.bilimiDesktop?.writeFavoriteLedgerRules)'),
+      saveFunction.indexOf('const nextPreferences = accountMid', saveFunction.indexOf('if (accountMid && window.bilimiDesktop?.writeFavoriteLedgerRules)'))
+    )
+    expect(accountSave).not.toContain('scheduleAndWait')
+  })
+
   it('persists a saved rule-directory change without starting Bilibili sync', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
     const saveFunction = source.slice(

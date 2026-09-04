@@ -5062,7 +5062,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })])
   })
 
-  it('reconciles a missing local rule draft when the remote binding already exists', async () => {
+  it('does not recover a pending-suppressed exact remote folder as a local observation draft', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const firstCoordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -5077,13 +5077,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const saved = vi.fn(async (_accountMid: string, _ledgers: FavoriteLedger[]) => undefined)
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { saveRecoveredLedgerDrafts: saved })
 
-    await coordinator.recoverPersistedManagedBindings('100')
+    await coordinator.recoverPersistedManagedBindings('100', { suppressedRemoteFolderIds: ['genshin-remote'] })
 
-    expect(saved).toHaveBeenCalledOnce()
-    expect(saved.mock.calls[0][1]).toEqual([expect.objectContaining({
-      id: expect.stringMatching(/^custom-/), displayName: '\u539f\u795e', enabled: false,
-      bindingState: 'unbound', syncState: 'local-draft'
-    })])
+    expect(saved).not.toHaveBeenCalled()
   })
 
   it('bounds scan-time deterministic binding repairs to one hundred targets per atomic command', async () => {
