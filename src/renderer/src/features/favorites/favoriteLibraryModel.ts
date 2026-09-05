@@ -122,7 +122,7 @@ function displayFolderTitle(folder: FavoriteRepositoryFolder) {
 
 export type FavoriteLibraryLedgerBindingStatus = {
   kind: 'backed' | 'missing' | 'unbound' | 'draft'
-  label: '已备册' | '未备册' | '已生成草稿' | '收藏夹已删除'
+  label: '已备册' | '未备册' | '未绑定' | '已生成草稿' | '收藏夹已删除'
   actionLabel?: '去掌库收藏夹设置保存后绑定' | '恢复当前收藏夹'
 }
 
@@ -168,9 +168,45 @@ export function formatFavoriteLibraryMetadataStatus(status: string | undefined, 
   return status === 'failed' ? '资料刷新失败' : '资料已刷新'
 }
 
-export function formatFavoriteLibraryPositionStatus(state: string | undefined, hasRemoteMapping = true) {
+type FavoriteLibraryRemotePosition = {
+  folderId: string
+  kind: 'initial' | 'synced' | 'observed'
+  confirmedAt?: string
+}
+
+type FavoriteLibraryPositionStatusInput = {
+  localFolderIds: string[]
+  remotePositions: FavoriteLibraryRemotePosition[]
+  completeObservedAt?: string
+}
+
+export function formatFavoriteLibraryPositionStatus(input: FavoriteLibraryPositionStatusInput): string
+export function formatFavoriteLibraryPositionStatus(state: string | undefined, hasRemoteMapping?: boolean): string
+export function formatFavoriteLibraryPositionStatus(
+  input: FavoriteLibraryPositionStatusInput | string | undefined,
+  hasRemoteMapping = true
+) {
+  if (typeof input === 'object' && input !== null) {
+    const localFolderIds = new Set(input.localFolderIds)
+    const synced = input.remotePositions.filter((position) => position.kind === 'synced')
+    const observed = input.remotePositions.filter((position) => position.kind === 'observed')
+    const latestSyncAt = synced.reduce<string | undefined>((latest, position) => !latest || (position.confirmedAt ?? '') > latest ? position.confirmedAt : latest, undefined)
+    const completeObservationIsLater = Boolean(input.completeObservedAt && latestSyncAt && input.completeObservedAt > latestSyncAt)
+    if (completeObservationIsLater) {
+      const observedFolderIds = new Set(observed
+        .map((position) => position.folderId)
+        .filter((folderId) => folderId.startsWith('bilimi-logical:')))
+      return observedFolderIds.size === localFolderIds.size && [...observedFolderIds].every((folderId) => localFolderIds.has(folderId))
+        ? '归属一致'
+        : '归属不一致'
+    }
+    if (synced.some((position) => localFolderIds.has(position.folderId))) return '归属一致'
+    if (observed.some((position) => localFolderIds.has(position.folderId))) return '归属一致'
+    if (synced.length || observed.length) return '归属不一致'
+    return '尚未扫描B站归属'
+  }
   if (!hasRemoteMapping) return '尚未扫描B站归属'
-  return state === 'aligned' ? '位置一致' : '归属不一致'
+  return input === 'aligned' ? '归属一致' : '归属不一致'
 }
 
 /** Position reconciliation is the source of truth for the detail sync dimension. */

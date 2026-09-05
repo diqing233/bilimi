@@ -97,12 +97,47 @@ describe('favoriteLibraryModel', () => {
     expect(formatFavoriteLibraryMetadataStatus('synced', false)).toBe('资料已刷新')
     expect(formatFavoriteLibraryMetadataStatus('failed', false)).toBe('资料刷新失败')
     expect(formatFavoriteLibraryPositionStatus('failed')).toBe('归属不一致')
-    expect(formatFavoriteLibraryPositionStatus('aligned')).toBe('位置一致')
+    expect(formatFavoriteLibraryPositionStatus('aligned')).toBe('归属一致')
     expect(formatFavoriteLibraryPositionStatus('local-only-change')).toBe('归属不一致')
   })
 
   it('reports an unobserved Bilibili mapping as not scanned instead of an ownership result', () => {
     expect(formatFavoriteLibraryPositionStatus('aligned', false)).toBe('尚未扫描B站归属')
+  })
+
+  it('treats a matching successful sync position as aligned even when an initial source remains', () => {
+    expect(formatFavoriteLibraryPositionStatus({
+      localFolderIds: ['bilimi-logical:game'],
+      remotePositions: [
+        { folderId: 'bilimi-logical:game', kind: 'synced' },
+        { folderId: 'bilibili:default', kind: 'initial' }
+      ]
+    } as never)).toBe('归属一致')
+  })
+
+  it('treats an additional later observed managed location as an ownership mismatch while ignoring an initial ordinary source', () => {
+    expect(formatFavoriteLibraryPositionStatus({
+      localFolderIds: ['bilimi-logical:game'],
+      remotePositions: [
+        { folderId: 'bilimi-logical:game', kind: 'synced', confirmedAt: '2026-09-05T00:00:00.000Z' },
+        { folderId: 'bilibili:default', kind: 'initial' },
+        { folderId: 'bilimi-logical:game', kind: 'observed', confirmedAt: '2026-09-05T00:01:00.000Z' },
+        { folderId: 'bilimi-logical:music', kind: 'observed', confirmedAt: '2026-09-05T00:01:00.000Z' }
+      ],
+      completeObservedAt: '2026-09-05T00:01:00.000Z'
+    } as never)).toBe('归属不一致')
+  })
+
+  it('keeps a matching later observed managed location consistent when the same scan also sees the ordinary default source', () => {
+    expect(formatFavoriteLibraryPositionStatus({
+      localFolderIds: ['bilimi-logical:game'],
+      remotePositions: [
+        { folderId: 'bilimi-logical:game', kind: 'synced', confirmedAt: '2026-09-05T00:00:00.000Z' },
+        { folderId: 'bilimi-logical:game', kind: 'observed', confirmedAt: '2026-09-05T00:01:00.000Z' },
+        { folderId: 'bilibili:default', kind: 'observed', confirmedAt: '2026-09-05T00:01:00.000Z' }
+      ],
+      completeObservedAt: '2026-09-05T00:01:00.000Z'
+    } as never)).toBe('归属一致')
   })
 
   it('derives the detail sync label from position state instead of pending work', () => {

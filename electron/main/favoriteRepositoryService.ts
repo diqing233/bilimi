@@ -440,6 +440,17 @@ export type FavoriteRepositoryLibraryDetail = {
     targetLogicalFolderIds: string[]
     targetTitles: string[]
   }
+  /**
+   * Auditable Bilibili location evidence.  These facts deliberately do not
+   * reuse local classification history: a local category is not proof that a
+   * video was ever written to that Bilibili folder.
+   */
+  remotePositionFacts: Array<{
+    folderId: string
+    title: string
+    kind: 'initial' | 'synced' | 'observed'
+    confirmedAt?: string
+  }>
   protected: boolean
   organization?: Pick<FavoriteRepositoryOrganizationRecord, 'classificationSource' | 'completedAt'>
   latestClassificationAdjustment?: FavoriteRepositoryClassificationAdjustment
@@ -449,6 +460,7 @@ export type FavoriteRepositoryLibraryDetail = {
     remoteObservedPhysicalFolderIds: string[]
     remoteObservedLogicalFolderIds: string[]
     observedAt?: string
+    sourceAuthority?: 'complete' | 'incomplete'
     updatedAt: string
     reason?: string
   }
@@ -1183,6 +1195,7 @@ export class FavoriteRepositoryService {
       pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state)),
       libraryStates,
       ...(syncReceipt ? { syncReceipt } : {}),
+      remotePositionFacts: this.remotePositionFactsForAid(snapshot, video, aid),
       protected: snapshot.organizationRecords.some((record) => record.aid === aid),
       ...(organization || video.lastAdjustment || video.classificationSource ? { organization: {
         ...(deriveFavoriteRepositoryClassificationSource(video, organization) ? { classificationSource: deriveFavoriteRepositoryClassificationSource(video, organization) } : {}),
@@ -1875,8 +1888,11 @@ export class FavoriteRepositoryService {
     const remoteBilimiEvidence = observedLogicalFolderIds.size > 0
     const organized = (index.folderIdsByAid.get(aid) ?? []).some((folderId) => folderId.startsWith('bilimi-logical:'))
     const protectedAid = index.protectedAids.has(aid)
-    const completeReadbackConflicts = position?.sourceAuthority === 'complete' && position.positionState !== 'aligned'
-    const sync = syncReceipt && !completeReadbackConflicts
+    // Synchronization records one completed Bilibili write, whereas ownership
+    // reconciliation answers whether the current locations still agree.  A
+    // later complete readback may make ownership inconsistent, but must not
+    // erase the fact that the earlier write actually succeeded.
+    const sync = syncReceipt
       ? 'synced'
       : remoteBilimiEvidence && position?.positionState === 'aligned' ? 'synced' : 'unsynced'
     return {
@@ -1906,18 +1922,77 @@ export class FavoriteRepositoryService {
   }
 
   /** Reads immutable success receipts without projecting them into remote-observation fields. */
-  private confirmedWriteReceiptForAid(snapshot: AccountFavoriteRepositorySnapshot, aid: number): FavoriteRepositoryLibraryDetail['syncReceipt'] {
-    const candidates: Array<{ confirmedAt: string; references: string[] }> = [
-      ...(snapshot.organizationBatches ?? [])
-        .filter((record) => record.aid === aid && record.status === 'succeeded')
-        .map((record) => ({ confirmedAt: record.recordedAt, references: record.afterFolderIds })),
+  private confirmedWriteCandidatesForAid(snapshot: AccountFavoriteRepositorySnapshot, aid: number) {
+    const isPlacementRemoval = (operationKey: string | undefined) => operationKey?.startsWith('remove:') || operationKey === 'favorite-library-managed-placement-removal' ||
+      operationKey === 'favorite-library-unfavorite' || operationKey === 'managed-folder-delete'
+    return [
       ...(snapshot.syncRecords ?? [])
-        .filter((record) => record.status === 'succeeded' && record.affectedAids.includes(aid))
+        .filter((record) => record.status === 'succeeded' && record.affectedAids.includes(aid) && !isPlacementRemoval(record.operationKey))
         .map((record) => ({
           confirmedAt: record.updatedAt,
           references: record.targetFolderIdsByAid?.[String(aid)] ?? record.targetFolderIds ?? []
         }))
     ]
+  }
+
+  private remotePositionFactsForAid(
+    snapshot: AccountFavoriteRepositorySnapshot,
+    video: FavoriteRepositoryVideo,
+    aid: number
+  ): FavoriteRepositoryLibraryDetail['remotePositionFacts'] {
+    type Fact = FavoriteRepositoryLibraryDetail['remotePositionFacts'][number]
+    const facts = new Map<string, Fact>()
+    const add = (fact: Fact) => {
+      // A complete remote observation is distinct from an earlier successful
+      // write to the same folder. Both facts are required for later ownership
+      // reconciliation, even though the display text deduplicates titles.
+      const key = `${fact.kind}:${fact.folderId}`
+      const previous = facts.get(key)
+      if (!previous) {
+        facts.set(key, fact)
+        return
+      }
+      const previousAt = previous.confirmedAt ?? ''
+      const nextAt = fact.confirmedAt ?? ''
+      if (nextAt > previousAt) facts.set(key, fact)
+    }
+    const positionFact = (reference: string, kind: Fact['kind'], confirmedAt?: string): Fact | undefined => {
+      const logical = this.trustedLogicalFolderForRemoteReference(snapshot, reference)
+      if (logical) return { folderId: logical.id, title: logical.title, kind, ...(confirmedAt ? { confirmedAt } : {}) }
+      const normalized = reference.trim()
+      const folder = snapshot.folders.find((candidate) => candidate.id === normalized || candidate.id === `bilibili:${normalized}`)
+      return folder?.kind === 'bilibili'
+        ? { folderId: folder.id, title: folder.title, kind, ...(confirmedAt ? { confirmedAt } : {}) }
+        : undefined
+    }
+    for (const candidate of this.confirmedWriteCandidatesForAid(snapshot, aid)
+      .sort((left, right) => right.confirmedAt.localeCompare(left.confirmedAt))) {
+      for (const reference of candidate.references) {
+        const fact = positionFact(reference, 'synced', candidate.confirmedAt)
+        if (fact) add(fact)
+      }
+    }
+    for (const source of video.initialSource?.folders ?? []) {
+      const folderId = source.folderId.trim()
+      const title = source.title.trim()
+      if (folderId && title) add({ folderId, title, kind: 'initial' })
+    }
+    const position = snapshot.positions?.[`${snapshot.accountMid}:${aid}`]
+    if (position?.sourceAuthority === 'complete') {
+      const observedAt = position.observedAt ?? position.updatedAt
+      for (const reference of [...position.remoteObservedLogicalFolderIds, ...position.remoteObservedPhysicalFolderIds]) {
+        const fact = positionFact(reference, 'observed', observedAt)
+        if (fact) add(fact)
+      }
+    }
+    return [...facts.values()].sort((left, right) => {
+      const rank = (kind: Fact['kind']) => kind === 'synced' ? 0 : kind === 'initial' ? 1 : 2
+      return rank(left.kind) - rank(right.kind) || (right.confirmedAt ?? '').localeCompare(left.confirmedAt ?? '') || left.title.localeCompare(right.title) || left.folderId.localeCompare(right.folderId)
+    })
+  }
+
+  private confirmedWriteReceiptForAid(snapshot: AccountFavoriteRepositorySnapshot, aid: number): FavoriteRepositoryLibraryDetail['syncReceipt'] {
+    const candidates = this.confirmedWriteCandidatesForAid(snapshot, aid)
     for (const candidate of candidates.sort((left, right) => right.confirmedAt.localeCompare(left.confirmedAt))) {
       const targets = new Map<string, string>()
       for (const reference of candidate.references) {
@@ -2183,6 +2258,7 @@ export class FavoriteRepositoryService {
       remoteObservedPhysicalFolderIds: [...position.remoteObservedPhysicalFolderIds],
       remoteObservedLogicalFolderIds: [...position.remoteObservedLogicalFolderIds],
       ...(position.observedAt ? { observedAt: position.observedAt } : {}),
+      ...(position.sourceAuthority ? { sourceAuthority: position.sourceAuthority } : {}),
       updatedAt: position.updatedAt,
       ...(position.reason ? { reason: position.reason } : {})
     }

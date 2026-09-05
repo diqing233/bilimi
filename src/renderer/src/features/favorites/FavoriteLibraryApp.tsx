@@ -2205,12 +2205,38 @@ export function FavoriteLibraryApp({
       : ''
     return `${placement}${sync}`
   }
-  const detailLocalPositions = detailSnapshot?.position?.localDesiredFolderIds.map(detailFolderName) ?? []
-  const detailRemotePositions = detailSnapshot?.position?.remoteObservedLogicalFolderIds.map(detailFolderName) ?? []
+  const detailLocalFolderIds = detailSnapshot?.position?.localDesiredFolderIds ?? detail?.folderIds.filter((folderId) => folderId.startsWith('bilimi-logical:')) ?? []
+  const detailLocalPositions = detailLocalFolderIds.map(detailFolderName)
   const detailSyncState = detailSnapshot?.libraryStates?.sync ?? detail?.libraryStates?.sync
-  const detailSyncReceiptTitles = detailSnapshot?.syncReceipt?.targetTitles ?? []
-  const detailRemoteOwnership = detailRemotePositions.join('、') || detailSyncReceiptTitles.join('、') || '未同步'
-  const detailHasRemoteEvidence = Boolean(detailSnapshot?.position?.remoteObservedPhysicalFolderIds.length || detailSnapshot?.position?.remoteObservedLogicalFolderIds.length || detailSnapshot?.syncReceipt?.targetLogicalFolderIds.length)
+  const detailRemotePositionFacts = detailSnapshot?.remotePositionFacts ?? (() => {
+    const observedAt = detailSnapshot?.position?.observedAt ?? detailSnapshot?.position?.updatedAt
+    const observed = detailSnapshot?.position?.remoteObservedLogicalFolderIds.map((folderId) => ({
+      folderId,
+      title: detailFolderName(folderId),
+      kind: 'observed' as const,
+      ...(observedAt ? { confirmedAt: observedAt } : {})
+    })) ?? []
+    const synced = detailSnapshot?.syncReceipt?.targetLogicalFolderIds.map((folderId, index) => ({
+      folderId,
+      title: detailSnapshot.syncReceipt?.targetTitles[index] ?? detailFolderName(folderId),
+      kind: 'synced' as const,
+      confirmedAt: detailSnapshot.syncReceipt!.confirmedAt
+    })) ?? []
+    return [...synced, ...observed.filter((candidate) => !synced.some((fact) => fact.folderId === candidate.folderId))]
+  })()
+  const detailRemoteOwnership = detailRemotePositionFacts.length
+    ? [...detailRemotePositionFacts.reduce((facts, fact) => {
+      // Facts arrive in display priority order (synced, initial, observed).
+      // Keep the first label when a later complete scan confirms that same
+      // folder, while retaining both facts for ownership reconciliation.
+      if (!facts.has(fact.folderId)) facts.set(fact.folderId, fact)
+      return facts
+    }, new Map<string, typeof detailRemotePositionFacts[number]>()).values()]
+      .map((fact) => `${fact.title}${fact.kind === 'synced' ? '（同步位置）' : fact.kind === 'initial' ? '（初始位置）' : '（扫描位置）'}`).join('、')
+    : '—'
+  const detailCompleteObservedAt = detailSnapshot?.position?.sourceAuthority === 'complete'
+    ? detailSnapshot.position.observedAt ?? detailSnapshot.position.updatedAt
+    : undefined
   const currentLogicalFolderAids = currentLogicalFolderId
     ? [...new Set(rows.filter((row) => row.folderIds.includes(currentLogicalFolderId)).map((row) => row.aid))].sort((left, right) => left - right)
     : []
@@ -2735,7 +2761,7 @@ export function FavoriteLibraryApp({
                   if (selected?.aid === row.aid && detailOpen) setDetailOpen(false)
                   else { setSelected(row); setDetailOpen(true) }
                 }} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.click() }}>
-            <span className="favorite-library__row-title"><strong title={row.title}>{row.title}</strong><small>{row.author ?? text.unknownAuthor}{row.bvid ? ` · ${row.bvid}` : ` · AV${row.aid}`}</small></span>
+            <span className="favorite-library__row-title"><strong title={row.title}>{row.title}</strong><small>{row.author ?? text.unknownAuthor}</small></span>
                   <span className="favorite-library__row-status"><span className="favorite-library__row-status-sync">{formatFavoriteLibraryMirrorStatus(row.pendingStates ?? [], row.libraryStates?.sync)}</span><span className="favorite-library__row-status-local">{row.libraryStates?.protection === 'protected' ? '已保护' : '未保护'} · {formatFavoriteLibraryOrganizationStatus(row.libraryStates?.organization ?? 'unorganized')}</span></span>
                   <span className="favorite-library__row-transcription" onClick={(event) => event.stopPropagation()}><button type="button" disabled={transcriptionCommand === 'cancel-requested' || transcriptionCommand === 'cancel-summary-requested' || transcriptionCommand === 'enqueue' && transcription.disabled} onClick={() => void runAction(async () => {
                     const api = window.bilimiDesktop
@@ -2840,9 +2866,9 @@ export function FavoriteLibraryApp({
              }, true)}>以收藏库为准并同步</button><button type="button" className="favorite-library__inline-action" onClick={() => void runDetailAction(async () => {
               await adoptRemotePlacement()
               setPlacementConflictChoiceOpen(false)
-            }, true)}>采用B站归属</button></div> : null}{placementPickerOpen ? renderPlacementPicker() : null}<p>收藏库归属：{detailLocalPositions.length ? detailLocalPositions.join('、') : FAVORITE_LIBRARY_STAGING_TITLE}</p><p>B站收藏夹：{detailRemoteOwnership}</p><p>归属状态：{formatFavoriteLibraryPositionStatus(detailSnapshot?.position?.state, detailHasRemoteEvidence)}</p></section> : null}
+            }, true)}>采用B站归属</button></div> : null}{placementPickerOpen ? renderPlacementPicker() : null}<p>收藏库归属：{detailLocalPositions.length ? detailLocalPositions.join('、') : FAVORITE_LIBRARY_STAGING_TITLE}</p><p>B站收藏夹归属：{detailRemoteOwnership}</p><p>归属状态：{formatFavoriteLibraryPositionStatus({ localFolderIds: detailLocalFolderIds, remotePositions: detailRemotePositionFacts, ...(detailCompleteObservedAt ? { completeObservedAt: detailCompleteObservedAt } : {}) })}</p></section> : null}
             <section><h3>音频与档案</h3><div className="favorite-library__detail-action-row"><VideoSummaryMenu actions={[{ id: 'transcribe', label: '转写音频', disabled: !detailCanStartTranscription, onSelect: () => runDetailTranscriptionAction('start') }, { id: 'cancel-transcribe', label: '取消转写', disabled: !detailCanCancelTranscription, onSelect: () => runDetailTranscriptionAction('cancel') }]} download={{ disabled: detailSnapshot?.archive.status !== '已入档' || detailSnapshot.transcription.status !== '转写完成', onSelect: openDetailDocumentExport }} /><button type="button" aria-label="查看档案详情" className="favorite-library__inline-action" disabled={detailSnapshot?.archive.status !== '已入档' || detailSnapshot.transcription.status !== '转写完成'} onClick={() => void runDetailAction(openArchiveDetail)}>笔记档案详情</button></div><p>{text.transcriptionState}：{detailSnapshot?.transcription.status ?? (detail.pendingStates.includes('continuation') ? '等待处理' : '暂无转写任务')}</p><p>{text.archive}：{detailSnapshot?.archive.status ?? text.noArchive}{detailSnapshot?.archive.versionCount ? ` · ${detailSnapshot.archive.versionCount} 个版本` : ''}</p></section>
-            <section className="favorite-library__classification-history"><h3>初始来源</h3><p>{formatFavoriteLibraryInitialSource(detailSnapshot?.video.initialSource ?? detail.initialSource)}</p>{(() => {
+            <section className="favorite-library__classification-history">{(() => {
               const latest = detailSnapshot?.latestClassificationAdjustment
               return <><h3>最近调整</h3>{latest ? <><p>分类时间：{formatDetailTimestamp(latest.occurredAt)}</p><p>分类方式：{classificationAdjustmentLabel(latest)}</p><p>分类详情：{classificationAdjustmentDetail(latest)}</p></> : <p>未记录</p>}</>
             })()}<button type="button" className="favorite-library__inline-action" aria-expanded={classificationAdjustmentsOpen} onClick={toggleClassificationAdjustments}>{classificationAdjustmentsOpen ? '收起完整记录' : '查看完整记录'}</button>{classificationAdjustmentsOpen ? <ol className="favorite-library__classification-adjustment-list" aria-label="完整分类调整记录">{classificationAdjustments?.map((adjustment, index, items) => <li key={adjustment.id}><h3>{index === items.length - 1 && !classificationAdjustmentCursor ? '首次分类' : `第 ${(classificationAdjustmentTotalCount ?? items.length) - index} 次调整`}</h3><p>分类时间：{formatDetailTimestamp(adjustment.occurredAt)}</p><p>分类方式：{classificationAdjustmentLabel(adjustment)}</p><p>分类详情：{classificationAdjustmentDetail(adjustment)}</p></li>)}</ol> : null}

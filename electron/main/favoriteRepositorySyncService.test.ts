@@ -89,6 +89,9 @@ describe('FavoriteRepositorySyncService', () => {
     expect(append).toHaveBeenCalledWith(expect.objectContaining({ aid: 1, folderIds: ['remote-music'] }))
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       positions: { '100:1': expect.objectContaining({ positionState: 'aligned', remoteObservedPhysicalFolderIds: ['remote-music'] }) },
+      syncRecords: [expect.objectContaining({
+        status: 'succeeded', affectedAids: [1], targetFolderIds: ['bilimi-logical:music']
+      })],
       classificationAdjustments: [expect.objectContaining({
         operation: 'synchronize-bilibili', bilibiliSync: { attempted: true, status: 'succeeded' }
       })]

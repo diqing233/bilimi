@@ -1285,15 +1285,14 @@ describe('FavoriteLibraryApp', () => {
     render(<FavoriteLibraryApp />)
     fireEvent.click(await screen.findByText('来源视频'))
     const detail = await screen.findByRole('complementary')
-    expect(detail).toHaveTextContent('初始来源')
-    expect(detail).toHaveTextContent('未记录（旧记录不会以当前归属补写）')
+    expect(detail).not.toHaveTextContent('初始来源')
     expect(detail).toHaveTextContent('最近调整')
     expect(detail).toHaveTextContent('未记录')
     const audioSection = screen.getByRole('heading', { name: '音频与档案' }).closest('section')!
-    const sourceSection = screen.getByRole('heading', { name: '初始来源' }).closest('section')!
-    expect(audioSection.compareDocumentPosition(sourceSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(within(sourceSection).getByRole('button', { name: '查看完整记录' })).toBeInTheDocument()
-    expect(within(sourceSection).queryByRole('button', { name: '查看完整处理记录' })).not.toBeInTheDocument()
+    const historySection = screen.getByRole('heading', { name: '最近调整' }).closest('section')!
+    expect(audioSection.compareDocumentPosition(historySection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(historySection).getByRole('button', { name: '查看完整记录' })).toBeInTheDocument()
+    expect(within(historySection).queryByRole('button', { name: '查看完整处理记录' })).not.toBeInTheDocument()
   })
 
   it('shows an unavailable status without hiding the saved video facts', async () => {
@@ -1699,7 +1698,7 @@ describe('FavoriteLibraryApp', () => {
     expect(await screen.findByText('最近调整')).toBeInTheDocument()
     expect(screen.getByText(/分类方式：收藏库归属调整，手动调整/)).toBeInTheDocument()
     expect(screen.queryByText(/B站同步/)).not.toBeInTheDocument()
-    const history = screen.getByRole('heading', { name: '初始来源' }).closest('section')!
+    const history = screen.getByRole('heading', { name: '最近调整' }).closest('section')!
     expect(history.querySelector('.favorite-library__classification-adjustment')).toBeNull()
     const historyToggle = within(history).getByRole('button', { name: '查看完整记录' })
     expect(historyToggle).toHaveAttribute('aria-expanded', 'false')
@@ -2954,7 +2953,7 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByRole('alert')).not.toHaveTextContent('Error invoking remote method')
   })
 
-  it('renders persisted original source and local adjustment history without deriving either from current folders', async () => {
+  it('renders initial and successful-sync facts in the ownership block while retaining adjustment history', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
@@ -2969,7 +2968,13 @@ describe('FavoriteLibraryApp', () => {
       getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({
         version: 1, accountMid: '100', revision: 1,
         video: { aid: 1, title: '历史视频', tags: [], updatedAt: '2026-08-13T02:00:00.000Z', initialSource: { observedAt: '2026-08-13T01:00:00.000Z', folders: [{ folderId: 'bilibili:ordinary', title: '普通收藏', kind: 'ordinary' }] }, lastAdjustment: { kind: 'local-move', occurredAt: '2026-08-13T02:00:00.000Z' } },
-        folderIds: ['bilimi-logical:game'], pendingStates: [], mirror: { status: 'never' }, transcription: { status: '暂无转写任务' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }
+        folderIds: ['bilimi-logical:game'], pendingStates: [],
+        position: { state: 'local-only-change', localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-13T02:00:00.000Z' },
+        remotePositionFacts: [
+          { folderId: 'bilimi-logical:game', title: '游戏', kind: 'synced', confirmedAt: '2026-08-13T02:00:00.000Z' },
+          { folderId: 'bilibili:ordinary', title: '普通收藏', kind: 'initial' }
+        ],
+        mirror: { status: 'never' }, transcription: { status: '暂无转写任务' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }
       }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
@@ -2981,9 +2986,65 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(row)
 
     const detail = await screen.findByRole('complementary')
-    expect(within(detail).getByRole('heading', { name: '初始来源' }).parentElement).toHaveTextContent('普通收藏（普通收藏夹）')
+    expect(within(detail).getByText('B站收藏夹归属：游戏（同步位置）、普通收藏（初始位置）')).toBeInTheDocument()
+    expect(within(detail).getByText('归属状态：归属一致')).toBeInTheDocument()
+    expect(within(detail).queryByRole('heading', { name: '初始来源' })).not.toBeInTheDocument()
     expect(within(detail).getByRole('heading', { name: '最近调整' }).parentElement).toHaveTextContent('未记录')
     expect(screen.queryByRole('button', { name: '原始来源筛选' })).not.toBeInTheDocument()
+  })
+
+  it('renders a later complete matching observation once without changing its successful-sync label', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-09-05T00:01:00.000Z', videoCount: 1, folderCount: 1,
+        folders: [{ id: 'bilimi-logical:game', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'game', syncState: 'bound' }], physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, totalCount: 1,
+        items: [{ video: { aid: 1, title: '同步回读视频', tags: [], updatedAt: '2026-09-05T00:00:00.000Z' }, folderIds: ['bilimi-logical:game'], pendingStates: [] }]
+      }),
+      getFavoriteRepositoryLibraryVideoDetail: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1,
+        video: { aid: 1, title: '同步回读视频', tags: [], updatedAt: '2026-09-05T00:00:00.000Z' }, folderIds: ['bilimi-logical:game'], pendingStates: [],
+        position: { state: 'aligned', localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: ['900'], remoteObservedLogicalFolderIds: ['bilimi-logical:game'], sourceAuthority: 'complete', observedAt: '2026-09-05T00:01:00.000Z', updatedAt: '2026-09-05T00:01:00.000Z' },
+        remotePositionFacts: [
+          { folderId: 'bilimi-logical:game', title: '游戏', kind: 'synced', confirmedAt: '2026-09-05T00:00:00.000Z' },
+          { folderId: 'bilimi-logical:game', title: '游戏', kind: 'observed', confirmedAt: '2026-09-05T00:01:00.000Z' }
+        ],
+        mirror: { status: 'never' }, transcription: { status: '暂无转写任务' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }
+      }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: /同步回读视频/ }))
+
+    const detail = await screen.findByRole('complementary')
+    expect(within(detail).getByText('B站收藏夹归属：游戏（同步位置）')).toBeInTheDocument()
+    expect(within(detail).getByText('归属状态：归属一致')).toBeInTheDocument()
+  })
+
+  it('does not display an AV number in a favorite-library row subtitle', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-09-05T00:00:00.000Z', videoCount: 1, folderCount: 0,
+        folders: [], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, totalCount: 1,
+        items: [{ video: { aid: 1, title: '不显示 AV 的视频', author: '测试 UP', tags: [], updatedAt: '2026-09-05T00:00:00.000Z' }, folderIds: [], pendingStates: [] }]
+      }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+
+    const row = await screen.findByRole('button', { name: /不显示 AV 的视频/ })
+    expect(row).toHaveTextContent('测试 UP')
+    expect(row).not.toHaveTextContent('AV1')
   })
 
   it('shows independent placement and metadata labels for an unavailable video', async () => {
@@ -3097,7 +3158,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(await screen.findByText('结构化详情'))
 
     const detail = await screen.findByRole('complementary')
-    expect(detail).toHaveTextContent('初始来源')
+    expect(detail).not.toHaveTextContent('初始来源')
     expect(detail).toHaveTextContent('最近调整')
     expect(detail).toHaveTextContent('音频与档案')
     expect(detail).not.toHaveTextContent('BV1xx')
@@ -3125,8 +3186,8 @@ describe('FavoriteLibraryApp', () => {
     expect(detail).not.toHaveTextContent('BV1test')
     expect(detail).toHaveTextContent('收藏归属')
     expect(detail).toHaveTextContent('收藏库归属：音乐')
-    expect(detail).toHaveTextContent('B站收藏夹：音乐')
-    expect(detail).toHaveTextContent('归属状态：位置一致')
+    expect(detail).toHaveTextContent('B站收藏夹归属：音乐（扫描位置）')
+    expect(detail).toHaveTextContent('归属状态：归属一致')
     expect(detail).toHaveTextContent('已整理')
     expect(detail).toHaveTextContent('已保护')
     expect(detail).toHaveTextContent('已同步')
@@ -3168,7 +3229,7 @@ describe('FavoriteLibraryApp', () => {
 
     const detail = await screen.findByRole('complementary')
     expect(within(detail).getByRole('button', { name: '同步状态说明' })).toHaveTextContent('未同步')
-    expect(detail).toHaveTextContent('B站收藏夹：bilimi·其他')
+    expect(detail).toHaveTextContent('B站收藏夹归属：bilimi·音乐（同步位置）、bilimi·其他（扫描位置）')
     expect(detail).not.toHaveTextContent('等待回读确认')
     expect(detail).not.toHaveTextContent('回读不一致')
   })
@@ -3439,7 +3500,7 @@ describe('FavoriteLibraryApp', () => {
     revision = 3
     await act(async () => { notifyRepositoryChange?.() })
     await waitFor(() => expect(screen.getByRole('button', { name: '同步状态说明' })).toHaveTextContent('已同步'))
-    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('归属状态：位置一致')
+    expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('归属状态：归属一致')
     expect(getFavoriteRepositoryLibraryVideoDetail).toHaveBeenCalledTimes(2)
   })
 

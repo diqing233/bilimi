@@ -904,6 +904,23 @@ export class FavoriteRepositorySyncService {
           remoteObservedLogicalFolderIds: [...desiredLogicalIds],
           positionState: 'aligned', observedAt: this.now(), reason: undefined
         })
+        await this.options.repository.commit(account, {
+          id: `favorite-placement-sync-receipt:${runId}:${aid}`,
+          accountMid: account,
+          issuedAt: this.now(),
+          type: 'record-sync-result',
+          payload: {
+            id: `favorite-placement-sync-receipt:${runId}:${aid}`,
+            commandId: `favorite-placement-sync-receipt:${runId}:${aid}`,
+            status: 'succeeded',
+            affectedAids: [aid],
+            targetFolderIds: [...desiredLogicalIds],
+            updatedAt: this.now(),
+            runId,
+            operationKey: `placement:${aid}`,
+            attempt: 1
+          }
+        })
         await this.writeClassificationAdjustmentSyncStatus(account, queuedAdjustmentId, 'succeeded')
         completed++
       } catch (error) {

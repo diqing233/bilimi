@@ -1385,7 +1385,13 @@ describe('FavoriteRepositoryService', () => {
     const service = new FavoriteRepositoryService({ root, now: () => now })
     await service.commit('100', {
       id: 'receipt-video', accountMid: '100', issuedAt: now, type: 'upsert-video',
-      payload: { aid: 1, title: '等待回读的视频', tags: [], updatedAt: now }
+      payload: {
+        aid: 1, title: '等待回读的视频', tags: [], updatedAt: now,
+        initialSource: {
+          observedAt: now,
+          folders: [{ folderId: 'bilibili:default', title: '默认收藏夹', kind: 'ordinary' }]
+        }
+      }
     })
     await service.commit('100', {
       id: 'receipt-binding', accountMid: '100', issuedAt: now, type: 'upsert-physical-shard-binding',
@@ -1423,7 +1429,11 @@ describe('FavoriteRepositoryService', () => {
         targetLogicalFolderIds: ['bilimi-logical:music'],
         targetTitles: ['bilimi·音乐'],
         confirmedAt: now
-      }
+      },
+      remotePositionFacts: [
+        { folderId: 'bilimi-logical:music', title: 'bilimi·音乐', kind: 'synced', confirmedAt: now },
+        { folderId: 'bilibili:default', title: '默认收藏夹', kind: 'initial' }
+      ]
     })
 
     await service.commit('100', {
@@ -1434,7 +1444,7 @@ describe('FavoriteRepositoryService', () => {
       }
     })
     await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
-      libraryStates: { sync: 'unsynced' },
+      libraryStates: { sync: 'synced' },
       syncReceipt: { targetLogicalFolderIds: ['bilimi-logical:music'] }
     })
 
@@ -1445,12 +1455,105 @@ describe('FavoriteRepositoryService', () => {
         remoteObservedLogicalFolderIds: ['bilimi-logical:music'], positionState: 'aligned', sourceAuthority: 'complete', updatedAt: '2026-08-18T00:02:00.000Z'
       }
     })
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      positions: {
+        '100:1': {
+          sourceAuthority: 'complete', remoteObservedLogicalFolderIds: ['bilimi-logical:music']
+        }
+      }
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      remotePositionFacts: expect.arrayContaining([
+        { folderId: 'bilimi-logical:music', title: 'bilimi·音乐', kind: 'observed', confirmedAt: '2026-08-18T00:02:00.000Z' }
+      ])
+    })
     await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
       libraryStates: { sync: 'synced' },
       syncReceipt: {
         targetLogicalFolderIds: ['bilimi-logical:music'],
         targetTitles: ['bilimi·音乐']
       }
+    })
+  })
+
+  it('lists only successful write receipts as synced positions without turning local history or removals into Bilibili locations', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-18T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'position-facts-video', accountMid: '100', issuedAt: '2026-08-18T00:00:00.000Z', type: 'upsert-video',
+      payload: {
+        aid: 1, title: '只同步到游戏的视频', tags: [], updatedAt: '2026-08-18T00:00:00.000Z',
+        initialSource: { observedAt: '2026-08-18T00:00:00.000Z', folders: [{ folderId: 'bilibili:default', title: '默认收藏夹', kind: 'ordinary' }] }
+      }
+    })
+    for (const [id, logicalLedgerId, logicalTitle, remoteFolderId] of [
+      ['position-facts-music', 'music', 'bilimi·音乐舞台', '900'],
+      ['position-facts-game', 'game', 'bilimi·游戏专区', '901']
+    ] as const) {
+      await service.commit('100', {
+        id, accountMid: '100', issuedAt: '2026-08-18T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId, logicalTitle, shardNumber: 1, memberAids: [], remoteTitle: logicalTitle, bindingState: 'bound', remoteFolderId }
+      })
+    }
+    await service.commit('100', {
+      id: 'position-facts-local-music', accountMid: '100', issuedAt: '2026-08-18T00:01:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+        positionState: 'local-only-change', updatedAt: '2026-08-18T00:01:00.000Z', adjustmentKind: 'system-low'
+      }
+    })
+    await service.commit('100', {
+      id: 'position-facts-local-game', accountMid: '100', issuedAt: '2026-08-18T00:02:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+        positionState: 'local-only-change', updatedAt: '2026-08-18T00:02:00.000Z', adjustmentKind: 'system-high'
+      }
+    })
+    await service.commit('100', {
+      id: 'position-facts-projected-batch', accountMid: '100', issuedAt: '2026-08-18T00:02:30.000Z', type: 'record-organization-change',
+      payload: { change: {
+        id: 'position-facts-projected-batch', runId: 'run-1', workspaceId: 'workspace-1', accountMid: '100', aid: 1,
+        // This is the local plan projection after the second classification. It
+        // must never be displayed as proof that music was written to Bilibili.
+        beforeFolderIds: ['900'], afterFolderIds: ['900', '901'], addedFolderIds: ['901'], removedFolderIds: [],
+        status: 'succeeded', recordedAt: '2026-08-18T00:02:30.000Z'
+      } }
+    })
+    await service.commit('100', {
+      id: 'position-facts-game-write', accountMid: '100', issuedAt: '2026-08-18T00:03:00.000Z', type: 'record-sync-result',
+      payload: {
+        id: 'position-facts-game-write', commandId: 'position-facts-game-write', status: 'succeeded', affectedAids: [1],
+        targetFolderIds: ['901'], updatedAt: '2026-08-18T00:03:00.000Z', operationKey: 'placement:1'
+      }
+    })
+    await service.commit('100', {
+      id: 'position-facts-game-removal', accountMid: '100', issuedAt: '2026-08-18T00:04:00.000Z', type: 'record-sync-result',
+      payload: {
+        id: 'position-facts-game-removal', commandId: 'position-facts-game-removal', status: 'succeeded', affectedAids: [1],
+        targetFolderIds: ['901'], updatedAt: '2026-08-18T00:04:00.000Z', operationKey: 'favorite-library-managed-placement-removal'
+      }
+    })
+    await service.commit('100', {
+      id: 'position-facts-music-frozen-remove', accountMid: '100', issuedAt: '2026-08-18T00:04:30.000Z', type: 'record-sync-result',
+      payload: {
+        id: 'position-facts-music-frozen-remove', commandId: 'position-facts-music-frozen-remove', status: 'succeeded', affectedAids: [1],
+        targetFolderIds: ['900'], updatedAt: '2026-08-18T00:04:30.000Z', operationKey: 'remove:1:900'
+      }
+    })
+
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      remotePositionFacts: [
+        { folderId: 'bilimi-logical:game', title: 'bilimi·游戏专区', kind: 'synced', confirmedAt: '2026-08-18T00:03:00.000Z' },
+        { folderId: 'bilibili:default', title: '默认收藏夹', kind: 'initial' }
+      ],
+      latestClassificationAdjustment: { afterFolderIds: ['bilimi-logical:game'] }
+    })
+    await expect(service.getClassificationAdjustmentPage('100', 1, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 2,
+      items: [
+        { afterFolderIds: ['bilimi-logical:game'] },
+        { afterFolderIds: ['bilimi-logical:music'] }
+      ]
     })
   })
 
