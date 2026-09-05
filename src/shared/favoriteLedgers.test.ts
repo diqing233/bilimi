@@ -7,6 +7,7 @@ import {
   createRecommendedFavoriteLedgerName,
   createRecommendedFavoriteLedgerNameForKind,
   createRecommendedFavoriteLedgerNames,
+  createUserFavoriteLedgerId,
   disambiguateRecommendedFavoriteLedgerNames,
   favoriteLedgerNameLength,
   favoriteLedgerNameValidation,
@@ -42,6 +43,11 @@ describe('recommended favorite ledger naming', () => {
 })
 
 describe('favorite ledger model', () => {
+  it('allocates ordinary user-rule ids independently from scan recommendation ids', () => {
+    expect(createUserFavoriteLedgerId('bilimi·梅林FIT', 123)).toBe('custom-bilimi-梅林fit-123')
+    expect(createUserFavoriteLedgerId('音乐', 456)).toBe('custom-音乐-456')
+  })
+
   it('derives one canonical remote-observation id from an exact Bilibili folder id', () => {
     expect(createRemoteObservationFavoriteLedgerId('4047644211')).toBe('custom-remote-4047644211')
     expect(createRemoteObservationFavoriteLedgerId('4047644211')).toBe(

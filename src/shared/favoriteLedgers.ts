@@ -35,7 +35,15 @@ function stableNameSuffix(value: string) {
   return (hash >>> 0).toString(36).slice(0, 4).padStart(4, '0')
 }
 
-export type RecommendedFavoriteLedgerKind = 'author' | 'series' | 'tag'
+/** Only scan-derived recommendation kinds. User-created rules use FavoriteLedgerRuleType. */
+export type RecommendedFavoriteLedgerKind = 'author' | 'tag'
+
+export function createUserFavoriteLedgerId(title: string, now = Date.now()) {
+  const slug = title.toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/gi, '-')
+    .replace(/^-|-$/g, '') || 'ledger'
+  return `custom-${slug}-${now}`
+}
 
 function recommendationSourceIdentity(sourceName: string) {
   const normalizedSource = sourceName.trim().toLocaleLowerCase()
@@ -79,7 +87,7 @@ function createRecommendedNameFromBase(
     const suffix = attempt === 0
       ? ''
       : attempt === 1
-        ? kind === 'author' ? '（UP）' : kind === 'tag' ? '（标签）' : '（系列）'
+        ? kind === 'author' ? '（UP）' : '（标签）'
         : `·${stableNameSuffix(sourceName)}${attempt.toString(36)}`
     const shortenedBaseName = truncateUnicode(
       normalizedBaseName,
@@ -161,7 +169,7 @@ export function disambiguateRecommendedFavoriteLedgerNames<
   return candidates.map((candidate): T => {
     const group = byName.get(candidate.displayName.toLocaleLowerCase()) ?? []
     if (group.length < 2) return candidate
-    const label = candidate.kind === 'author' ? '（UP）' : candidate.kind === 'tag' ? '（标签）' : '（系列）'
+    const label = candidate.kind === 'author' ? '（UP）' : '（标签）'
     const displayName = `${truncateUnicode(
       candidate.displayName,
       BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH - favoriteLedgerNameLength(label)
