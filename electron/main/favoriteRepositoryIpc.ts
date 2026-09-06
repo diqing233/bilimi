@@ -477,11 +477,16 @@ export function registerFavoriteRepositoryIpc(options: {
   const publish = (result: FavoriteRepositoryCommandResult) => {
     const affectedFolderIds = [...new Set(result.affectedFolderIds)].slice(0, MAX_AFFECTED_FOLDER_IDS)
     const affectedFolderCount = new Set(result.affectedFolderIds).size
+    // Some legacy/main-process publishers emit a compact result without the
+    // optional command identity.  It must still notify subscribers; only the
+    // library-run checkpoint commands get the lightweight invalidation path.
+    const libraryPlacementProgress = (result.commandId ?? '').startsWith('favorite-library-placement-run:')
     for (const [senderId, records] of subscriptions) {
       for (const subscription of records.values()) {
         if (subscription.accountMid !== result.accountMid) continue
-        const pageInvalidated = !subscription.folderId || result.affectedAids.length > 0 ||
+        const pageInvalidated = !libraryPlacementProgress && (!subscription.folderId || result.affectedAids.length > 0 ||
           result.affectedFolderIds.includes(subscription.folderId)
+        )
         options.send?.(senderId, 'favorite-repository:revision-changed', {
           subscriptionId: subscription.id,
           accountMid: result.accountMid,

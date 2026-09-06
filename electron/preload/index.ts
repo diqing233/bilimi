@@ -59,7 +59,7 @@ import type {
   FavoriteRepositoryRevisionChange,
   FavoriteRepositorySnapshotSummary
 } from '../main/favoriteRepositoryIpc'
-import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../main/favoriteLibraryCommands'
+import type { FavoriteLibraryCommandResult, FavoriteLibraryPlacementRun, FavoriteLibrarySyncSelection } from '../main/favoriteLibraryCommands'
 import type { FavoriteRepositoryRestorePlan } from '../main/favoriteRepositoryArchiveService'
 import type { ManagedFavoriteHistoricalBindingDeletionTargets, ManagedFavoriteRemoteFolderDeletionResult } from '../main/favoriteRepositorySyncService'
 import type { FavoriteLibraryDrawerCommand } from '../main/favoriteLibraryEntryFlow'
@@ -329,6 +329,20 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-library:sync-selection', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
   synchronizeFavoriteLibraryPlacements: (accountMid: string, selection: FavoriteLibrarySyncSelection | FavoriteLibraryOperationSelection) =>
     ipcRenderer.invoke('favorite-library:synchronize-placements', accountMid, selection) as Promise<FavoriteLibraryCommandResult>,
+  startFavoriteLibraryPlacementRun: (accountMid: string, selection: FavoriteLibrarySyncSelection | FavoriteLibraryOperationSelection) =>
+    ipcRenderer.invoke('favorite-library:start-placement-run', accountMid, selection) as Promise<FavoriteLibraryPlacementRun>,
+  getActiveFavoriteLibraryPlacementRun: (accountMid: string) =>
+    ipcRenderer.invoke('favorite-library:get-active-placement-run', accountMid) as Promise<FavoriteLibraryPlacementRun | undefined>,
+  getFavoriteLibraryPlacementRun: (accountMid: string, runId: string) =>
+    ipcRenderer.invoke('favorite-library:get-placement-run', accountMid, runId) as Promise<FavoriteLibraryPlacementRun>,
+  pauseFavoriteLibraryPlacementRun: (accountMid: string, runId: string) =>
+    ipcRenderer.invoke('favorite-library:pause-placement-run', accountMid, runId) as Promise<FavoriteLibraryPlacementRun>,
+  resumeFavoriteLibraryPlacementRun: (accountMid: string, runId: string) =>
+    ipcRenderer.invoke('favorite-library:resume-placement-run', accountMid, runId) as Promise<FavoriteLibraryPlacementRun>,
+  stopFavoriteLibraryPlacementRun: (accountMid: string, runId: string) =>
+    ipcRenderer.invoke('favorite-library:stop-placement-run', accountMid, runId) as Promise<FavoriteLibraryPlacementRun>,
+  reconcileFavoriteLibraryPlacementRun: (accountMid: string, runId: string) =>
+    ipcRenderer.invoke('favorite-library:reconcile-placement-run', accountMid, runId) as Promise<FavoriteLibraryPlacementRun>,
   resolveFavoriteLibrarySelection: (accountMid: string, selection: Exclude<FavoriteLibraryOperationSelection, number[]>) =>
     ipcRenderer.invoke('favorite-library:resolve-selection', accountMid, selection) as Promise<number[]>,
   setFavoriteLibraryLocalPlacements: (accountMid: string, placements: Array<{ aid: number; folderIds: string[] }>, expectedRevision: number, synchronize = false) =>

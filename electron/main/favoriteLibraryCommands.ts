@@ -35,6 +35,28 @@ export type FavoriteLibraryPlacementSync = {
   synchronizePlacements(accountMid: string, aids: number[], classificationAdjustmentIds?: Readonly<Record<number, string>>): Promise<FavoriteLibraryCommandResult>
 }
 
+export type FavoriteLibraryPlacementRun = {
+  id: string
+  accountMid: string
+  status: 'running' | 'paused' | 'stopped' | 'completed'
+  total: number
+  completed: number
+  failed: number
+  queued: number
+  unknown: number
+  currentAid?: number
+}
+
+export type FavoriteLibraryPlacementRunController = {
+  startLibraryPlacementRun(accountMid: string, aids: number[]): Promise<FavoriteLibraryPlacementRun>
+  getLibraryPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementRun>
+  getActiveLibraryPlacementRun(accountMid: string): Promise<FavoriteLibraryPlacementRun | undefined>
+  pauseLibraryPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementRun>
+  resumeLibraryPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementRun>
+  stopLibraryPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementRun>
+  reconcileLibraryPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementRun>
+}
+
 /** Kept separate from local record lifecycle commands: it only changes Bilibili's favorite state. */
 export type FavoriteLibraryRemoteUnfavorite = {
   /** Runs immediately before each irreversible page write while it owns the shared remote arbiter slot. */
@@ -159,6 +181,8 @@ export class FavoriteLibraryCommandService {
     transcriptionQueue: TranscriptionQueue
     /** Optional so metadata refresh remains a strictly local operation. */
     placementSync?: FavoriteLibraryPlacementSync
+    /** Owns main-process scheduling for pausable library-only Bilibili writes. */
+    placementRunController?: FavoriteLibraryPlacementRunController
     /** Optional because this dangerous global Bilibili action requires an explicit main-process adapter. */
     remoteUnfavorite?: FavoriteLibraryRemoteUnfavorite
     now?: () => string
@@ -317,9 +341,6 @@ export class FavoriteLibraryCommandService {
     if (!Array.isArray(selected) || selected.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) throw new Error('Selected videos are invalid.')
     const selectedAids = [...new Set(selected)].sort((left, right) => left - right)
     if (!selectedAids.length) return { status: 'succeeded', completedOperationCount: 0, totalOperationCount: 0, affectedAids: [] }
-    if (['frozen', 'executing', 'reconciling'].includes(snapshot.workspace?.status ?? '')) {
-      return { status: 'queued', completedOperationCount: 0, totalOperationCount: selectedAids.length, affectedAids: selectedAids }
-    }
     const results: FavoriteLibraryCommandResult[] = []
     for (let index = 0; index < selectedAids.length; index += PLACEMENT_SYNC_CHUNK_SIZE) {
       results.push(await this.options.placementSync.synchronizePlacements(account, selectedAids.slice(index, index + PLACEMENT_SYNC_CHUNK_SIZE)))
@@ -334,6 +355,57 @@ export class FavoriteLibraryCommandService {
       ...(results.find((result) => result.reason)?.reason ? { reason: results.find((result) => result.reason)!.reason } : {})
     }
     return result
+  }
+
+  async startPlacementRun(accountMid: string, selection: FavoriteLibrarySyncSelection): Promise<FavoriteLibraryPlacementRun> {
+    const account = normalizeAccountMid(accountMid)
+    if (!this.options.placementRunController) throw new Error('Favorite placement synchronization is unavailable.')
+    const snapshot = await this.options.repository.getSnapshot(account)
+    const selected = selection.kind === 'folder' && this.options.repository.getLibraryFolderAids
+      ? await this.options.repository.getLibraryFolderAids(account, selection.folderId)
+      : selection.kind === 'folder'
+        ? snapshot.memberships[selection.folderId] ?? []
+        : selection.aids
+    if (!Array.isArray(selected) || selected.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) throw new Error('Selected videos are invalid.')
+    const aids = [...new Set(selected)].sort((left, right) => left - right)
+    if (!aids.length) throw new Error('Selected videos are invalid.')
+    return this.options.placementRunController.startLibraryPlacementRun(account, aids)
+  }
+
+  getPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementRun> {
+    const account = normalizeAccountMid(accountMid)
+    if (!this.options.placementRunController) throw new Error('Favorite placement synchronization is unavailable.')
+    return this.options.placementRunController.getLibraryPlacementRun(account, runId)
+  }
+
+  getActivePlacementRun(accountMid: string): Promise<FavoriteLibraryPlacementRun | undefined> {
+    const account = normalizeAccountMid(accountMid)
+    if (!this.options.placementRunController) throw new Error('Favorite placement synchronization is unavailable.')
+    return this.options.placementRunController.getActiveLibraryPlacementRun(account)
+  }
+
+  pausePlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementRun> {
+    const account = normalizeAccountMid(accountMid)
+    if (!this.options.placementRunController) throw new Error('Favorite placement synchronization is unavailable.')
+    return this.options.placementRunController.pauseLibraryPlacementRun(account, runId)
+  }
+
+  resumePlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementRun> {
+    const account = normalizeAccountMid(accountMid)
+    if (!this.options.placementRunController) throw new Error('Favorite placement synchronization is unavailable.')
+    return this.options.placementRunController.resumeLibraryPlacementRun(account, runId)
+  }
+
+  stopPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementRun> {
+    const account = normalizeAccountMid(accountMid)
+    if (!this.options.placementRunController) throw new Error('Favorite placement synchronization is unavailable.')
+    return this.options.placementRunController.stopLibraryPlacementRun(account, runId)
+  }
+
+  reconcilePlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementRun> {
+    const account = normalizeAccountMid(accountMid)
+    if (!this.options.placementRunController) throw new Error('Favorite placement synchronization is unavailable.')
+    return this.options.placementRunController.reconcileLibraryPlacementRun(account, runId)
   }
 
   async enqueueTranscription(accountMid: string, requestedTargets: Array<number | FavoriteLibraryTranscriptionTarget>, summarizeWithDeepSeek = false): Promise<FavoriteLibraryCommandResult> {
@@ -499,7 +571,7 @@ function transcriptionInput(value: unknown): { aids?: number[]; targets?: Favori
 
 export function registerFavoriteLibraryCommandsIpc(options: {
   ipcMain: IpcMain
-  commands: Pick<FavoriteLibraryCommandService, 'syncSelection' | 'synchronizeSelection' | 'enqueueTranscription' | 'cancelWaitingTranscription'>
+  commands: Pick<FavoriteLibraryCommandService, 'syncSelection' | 'synchronizeSelection' | 'startPlacementRun' | 'getPlacementRun' | 'getActivePlacementRun' | 'pausePlacementRun' | 'resumePlacementRun' | 'stopPlacementRun' | 'reconcilePlacementRun' | 'enqueueTranscription' | 'cancelWaitingTranscription'>
   isTrustedLibrarySender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   resolveSelection?: (accountMid: string, selection: FavoriteLibraryScopeSelection) => Promise<number[]>
@@ -535,6 +607,37 @@ export function registerFavoriteLibraryCommandsIpc(options: {
     await assertCurrentAccount(accountMid)
     return options.commands.synchronizeSelection(accountMid, resolved)
   })
+  options.ipcMain.handle('favorite-library:start-placement-run', async (event, requestedAccountMid: string, selection: unknown) => {
+    assertLibrary(event)
+    const accountMid = await assertCurrentAccount(requestedAccountMid)
+    const parsed = librarySelection(selection)
+    const resolved = parsed.kind === 'scope'
+      ? { kind: 'aids' as const, aids: await options.resolveSelection?.(accountMid, parsed) ?? (() => { throw new Error('Selected videos are invalid.') })() }
+      : parsed
+    await assertCurrentAccount(accountMid)
+    return options.commands.startPlacementRun(accountMid, resolved)
+  })
+  options.ipcMain.handle('favorite-library:get-active-placement-run', async (event, requestedAccountMid: string) => {
+    assertLibrary(event)
+    const accountMid = await assertCurrentAccount(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    return options.commands.getActivePlacementRun(accountMid)
+  })
+  for (const [channel, method] of [
+    ['favorite-library:get-placement-run', 'getPlacementRun'],
+    ['favorite-library:pause-placement-run', 'pausePlacementRun'],
+    ['favorite-library:resume-placement-run', 'resumePlacementRun'],
+    ['favorite-library:stop-placement-run', 'stopPlacementRun'],
+    ['favorite-library:reconcile-placement-run', 'reconcilePlacementRun']
+  ] as const) {
+    options.ipcMain.handle(channel, async (event, requestedAccountMid: string, runId: unknown) => {
+      assertLibrary(event)
+      if (typeof runId !== 'string' || !runId.trim()) throw new Error('Favorite placement synchronization is unavailable.')
+      const accountMid = await assertCurrentAccount(requestedAccountMid)
+      await assertCurrentAccount(accountMid)
+      return options.commands[method](accountMid, runId)
+    })
+  }
   options.ipcMain.handle('favorite-library:resolve-selection', async (event, requestedAccountMid: string, selection: unknown) => {
     assertLibrary(event)
     const accountMid = await assertCurrentAccount(requestedAccountMid)

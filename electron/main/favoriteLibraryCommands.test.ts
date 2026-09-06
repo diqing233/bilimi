@@ -91,7 +91,9 @@ describe('FavoriteLibraryCommandService', () => {
   it('keeps a frozen workspace local-only and does not start remote placement sync', async () => {
     const { repository, refreshVideo, transcriptionQueue } = createService()
     repository.getSnapshot.mockResolvedValueOnce({ ...snapshot(), workspace: { id: 'w', status: 'frozen' } })
-    const synchronizePlacements = vi.fn()
+    const synchronizePlacements = vi.fn().mockResolvedValue({
+      status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [1]
+    })
     const service = new FavoriteLibraryCommandService({
       repository: repository as never, refreshVideo, transcriptionQueue, now,
       placementSync: { synchronizePlacements }
@@ -124,19 +126,38 @@ describe('FavoriteLibraryCommandService', () => {
     expect(repository.commit).not.toHaveBeenCalled()
   })
 
-  it('keeps direct placement synchronization queued while old-favorite work owns remote writes', async () => {
+  it('returns an already paused favorite-library placement run for the account after restart', async () => {
+    const { repository, refreshVideo, transcriptionQueue } = createService()
+    const getActiveLibraryPlacementRun = vi.fn().mockResolvedValue({
+      id: 'run-paused', accountMid: '100', status: 'paused', total: 2, completed: 1, failed: 0, queued: 0, unknown: 0
+    })
+    const service = new FavoriteLibraryCommandService({
+      repository: repository as never, refreshVideo, transcriptionQueue, now,
+      placementRunController: {
+        startLibraryPlacementRun: vi.fn(), getLibraryPlacementRun: vi.fn(), getActiveLibraryPlacementRun,
+        pauseLibraryPlacementRun: vi.fn(), resumeLibraryPlacementRun: vi.fn(), stopLibraryPlacementRun: vi.fn()
+      }
+    })
+
+    await expect(service.getActivePlacementRun('100')).resolves.toMatchObject({ id: 'run-paused', status: 'paused', completed: 1 })
+    expect(getActiveLibraryPlacementRun).toHaveBeenCalledWith('100')
+  })
+
+  it('starts direct placement synchronization even while old-favorite work owns remote writes', async () => {
     const { repository, refreshVideo, transcriptionQueue } = createService()
     repository.getSnapshot.mockResolvedValueOnce({ ...snapshot(), workspace: { id: 'w', status: 'executing' } })
-    const synchronizePlacements = vi.fn()
+    const synchronizePlacements = vi.fn().mockResolvedValue({
+      status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [1]
+    })
     const service = new FavoriteLibraryCommandService({
       repository: repository as never, refreshVideo, transcriptionQueue, now,
       placementSync: { synchronizePlacements }
     })
 
     await expect(service.synchronizeSelection('100', { kind: 'aids', aids: [1] })).resolves.toMatchObject({
-      status: 'queued', completedOperationCount: 0, totalOperationCount: 1, affectedAids: [1]
+      status: 'succeeded', affectedAids: [1]
     })
-    expect(synchronizePlacements).not.toHaveBeenCalled()
+    expect(synchronizePlacements).toHaveBeenCalledWith('100', [1])
   })
 
   it('adopts observed remote logical folders as a revision-checked local intent', async () => {

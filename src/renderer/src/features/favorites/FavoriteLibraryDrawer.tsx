@@ -1,4 +1,5 @@
 import { forwardRef, memo, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 import { FavoriteLibraryApp, type FavoriteLibraryDrawerStatus, type FavoriteLibraryUiCallbacks } from './FavoriteLibraryApp'
 import { closeDurationFor, panelMotionTuning } from '../assistant/panelMotionTuning'
@@ -75,6 +76,7 @@ export const FavoriteLibraryDrawer = forwardRef<FavoriteLibraryDrawerHandle, Fav
   const [dragging, setDragging] = useState(false)
   const [account, setAccount] = useState<FavoriteLibraryAccount>()
   const [drawerStatus, setDrawerStatus] = useState<FavoriteLibraryDrawerStatus>()
+  const [drawerFeedback, setDrawerFeedback] = useState<ReactNode>()
   const [closing, setClosing] = useState(false)
   const [visible, setVisible] = useState(open)
   const [opening, setOpening] = useState(false)
@@ -344,6 +346,7 @@ export const FavoriteLibraryDrawer = forwardRef<FavoriteLibraryDrawerHandle, Fav
           <img className="favorite-library-drawer__brand-mark" src={workingPetUrl} alt="小咪收藏库" />
           <strong>小咪收藏库{account ? <span className="favorite-library-drawer__account">{`（${account.nickname ?? `UID：${account.mid}`}）`}</span> : null}</strong>
         </div>
+        {drawerFeedback ? <div className="favorite-library-drawer__feedback" data-testid="favorite-library-drawer-feedback" aria-live="polite">{drawerFeedback}</div> : null}
         {activeNotice ? <div className="favorite-library-drawer__notice" role="status" title={activeNotice.message}>
           <span aria-hidden="true">⚠</span>
           <span className="favorite-library-drawer__notice-message">{activeNotice.message}</span>
@@ -366,7 +369,7 @@ export const FavoriteLibraryDrawer = forwardRef<FavoriteLibraryDrawerHandle, Fav
         </div>
       </header>
       <div className="favorite-library-drawer__body" data-dragging={dragging ? 'true' : undefined} hidden={collapsed}>
-        <FavoriteLibraryWorkspace embedded active={open && !collapsed} onAccountChange={setAccount} onDrawerStatusChange={setDrawerStatus} uiCallbacks={uiCallbacks} />
+        <FavoriteLibraryWorkspace embedded active={open && !collapsed} onAccountChange={setAccount} onDrawerStatusChange={setDrawerStatus} onDrawerFeedbackChange={setDrawerFeedback} uiCallbacks={uiCallbacks} />
       </div>
     </section>
   )

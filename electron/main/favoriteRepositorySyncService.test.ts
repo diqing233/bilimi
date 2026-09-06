@@ -98,6 +98,295 @@ describe('FavoriteRepositorySyncService', () => {
     })
   })
 
+  it('binds and releases a runtime page target for every library placement write', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    await repository.commit('100', {
+      id: 'local-placement', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    const append = vi.fn().mockResolvedValue({ observedAccountMid: '100' })
+    const bind = vi.fn().mockResolvedValue(undefined)
+    const release = vi.fn()
+    const pageBridge = vi.fn(() => ({ append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn() }))
+    const service = new FavoriteRepositorySyncService({
+      repository, pageBridgeManager: { bind, release, pageBridge },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+
+    await expect(service.synchronizePlacements('100', [1])).resolves.toMatchObject({ status: 'succeeded', affectedAids: [1] })
+    expect(bind).toHaveBeenCalledWith('100', expect.stringMatching(/^favorite-placement:/))
+    expect(pageBridge).toHaveBeenCalledWith('100', expect.stringMatching(/^favorite-placement:/))
+    expect(release).toHaveBeenCalledWith('100', expect.stringMatching(/^favorite-placement:/))
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ aid: 1, folderIds: ['remote-music'] }))
+  })
+
+  it('runs a favorite-library placement batch in the main process and pauses before its next remote write', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    for (const aid of [1, 2]) {
+      await repository.commit('100', {
+        id: `local-placement-${aid}`, accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+        payload: { aid, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z' }
+      })
+    }
+    let finishFirstAppend: (() => void) | undefined
+    const append = vi.fn(({ aid }: { aid: number }) => aid === 1
+      ? new Promise<{ observedAccountMid: string }>((resolve) => { finishFirstAppend = () => resolve({ observedAccountMid: '100' }) })
+      : Promise.resolve({ observedAccountMid: '100' }))
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+    const libraryRun = service as unknown as {
+      startLibraryPlacementRun(accountMid: string, aids: number[]): Promise<{ id: string; status: string; total: number }>
+      pauseLibraryPlacementRun(accountMid: string, runId: string): Promise<{ status: string }>
+      getLibraryPlacementRun(accountMid: string, runId: string): Promise<{ status: string; completed: number; total: number }>
+    }
+
+    const started = await libraryRun.startLibraryPlacementRun('100', [1, 2])
+    expect(started).toMatchObject({ status: 'running', total: 2 })
+    await vi.waitFor(() => expect(append).toHaveBeenCalledWith(expect.objectContaining({ aid: 1 })))
+    await expect(libraryRun.pauseLibraryPlacementRun('100', started.id)).resolves.toMatchObject({ status: 'paused' })
+    finishFirstAppend?.()
+    await vi.waitFor(async () => expect(await libraryRun.getLibraryPlacementRun('100', started.id)).toMatchObject({
+      status: 'paused', completed: 1, total: 2
+    }))
+    expect(append).toHaveBeenCalledTimes(1)
+    expect((await repository.getSnapshot('100')).workspace).toBeUndefined()
+  })
+
+  it('rehydrates a paused favorite-library placement run from its persisted checkpoint', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    for (const aid of [1, 2]) {
+      await repository.commit('100', {
+        id: `local-placement-${aid}`, accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+        payload: { aid, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z' }
+      })
+    }
+    const stalled = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      yieldToEventLoop: () => new Promise<void>(() => undefined),
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+    const started = await stalled.startLibraryPlacementRun('100', [1, 2])
+    await expect(stalled.pauseLibraryPlacementRun('100', started.id)).resolves.toMatchObject({ status: 'paused' })
+    const pausedSnapshot = await repository.getSnapshot('100') as unknown as {
+      libraryPlacementRuns?: Record<string, { status: string; nextIndex: number; aids: number[] }>
+    }
+    expect(pausedSnapshot.libraryPlacementRuns?.[started.id]).toMatchObject({ status: 'paused', nextIndex: 0, aids: [1, 2] })
+
+    const append = vi.fn().mockResolvedValue({ observedAccountMid: '100' })
+    const resumed = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:02:00.000Z', pacingMs: 0
+    })
+    await expect(resumed.resumeLibraryPlacementRun('100', started.id)).resolves.toMatchObject({ status: 'running' })
+    await vi.waitFor(async () => expect(await resumed.getLibraryPlacementRun('100', started.id)).toMatchObject({
+      status: 'completed', completed: 2, total: 2
+    }))
+    expect(append).toHaveBeenNthCalledWith(1, expect.objectContaining({ aid: 1 }))
+    expect(append).toHaveBeenNthCalledWith(2, expect.objectContaining({ aid: 2 }))
+    const completedSnapshot = await repository.getSnapshot('100') as unknown as {
+      libraryPlacementRuns?: Record<string, { status: string; nextIndex: number; completedAids: number[] }>
+    }
+    expect(completedSnapshot.libraryPlacementRuns?.[started.id]).toMatchObject({ status: 'completed', nextIndex: 2, completedAids: [1, 2] })
+    expect(completedSnapshot.workspace).toBeUndefined()
+  })
+
+  it('recovers an interrupted favorite-library run as paused before any remote request and exposes it to the library', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'interrupted-library-run', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'record-library-placement-run',
+      payload: {
+        id: 'favorite-library-placement:interrupted', accountMid: '100', status: 'running', aids: [1, 2], nextIndex: 0,
+        completedAids: [], failedAids: [], queuedAids: [], unknownAids: [], updatedAt: '2026-07-19T00:00:00.000Z'
+      }
+    })
+    const append = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+    const recovery = service as unknown as {
+      getActiveLibraryPlacementRun(accountMid: string): Promise<{ id: string; accountMid: string; status: string; total: number; completed: number; failed: number; queued: number; unknown: number } | undefined>
+    }
+
+    await expect(recovery.getActiveLibraryPlacementRun('100')).resolves.toEqual({
+      id: 'favorite-library-placement:interrupted', accountMid: '100', status: 'paused', total: 2,
+      completed: 0, failed: 0, queued: 0, unknown: 0
+    })
+    expect(append).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      libraryPlacementRuns: {
+        'favorite-library-placement:interrupted': expect.objectContaining({ status: 'paused', nextIndex: 0 })
+      }
+    })
+  })
+
+  it('does not retry an aid whose favorite-library remote write was interrupted by restart', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'interrupted-library-run', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'record-library-placement-run',
+      payload: {
+        id: 'favorite-library-placement:interrupted-write', accountMid: '100', status: 'running', aids: [1, 2], nextIndex: 0,
+        completedAids: [], failedAids: [], queuedAids: [], unknownAids: [], currentAid: 1, updatedAt: '2026-07-19T00:00:00.000Z'
+      }
+    })
+    const append = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+    const recovery = service as unknown as {
+      getActiveLibraryPlacementRun(accountMid: string): Promise<unknown>
+    }
+
+    await expect(recovery.getActiveLibraryPlacementRun('100')).resolves.toMatchObject({
+      id: 'favorite-library-placement:interrupted-write', status: 'completed', unknown: 1, completed: 0, total: 2
+    })
+    expect(append).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      libraryPlacementRuns: {
+        'favorite-library-placement:interrupted-write': expect.objectContaining({
+          status: 'completed', nextIndex: 1, unknownAids: [1]
+        })
+      }
+    })
+  })
+
+  it('blocks a new favorite-library run while a prior run has an unknown remote result', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'unknown-library-run', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'record-library-placement-run',
+      payload: {
+        id: 'favorite-library-placement:unknown', accountMid: '100', status: 'completed', aids: [1], nextIndex: 1,
+        completedAids: [], failedAids: [], queuedAids: [], unknownAids: [1], updatedAt: '2026-07-19T00:00:00.000Z'
+      }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() }
+    })
+
+    await expect(service.startLibraryPlacementRun('100', [2])).rejects.toThrow('result is unknown')
+    await expect(service.getActiveLibraryPlacementRun('100')).resolves.toMatchObject({
+      id: 'favorite-library-placement:unknown', status: 'completed', unknown: 1
+    })
+  })
+
+  it('reconciles an unknown favorite-library placement run from remote membership without writing again', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    await repository.commit('100', {
+      id: 'local-placement', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'result-unknown', updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    await repository.commit('100', {
+      id: 'local-placement-2', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 2, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    await repository.commit('100', {
+      id: 'unknown-library-run', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'record-library-placement-run',
+      payload: {
+        id: 'favorite-library-placement:unknown', accountMid: '100', status: 'completed', aids: [1], nextIndex: 1,
+        completedAids: [], failedAids: [], queuedAids: [], unknownAids: [1], updatedAt: '2026-07-19T00:00:00.000Z'
+      }
+    })
+    const readMembers = vi.fn().mockResolvedValue({ observedAccountMid: '100', members: { 'remote-music': [1] } })
+    const append = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers, createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z'
+    })
+
+    const reconcile = service as unknown as {
+      reconcileLibraryPlacementRun(accountMid: string, runId: string): Promise<{ status: string; unknown: number; completed: number }>
+    }
+    await expect(reconcile.reconcileLibraryPlacementRun('100', 'favorite-library-placement:unknown')).resolves.toMatchObject({
+      status: 'completed', unknown: 0, completed: 1
+    })
+    expect(readMembers).toHaveBeenCalledWith(expect.objectContaining({ aid: 1, folderIds: ['remote-music'] }))
+    expect(append).not.toHaveBeenCalled()
+    const restarted = await service.startLibraryPlacementRun('100', [2])
+    expect(restarted).toMatchObject({ total: 1, unknown: 0 })
+    await vi.waitFor(async () => {
+      const snapshot = await repository.getSnapshot('100')
+      expect(snapshot.libraryPlacementRuns?.[restarted.id]).toMatchObject({
+        status: 'completed', unknownAids: [2]
+      })
+    })
+  })
+
+  it('counts completed favorite-library sync progress by video rather than remote shard writes', async () => {
+    const repository = await createRepository()
+    for (const [ledger, remoteFolderId] of [['music', 'remote-music'], ['games', 'remote-games']] as const) {
+      await repository.commit('100', {
+        id: `binding-${ledger}`, accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId: ledger, logicalTitle: ledger, shardNumber: 1, memberAids: [], remoteTitle: `bilimi ${ledger}`, bindingState: 'bound', remoteFolderId }
+      })
+    }
+    await repository.commit('100', {
+      id: 'local-placement-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:games', 'bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+
+    const started = await service.startLibraryPlacementRun('100', [1])
+    await vi.waitFor(async () => expect(await service.getLibraryPlacementRun('100', started.id)).toMatchObject({
+      status: 'completed', total: 1, completed: 1
+    }))
+  })
+
+  it('publishes only main-process library-run snapshots as each item settles', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    await repository.commit('100', {
+      id: 'local-placement-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    const published: Array<{ status: string; currentAid?: number; completed: number }> = []
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      onLibraryPlacementRunChanged: (run) => published.push({ status: run.status, currentAid: run.currentAid, completed: run.completed }),
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+
+    await service.startLibraryPlacementRun('100', [1])
+    await vi.waitFor(() => expect(published.at(-1)).toEqual({ status: 'completed', completed: 1 }))
+    expect(published).toEqual(expect.arrayContaining([
+      { status: 'running', completed: 0 },
+      { status: 'running', currentAid: 1, completed: 0 }
+    ]))
+  })
+
   it('yields to Electron after each durable sync result before starting the next remote write', async () => {
     const repository = await createRepository()
     const frozenPlan = planWithAppendOperations(2)

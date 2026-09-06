@@ -107,6 +107,51 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(preview.skippedUnsyncedAids).toEqual([3])
   })
 
+  it('returns a non-executable empty preview when no selected placement has an observed managed remote target', async () => {
+    const synchronizePlacements = vi.fn()
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: repository(snapshot()),
+      placementSync: { synchronizePlacements }
+    })
+
+    const preview = await service.previewManagedPlacementRemoval('100', [3], ['bilimi-logical:source'], 7)
+
+    expect(preview).toMatchObject({
+      hasRemoteTarget: false,
+      accountMid: '100',
+      aids: [],
+      selectedLogicalFolderIds: ['bilimi-logical:source'],
+      skippedUnsyncedAids: [3],
+      skippedUnmatchedAids: []
+    })
+    expect(preview).not.toHaveProperty('executionToken')
+    expect(synchronizePlacements).not.toHaveBeenCalled()
+  })
+
+  it('returns the same non-executable preview when selected rows have no matching remote placement facts', async () => {
+    const current = {
+      ...snapshot(),
+      positions: {
+        ...snapshot().positions,
+        '100:3': {
+          ...snapshot().positions['100:3'],
+          localDesiredFolderIds: []
+        }
+      }
+    }
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repository(current) })
+
+    const preview = await service.previewManagedPlacementRemoval('100', [3], ['bilimi-logical:source'], 7)
+
+    expect(preview).toMatchObject({
+      hasRemoteTarget: false,
+      aids: [],
+      skippedUnsyncedAids: [],
+      skippedUnmatchedAids: [3]
+    })
+    expect(preview).not.toHaveProperty('executionToken')
+  })
+
   it('recycles only after a managed placement removal is confirmed aligned and preserves local evidence', async () => {
     let current = {
       ...snapshot(),
@@ -656,6 +701,55 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(current.memberships['bilimi-logical:source']).not.toContain(2)
     expect(current.memberships['bilimi-logical:target']).toContain(2)
     expect(current.tombstones['100:2']).toBeUndefined()
+  })
+
+  it('re-reads a stale local deletion against the authoritative placement and makes an accepted deletion idempotent', async () => {
+    let current = {
+      ...snapshot(),
+      revision: 8,
+      positions: {
+        ...snapshot().positions,
+        '100:2': {
+          ...snapshot().positions['100:2'],
+          remoteObservedPhysicalFolderIds: [],
+          remoteObservedLogicalFolderIds: [],
+          positionState: 'aligned' as const,
+          sourceAuthority: 'complete' as const
+        }
+      }
+    }
+    const commands: FavoriteRepositoryCommand[] = []
+    const synchronizePlacements = vi.fn()
+    const repo = {
+      getSnapshot: vi.fn(async () => current),
+      commit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      }),
+      commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+        commands.push(command)
+        current = applyFavoriteRepositoryCommand(current, command, command.issuedAt)
+        return current
+      })
+    }
+    const service = new FavoriteRepositoryBatchOperationService({
+      repository: repo,
+      placementSync: { synchronizePlacements },
+      now: () => '2026-07-24T01:00:00.000Z'
+    })
+
+    await expect(service.deleteLocal('100', [2], 7, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' }))
+      .resolves.toMatchObject({ status: 'succeeded', completedOperationCount: 1, totalOperationCount: 1, affectedAids: [2] })
+    expect(commands).toHaveLength(1)
+    expect(commands[0]).toMatchObject({ expectedRevision: 8, payload: { placements: [{ aid: 2, localDesiredFolderIds: ['bilimi-logical:target'] }] } })
+    expect(current.positions['100:2'].localDesiredFolderIds).toEqual(['bilimi-logical:target'])
+
+    await expect(service.deleteLocal('100', [2], 7, { kind: 'bilimi-logical', folderId: 'bilimi-logical:source' }))
+      .resolves.toMatchObject({ status: 'succeeded', completedOperationCount: 0, totalOperationCount: 1, affectedAids: [] })
+    expect(commands).toHaveLength(1)
+    expect(current.positions['100:2'].localDesiredFolderIds).toEqual(['bilimi-logical:target'])
+    expect(synchronizePlacements).not.toHaveBeenCalled()
   })
 
   it('removes all explicitly scoped bilimi placements in one local command and returns a command result', async () => {

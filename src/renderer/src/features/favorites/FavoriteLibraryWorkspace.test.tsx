@@ -50,21 +50,14 @@ describe('Favorite Library workspace components', () => {
     expect(styles).toContain('.favorite-library__workspace-actions button { border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; }')
   })
 
-  it('renders a compact top bar with conditional remote warning and labelled window controls', () => {
-    const { rerender } = render(<FavoriteLibraryHeader title="收藏库" remoteWarning={false} />)
+  it('renders a compact top bar whose status content is supplied only through its title-row slot', () => {
+    const { rerender } = render(<FavoriteLibraryHeader title="收藏库" />)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '最大化' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '最小化' })).toBeInTheDocument()
-    rerender(<FavoriteLibraryHeader title="收藏库" remoteWarning />)
+    rerender(<FavoriteLibraryHeader title="收藏库"><span role="status">远程状态待确认</span></FavoriteLibraryHeader>)
     expect(screen.getByRole('status')).toHaveTextContent('远程状态待确认')
     expect(screen.getByRole('button', { name: '最大化' })).toHaveAttribute('title', '展开并拉到最高')
-  })
-
-  it('routes failed and unknown remote warnings to the pending scope', () => {
-    const onGoToPending = vi.fn()
-    render(<FavoriteLibraryHeader title="收藏库" remoteWarning onGoToPending={onGoToPending} />)
-    fireEvent.click(screen.getByRole('button', { name: 'go-pending-scope' }))
-    expect(onGoToPending).toHaveBeenCalledOnce()
   })
 
   it('keeps the compact Xiaomi identity and complete window control affordances in the top bar', () => {

@@ -193,6 +193,15 @@ function checksum(content: string) {
 function commandFingerprint(command: FavoriteRepositoryCommand) {
   // Timestamps and optimistic revisions vary across retries but do not change
   // the business command represented by a durable command ID.
+  if (command.type === 'record-library-placement-run') {
+    // The run command id describes a durable progress state. Replaying that
+    // exact state after a restart can legitimately carry a newer checkpoint
+    // timestamp, so it must stay idempotent while every progress field still
+    // participates in the receipt fingerprint.
+    const { issuedAt: _issuedAt, expectedRevision: _expectedRevision, payload, ...stableCommand } = command
+    const { updatedAt: _updatedAt, ...stableCheckpoint } = payload
+    return checksum(stableJson({ ...stableCommand, payload: stableCheckpoint }))
+  }
   const { issuedAt: _issuedAt, expectedRevision: _expectedRevision, ...stableCommand } = command
   return checksum(stableJson(stableCommand))
 }
@@ -404,6 +413,7 @@ function validSnapshot(value: unknown, accountMid: string): value is AccountFavo
     (snapshot.libraryMirrors === undefined || (typeof snapshot.libraryMirrors === 'object' && !Array.isArray(snapshot.libraryMirrors))) &&
     Array.isArray(snapshot.folders) && !!snapshot.memberships && typeof snapshot.memberships === 'object' &&
     Array.isArray(snapshot.physicalShards) && Array.isArray(snapshot.syncRecords) &&
+    (snapshot.libraryPlacementRuns === undefined || (typeof snapshot.libraryPlacementRuns === 'object' && snapshot.libraryPlacementRuns !== null && !Array.isArray(snapshot.libraryPlacementRuns))) &&
     (snapshot.organizationRecords === undefined || Array.isArray(snapshot.organizationRecords)) &&
     (snapshot.organizationBatches === undefined || Array.isArray(snapshot.organizationBatches)) &&
     (snapshot.classificationAdjustments === undefined || Array.isArray(snapshot.classificationAdjustments)) &&
@@ -522,6 +532,7 @@ function normalizeSnapshot(snapshot: AccountFavoriteRepositorySnapshot): Account
       return { ...unboundFolder, syncState: 'pending-reconcile' as const }
     }),
     libraryMirrors: snapshot.libraryMirrors ?? {},
+    libraryPlacementRuns: snapshot.libraryPlacementRuns ?? {},
     organizationRecords: snapshot.organizationRecords ?? [],
     organizationBatches: snapshot.organizationBatches ?? [],
     classificationAdjustments: snapshot.classificationAdjustments ?? [],
@@ -897,6 +908,11 @@ export class FavoriteRepositoryService {
         classificationAdjustments: [...adjustmentsById.values()].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id)),
         organizationMigrationInitialized: Boolean(repository.snapshot.organizationMigrationInitialized || recovery?.organizationMigrationInitialized),
         syncRecords: [...syncRecordsById.values()].sort((left, right) => left.id.localeCompare(right.id)),
+        // Placement-run checkpoints are device-local control state. A portable
+        // overwrite replaces the local library view, so no pre-import paused
+        // run may continue against the new snapshot. Merge imports deliberately
+        // retain them because they do not replace the current device state.
+        libraryPlacementRuns: mode === 'overwrite' ? {} : repository.snapshot.libraryPlacementRuns,
         tombstones,
         ...(recovery?.workspace ? { workspace: clone(recovery.workspace) } : mode === 'overwrite' ? { workspace: undefined } : {})
       }

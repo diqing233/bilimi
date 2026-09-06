@@ -5,6 +5,7 @@ import {
   type FavoriteRepositoryClassificationAdjustment,
   type FavoriteRepositoryFrozenSyncOperation,
   type FavoriteRepositoryFrozenSyncPlan,
+  type FavoriteLibraryPlacementRunCheckpoint,
   type FavoriteRepositoryOrganizationChange,
   type FavoriteRepositorySyncRecord,
   type FavoriteRepositoryWorkspace
@@ -121,10 +122,39 @@ export type FavoriteRepositoryPageBridgeManager = {
 type SyncRecordStatus = FavoriteRepositorySyncRecord['status']
 
 type PlacementSyncResult = {
-  status: 'succeeded' | 'failed' | 'queued'
+  status: 'succeeded' | 'failed' | 'queued' | 'result-unknown'
   completedOperationCount: number
   totalOperationCount: number
   affectedAids: number[]
+}
+
+/**
+ * A renderer-visible progress snapshot for a user-initiated favorite-library
+ * placement run. The remote receipts themselves remain the durable source of
+ * truth; this record only owns scheduling and pause/stop intent.
+ */
+export type FavoriteLibraryPlacementSyncRun = {
+  id: string
+  accountMid: string
+  status: 'running' | 'paused' | 'stopped' | 'completed'
+  total: number
+  completed: number
+  failed: number
+  queued: number
+  unknown: number
+  currentAid?: number
+}
+
+type RunningFavoriteLibraryPlacementSyncRun = FavoriteLibraryPlacementSyncRun & {
+  aids: number[]
+  nextIndex: number
+  completedAids: number[]
+  failedAids: number[]
+  queuedAids: number[]
+  unknownAids: number[]
+  pauseRequested: boolean
+  stopRequested: boolean
+  driving: boolean
 }
 
 const retryReadyReason = 'reconciled-absent-ready-to-retry'
@@ -237,6 +267,8 @@ export class FavoriteRepositorySyncService {
   private readonly stopRequestedRuns = new Set<string>()
   private readonly pauseRequestedRuns = new Set<string>()
   private readonly executingPlanIds = new Map<string, string>()
+  private readonly libraryPlacementRuns = new Map<string, RunningFavoriteLibraryPlacementSyncRun>()
+  private readonly libraryPlacementRunByAccount = new Map<string, string>()
 
   constructor(private readonly options: {
     repository: FavoriteRepositoryService
@@ -257,6 +289,7 @@ export class FavoriteRepositorySyncService {
       memberAids: number[]
     }) => Promise<unknown>
     onPhysicalShardProvisioned?: (accountMid: string) => Promise<unknown> | unknown
+    onLibraryPlacementRunChanged?: (run: FavoriteLibraryPlacementSyncRun) => void
     reconciliationReadTimeoutMs?: number
     remoteWriteTimeoutMs?: number
     retryCooldownMs?: number
@@ -827,27 +860,370 @@ export class FavoriteRepositorySyncService {
       : run()
   }
 
+  /**
+   * Starts a collection-library-only run. It reuses `synchronizePlacements`
+   * for every item, so Bilibili writes, their durable receipts, and the shared
+   * account arbiter all stay in the existing trusted path.
+   */
+  async startLibraryPlacementRun(accountMid: string, requestedAids: number[]): Promise<FavoriteLibraryPlacementSyncRun> {
+    const account = normalizeAccountMid(accountMid)
+    const aids = [...new Set(requestedAids)].sort((left, right) => left - right)
+    if (!aids.length || aids.length > 100 || aids.some((aid) => !Number.isSafeInteger(aid) || aid <= 0)) {
+      throw new Error('Favorite placement selection is invalid.')
+    }
+    await this.hydrateLibraryPlacementRuns(account)
+    const activeId = this.libraryPlacementRunByAccount.get(account)
+    const active = activeId ? this.libraryPlacementRuns.get(activeId) : undefined
+    if (active?.unknown > 0) {
+      throw new Error('Favorite library placement synchronization result is unknown; reconcile it before starting another run.')
+    }
+    if (active && (active.status === 'running' || active.status === 'paused')) {
+      throw new Error('Favorite library placement synchronization is already running.')
+    }
+    const run: RunningFavoriteLibraryPlacementSyncRun = {
+      id: `favorite-library-placement:${randomUUID()}`,
+      accountMid: account,
+      status: 'running',
+      total: aids.length,
+      completed: 0,
+      failed: 0,
+      queued: 0,
+      unknown: 0,
+      aids,
+      nextIndex: 0,
+      completedAids: [],
+      failedAids: [],
+      queuedAids: [],
+      unknownAids: [],
+      pauseRequested: false,
+      stopRequested: false,
+      driving: false
+    }
+    this.libraryPlacementRuns.set(run.id, run)
+    this.libraryPlacementRunByAccount.set(account, run.id)
+    await this.persistLibraryPlacementRun(run)
+    this.driveLibraryPlacementRun(account, run.id)
+    return this.libraryPlacementRunSnapshot(run)
+  }
+
+  async getLibraryPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementSyncRun> {
+    await this.hydrateLibraryPlacementRuns(normalizeAccountMid(accountMid))
+    return this.libraryPlacementRunSnapshot(this.libraryPlacementRun(accountMid, runId))
+  }
+
+  /** Returns the newest unfinished or unknown-result library batch for this account, if any. */
+  async getActiveLibraryPlacementRun(accountMid: string): Promise<FavoriteLibraryPlacementSyncRun | undefined> {
+    const account = normalizeAccountMid(accountMid)
+    await this.hydrateLibraryPlacementRuns(account)
+    const runId = this.libraryPlacementRunByAccount.get(account)
+    const run = runId ? this.libraryPlacementRuns.get(runId) : undefined
+    return run && (run.status === 'running' || run.status === 'paused' || run.unknown > 0)
+      ? this.libraryPlacementRunSnapshot(run)
+      : undefined
+  }
+
+  async pauseLibraryPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementSyncRun> {
+    await this.hydrateLibraryPlacementRuns(normalizeAccountMid(accountMid))
+    const run = this.libraryPlacementRun(accountMid, runId)
+    if (run.status === 'running') {
+      run.pauseRequested = true
+      run.status = 'paused'
+      await this.persistLibraryPlacementRun(run)
+    }
+    return this.libraryPlacementRunSnapshot(run)
+  }
+
+  async resumeLibraryPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementSyncRun> {
+    await this.hydrateLibraryPlacementRuns(normalizeAccountMid(accountMid))
+    const run = this.libraryPlacementRun(accountMid, runId)
+    if (run.status === 'paused') {
+      run.pauseRequested = false
+      run.status = 'running'
+      await this.persistLibraryPlacementRun(run)
+      this.driveLibraryPlacementRun(run.accountMid, run.id)
+    }
+    return this.libraryPlacementRunSnapshot(run)
+  }
+
+  /** Lets an active remote request settle, then abandons only the remaining library items. */
+  async stopLibraryPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementSyncRun> {
+    await this.hydrateLibraryPlacementRuns(normalizeAccountMid(accountMid))
+    const run = this.libraryPlacementRun(accountMid, runId)
+    if (run.status === 'running' || run.status === 'paused') {
+      run.stopRequested = true
+      run.pauseRequested = false
+      run.status = 'stopped'
+      await this.persistLibraryPlacementRun(run)
+    }
+    return this.libraryPlacementRunSnapshot(run)
+  }
+
+  /** Reconciles only the remote result of a completed library run; it never writes remotely. */
+  async reconcileLibraryPlacementRun(accountMid: string, runId: string): Promise<FavoriteLibraryPlacementSyncRun> {
+    const account = normalizeAccountMid(accountMid)
+    return this.options.remoteOperations
+      ? this.options.remoteOperations.run(account, () => this.reconcileLibraryPlacementRunNow(account, runId))
+      : this.reconcileLibraryPlacementRunNow(account, runId)
+  }
+
+  private async reconcileLibraryPlacementRunNow(account: string, runId: string): Promise<FavoriteLibraryPlacementSyncRun> {
+    await this.hydrateLibraryPlacementRuns(account)
+    const run = this.libraryPlacementRun(account, runId)
+    if (!run.unknownAids.length) return this.libraryPlacementRunSnapshot(run)
+    const bridgeRunId = `${run.id}:reconcile:${randomUUID()}`
+    await this.bindPageTarget(account, bridgeRunId)
+    try {
+      const bridge = this.pageBridge(account, bridgeRunId)
+      const remainingUnknown: number[] = []
+      for (const aid of run.unknownAids) {
+        const snapshot = await this.options.repository.getSnapshot(account)
+        const placement = snapshot.positions[`${account}:${aid}`]
+        if (!placement) {
+          remainingUnknown.push(aid)
+          continue
+        }
+        const desiredRemoteIds = [...new Set(placement.localDesiredFolderIds.flatMap((logicalId) => snapshot.physicalShards
+          .filter((shard) => `bilimi-logical:${shard.logicalLedgerId}` === logicalId && shard.bindingState === 'bound' && shard.remoteFolderId)
+          .map((shard) => shard.remoteFolderId!)))].sort()
+        if (!desiredRemoteIds.length) {
+          remainingUnknown.push(aid)
+          continue
+        }
+        try {
+          const result = await this.readMembersForReconciliation(() => bridge.readMembers({
+            accountMid: account,
+            operationKey: `${run.id}:reconcile:${aid}`,
+            aid,
+            folderIds: desiredRemoteIds
+          }))
+          this.assertObservedAccount(account, result.observedAccountMid)
+          if (!desiredRemoteIds.every((folderId) => Array.isArray(result.members[folderId]))) {
+            remainingUnknown.push(aid)
+            continue
+          }
+          const membership = desiredRemoteIds.map((folderId) => result.members[folderId].includes(aid))
+          if (membership.every(Boolean)) {
+            await this.writePlacement(account, placement, {
+              remoteObservedPhysicalFolderIds: desiredRemoteIds,
+              remoteObservedLogicalFolderIds: [...new Set(placement.localDesiredFolderIds)].sort(),
+              positionState: 'aligned', observedAt: this.now(), reason: undefined
+            })
+            run.completed++
+          } else if (membership.every((value) => !value)) {
+            await this.writePlacement(account, placement, {
+              positionState: 'local-only-change', reason: undefined
+            })
+          } else {
+            remainingUnknown.push(aid)
+          }
+        } catch {
+          remainingUnknown.push(aid)
+        }
+      }
+      run.unknownAids = remainingUnknown
+      run.unknown = remainingUnknown.length
+      run.status = 'completed'
+      await this.persistLibraryPlacementRun(run)
+      return this.libraryPlacementRunSnapshot(run)
+    } finally {
+      this.options.pageBridgeManager?.release(account, bridgeRunId)
+    }
+  }
+
+  private libraryPlacementRun(accountMid: string, runId: string) {
+    const account = normalizeAccountMid(accountMid)
+    const run = this.libraryPlacementRuns.get(runId)
+    if (!run || run.accountMid !== account) throw new Error('Favorite library placement synchronization was not found.')
+    return run
+  }
+
+  private libraryPlacementRunSnapshot(run: RunningFavoriteLibraryPlacementSyncRun): FavoriteLibraryPlacementSyncRun {
+    const { aids: _aids, nextIndex: _nextIndex, completedAids: _completedAids, failedAids: _failedAids, queuedAids: _queuedAids, unknownAids: _unknownAids, pauseRequested: _pauseRequested, stopRequested: _stopRequested, driving: _driving, ...snapshot } = run
+    return { ...snapshot }
+  }
+
+  private async hydrateLibraryPlacementRuns(accountMid: string) {
+    const account = normalizeAccountMid(accountMid)
+    const snapshot = await this.options.repository.getSnapshot(account)
+    const checkpoints = Object.values(snapshot.libraryPlacementRuns ?? {})
+      .filter((checkpoint) => checkpoint.accountMid === account && !this.libraryPlacementRuns.has(checkpoint.id))
+      .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id))
+    for (const checkpoint of checkpoints) {
+      const run = this.libraryPlacementRunFromCheckpoint(checkpoint)
+      // A renderer/process restart cannot know whether an interrupted remote
+      // write reached Bilibili. Never resume that write automatically. A run
+      // which had not claimed an aid is safe to pause and let the user resume.
+      if (run.status === 'running') {
+        if (run.currentAid !== undefined) {
+          const interruptedAid = run.currentAid
+          run.currentAid = undefined
+          run.nextIndex = Math.max(run.nextIndex, run.aids.indexOf(interruptedAid) + 1)
+          if (!run.unknownAids.includes(interruptedAid)) run.unknownAids.push(interruptedAid)
+          run.unknown = run.unknownAids.length
+          run.status = 'completed'
+          run.pauseRequested = false
+        } else {
+          run.status = 'paused'
+          run.pauseRequested = true
+        }
+        await this.persistLibraryPlacementRun(run)
+      }
+      this.libraryPlacementRuns.set(run.id, run)
+      if (run.status === 'running' || run.status === 'paused' || run.unknown > 0) this.libraryPlacementRunByAccount.set(account, run.id)
+    }
+  }
+
+  private libraryPlacementRunFromCheckpoint(checkpoint: FavoriteLibraryPlacementRunCheckpoint): RunningFavoriteLibraryPlacementSyncRun {
+    return {
+      id: checkpoint.id,
+      accountMid: checkpoint.accountMid,
+      status: checkpoint.status,
+      total: checkpoint.aids.length,
+      completed: checkpoint.completedAids.length,
+      failed: checkpoint.failedAids.length,
+      queued: checkpoint.queuedAids.length,
+      unknown: checkpoint.unknownAids.length,
+      ...(checkpoint.currentAid ? { currentAid: checkpoint.currentAid } : {}),
+      aids: [...checkpoint.aids],
+      nextIndex: checkpoint.nextIndex,
+      completedAids: [...checkpoint.completedAids],
+      failedAids: [...checkpoint.failedAids],
+      queuedAids: [...checkpoint.queuedAids],
+      unknownAids: [...checkpoint.unknownAids],
+      pauseRequested: checkpoint.status === 'paused',
+      stopRequested: checkpoint.status === 'stopped',
+      driving: false
+    }
+  }
+
+  private async persistLibraryPlacementRun(run: RunningFavoriteLibraryPlacementSyncRun) {
+    const checkpoint: FavoriteLibraryPlacementRunCheckpoint = {
+      id: run.id,
+      accountMid: run.accountMid,
+      status: run.status,
+      aids: [...run.aids],
+      nextIndex: run.nextIndex,
+      completedAids: [...run.completedAids],
+      failedAids: [...run.failedAids],
+      queuedAids: [...run.queuedAids],
+      unknownAids: [...run.unknownAids],
+      ...(run.currentAid ? { currentAid: run.currentAid } : {}),
+      updatedAt: this.now()
+    }
+    await this.options.repository.commit(run.accountMid, {
+      // Checkpoints can legitimately repeat the same visible state after a
+      // restart (for example, a paused run being rehydrated).  Repository
+      // command IDs are append-only identities, not state keys.
+      id: `favorite-library-placement-run:${run.id}:${randomUUID()}`,
+      accountMid: run.accountMid,
+      issuedAt: checkpoint.updatedAt,
+      type: 'record-library-placement-run',
+      payload: checkpoint
+    })
+    this.publishLibraryPlacementRun(run)
+  }
+
+  private publishLibraryPlacementRun(run: RunningFavoriteLibraryPlacementSyncRun) {
+    this.options.onLibraryPlacementRunChanged?.(this.libraryPlacementRunSnapshot(run))
+  }
+
+  private driveLibraryPlacementRun(accountMid: string, runId: string) {
+    const run = this.libraryPlacementRuns.get(runId)
+    if (!run || run.accountMid !== accountMid || run.driving || run.status !== 'running') return
+    run.driving = true
+    void (async () => {
+      try {
+        // Return to Electron before claiming the first remote queue item. This
+        // gives the renderer a chance to paint feedback and process Pause.
+        await this.yieldToEventLoop()
+        while (run.nextIndex < run.aids.length) {
+          if (run.stopRequested) {
+            run.status = 'stopped'
+            await this.persistLibraryPlacementRun(run)
+            return
+          }
+          if (run.pauseRequested) {
+            run.status = 'paused'
+            await this.persistLibraryPlacementRun(run)
+            return
+          }
+          const aid = run.aids[run.nextIndex]
+          run.currentAid = aid
+          await this.persistLibraryPlacementRun(run)
+          try {
+            const result = await this.synchronizePlacements(accountMid, [aid])
+            if (result.status === 'succeeded') {
+              run.completed += result.completedOperationCount
+              run.completedAids.push(aid)
+            } else if (result.status === 'queued') {
+              run.queued++
+              run.queuedAids.push(aid)
+            } else if (result.status === 'result-unknown') {
+              run.unknown++
+              run.unknownAids.push(aid)
+            } else {
+              run.failed++
+              run.failedAids.push(aid)
+            }
+          } catch {
+            // Existing placement synchronization has already persisted the
+            // corresponding failure/unknown projection when it can. The run
+            // records this item as failed without inventing a remote receipt.
+            run.failed++
+            run.failedAids.push(aid)
+          } finally {
+            run.currentAid = undefined
+            run.nextIndex++
+            await this.persistLibraryPlacementRun(run)
+          }
+          if (run.unknown) {
+            // An ambiguous write must not be followed by another remote write.
+            run.status = 'completed'
+            await this.persistLibraryPlacementRun(run)
+            return
+          }
+          await this.yieldToEventLoop()
+        }
+        if (!run.stopRequested && !run.pauseRequested) {
+          run.status = 'completed'
+          await this.persistLibraryPlacementRun(run)
+        }
+      } finally {
+        run.driving = false
+        if (run.stopRequested) {
+          run.status = 'stopped'
+          await this.persistLibraryPlacementRun(run)
+        } else if (run.pauseRequested) {
+          run.status = 'paused'
+          await this.persistLibraryPlacementRun(run)
+        }
+      }
+    })()
+  }
+
   private async synchronizePlacementsNow(account: string, aids: number[], classificationAdjustmentIds?: Readonly<Record<number, string>>): Promise<PlacementSyncResult> {
     const snapshot = await this.options.repository.getSnapshot(account)
     const runId = `favorite-placement:${randomUUID()}`
-    const bridge = this.pageBridge(account, runId)
+    await this.bindPageTarget(account, runId)
     let completed = 0
-    let status: 'succeeded' | 'failed' | 'queued' = 'succeeded'
-    for (const aid of aids) {
-      const current = await this.options.repository.getSnapshot(account)
-      const placement = current.positions[`${account}:${aid}`]
-      if (!placement) {
-        status = 'failed'
-        continue
-      }
-      const linkedAdjustmentId = classificationAdjustmentIds?.[aid]?.trim()
-      if (linkedAdjustmentId && !current.classificationAdjustments.some((record) => record.id === linkedAdjustmentId && record.aid === aid)) {
-        throw new Error('Favorite placement classification adjustment is unavailable.')
-      }
-      const queuedAdjustmentId = linkedAdjustmentId || `favorite-placement-sync:${runId}:${aid}`
-      if (linkedAdjustmentId) {
-        await this.writeClassificationAdjustmentSyncStatus(account, queuedAdjustmentId, 'queued')
-      } else {
+    let status: PlacementSyncResult['status'] = 'succeeded'
+    try {
+      const bridge = this.pageBridge(account, runId)
+      for (const aid of aids) {
+        const current = await this.options.repository.getSnapshot(account)
+        const placement = current.positions[`${account}:${aid}`]
+        if (!placement) {
+          status = 'failed'
+          continue
+        }
+        const linkedAdjustmentId = classificationAdjustmentIds?.[aid]?.trim()
+        if (linkedAdjustmentId && !current.classificationAdjustments.some((record) => record.id === linkedAdjustmentId && record.aid === aid)) {
+          throw new Error('Favorite placement classification adjustment is unavailable.')
+        }
+        const queuedAdjustmentId = linkedAdjustmentId || `favorite-placement-sync:${runId}:${aid}`
+        if (linkedAdjustmentId) {
+          await this.writeClassificationAdjustmentSyncStatus(account, queuedAdjustmentId, 'queued')
+        } else {
         await this.options.repository.commit(account, {
           id: `favorite-placement-sync-audit:${runId}:${aid}`,
           accountMid: account,
@@ -860,37 +1236,37 @@ export class FavoriteRepositorySyncService {
             addedToLibrary: placement.localDesiredFolderIds.length > 0, bilibiliSync: { attempted: true, status: 'queued' }
           }] }
         })
-      }
-      const desiredLogicalIds = new Set(placement.localDesiredFolderIds)
+        }
+        const desiredLogicalIds = new Set(placement.localDesiredFolderIds)
       // A logical warehouse can be represented by several physical shards, but
       // a local placement means membership of the warehouse, not duplication in
       // every shard. Prefer an already observed shard for continuity; otherwise
       // choose the stable first bound shard. Capacity reconciliation/creation is
       // handled by the managed-folder execution path before a shard is bound.
-      const desiredShards = [...desiredLogicalIds].flatMap((logicalId) => {
+        const desiredShards = [...desiredLogicalIds].flatMap((logicalId) => {
         const candidates = current.physicalShards
           .filter((shard) => `bilimi-logical:${shard.logicalLedgerId}` === logicalId &&
             shard.bindingState === 'bound' && shard.remoteFolderId)
           .sort((left, right) => left.shardNumber - right.shardNumber || left.folderId.localeCompare(right.folderId))
         const retained = candidates.find((shard) => placement.remoteObservedPhysicalFolderIds.includes(shard.remoteFolderId!))
         return retained ?? candidates[0] ? [retained ?? candidates[0]] : []
-      })
-      const resolvedLogicalIds = new Set(desiredShards.map((shard) => `bilimi-logical:${shard.logicalLedgerId}`))
-      if (resolvedLogicalIds.size !== desiredLogicalIds.size) {
+        })
+        const resolvedLogicalIds = new Set(desiredShards.map((shard) => `bilimi-logical:${shard.logicalLedgerId}`))
+        if (resolvedLogicalIds.size !== desiredLogicalIds.size) {
         await this.writePlacement(account, placement, {
           positionState: 'target-missing', reason: 'logical-target-unbound'
         })
         await this.writeClassificationAdjustmentSyncStatus(account, queuedAdjustmentId, 'failed')
         status = 'failed'
-        continue
-      }
-      const desiredRemoteIds = [...new Set(desiredShards.map((shard) => shard.remoteFolderId!))].sort()
-      const observedRemoteIds = [...new Set(placement.remoteObservedPhysicalFolderIds)].sort()
-      const appendIds = desiredRemoteIds.filter((folderId) => !observedRemoteIds.includes(folderId))
-      const removeIds = observedRemoteIds.filter((folderId) => !desiredRemoteIds.includes(folderId) &&
+          continue
+        }
+        const desiredRemoteIds = [...new Set(desiredShards.map((shard) => shard.remoteFolderId!))].sort()
+        const observedRemoteIds = [...new Set(placement.remoteObservedPhysicalFolderIds)].sort()
+        const appendIds = desiredRemoteIds.filter((folderId) => !observedRemoteIds.includes(folderId))
+        const removeIds = observedRemoteIds.filter((folderId) => !desiredRemoteIds.includes(folderId) &&
         current.physicalShards.some((shard) => shard.remoteFolderId === folderId && shard.bindingState === 'bound'))
-      await this.writePlacement(account, placement, { positionState: 'syncing', reason: undefined })
-      try {
+        await this.writePlacement(account, placement, { positionState: 'syncing', reason: undefined })
+        try {
         if (appendIds.length) {
           const result = await this.writeToRemote(() => bridge.append({ accountMid: account, operationKey: `${runId}:${aid}:append`, aid, folderIds: appendIds }))
           this.assertObservedAccount(account, result.observedAccountMid)
@@ -923,19 +1299,21 @@ export class FavoriteRepositorySyncService {
         })
         await this.writeClassificationAdjustmentSyncStatus(account, queuedAdjustmentId, 'succeeded')
         completed++
-      } catch (error) {
+        } catch (error) {
         const knownFailure = isConfirmedRemoteRejection(error)
         await this.writePlacement(account, placement, {
           positionState: knownFailure ? 'failed' : 'result-unknown',
           reason: error instanceof Error ? error.message : String(error)
         })
         await this.writeClassificationAdjustmentSyncStatus(account, queuedAdjustmentId, knownFailure ? 'failed' : 'result-unknown')
-        status = 'failed'
+        status = knownFailure ? 'failed' : 'result-unknown'
         // An unknown response cannot be followed by more writes in this user batch.
-        if (!knownFailure) break
+          if (!knownFailure) break
+        }
       }
+    } finally {
+      this.options.pageBridgeManager?.release(account, runId)
     }
-    this.options.pageBridgeManager?.release(account, runId)
     return { status, completedOperationCount: completed, totalOperationCount: aids.length, affectedAids: aids }
   }
 
@@ -953,7 +1331,9 @@ export class FavoriteRepositorySyncService {
   private mergePlacementResults(results: PlacementSyncResult[]): PlacementSyncResult {
     const affectedAids = [...new Set(results.flatMap((result) => result.affectedAids))].sort((left, right) => left - right)
     return {
-      status: results.some((result) => result.status === 'failed') ? 'failed' : results.some((result) => result.status === 'queued') ? 'queued' : 'succeeded' as const,
+      status: results.some((result) => result.status === 'result-unknown') ? 'result-unknown'
+        : results.some((result) => result.status === 'failed') ? 'failed'
+          : results.some((result) => result.status === 'queued') ? 'queued' : 'succeeded' as const,
       completedOperationCount: results.reduce((total, result) => total + result.completedOperationCount, 0),
       totalOperationCount: affectedAids.length,
       affectedAids

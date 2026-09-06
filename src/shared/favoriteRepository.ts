@@ -625,6 +625,21 @@ export type FavoriteRepositorySyncRecord = {
   autoRetry?: false
 }
 
+/** Durable scheduling checkpoint for a favorite-library-only Bilibili placement run. */
+export type FavoriteLibraryPlacementRunCheckpoint = {
+  id: string
+  accountMid: string
+  status: 'running' | 'paused' | 'stopped' | 'completed'
+  aids: number[]
+  nextIndex: number
+  completedAids: number[]
+  failedAids: number[]
+  queuedAids: number[]
+  unknownAids: number[]
+  currentAid?: number
+  updatedAt: string
+}
+
 /** A successful organization protects this aid in future incremental scans. */
 export type FavoriteRepositoryOrganizationRecord = {
   accountMid: string
@@ -868,6 +883,13 @@ export type FavoriteRepositoryCommand =
       id: string
       accountMid: string
       issuedAt: string
+      type: 'record-library-placement-run'
+      payload: FavoriteLibraryPlacementRunCheckpoint
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
       type: 'record-organization-protections'
       payload: { records: FavoriteRepositoryOrganizationRecord[]; markMigrationInitialized?: boolean; replace?: boolean }
     }
@@ -1043,6 +1065,7 @@ export type AccountFavoriteRepositorySnapshot = {
   physicalShards: FavoriteRepositoryPhysicalShard[]
   workspace?: FavoriteRepositoryWorkspace
   syncRecords: FavoriteRepositorySyncRecord[]
+  libraryPlacementRuns: Record<string, FavoriteLibraryPlacementRunCheckpoint>
   organizationRecords: FavoriteRepositoryOrganizationRecord[]
   organizationBatches: FavoriteRepositoryOrganizationChange[]
   classificationAdjustments: FavoriteRepositoryClassificationAdjustment[]
@@ -1583,6 +1606,18 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
             !folderIds.length || folderIds.some((id) => typeof id !== 'string' || !/^bilimi-logical:\S+$/u.test(id))))) ||
         (payload.attempt !== undefined && (!Number.isSafeInteger(payload.attempt) || Number(payload.attempt) < 1))) invalidCommand()
       return
+    case 'record-library-placement-run':
+      if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.accountMid !== 'string' ||
+        normalizedAccountMid(payload.accountMid) !== normalizedAccountMid(record.accountMid) ||
+        !['running', 'paused', 'stopped', 'completed'].includes(String(payload.status)) ||
+        !isValidAidList(payload.aids) || !payload.aids.length || payload.aids.length > 100 ||
+        !Number.isSafeInteger(payload.nextIndex) || Number(payload.nextIndex) < 0 || Number(payload.nextIndex) > payload.aids.length ||
+        !isValidAidList(payload.completedAids) || !isValidAidList(payload.failedAids) || !isValidAidList(payload.queuedAids) || !isValidAidList(payload.unknownAids) ||
+        [payload.completedAids, payload.failedAids, payload.queuedAids, payload.unknownAids].some((aids) =>
+          (aids as number[]).some((aid) => !(payload.aids as number[]).includes(aid))) ||
+        (payload.currentAid !== undefined && (!Number.isSafeInteger(payload.currentAid) || Number(payload.currentAid) <= 0 || !(payload.aids as number[]).includes(Number(payload.currentAid)))) ||
+        typeof payload.updatedAt !== 'string' || Number.isNaN(Date.parse(payload.updatedAt))) invalidCommand()
+      return
     case 'record-organization-protections':
       if (!Array.isArray(payload.records) || !payload.records.every(isOrganizationRecord) ||
         (payload.markMigrationInitialized !== undefined && typeof payload.markMigrationInitialized !== 'boolean') ||
@@ -1693,6 +1728,7 @@ export function createAccountFavoriteRepositorySnapshot(input: {
     memberships: {},
     physicalShards: [],
     syncRecords: [],
+    libraryPlacementRuns: {},
     organizationRecords: [],
     organizationBatches: [],
     classificationAdjustments: [],
@@ -1722,6 +1758,7 @@ export function applyFavoriteRepositoryCommand(
   let memberships = { ...snapshot.memberships }
   let workspace = snapshot.workspace
   let syncRecords = [...snapshot.syncRecords]
+  let libraryPlacementRuns = { ...(snapshot.libraryPlacementRuns ?? {}) }
   let organizationRecords = [...snapshot.organizationRecords]
   let organizationBatches = [...(snapshot.organizationBatches ?? [])]
   let classificationAdjustments = [...(snapshot.classificationAdjustments ?? [])]
@@ -2137,6 +2174,7 @@ export function applyFavoriteRepositoryCommand(
       folders = []
       physicalShards = []
       syncRecords = []
+      libraryPlacementRuns = {}
       organizationRecords = []
       organizationBatches = []
       classificationAdjustments = []
@@ -2275,6 +2313,23 @@ export function applyFavoriteRepositoryCommand(
     case 'record-sync-result':
       affectedAids = uniquePositiveAids(command.payload.affectedAids).sort((left, right) => left - right)
       syncRecords = [...syncRecords.filter((record) => record.id !== command.payload.id), { ...command.payload, affectedAids }]
+      break
+    case 'record-library-placement-run':
+      libraryPlacementRuns = {
+        ...libraryPlacementRuns,
+        [command.payload.id]: {
+          ...command.payload,
+          accountMid: snapshot.accountMid,
+          aids: uniquePositiveAids(command.payload.aids).sort((left, right) => left - right),
+          completedAids: uniquePositiveAids(command.payload.completedAids).sort((left, right) => left - right),
+          failedAids: uniquePositiveAids(command.payload.failedAids).sort((left, right) => left - right),
+          queuedAids: uniquePositiveAids(command.payload.queuedAids).sort((left, right) => left - right),
+          unknownAids: uniquePositiveAids(command.payload.unknownAids).sort((left, right) => left - right)
+        }
+      }
+      // Run checkpoints only publish progress; they do not change any row's
+      // library membership or metadata, so subscribers must not invalidate pages.
+      affectedAids = []
       break
     case 'record-organization-protections': {
       const records = new Map((command.payload.replace ? [] : organizationRecords).map((record) => [record.aid, record]))
@@ -2693,6 +2748,7 @@ export function applyFavoriteRepositoryCommand(
     physicalShards,
     workspace,
     syncRecords,
+    libraryPlacementRuns,
     organizationRecords,
     organizationBatches,
     classificationAdjustments,

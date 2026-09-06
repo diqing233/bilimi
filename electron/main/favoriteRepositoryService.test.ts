@@ -917,6 +917,11 @@ describe('FavoriteRepositoryService', () => {
       id: 'local-remote-observation', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'set-favorite-placement',
       payload: { aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['bilibili:900'], remoteObservedLogicalFolderIds: [], positionState: 'aligned', updatedAt: '2026-07-24T00:00:00.000Z' }
     })
+    await service.commit('100', {
+      id: 'paused-library-run', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'record-library-placement-run',
+      payload: { id: 'favorite-library-placement:paused', accountMid: '100', status: 'paused', aids: [1], nextIndex: 0,
+        completedAids: [], failedAids: [], queuedAids: [], unknownAids: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
     const source = await service.getSnapshot('200')
     const archive = createFavoriteRepositoryArchiveExport({
       ...source,
@@ -930,6 +935,7 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getSnapshot('100')).resolves.toMatchObject({
       videos: { '2': expect.objectContaining({ title: 'Imported only' }) }, positions: {}
     })
+    expect((await service.getSnapshot('100')).libraryPlacementRuns).toEqual({})
     await expect(service.getSnapshot('100')).resolves.not.toMatchObject({ videos: { '1': expect.anything() } })
   })
 

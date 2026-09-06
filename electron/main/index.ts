@@ -2575,6 +2575,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     transcriptionQueue: getVideoTranscriptionQueue(),
     refreshVideo: refreshFavoriteLibraryVideo,
     placementSync: favoriteRepositorySyncService,
+    placementRunController: favoriteRepositorySyncService,
     remoteUnfavorite: createFavoriteLibraryRemoteUnfavorite({
       pageBridgeManager: favoriteRepositoryPageBridgeManager!,
       remoteOperations: favoriteRepositoryRemoteOperations

@@ -790,6 +790,32 @@ describe('registerFavoriteRepositoryIpc', () => {
     }))
   })
 
+  it('keeps library sync progress out of page invalidations', async () => {
+    const ipcMain = new FakeIpcMain()
+    const send = vi.fn()
+    const service = {
+      commit: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 2, commandId: 'favorite-library-placement-run:run-1:running:0:0:0:0:0:1',
+        affectedFolderIds: [], affectedAids: []
+      })
+    }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'), send
+    })
+    await ipcMain.invoke('favorite-repository:subscribe', 7, '100')
+
+    await ipcMain.invoke('favorite-repository:commit-command', 7, '100', {
+      id: 'favorite-library-placement-run:run-1:running:0:0:0:0:0:1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z',
+      type: 'record-library-placement-run', payload: {
+        id: 'run-1', accountMid: '100', status: 'running', aids: [1], nextIndex: 0,
+        completedAids: [], failedAids: [], queuedAids: [], unknownAids: [], updatedAt: '2026-07-19T00:00:00.000Z'
+      }
+    })
+
+    expect(send).toHaveBeenCalledWith(7, 'favorite-repository:revision-changed', expect.objectContaining({ pageInvalidated: false, affectedAidCount: 0 }))
+  })
+
   it('removes every subscription owned by a destroyed renderer', async () => {
     const ipcMain = new FakeIpcMain()
     const send = vi.fn()

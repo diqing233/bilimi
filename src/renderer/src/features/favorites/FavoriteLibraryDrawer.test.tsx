@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteLibraryDrawer } from './FavoriteLibraryDrawer'
 
@@ -12,16 +12,19 @@ vi.mock('./FavoriteLibraryApp', () => ({
   FavoriteLibraryApp: ({
     embedded,
     active,
-    onAccountChange
+    onAccountChange,
+    onDrawerFeedbackChange
   }: {
     embedded?: boolean
     active?: boolean
     onAccountChange?: (account: { mid: string; nickname?: string } | undefined) => void
+    onDrawerFeedbackChange?: (feedback: ReactNode) => void
   }) => {
     favoriteLibraryRenderCount += 1
     favoriteLibraryActiveStates.push(active !== false)
     const [selection, setSelection] = useState('all')
     useEffect(() => onAccountChange?.({ mid: '100', nickname: '小咪' }), [onAccountChange])
+    useEffect(() => onDrawerFeedbackChange?.(<p data-testid="favorite-library-drawer-feedback-content">同步完成：1/1</p>), [onDrawerFeedbackChange])
     return (
       <div data-testid="favorite-library-content" data-embedded={embedded ? 'true' : 'false'}>
         <label>
@@ -108,6 +111,14 @@ describe('FavoriteLibraryDrawer', () => {
     const account = screen.getByText('（小咪）')
     expect(account.closest('strong')).toHaveTextContent('小咪收藏库（小咪）')
     expect(account).toHaveClass('favorite-library-drawer__account')
+  })
+
+  it('renders embedded operation feedback in the 小咪收藏库 title row rather than the workspace body', async () => {
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+
+    const feedback = await screen.findByTestId('favorite-library-drawer-feedback')
+    expect(screen.getByRole('banner', { name: '小咪收藏库' })).toContainElement(feedback)
+    expect(screen.getByTestId('favorite-library-content')).not.toContainElement(feedback)
   })
 
   it('uses the compact product header with its SVG expand-and-maximize control', () => {

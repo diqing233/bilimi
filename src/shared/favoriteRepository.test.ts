@@ -1123,11 +1123,18 @@ describe('account favorite repository contracts', () => {
       id: 'delete-before-reset', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'delete-favorite-from-library',
       payload: { aid: 1, deletedAt: '2026-07-20T00:00:02.000Z', reason: 'user-delete' }
     }, '2026-07-20T00:00:02.000Z')
+    tombstoned.libraryPlacementRuns = {
+      'favorite-library-placement:paused': {
+        id: 'favorite-library-placement:paused', accountMid: '100', status: 'paused', aids: [1], nextIndex: 0,
+        completedAids: [], failedAids: [], queuedAids: [], unknownAids: [], updatedAt: '2026-07-20T00:00:02.000Z'
+      }
+    }
     const reset = applyFavoriteRepositoryCommand(tombstoned, {
       id: 'reset', accountMid: '100', issuedAt: '2026-07-20T00:00:03.000Z', type: 'clear-local-repository', payload: {}
     }, '2026-07-20T00:00:03.000Z')
 
     expect(reset).toMatchObject({ videos: {}, libraryMirrors: {}, folders: [], memberships: {}, physicalShards: [], syncRecords: [], organizationRecords: [], tombstones: {} })
+    expect(reset.libraryPlacementRuns).toEqual({})
     expect(isFavoriteRepositoryScanVisible(reset, 1)).toBe(true)
     expect(reset.workspace).toBeUndefined()
   })
