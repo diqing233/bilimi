@@ -2202,6 +2202,7 @@ export default function App() {
       // receives permission to repair its displayed remote shard name.
       allowRemoteRename: boolean
     }> = []
+    const failures: FavoriteLedgerBindingRegistrationResult['failures'] = []
     for (const ledger of resultLedgers) {
       if (skipLedgerIds.has(ledger.id)) continue
       // A discovered same-name candidate remains explicitly unbound until the
@@ -2225,6 +2226,25 @@ export default function App() {
         const knownShardNumbers = trustedRemoteShardNumbers?.get(ledger.id) ?? new Map<string, number>()
         const occupiedShardNumbers = new Set(knownShardNumbers.values())
         for (const folder of folders) {
+          const remoteTitle = folder.title.trim()
+          const remoteBaseName = favoriteLedgerBindingNameAndShard(remoteTitle).baseName
+          const ledgerBaseName = favoriteLedgerBindingNameAndShard(ledger.displayName).baseName
+          // An explicit folder ID is only the Bilibili API handle after its
+          // title has proved it belongs to this local rule. Do not use a
+          // stale/cross-rule result to rename or bind another ledger.
+          if (!remoteBaseName || remoteBaseName !== ledgerBaseName) {
+            failures.push({
+              ledgerId: ledger.id,
+              candidates: [{
+                id: folder.id.trim(),
+                title: remoteTitle,
+                memberCount: Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0 ? folder.memberCount : 0,
+                bindingFailureReason: '远端收藏夹名称与当前规则不一致，未登记绑定。请刷新后重新确认。',
+                bindingFailureDetail: `Favorite repository remote title base mismatch: expected ${ledgerBaseName}, received ${remoteBaseName || 'empty'}.`
+              }]
+            })
+            continue
+          }
           const existingShardNumber = knownShardNumbers.get(folder.id.trim())
           const titledShardNumber = shardNumberFromTitle(folder.title, ledger.displayName)
           let shardNumber = existingShardNumber ?? folder.shardNumber ?? titledShardNumber ?? 1
@@ -2236,7 +2256,7 @@ export default function App() {
           registrations.push({
             ledger,
             remoteFolderId: folder.id.trim(),
-            remoteTitle: folder.title.trim() || ledger.displayName,
+            remoteTitle,
             memberCount: Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0 ? folder.memberCount : 0,
             shardNumber,
             allowRemoteRename: selectedFolders.length > 0
@@ -2245,7 +2265,6 @@ export default function App() {
       }
     }
 
-    const failures: FavoriteLedgerBindingRegistrationResult['failures'] = []
     const successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; memberCount: number; shardNumber: number }> = []
     for (const { ledger, remoteFolderId, remoteTitle, memberCount, shardNumber, allowRemoteRename } of registrations) {
       if (!window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
@@ -2857,6 +2876,7 @@ export default function App() {
         ledgersAfterDirectRename,
         {
           ...options,
+          includeRemoteOnlyDrafts: false,
           remoteDraftKnownFolderIds: [...new Set([
             ...(options?.remoteDraftKnownFolderIds ?? []),
             ...remoteDraftKnownFolderIds
@@ -3080,16 +3100,20 @@ export default function App() {
       }
     }
     const ledgersAfterDirectRename = directRename.ledgers
+    const ledgersForRemoteDiscovery = [...new Map([
+      ...allAccountLedgers,
+      ...ledgersAfterDirectRename
+    ].map((ledger) => [ledger.id, ledger])).values()]
 
     const result = await runScript(
-      buildSaveFavoriteLedgersScript(ledgersAfterDirectRename, previousLedgers, {
+      buildSaveFavoriteLedgersScript(ledgersForRemoteDiscovery, previousLedgers, {
         ...options,
         dismissedRemoteFolderIds,
         remoteDraftKnownFolderIds
       }, remoteDraftBoundFolderIds)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
     await refreshFavoriteSpaceAfterConfirmedPageCreate(accountMid, result)
-    const mergedResult = mergeBoundRenameIntoAutomationResult(result, ledgersAfterDirectRename, directRename.renamedLedgerIds)
+    const mergedResult = mergeBoundRenameIntoAutomationResult(result, ledgersForRemoteDiscovery, directRename.renamedLedgerIds)
     const visibleMergedResult = mergedResult
     const refreshFavoriteLedgerStatusAfterBackup = async (preserveBoundLedgerIds: readonly string[] = []) => {
       if (!accountMid) return
@@ -3125,7 +3149,7 @@ export default function App() {
     }
 
     if (Array.isArray(visibleMergedResult.ledgers)) {
-      const formalLedgerById = new Map(ledgersAfterDirectRename.map((ledger) => [ledger.id, ledger]))
+      const formalLedgerById = new Map(ledgersForRemoteDiscovery.map((ledger) => [ledger.id, ledger]))
       const resultLedgers = withoutDeletedLedgers(accountMid, visibleMergedResult.ledgers).map((ledger) => {
         const confirmedFolders = options?.rebindRemoteFolders?.[ledger.id] ?? []
         if (!confirmedFolders.length) return ledger
@@ -3149,14 +3173,14 @@ export default function App() {
       })
       const bindingResult = await registerNewFavoriteLedgerBindings(
         accountMid,
-        ledgersAfterDirectRename,
+        ledgersForRemoteDiscovery,
         resultLedgers,
         options?.rebindRemoteFolderIds,
         options?.rebindRemoteFolders,
         trustedRemoteShardNumbers,
         directRename.renamedLedgerIds
       )
-      const backupLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult, ledgersAfterDirectRename)
+      const backupLedgers = ledgersAfterBindingRegistration(resultLedgers, bindingResult, ledgersForRemoteDiscovery)
       const remoteOperationLedgerIds = new Set(remoteOperationLedgers.map((ledger) => ledger.id))
       const formalRemoteFolderIdsByLedger = new Map(ledgersWithFormalBindings
         .filter((ledger) => ledger.bindingState === 'bound')

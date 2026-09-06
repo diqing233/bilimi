@@ -354,6 +354,10 @@ describe('favorite ledger model', () => {
     expect(ledgers.find((ledger) => ledger.id === 'custom-legacy-rule')).not.toHaveProperty('syncState')
   })
 
+  it('preserves leading and trailing author symbols in recommendation names', () => {
+    expect(createRecommendedFavoriteLedgerName('-恒某人-', [])).toBe('bilimi·-恒某人-')
+  })
+
   it('normalizes only equivalent binding names and recognizes manual circled-number shards', () => {
     expect(normalizeFavoriteLedgerBindingName(' Ｂｉｌｉｍｉ· 游戏专区 ')).toBe('bilimi· 游戏专区')
     expect(favoriteLedgerBindingNameAndShard('bilimi·游戏专区')).toEqual({ baseName: 'bilimi·游戏专区', shardNumber: 1 })

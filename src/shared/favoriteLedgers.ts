@@ -105,7 +105,9 @@ export function createRecommendedFavoriteLedgerNameForKind(
 ) {
   const normalizedSourceName = sourceName.trim()
   const baseName = kind === 'author'
-    ? normalizedSourceName.split('-', 1)[0]?.trim() || normalizedSourceName || '收藏夹'
+    ? (!normalizedSourceName.startsWith('-')
+        ? normalizedSourceName.split('-', 1)[0]?.trim()
+        : normalizedSourceName) || normalizedSourceName || '收藏夹'
     : normalizedSourceName || '收藏夹'
   return createRecommendedNameFromBase(kind, baseName, sourceName, existingDisplayNames)
 }

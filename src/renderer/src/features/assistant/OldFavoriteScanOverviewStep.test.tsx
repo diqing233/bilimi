@@ -8,6 +8,33 @@ describe('OldFavoriteScanOverviewStep', () => {
     vi.restoreAllMocks()
   })
 
+  it('shows current-batch tag progress after a single batch finishes basic scanning', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-single', status: 'previewing', mode: 'incremental',
+        segmentSize: 3_000, hasMultipleSegments: false,
+        scan: { phase: 'complete', failureCount: 0, totalItemCount: 2_577, scannedItemCount: 2_577 },
+        continuationCount: 0, sourceFolders: [],
+        segments: [{ id: 'segment-1', index: 0, status: 'previewing', itemCount: 2_577, readiness: 'tagging', completedTagItemCount: 50, pendingTagItemCount: 2_527 }],
+        currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+        tagEnrichment: {
+          status: 'running', totalItemCount: 2_577, completedItemCount: 50, pendingItemCount: 2_527, failedItemCount: 0,
+          scopes: {
+            currentSegment: { totalItemCount: 2_577, completedItemCount: 50, pendingItemCount: 2_527, failedItemCount: 0, reusedTagItemCount: 0, fetchedTagItemCount: 50, confirmedUntaggedItemCount: 0 },
+            wholeRun: { totalItemCount: 2_577, completedItemCount: 50, pendingItemCount: 2_527, failedItemCount: 0, reusedTagItemCount: 0, fetchedTagItemCount: 50, confirmedUntaggedItemCount: 0 }
+          }
+        }
+      } as never}
+      loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByLabelText('当前批次标签进度')).toHaveValue(50)
+    expect(screen.getByText('当前批 50 / 2577 条')).toBeInTheDocument()
+  })
+
   it('offers pause and end actions while inventory scanning, then offers manual resume after pause', () => {
     const pause = vi.fn()
     const finish = vi.fn()

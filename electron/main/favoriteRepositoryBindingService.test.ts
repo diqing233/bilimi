@@ -33,6 +33,7 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(favoriteRepositoryManagedShardTitleForDisplay('game', 2, 'ignored', 'bilimi·游戏专区')).toBe('bilimi·游戏专区②')
     expect(favoriteRepositoryManagedShardTitleForDisplay('game', 3, 'ignored', 'bilimi·游戏专区①')).toBe('bilimi·游戏专区③')
     expect(favoriteRepositoryManagedShardTitleForDisplay('game', 2, 'ignored', '12345678901234567890')).toBe('1234567890123456789②')
+    expect(favoriteRepositoryManagedShardTitleForDisplay('game', 2, 'ignored', '1234567890123456789①')).toBe('1234567890123456789②')
   })
 
   it('notifies the refresh hook only after a Bilibili folder create succeeds', async () => {
@@ -911,11 +912,10 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(readFolderInventory).toHaveBeenCalledTimes(2)
   })
 
-  it('allows an explicitly confirmed exact-ID shard to be renamed when its current title is no longer bilimi managed', async () => {
+  it('rejects an unbound explicitly selected shard whose title belongs to another logical name', async () => {
     const repository = await createRepository()
-    let remoteTitle = '手动改过的收藏夹'
+    const remoteTitle = '手动改过的收藏夹'
     const renameFolder = vi.fn(async (input: { accountMid: string; operationKey: string; folderId: string; title: string }) => {
-      remoteTitle = input.title
       return { observedAccountMid: '100' }
     })
     const readFolderInventory = vi.fn(async () => ({
@@ -937,17 +937,73 @@ describe('FavoriteRepositoryBindingService', () => {
       logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区',
       remoteDisplayTitle: 'bilimi·游戏专区', expectedRemoteTitle: 'bilimi·旧游戏专区',
       remoteFolderId: 'game-2', shardNumber: 2, memberAids: [], allowRemoteRename: true
-    })).resolves.toMatchObject({
-      shards: [expect.objectContaining({
-        remoteFolderId: 'game-2', shardNumber: 2, remoteTitle: 'bilimi·游戏专区②'
-      })]
-    })
+    })).rejects.toThrow('title does not match')
 
-    expect(renameFolder).toHaveBeenCalledOnce()
-    expect(readFolderInventory).toHaveBeenCalledTimes(2)
+    expect(renameFolder).not.toHaveBeenCalled()
+    expect(readFolderInventory).toHaveBeenCalledOnce()
+    expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
   })
 
-  it('surfaces a rejected rename response before attempting formal binding', async () => {
+  it('rejects an explicitly selected folder from another logical name instead of renaming it into this ledger', async () => {
+    const repository = await createRepository()
+    const renameFolder = vi.fn()
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100', folders: [{ id: 'xiaomi-id', title: 'bilimi·小咪的收藏夹', memberCount: 0 }]
+          }),
+          renameFolder, createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'meilin', logicalTitle: 'bilimi·梅林FIT',
+      expectedRemoteTitle: 'bilimi·小咪的收藏夹', remoteFolderId: 'xiaomi-id',
+      shardNumber: 1, memberAids: [], allowRemoteRename: true
+    })).rejects.toThrow('title does not match')
+
+    expect(renameFolder).not.toHaveBeenCalled()
+    expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
+  })
+
+  it('does not let an already recorded wrong-name id bypass candidate title validation', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'corrupt-meilin-binding', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z',
+      type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'meilin', logicalTitle: 'bilimi·梅林FIT', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·小咪的收藏夹', bindingState: 'bound', remoteFolderId: 'xiaomi-id', remoteMemberCount: 0
+      }
+    })
+    const renameFolder = vi.fn()
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100', folders: [{ id: 'xiaomi-id', title: 'bilimi·小咪的收藏夹', memberCount: 0 }]
+          }),
+          renameFolder, createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'meilin', logicalTitle: 'bilimi·梅林FIT',
+      expectedRemoteTitle: 'bilimi·小咪的收藏夹', remoteFolderId: 'xiaomi-id',
+      shardNumber: 1, memberAids: [], allowRemoteRename: true
+    })).rejects.toThrow('title does not match')
+
+    expect(renameFolder).not.toHaveBeenCalled()
+  })
+
+  it('rejects a differently named unbound candidate before attempting a rename', async () => {
     const repository = await createRepository()
     const commit = vi.spyOn(repository, 'commit')
     const renameFolder = vi.fn().mockResolvedValue({
@@ -972,13 +1028,13 @@ describe('FavoriteRepositoryBindingService', () => {
       logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈',
       remoteDisplayTitle: 'bilimi·游戏专区', expectedRemoteTitle: 'bilimi·游戏专区',
       remoteFolderId: 'game-2', shardNumber: 1, memberAids: [], allowRemoteRename: true
-    })).rejects.toThrow('remote-ambiguous')
+    })).rejects.toThrow('title does not match')
 
-    expect(renameFolder).toHaveBeenCalledOnce()
+    expect(renameFolder).not.toHaveBeenCalled()
     expect(commit).not.toHaveBeenCalled()
   })
 
-  it('confirms an explicitly renamed shard after its first inventory still has the old title', async () => {
+  it('rejects an unbound renamed candidate after its first inventory still has the old title', async () => {
     const repository = await createRepository()
     const expectedTitle = 'bilimi·生活日常你好'
     let renamed = false
@@ -1015,16 +1071,14 @@ describe('FavoriteRepositoryBindingService', () => {
       logicalLedgerId: 'life', logicalTitle: expectedTitle,
       remoteDisplayTitle: expectedTitle, expectedRemoteTitle: 'bilimi·生活日常',
       remoteFolderId: 'life-1', shardNumber: 1, memberAids: [], allowRemoteRename: true
-    })).resolves.toMatchObject({
-      shards: [expect.objectContaining({ remoteFolderId: 'life-1', remoteTitle: expectedTitle, bindingState: 'bound' })]
-    })
+    })).rejects.toThrow('title does not match')
 
-    expect(renameFolder).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'life-1', title: expectedTitle }))
-    expect(waitForInventoryRetry).toHaveBeenCalledWith(250)
-    expect(readFolderInventory).toHaveBeenCalledTimes(3)
+    expect(renameFolder).not.toHaveBeenCalled()
+    expect(waitForInventoryRetry).not.toHaveBeenCalled()
+    expect(readFolderInventory).toHaveBeenCalledTimes(1)
   })
 
-  it('confirms an explicitly renamed shard after a delayed exact-id inventory mirror', async () => {
+  it('rejects an unbound renamed candidate before waiting for a delayed inventory mirror', async () => {
     const repository = await createRepository()
     const expectedTitle = 'bilimi·生活日常你好'
     let renamed = false
@@ -1061,15 +1115,11 @@ describe('FavoriteRepositoryBindingService', () => {
       logicalLedgerId: 'life', logicalTitle: expectedTitle,
       remoteDisplayTitle: expectedTitle, expectedRemoteTitle: 'bilimi·生活日常',
       remoteFolderId: 'life-1', shardNumber: 1, memberAids: [], allowRemoteRename: true
-    })).resolves.toMatchObject({
-      shards: [expect.objectContaining({ remoteFolderId: 'life-1', remoteTitle: expectedTitle, bindingState: 'bound' })]
-    })
+    })).rejects.toThrow('title does not match')
 
-    expect(renameFolder).toHaveBeenCalledOnce()
-    expect(readFolderInventory).toHaveBeenCalledTimes(5)
-    expect(waitForInventoryRetry).toHaveBeenNthCalledWith(1, 250)
-    expect(waitForInventoryRetry).toHaveBeenNthCalledWith(2, 750)
-    expect(waitForInventoryRetry).toHaveBeenNthCalledWith(3, 1500)
+    expect(renameFolder).not.toHaveBeenCalled()
+    expect(readFolderInventory).toHaveBeenCalledTimes(1)
+    expect(waitForInventoryRetry).not.toHaveBeenCalled()
   })
 
   it('treats a repeated exact adoption as idempotent when the inventory changes', async () => {

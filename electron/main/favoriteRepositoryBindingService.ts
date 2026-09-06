@@ -415,6 +415,13 @@ export class FavoriteRepositoryBindingService {
       const exactExisting = snapshot.physicalShards.find((shard) =>
         shard.logicalLedgerId === normalized.logicalLedgerId && shard.shardNumber === input.shardNumber &&
         shard.remoteFolderId === normalized.remoteFolderId && shard.bindingState === 'bound')
+      // Adoption is exclusively the candidate-confirmation path. Even a
+      // locally recorded ID must still prove the current remote title belongs
+      // to this rule; formal same-ID renames use renameBoundPhysicalShard().
+      if (normalized.allowRemoteRename &&
+        favoriteLedgerBindingNameAndShard(remote.title).baseName !== favoriteLedgerBindingNameAndShard(normalized.logicalTitle).baseName) {
+        throw new Error('Favorite repository remote shard title does not match the logical ledger.')
+      }
       const expectedManagedTitle = favoriteRepositoryManagedShardTitleForDisplay(
         normalized.logicalLedgerId, input.shardNumber, 'explicit-adoption', normalized.logicalTitle
       )

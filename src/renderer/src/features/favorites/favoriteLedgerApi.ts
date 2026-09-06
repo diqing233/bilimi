@@ -355,6 +355,10 @@ function sharedScriptHelpers(): string {
         !ledger.enabled &&
         !keywords.some((keyword) => String(keyword || '').trim());
     };
+    const isSavedOrdinaryRule = (ledger) => ledger?.ruleOrigin === 'saved-rule' ||
+      ledger?.syncState !== 'local-draft' ||
+      ledger?.enabled === true ||
+      (Array.isArray(ledger?.keywords) && ledger.keywords.some((keyword) => String(keyword || '').trim()));
     const collectUnboundCandidates = (ledgers, folders) => ledgers
       .filter((ledger) => ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup && !isPureRemoteObservationDraft(ledger))
       .map((ledger) => ({ ledgerId: ledger.id, candidates: remoteFolderCandidates(ledger, folders) }));
@@ -446,16 +450,13 @@ function sharedScriptHelpers(): string {
           .map((folderId) => String(folderId || '').trim())
           .filter(Boolean)
       ]);
-      // A configured non-prefixed rule is an explicit rebind candidate, not a
-      // second remote-only draft. An empty/disabled legacy placeholder is not
-      // enough evidence to claim a remote folder, so it remains visible as an
-      // independent observation. A pending remote draft is likewise limited
-      // to its exact persisted folder ID; another same-name ID must not be
-      // projected as a duplicate while the owner confirms the original.
+      // Every saved ordinary rule participates in name-based remote discovery,
+      // regardless of its enabled state or the bilimi prefix. A same-base
+      // remote folder is an explicit rebind candidate for that rule, never a
+      // second remote-only draft. Pure remote observations stay exact-ID
+      // scoped so saving one cannot claim another same-name folder.
       const localRebindTitles = new Set(deduplicatedLedgers
-        .filter((ledger) => ledger.bindingState === 'unbound' &&
-          (!isBilimiManagedFolder({ title: ledger.displayName }) || ledger.pendingRemoteBinding) &&
-          (ledger.enabled || (Array.isArray(ledger.keywords) && ledger.keywords.some((keyword) => String(keyword || '').trim()))))
+        .filter((ledger) => !isPureRemoteObservationDraft(ledger) && isSavedOrdinaryRule(ledger))
         .map((ledger) => normalizeLogicalFolderTitle(ledger.displayName)));
       let priority = deduplicatedLedgers.reduce((max, ledger) => Math.max(max, Number(ledger.priority) || 0), -1) + 1;
       for (const folder of folders) {
@@ -699,7 +700,7 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
 
 export function buildEnsureFavoriteLedgersScript(
   ledgers: FavoriteLedger[],
-  options: Pick<FavoriteLedgerSaveOptions, 'rebindRemoteFolderIds' | 'lightweightBackup' | 'confirmCreateAndBind' | 'dismissedRemoteFolderIds' | 'remoteDraftKnownFolderIds'> = {},
+  options: Pick<FavoriteLedgerSaveOptions, 'rebindRemoteFolderIds' | 'lightweightBackup' | 'confirmCreateAndBind' | 'dismissedRemoteFolderIds' | 'remoteDraftKnownFolderIds' | 'includeRemoteOnlyDrafts'> = {},
   remoteDraftBoundFolderIds: string[] = []
 ): string {
   const { remoteDraftKnownFolderIds = [], ...remoteOptions } = options
@@ -709,7 +710,8 @@ export function buildEnsureFavoriteLedgersScript(
       rebindRemoteFolderIds: remoteOptions.rebindRemoteFolderIds,
       lightweightBackup: remoteOptions.lightweightBackup,
       confirmCreateAndBind: remoteOptions.confirmCreateAndBind,
-      dismissedRemoteFolderIds: remoteOptions.dismissedRemoteFolderIds
+      dismissedRemoteFolderIds: remoteOptions.dismissedRemoteFolderIds,
+      includeRemoteOnlyDrafts: remoteOptions.includeRemoteOnlyDrafts
     },
     remoteDraftKnownFolderIds,
     remoteDraftBoundFolderIds
@@ -740,6 +742,23 @@ export function buildEnsureFavoriteLedgersScript(
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = readFavoriteFolderList(listJson);
+      const projectRemoteDrafts = (sourceLedgers, sourceFolders) => {
+        const synchronizedLedgers = syncLedgerFolderIds(
+          sourceLedgers,
+          sourceFolders,
+          payload.options?.rebindRemoteFolderIds,
+          payload.options?.confirmCreateAndBind === true
+        );
+        return payload.options?.includeRemoteOnlyDrafts === false
+          ? { ledgers: synchronizedLedgers, remoteOnlyDraftLedgerIds: [] }
+          : projectRemoteOnlyDrafts(
+            synchronizedLedgers,
+            sourceFolders,
+            payload.options?.dismissedRemoteFolderIds,
+            payload.remoteDraftKnownFolderIds,
+            payload.remoteDraftBoundFolderIds
+          );
+      };
       const currentRemoteFolderIds = new Set(folders.map((folder) => String(findFolderId(folder) || '').trim()).filter(Boolean));
       const formalRemoteFolderIds = new Set((Array.isArray(payload.remoteDraftBoundFolderIds) ? payload.remoteDraftBoundFolderIds : [])
         .map((folderId) => String(folderId || '').trim()).filter(Boolean));
@@ -760,13 +779,7 @@ export function buildEnsureFavoriteLedgersScript(
           message: '已绑定的 B 站收藏夹未出现在当前清单中，请刷新后重试。'
         };
       }
-      let remoteDraftProjection = projectRemoteOnlyDrafts(
-        syncLedgerFolderIds(payload.ledgers, folders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
-          folders,
-          payload.options?.dismissedRemoteFolderIds,
-          payload.remoteDraftKnownFolderIds,
-          payload.remoteDraftBoundFolderIds
-      );
+      let remoteDraftProjection = projectRemoteDrafts(payload.ledgers, folders);
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
       const createdLedgerBindings = new Map();
@@ -808,13 +821,7 @@ export function buildEnsureFavoriteLedgersScript(
         const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
         const recheckedFolders = readFavoriteFolderList(recheckJson);
         const recheckedCandidates = remoteFolderCandidates(ledger, recheckedFolders);
-        remoteDraftProjection = projectRemoteOnlyDrafts(
-          syncLedgerFolderIds(nextLedgers, recheckedFolders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
-          recheckedFolders,
-          payload.options?.dismissedRemoteFolderIds,
-          payload.remoteDraftKnownFolderIds,
-          payload.remoteDraftBoundFolderIds
-        );
+        remoteDraftProjection = projectRemoteDrafts(nextLedgers, recheckedFolders);
         nextLedgers = remoteDraftProjection.ledgers;
         remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
         nextLedgers = nextLedgers.map((candidate) => {
@@ -896,7 +903,7 @@ export function buildSaveFavoriteLedgersScript(
   remoteDraftBoundFolderIds: string[] = []
 ): string {
   const {
-    backupTargetLedgerIds: _backupTargetLedgerIds,
+    backupTargetLedgerIds,
     rediscoverDeletedRemoteDrafts: _rediscoverDeletedRemoteDrafts,
     recommendationOnly: _recommendationOnly,
     remoteDraftKnownFolderIds = [],
@@ -904,7 +911,12 @@ export function buildSaveFavoriteLedgersScript(
   } = options
   const payload = scriptPayload({
     nextLedgers: normalizeLedgerPayload(nextLedgers),
-    options: remoteSaveOptions,
+    options: {
+      ...remoteSaveOptions,
+      backupTargetLedgerIds: Array.isArray(backupTargetLedgerIds)
+        ? [...new Set(backupTargetLedgerIds.map((ledgerId) => String(ledgerId || '').trim()).filter(Boolean))]
+        : undefined
+    },
     remoteDraftKnownFolderIds,
     remoteDraftBoundFolderIds
   })
@@ -913,8 +925,12 @@ export function buildSaveFavoriteLedgersScript(
     (async () => {
       const payload = ${payload};
       ${sharedScriptHelpers()}
+      const backupTargetLedgerIds = new Set(Array.isArray(payload.options?.backupTargetLedgerIds)
+        ? payload.options.backupTargetLedgerIds.map((ledgerId) => String(ledgerId || '').trim()).filter(Boolean)
+        : []);
+      const isBackupTarget = (ledger) => backupTargetLedgerIds.size === 0 || backupTargetLedgerIds.has(ledger.id);
       const invalidNameLedgers = payload.nextLedgers.filter(
-        (ledger) => ledger.enabled && Array.from(String(ledger.displayName || '')).length > 20
+        (ledger) => isBackupTarget(ledger) && ledger.enabled && Array.from(String(ledger.displayName || '')).length > 20
       );
       if (invalidNameLedgers.length > 0) {
         return {
@@ -944,7 +960,7 @@ export function buildSaveFavoriteLedgersScript(
       const formalRemoteFolderIds = new Set((Array.isArray(payload.remoteDraftBoundFolderIds) ? payload.remoteDraftBoundFolderIds : [])
         .map((folderId) => String(folderId || '').trim()).filter(Boolean));
       const staleFormalBindingLedgerIds = payload.nextLedgers
-        .filter((ledger) => ledger.bindingState === 'bound' && ledgerRemoteFolderIds(ledger)
+        .filter((ledger) => isBackupTarget(ledger) && ledger.bindingState === 'bound' && ledgerRemoteFolderIds(ledger)
           .some((folderId) => formalRemoteFolderIds.has(folderId) && !currentRemoteFolderIds.has(folderId)))
         .map((ledger) => ledger.id);
       if (staleFormalBindingLedgerIds.length) {
@@ -971,10 +987,10 @@ export function buildSaveFavoriteLedgersScript(
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
       const createdLedgerBindings = new Map();
       const unboundLedgerIds = nextLedgers
-        .filter((ledger) => ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)
+        .filter((ledger) => isBackupTarget(ledger) && ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)
         .map((ledger) => ledger.id);
       const unbackedLedgerIds = nextLedgers
-        .filter((ledger) => ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState === 'unbacked')
+        .filter((ledger) => isBackupTarget(ledger) && ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState === 'unbacked')
         .map((ledger) => ledger.id);
       const requiresCreateConfirmation = payload.options?.lightweightBackup === true && payload.options?.confirmCreateAndBind !== true;
       if (unboundLedgerIds.length > 0 || (unbackedLedgerIds.length > 0 && requiresCreateConfirmation)) {
@@ -985,7 +1001,7 @@ export function buildSaveFavoriteLedgersScript(
           missingTargets: [...unboundLedgerIds, ...unbackedLedgerIds],
           unboundLedgerIds,
             unboundCandidates: [
-              ...collectUnboundCandidates(nextLedgers, folders),
+              ...collectUnboundCandidates(nextLedgers.filter(isBackupTarget), folders),
               ...unbackedLedgerIds.map((ledgerId) => ({ ledgerId, candidates: [] }))
             ],
             remoteOnlyDraftLedgerIds,
@@ -1000,7 +1016,7 @@ export function buildSaveFavoriteLedgersScript(
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
-        if (!ledger.enabled || isPureRemoteObservationDraft(ledger) || ledger.bilibiliFolderId) {
+        if (!isBackupTarget(ledger) || !ledger.enabled || isPureRemoteObservationDraft(ledger) || ledger.bilibiliFolderId) {
           continue;
         }
 
@@ -1076,7 +1092,7 @@ export function buildSaveFavoriteLedgersScript(
       }
 
       const missingTargets = nextLedgers
-        .filter((ledger) => ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState !== 'bound')
+        .filter((ledger) => isBackupTarget(ledger) && ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState !== 'bound')
         .map((ledger) => ledger.id);
 
       return {

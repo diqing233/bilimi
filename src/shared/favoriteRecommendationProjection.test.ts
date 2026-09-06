@@ -67,4 +67,22 @@ describe('favorite recommendation projection', () => {
       [differentCandidate.id]: { status: 'unlinked' }
     })
   })
+
+  it('preserves symbol-distinct author names instead of linking them as the same rule', () => {
+    const symbolCandidate = {
+      ...candidate,
+      id: 'scan:author:leading-symbol',
+      displayName: 'bilimi·-恒某人-',
+      keywords: ['-恒某人-']
+    }
+    const historicalRule = ordinaryLedger({
+      id: 'legacy-heng',
+      displayName: 'bilimi·恒某人-',
+      keywords: ['-恒某人-']
+    })
+
+    expect(buildFavoriteRecommendationLinks([symbolCandidate], [historicalRule])).toEqual({
+      [symbolCandidate.id]: { status: 'unlinked' }
+    })
+  })
 })

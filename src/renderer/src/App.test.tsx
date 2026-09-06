@@ -347,6 +347,18 @@ describe('App runtime integration', () => {
     expect(ensureCall).not.toContain('deletedRecommendationRemoteFolderIds')
   })
 
+  it('suppresses remote-only draft projection for a single-ledger backup', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const ensureStart = source.indexOf(
+      'buildEnsureFavoriteLedgersScript(',
+      source.indexOf('const ledgersAfterDirectRename')
+    )
+    const ensureEnd = source.indexOf('\n      ) as AssistantAutomationResult', ensureStart)
+    const ensureCall = source.slice(ensureStart, ensureEnd)
+
+    expect(ensureCall).toContain('includeRemoteOnlyDrafts: false')
+  })
+
   it('updates a 30k-ledger runtime ref in constant work without rerendering the browser tree', async () => {
     let enabledReads = 0
     const ledgers = Array.from({ length: 30_000 }, (_, index) => {
@@ -2815,6 +2827,90 @@ describe('App runtime integration', () => {
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
   })
 
+  it('refuses to register a confirmed remote folder whose base title belongs to another ledger', async () => {
+    const accountMid = '100'
+    const meilin = {
+      id: 'meilin', displayName: 'bilimi·梅林FIT', keywords: ['梅林'], enabled: true, priority: 1,
+      isDefault: false, ruleOrigin: 'saved-rule' as const, bindingState: 'unbacked' as const
+    }
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [meilin] }
+        }
+      })),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: true,
+        verified: true,
+        ledgers: [{ ...meilin, bilibiliFolderId: 'xiaomi-id', bindingState: 'bound' as const }],
+        steps: ['api:ledger:list'], missingTargets: [], message: '收藏夹已备册。'
+      }))
+    })
+
+    await expect(requestRuntime({
+      id: 'reject-wrong-base-title-rebind', type: 'save-ledgers', ledgers: [meilin],
+      options: {
+        backupTargetLedgerIds: ['meilin'],
+        rebindRemoteFolderIds: { meilin: 'xiaomi-id' },
+        rebindRemoteFolders: {
+          meilin: [{ id: 'xiaomi-id', title: 'bilimi·小咪的收藏夹', memberCount: 1 }]
+        }
+      }
+    })).resolves.toMatchObject({ ok: false, unboundLedgerIds: ['meilin'] })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+  })
+
+  it('refuses to register a remote folder whose title is missing', async () => {
+    const accountMid = '100'
+    const meilin = {
+      id: 'meilin', displayName: 'bilimi·梅林FIT', keywords: ['梅林'], enabled: true, priority: 1,
+      isDefault: false, ruleOrigin: 'saved-rule' as const, bindingState: 'unbacked' as const
+    }
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [meilin] }
+        }
+      })),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: true,
+        verified: true,
+        ledgers: [{ ...meilin, bilibiliFolderId: 'unknown-title', bindingState: 'bound' as const }],
+        steps: ['api:ledger:list'], missingTargets: [], message: '收藏夹已备册。'
+      }))
+    })
+
+    await expect(requestRuntime({
+      id: 'reject-missing-base-title-rebind', type: 'save-ledgers', ledgers: [meilin],
+      options: {
+        backupTargetLedgerIds: ['meilin'],
+        rebindRemoteFolderIds: { meilin: 'unknown-title' },
+        rebindRemoteFolders: {
+          meilin: [{ id: 'unknown-title', title: '   ', memberCount: 1 }]
+        }
+      }
+    })).resolves.toMatchObject({ ok: false, unboundLedgerIds: ['meilin'] })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+  })
+
   it('confirms every selected unbound candidate for one light backup without touching other ledgers', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
@@ -2901,6 +2997,7 @@ describe('App runtime integration', () => {
         expect(payload.remoteDraftKnownFolderIds).toEqual(['game-88', 'knowledge-99'])
         expect(payload.remoteDraftBoundFolderIds).toEqual(['game-88', 'knowledge-99'])
         expect(payload.options.remoteDraftKnownFolderIds).toBeUndefined()
+        expect(payload.options.includeRemoteOnlyDrafts).toBe(false)
         expect(script).toContain('"id":"game"')
         expect(script).not.toContain('"id":"knowledge"')
         return { ok: true, verified: true, ledgers: [{ ...game, bilibiliFolderId: 'game-88', bilibiliFolderIds: ['game-88'], bindingState: 'bound' as const }], steps: ['api:ledger:list'], missingTargets: [], message: '已备册' }
@@ -3221,7 +3318,7 @@ describe('App runtime integration', () => {
     }))
   })
 
-  it('renames an explicitly selected remote folder when its title differs from the local ledger name', async () => {
+  it('rejects an explicitly selected remote folder when its title differs from the local ledger name', async () => {
     const accountMid = '100'
     const game = {
       ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
@@ -3256,14 +3353,11 @@ describe('App runtime integration', () => {
         rebindRemoteFolders: { game: [{ id: '88', title: 'bilimi·旧游戏专区', memberCount: 0 }] }
       }
     })).resolves.toMatchObject({
-      ok: true,
-      ledgers: [expect.objectContaining({ bilibiliFolderTitle: 'bilimi·游戏专区哈哈' })]
+      ok: false,
+      unboundLedgerIds: ['game']
     })
 
-    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
-      logicalLedgerId: 'game', remoteFolderId: '88', remoteTitle: 'bilimi·旧游戏专区', shardNumber: 1,
-      allowRemoteRename: true
-    }))
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
   })
 
   it('directly renames an already formal bound shard during explicit backup without reopening rebind confirmation', async () => {
@@ -4163,7 +4257,7 @@ describe('App runtime integration', () => {
     }))
   })
 
-  it('keeps unchecked rules and local drafts out of the full backup remote script while preserving them locally', async () => {
+  it('keeps unchecked rules and local drafts out of backup writes while preserving them locally', async () => {
     const accountMid = '100'
     const enabled = { id: 'enabled', displayName: 'bilimi·已勾选', keywords: [], enabled: true, priority: 10, isDefault: false }
     const unchecked = { id: 'unchecked', displayName: 'bilimi·未勾选', keywords: [], enabled: false, priority: 20, isDefault: false }
@@ -4188,8 +4282,13 @@ describe('App runtime integration', () => {
       executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
         if (userGesture) return { hasUserId: true, hasCsrf: true }
         if (script.includes('/x/v3/fav/folder/add')) {
-          expect(script).not.toContain('"id":"unchecked"')
-          expect(script).not.toContain('"id":"draft"')
+          const payloadMatch = script.match(/const payload = (.*?);/s)
+          const payload = JSON.parse(payloadMatch?.[1] ?? '{}')
+          expect(payload.nextLedgers).toEqual(expect.arrayContaining([
+            expect.objectContaining({ id: 'unchecked' }),
+            expect.objectContaining({ id: 'draft' })
+          ]))
+          expect(payload.options.backupTargetLedgerIds).toEqual(['enabled'])
         }
         return {
           ok: true,
@@ -4322,9 +4421,10 @@ describe('App runtime integration', () => {
           expect(payload.remoteDraftKnownFolderIds).toEqual(['bound-other', 'life-1', 'pending-other'])
           expect(payload.remoteDraftBoundFolderIds).toEqual(['bound-other', 'life-1'])
           expect(payload.options.remoteDraftKnownFolderIds).toBeUndefined()
-          expect(script).toContain('"nextLedgers":[{"id":"life"')
-          expect(script).not.toContain('"id":"other"')
-          return { ok: true, verified: true, ledgers: [life], steps: ['api:ledger:list'], missingTargets: [], message: '收藏夹已备册。' }
+          expect(script).toContain('"id":"life"')
+          expect(script).toContain('"id":"other"')
+          expect(payload.options.backupTargetLedgerIds).toEqual(['life'])
+          return { ok: true, verified: true, ledgers: [life, other], steps: ['api:ledger:list'], missingTargets: [], message: '收藏夹已备册。' }
         }
         if (isLedgerStatusScript(script)) return { ...emptyLedgerStatus(), ledgers: [life, other] }
         throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
