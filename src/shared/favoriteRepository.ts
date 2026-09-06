@@ -1780,7 +1780,9 @@ export function applyFavoriteRepositoryCommand(
     const localDesiredFolderIds = normalizeFolderIds(payload.localDesiredFolderIds)
     const remoteObservedPhysicalFolderIds = normalizeFolderIds(payload.remoteObservedPhysicalFolderIds)
     const remoteObservedLogicalFolderIds = normalizeFolderIds(payload.remoteObservedLogicalFolderIds)
-    const explicitPlacementChange = Boolean((payload as { adjustmentKind?: FavoriteRepositoryAdjustmentKind }).adjustmentKind)
+    const priorLocalDesiredFolderIds = normalizeFolderIds(positions[key]?.localDesiredFolderIds ?? [])
+    const localPlacementChanged = priorLocalDesiredFolderIds.length !== localDesiredFolderIds.length ||
+      priorLocalDesiredFolderIds.some((folderId, index) => folderId !== localDesiredFolderIds[index])
     positions[key] = {
       accountMid: snapshot.accountMid, aid: payload.aid, localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
       positionState: deriveFavoriteRepositoryPositionState({ localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
@@ -1793,7 +1795,7 @@ export function applyFavoriteRepositoryCommand(
     }
     const formalFolderIds = Object.keys(memberships).filter((folderId) =>
       (folderId.startsWith('local:') && folderId !== 'local:inbox') ||
-      (folderId.startsWith('bilimi-logical:') && (explicitPlacementChange || !physicalShards.some((shard) => `bilimi-logical:${shard.logicalLedgerId}` === folderId))))
+      (folderId.startsWith('bilimi-logical:') && (localPlacementChanged || !physicalShards.some((shard) => `bilimi-logical:${shard.logicalLedgerId}` === folderId))))
     const nextFormalFolderIds = new Set(localDesiredFolderIds)
     for (const folderId of new Set([...formalFolderIds, ...nextFormalFolderIds])) {
       const members = new Set(memberships[folderId] ?? [])
@@ -1802,18 +1804,25 @@ export function applyFavoriteRepositoryCommand(
       memberships = { ...memberships, [folderId]: [...members].sort((left, right) => left - right) }
       affectedFolderIds.push(folderId)
     }
-    if (explicitPlacementChange) {
-      const physicalShardByLogicalFolderId = new Map(physicalShards.map((shard) => [
-        `bilimi-logical:${shard.logicalLedgerId}`, shard
-      ]))
+    if (localPlacementChanged) {
+      const physicalShardsByLogicalFolderId = new Map<string, typeof physicalShards>()
+      for (const shard of physicalShards) {
+        const logicalFolderId = `bilimi-logical:${shard.logicalLedgerId}`
+        physicalShardsByLogicalFolderId.set(logicalFolderId, [
+          ...(physicalShardsByLogicalFolderId.get(logicalFolderId) ?? []), shard
+        ])
+      }
       for (const logicalFolderId of new Set([...formalFolderIds, ...nextFormalFolderIds])) {
-        const shard = physicalShardByLogicalFolderId.get(logicalFolderId)
-        if (!shard) continue
-        const shardMembers = new Set(memberships[shard.folderId] ?? [])
-        if (nextFormalFolderIds.has(logicalFolderId)) shardMembers.add(payload.aid)
-        else shardMembers.delete(payload.aid)
-        memberships = { ...memberships, [shard.folderId]: [...shardMembers].sort((left, right) => left - right) }
-        affectedFolderIds.push(shard.folderId)
+        const shards = physicalShardsByLogicalFolderId.get(logicalFolderId)
+        if (!shards?.length) continue
+        const targetShard = nextFormalFolderIds.has(logicalFolderId) ? shards.at(-1) : undefined
+        for (const shard of shards) {
+          const shardMembers = new Set(memberships[shard.folderId] ?? [])
+          if (shard === targetShard) shardMembers.add(payload.aid)
+          else shardMembers.delete(payload.aid)
+          memberships = { ...memberships, [shard.folderId]: [...shardMembers].sort((left, right) => left - right) }
+          affectedFolderIds.push(shard.folderId)
+        }
       }
     }
     const inbox = new Set(memberships['local:inbox'] ?? [])
@@ -2466,7 +2475,9 @@ export function applyFavoriteRepositoryCommand(
         command.payload.placements, command.payload.adjustmentKind, command.issuedAt,
         command.payload.audit?.operation, command.payload.audit?.bilibiliSync
       ) : []
-      for (const placement of command.payload.placements) applyPlacement(placement)
+      for (const placement of command.payload.placements) applyPlacement(command.payload.adjustmentKind
+        ? { ...placement, adjustmentKind: command.payload.adjustmentKind }
+        : placement)
       if (command.payload.adjustmentKind && adjustedAids.length) recordLastAdjustment(adjustedAids, command.payload.adjustmentKind, command.issuedAt)
       break
     }

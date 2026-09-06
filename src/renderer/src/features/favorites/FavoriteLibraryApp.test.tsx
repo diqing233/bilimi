@@ -376,6 +376,166 @@ describe('FavoriteLibraryApp', () => {
     expect(getPage).toHaveBeenCalledTimes(2)
   })
 
+  it('does not submit a selected move after the authoritative refresh removes that row', async () => {
+    let notify: ((change: { revision: number; pageInvalidated: boolean }) => void) | undefined
+    let revision = 1
+    let resolveRefreshPage: ((value: Record<string, unknown>) => void) | undefined
+    const moveFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const getPage = vi.fn()
+      .mockResolvedValueOnce({
+        version: 1, accountMid: '100', revision: 1, items: [
+          { video: { aid: 1, title: '待移动视频', tags: [], updatedAt: '2026-09-07T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }
+        ]
+      })
+      .mockResolvedValueOnce({
+        version: 1, accountMid: '100', revision: 1, items: [
+          { video: { aid: 1, title: '待移动视频', tags: [], updatedAt: '2026-09-07T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }
+        ]
+      })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRefreshPage = resolve }))
+      .mockResolvedValue({ version: 1, accountMid: '100', revision: 2, items: [] })
+    const openAccount = vi.fn().mockImplementation(async () => ({
+      version: 1, accountMid: '100', revision, updatedAt: '2026-09-07T00:00:00.000Z', videoCount: 1, folderCount: 2,
+      folders: [
+        { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
+        { id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }
+      ], physicalShardCount: 1, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+    }))
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: openAccount,
+      getFavoriteRepositoryLibraryPage: getPage,
+      moveFavoriteLibrarySelection,
+      subscribeFavoriteRepository: vi.fn((_accountMid, _folderId, callback) => { notify = callback as typeof notify; return () => undefined })
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 待移动视频' }))
+    revision = 2
+    await act(async () => { notify?.({ revision: 2, pageInvalidated: false }) })
+    await screen.findByRole('status', { name: '正在刷新收藏库' })
+    fireEvent.click(screen.getByRole('button', { name: '移动至' }))
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '游戏' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认移动' }))
+
+    expect(moveFavoriteLibrarySelection).not.toHaveBeenCalled()
+    await act(async () => {
+      resolveRefreshPage?.({ version: 1, accountMid: '100', revision: 2, items: [] })
+    })
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: '选择 待移动视频' })).not.toBeInTheDocument())
+    expect(moveFavoriteLibrarySelection).not.toHaveBeenCalled()
+  })
+
+  it('submits a still-present selected move with the refreshed revision', async () => {
+    let notify: ((change: { revision: number; pageInvalidated: boolean }) => void) | undefined
+    let revision = 1
+    let resolveRefreshPage: ((value: Record<string, unknown>) => void) | undefined
+    const moveFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const getPage = vi.fn()
+      .mockResolvedValueOnce({
+        version: 1, accountMid: '100', revision: 1, items: [
+          { video: { aid: 1, title: '保留的移动视频', tags: [], updatedAt: '2026-09-07T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }
+        ]
+      })
+      .mockResolvedValueOnce({
+        version: 1, accountMid: '100', revision: 1, items: [
+          { video: { aid: 1, title: '保留的移动视频', tags: [], updatedAt: '2026-09-07T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }
+        ]
+      })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRefreshPage = resolve }))
+      .mockResolvedValue({ version: 1, accountMid: '100', revision: 2, items: [] })
+    const openAccount = vi.fn().mockImplementation(async () => ({
+      version: 1, accountMid: '100', revision, updatedAt: '2026-09-07T00:00:00.000Z', videoCount: 1, folderCount: 2,
+      folders: [
+        { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
+        { id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }
+      ], physicalShardCount: 1, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+    }))
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: openAccount,
+      getFavoriteRepositoryLibraryPage: getPage,
+      moveFavoriteLibrarySelection,
+      subscribeFavoriteRepository: vi.fn((_accountMid, _folderId, callback) => { notify = callback as typeof notify; return () => undefined })
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 保留的移动视频' }))
+    revision = 2
+    await act(async () => { notify?.({ revision: 2, pageInvalidated: false }) })
+    await screen.findByRole('status', { name: '正在刷新收藏库' })
+    fireEvent.click(screen.getByRole('button', { name: '移动至' }))
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '游戏' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认移动' }))
+
+    await act(async () => {
+      resolveRefreshPage?.({ version: 1, accountMid: '100', revision: 2, items: [
+        { video: { aid: 1, title: '保留的移动视频', tags: [], updatedAt: '2026-09-07T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }
+      ] })
+    })
+    await waitFor(() => expect(moveFavoriteLibrarySelection).toHaveBeenCalledWith(
+      '100', [1], 'bilimi-logical:music', ['bilimi-logical:games'], 2, expect.any(Object)
+    ))
+  })
+
+  it('keeps the refresh barrier pending until every queued repository revision is installed', async () => {
+    let notify: ((change: { revision: number; pageInvalidated: boolean }) => void) | undefined
+    let resolveRefreshA: ((value: Record<string, unknown>) => void) | undefined
+    let resolveRefreshB: ((value: Record<string, unknown>) => void) | undefined
+    const moveFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const row = (title: string) => ({
+      video: { aid: 1, title, tags: [], updatedAt: '2026-09-07T00:00:00.000Z' },
+      folderIds: ['bilimi-logical:music'], pendingStates: []
+    })
+    const getPage = vi.fn()
+      .mockResolvedValueOnce({ version: 1, accountMid: '100', revision: 1, items: [row('连续刷新视频')] })
+      .mockResolvedValueOnce({ version: 1, accountMid: '100', revision: 1, items: [row('连续刷新视频')] })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRefreshA = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRefreshB = resolve }))
+    let revision = 1
+    const openAccount = vi.fn().mockImplementation(async () => ({
+      version: 1, accountMid: '100', revision, updatedAt: '2026-09-07T00:00:00.000Z', videoCount: 1, folderCount: 2,
+      folders: [
+        { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
+        { id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }
+      ], physicalShardCount: 1, syncRecordCount: 0,
+      syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+    }))
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: openAccount,
+      getFavoriteRepositoryLibraryPage: getPage,
+      moveFavoriteLibrarySelection,
+      subscribeFavoriteRepository: vi.fn((_accountMid, _folderId, callback) => { notify = callback as typeof notify; return () => undefined })
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 连续刷新视频' }))
+    revision = 2
+    await act(async () => { notify?.({ revision: 2, pageInvalidated: false }) })
+    await waitFor(() => expect(getPage).toHaveBeenCalledTimes(3))
+    revision = 3
+    await act(async () => { notify?.({ revision: 3, pageInvalidated: false }) })
+    await act(async () => {
+      resolveRefreshA?.({ version: 1, accountMid: '100', revision: 2, items: [row('连续刷新视频')] })
+    })
+    await screen.findByRole('status', { name: '正在刷新收藏库' })
+    fireEvent.click(screen.getByRole('button', { name: '移动至' }))
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '游戏' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认移动' }))
+    expect(moveFavoriteLibrarySelection).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveRefreshB?.({ version: 1, accountMid: '100', revision: 3, items: [row('连续刷新视频')] })
+    })
+    await waitFor(() => expect(moveFavoriteLibrarySelection).toHaveBeenCalledWith(
+      '100', [1], 'bilimi-logical:music', ['bilimi-logical:games'], 3, expect.any(Object)
+    ))
+  })
+
   it('does not turn a zero summary into an empty state when its initial page fails', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -2972,12 +3132,49 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(stopFavoriteLibraryPlacementRun).toHaveBeenCalledWith('100', 'run-1'))
     expect(await screen.findByText('同步已结束：1/1')).toBeInTheDocument()
   })
+  it('keeps active sync checkpoints lightweight and dismisses only terminal completion feedback', async () => {
+    let notify: ((change: { revision: number; libraryPlacementRunProgress?: boolean }) => void) | undefined
+    const startFavoriteLibraryPlacementRun = vi.fn().mockResolvedValue({ id: 'run-progress', status: 'running', completed: 0, total: 2, failed: 0, queued: 0, unknown: 0 })
+    const getFavoriteLibraryPlacementRun = vi.fn()
+      .mockResolvedValueOnce({ id: 'run-progress', status: 'running', completed: 1, total: 2, failed: 0, queued: 0, unknown: 0, currentAid: 123456 })
+      .mockResolvedValueOnce({ id: 'run-progress', status: 'completed', completed: 2, total: 2, failed: 0, queued: 0, unknown: 1 })
+    const getFavoriteRepositorySnapshot = vi.fn()
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, updatedAt: '2026-09-07T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 1, syncRecordCount: 1, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 1 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, totalCount: 1, items: [{ video: { aid: 1, title: '进度视频', tags: [], updatedAt: '2026-09-07T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }] }),
+      startFavoriteLibraryPlacementRun,
+      getFavoriteLibraryPlacementRun,
+      getFavoriteRepositorySnapshot,
+      subscribeFavoriteRepository: vi.fn((_accountMid, _folderId, callback) => { notify = callback as typeof notify; return () => undefined })
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 进度视频' }))
+    fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步到B站' }))
+    await screen.findByRole('button', { name: '暂停同步' })
+
+    await act(async () => { notify?.({ revision: 7, libraryPlacementRunProgress: true }) })
+    await waitFor(() => expect(getFavoriteLibraryPlacementRun).toHaveBeenCalledWith('100', 'run-progress'))
+    expect(screen.getByRole('status')).toHaveTextContent('同步进度：1/2')
+    expect(screen.getByRole('status')).not.toHaveTextContent('正在处理')
+    expect(screen.getByRole('status')).not.toHaveTextContent('123456')
+    expect(getFavoriteRepositorySnapshot).not.toHaveBeenCalled()
+
+    await act(async () => { notify?.({ revision: 8, libraryPlacementRunProgress: true }) })
+    expect(await screen.findByText(/同步完成：2\/2/u)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '关闭同步完成提示' }))
+    expect(screen.queryByText(/同步完成：2\/2/u)).not.toBeInTheDocument()
+    expect(await screen.findByText('远程状态待确认：操作失败或结果未知')).toBeInTheDocument()
+  })
   it('keeps a running library sync controllable when another library action fails', async () => {
     const startFavoriteLibraryPlacementRun = vi.fn().mockResolvedValue({ id: 'run-1', status: 'running', completed: 0, total: 1, failed: 0, queued: 0, unknown: 0 })
     const syncFavoriteLibrarySelection = vi.fn().mockRejectedValue(new Error('metadata refresh unavailable'))
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 1, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }], physicalShardCount: 1, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, remoteReconciliations: [{ kind: 'unfavorite', operationId: 'pending-unfavorite' }] }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 6, items: [{ video: { aid: 1, title: '运行中同步视频', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }] }),
       startFavoriteLibraryPlacementRun,
       syncFavoriteLibrarySelection,
@@ -2990,6 +3187,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '更多批量操作' }))
     fireEvent.click(screen.getByRole('button', { name: '同步到B站' }))
     await screen.findByRole('button', { name: '暂停同步' })
+    expect(screen.getByRole('button', { name: '对账取消收藏结果' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '刷新信息' }))
 

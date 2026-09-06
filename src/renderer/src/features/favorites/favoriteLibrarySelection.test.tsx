@@ -64,4 +64,14 @@ describe('favorite library selection island', () => {
 
     expect(store.getSnapshot()).toEqual({ selectedAids: [2], selectAllScope: false, excludedAids: [] })
   })
+
+  it('preserves select-all exclusions across a page refresh', () => {
+    const store = new FavoriteLibrarySelectionStore()
+    store.toggleAll()
+    store.toggleAid(9)
+
+    store.reconcile([1, 2])
+
+    expect(store.getSnapshot()).toEqual({ selectedAids: [], selectAllScope: true, excludedAids: [9] })
+  })
 })

@@ -666,7 +666,6 @@ export function FavoriteLibraryApp({
   const [batchLocalDeleteConfirmationOpen, setBatchLocalDeleteConfirmationOpen] = useState(false)
   const [batchRemoteDeletionChoice, setBatchRemoteDeletionChoice] = useState<{
     selection: FavoriteLibraryOperationSelection
-    requestedAids: number[]
     includeOtherWorkFolders: boolean
   }>()
   const [remoteUnfavoritePreview, setRemoteUnfavoritePreview] = useState<{
@@ -713,6 +712,7 @@ export function FavoriteLibraryApp({
     unknown: number
     currentAid?: number
   }>()
+  const [dismissedBatchSyncRunId, setDismissedBatchSyncRunId] = useState<string>()
   const [workspaceBindingCandidates, setWorkspaceBindingCandidates] = useState<LightweightBackupBindingCandidate[]>()
   const [workspaceBindingSelections, setWorkspaceBindingSelections] = useState<Record<string, string[]>>({})
   const [batchRemoteUnfavoritePreview, setBatchRemoteUnfavoritePreview] = useState<{
@@ -738,7 +738,7 @@ export function FavoriteLibraryApp({
   const selectionAttemptRef = useRef(0)
   const refreshIdRef = useRef(0)
   const refreshInFlightRef = useRef<Promise<void> | undefined>(undefined)
-  const refreshPendingRef = useRef(false)
+  const refreshPendingRef = useRef(0)
   const summaryRef = useRef(summary)
   const pageRef = useRef(page)
   const pageScopeIdRef = useRef(pageScopeId)
@@ -1087,14 +1087,17 @@ export function FavoriteLibraryApp({
       if (!pageRequest) throw new Error(text.unavailable)
       const nextSummary = await api.openFavoriteRepositoryAccount(mid)
       if (refreshId !== refreshIdRef.current || nextSummary.accountMid !== mid) return
+      summaryRef.current = nextSummary
       setSummary(nextSummary)
       setRemoteReconciliations(nextSummary.remoteReconciliations ?? [])
       // Invalidate the detail snapshot immediately; it belongs to the prior
       // repository revision until the replacement page and detail are loaded.
+      detailSnapshotRef.current = undefined
       setDetailSnapshot(undefined)
       const nextPage = await pageRequest
       if (refreshId !== refreshIdRef.current || pageRequestId !== requestIdRef.current || nextPage.accountMid !== mid) return
       if (nextPage.revision !== nextSummary.revision) throw new Error('Favorite library revision changed while loading.')
+      pageRef.current = nextPage
       setPage(nextPage)
       setPageScopeId(navigationForScope(nextScope))
       selectionStore.reconcile(nextPage.items.map((item) => item.video.aid))
@@ -1105,10 +1108,13 @@ export function FavoriteLibraryApp({
         selected: sameAccount ? selected : undefined, detailOpen: sameAccount ? detailOpen : true
       })
       if (sameAccount) {
-        setSelected((current) => {
-          const matching = current && nextPage.items.find((item) => item.video.aid === current.aid)
-          return matching ? { ...matching.video, folderIds: [...matching.folderIds], pendingStates: [...matching.pendingStates], libraryStates: matching.libraryStates ? { ...matching.libraryStates } : undefined, ...(matching.organization ? { organization: { ...matching.organization } } : {}) } : undefined
-        })
+        const currentSelected = selectedRef.current
+        const matching = currentSelected && nextPage.items.find((item) => item.video.aid === currentSelected.aid)
+        const nextSelected = matching
+          ? { ...matching.video, folderIds: [...matching.folderIds], pendingStates: [...matching.pendingStates], libraryStates: matching.libraryStates ? { ...matching.libraryStates } : undefined, ...(matching.organization ? { organization: { ...matching.organization } } : {}) }
+          : undefined
+        selectedRef.current = nextSelected
+        setSelected(nextSelected)
       }
       setError(undefined)
       setLibraryLoadState('ready')
@@ -1211,27 +1217,29 @@ export function FavoriteLibraryApp({
       scope.kind === 'folder' ? scope.folderId : undefined,
       // Repository revisions can arrive after the signed-in Bilibili account changed.
       (change) => {
-        refreshPendingRef.current = true
+        const notificationEpoch = ++refreshPendingRef.current
         scheduler.schedule(() => {
           if (navigationForScope(scopeRef.current) !== navigationForScope(scope)) {
-            refreshPendingRef.current = false
+            if (refreshPendingRef.current === notificationEpoch) refreshPendingRef.current = 0
             return
           }
           void (async () => {
+            const priorRefresh = refreshInFlightRef.current
+            if (priorRefresh) await priorRefresh
             const activeRun = batchSyncRunRef.current
             let runIsStillInProgress = false
             if (activeRun && (activeRun.status === 'running' || activeRun.status === 'paused') && window.bilimiDesktop?.getFavoriteLibraryPlacementRun) {
               try {
                 const nextRun = await window.bilimiDesktop.getFavoriteLibraryPlacementRun(accountMid, activeRun.id)
                 if (accountMidRef.current !== accountMid) {
-                  refreshPendingRef.current = false
+                  if (refreshPendingRef.current === notificationEpoch) refreshPendingRef.current = 0
                   return
                 }
                 setBatchSyncRun(nextRun)
                 runIsStillInProgress = nextRun.status === 'running' || nextRun.status === 'paused'
               } catch (error) {
                 setError(favoriteLibraryActionFailureMessage(error))
-                refreshPendingRef.current = false
+                if (refreshPendingRef.current === notificationEpoch) refreshPendingRef.current = 0
                 return
               }
             }
@@ -1240,25 +1248,14 @@ export function FavoriteLibraryApp({
             // projection as soon as it ends. Every other repository revision,
             // including a "page-valid" one, must replace the list and detail so
             // subsequent actions never reuse an old revision.
-            if (change?.libraryPlacementRunProgress && runIsStillInProgress && window.bilimiDesktop?.getFavoriteRepositorySnapshot) {
-              try {
-                const nextSummary = await window.bilimiDesktop.getFavoriteRepositorySnapshot(accountMid)
-                if (accountMidRef.current !== accountMid || nextSummary.revision < change.revision) {
-                  refreshPendingRef.current = false
-                  return
-                }
-                setSummary((current) => !current || nextSummary.revision >= current.revision ? nextSummary : current)
-                setRemoteReconciliations(nextSummary.remoteReconciliations ?? [])
-              } catch {
-                setError(text.cannotRead)
-              }
-              refreshPendingRef.current = false
+            if (change?.libraryPlacementRunProgress && runIsStillInProgress) {
+              if (refreshPendingRef.current === notificationEpoch) refreshPendingRef.current = 0
               return
             }
             try {
               await refresh(accountMid)
             } finally {
-              refreshPendingRef.current = false
+              if (refreshPendingRef.current === notificationEpoch) refreshPendingRef.current = 0
             }
           })()
         })
@@ -1447,13 +1444,16 @@ export function FavoriteLibraryApp({
       setError(favoriteLibraryActionFailureMessage(error))
     }
   }
-  const runBatchPlacementSync = async (selection: FavoriteLibraryOperationSelection, aids: number[]) => {
+  const runBatchPlacementSync = async (selection: FavoriteLibraryOperationSelection) => {
+    if (refreshPendingRef.current || refreshInFlightRef.current) await awaitLibraryRefresh()
+    await ensureCurrentMutationSummary()
     const api = window.bilimiDesktop
-    if (!accountMid || !api?.startFavoriteLibraryPlacementRun) throw new Error(text.unavailable)
+    const currentSelection = currentPageSelection().selection
+    if (!accountMid || !api?.startFavoriteLibraryPlacementRun || (Array.isArray(currentSelection) && !currentSelection.length)) throw new Error(text.unavailable)
     setError(undefined)
     setWorkspaceSyncResult(undefined)
     setBatchEligibilityNotice(undefined)
-    const run = await api.startFavoriteLibraryPlacementRun(accountMid, Array.isArray(selection) ? { kind: 'aids', aids } : selection)
+    const run = await api.startFavoriteLibraryPlacementRun(accountMid, Array.isArray(currentSelection) ? { kind: 'aids', aids: currentSelection } : currentSelection)
     setBatchSyncRun(run)
   }
   const applyLibraryStateFilters = (next: FavoriteLibraryStateFilterSelection) => {
@@ -1463,19 +1463,48 @@ export function FavoriteLibraryApp({
     selectionStore.clear()
     if (accountMid) void load(accountMid, scope, 1, pageSize, { ...pageOptions, stateFilters: apiStateFilters(next) })
   }
+  const currentPageSelection = () => {
+    const selectionSnapshot = selectionStore.getSnapshot()
+    return {
+      selectionSnapshot,
+      selection: operationSelection(selectionSnapshot)
+    }
+  }
+  const ensureCurrentMutationSummary = async () => {
+    if (!accountMid) throw new Error(text.unavailable)
+    const runActive = ['running', 'paused'].includes(batchSyncRunRef.current?.status ?? '')
+    const refreshQueued = refreshPendingRef.current > 0 || Boolean(refreshInFlightRef.current)
+    if (!runActive && !refreshQueued) return
+    await awaitLibraryRefresh()
+    if (!runActive && refreshPendingRef.current === 0) return
+    const api = window.bilimiDesktop
+    if (!api?.openFavoriteRepositoryAccount) throw new Error(text.unavailable)
+    const latest = await api.openFavoriteRepositoryAccount(accountMid)
+    if (accountMidRef.current !== accountMid) throw new Error(text.unavailable)
+    if (latest.revision < (summaryRef.current?.revision ?? 0)) throw new Error(text.unavailable)
+    summaryRef.current = latest
+    setSummary(latest)
+    setRemoteReconciliations(latest.remoteReconciliations ?? [])
+  }
   const ensureCurrentDetailSnapshot = async () => {
-    const currentSelected = selectedRef.current
-    const currentSummary = summaryRef.current
-    const currentDetail = detailSnapshotRef.current
-    if (!accountMid || !currentSelected || !currentSummary || !window.bilimiDesktop?.getFavoriteRepositoryLibraryVideoDetail) throw new Error(text.unavailable)
-    if (currentDetail?.video.aid === currentSelected.aid && currentDetail.revision === currentSummary.revision) return currentDetail
-    const loaded = await window.bilimiDesktop.getFavoriteRepositoryLibraryVideoDetail(accountMid, currentSelected.aid)
-    if (loaded.revision !== currentSummary.revision) throw new Error(text.unavailable)
-    detailSnapshotRef.current = loaded
-    setDetailSnapshot(loaded)
-    return loaded
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (refreshPendingRef.current || refreshInFlightRef.current) await awaitLibraryRefresh()
+      const currentSelected = selectedRef.current
+      const currentSummary = summaryRef.current
+      const currentDetail = detailSnapshotRef.current
+      if (!accountMid || !currentSelected || !currentSummary || !window.bilimiDesktop?.getFavoriteRepositoryLibraryVideoDetail) throw new Error(text.unavailable)
+      if (currentDetail?.video.aid === currentSelected.aid && currentDetail.revision === currentSummary.revision) return currentDetail
+      const loaded = await window.bilimiDesktop.getFavoriteRepositoryLibraryVideoDetail(accountMid, currentSelected.aid)
+      if (refreshPendingRef.current || summaryRef.current !== currentSummary || selectedRef.current?.aid !== currentSelected.aid) continue
+      if (loaded.revision !== currentSummary.revision) continue
+      detailSnapshotRef.current = loaded
+      setDetailSnapshot(loaded)
+      return loaded
+    }
+    throw new Error(text.unavailable)
   }
   const setLocalPlacement = async (folderIds: string[], synchronize = false) => {
+    await ensureCurrentMutationSummary()
     const currentSelected = selectedRef.current
     const currentDetail = await ensureCurrentDetailSnapshot()
     const currentSummary = summaryRef.current
@@ -1539,22 +1568,25 @@ export function FavoriteLibraryApp({
         await runAction(async () => {
           const api = window.bilimiDesktop
           const currentSummary = summaryRef.current
-          if (!accountMid || !currentSummary || (Array.isArray(placementPickerSelection) && !placementPickerSelection.length)) {
+          const currentSelection = !Array.isArray(placementPickerSelection) && placementPickerSelection.kind === 'scope'
+            ? placementPickerSelection
+            : currentPageSelection().selection
+          if (!accountMid || !currentSummary || (Array.isArray(currentSelection) && !currentSelection.length)) {
             throw new Error(text.unavailable)
           }
           if (placementPickerMode === 'copy') {
             if (!api?.copyFavoriteLibrarySelection) throw new Error(text.unavailable)
-            return api.copyFavoriteLibrarySelection(accountMid, placementPickerSelection, placementDraftFolderIds, currentSummary.revision, operationSource(Array.isArray(placementPickerSelection) ? placementPickerSelection : []))
+            return api.copyFavoriteLibrarySelection(accountMid, currentSelection, placementDraftFolderIds, currentSummary.revision, operationSource(Array.isArray(currentSelection) ? currentSelection : []))
           }
           if (placementPickerMode === 'move') {
             const sourceFolderId = currentLogicalFolderId ?? (resolvedOperationSource.sourceScopeKind === 'unmatched' ? 'local:inbox' : undefined)
             if (!sourceFolderId || !api?.moveFavoriteLibrarySelection) throw new Error(text.unavailable)
-            return api.moveFavoriteLibrarySelection(accountMid, placementPickerSelection, sourceFolderId, placementDraftFolderIds, currentSummary.revision, operationSource(Array.isArray(placementPickerSelection) ? placementPickerSelection : []))
+            return api.moveFavoriteLibrarySelection(accountMid, currentSelection, sourceFolderId, placementDraftFolderIds, currentSummary.revision, operationSource(Array.isArray(currentSelection) ? currentSelection : []))
           }
           if (!api?.setFavoriteLibraryLocalPlacements) throw new Error(text.unavailable)
           return api.setFavoriteLibraryLocalPlacements(
             accountMid,
-            (Array.isArray(placementPickerSelection) ? placementPickerSelection : []).map((aid) => ({ aid, folderIds: [...placementDraftFolderIds] })),
+            (Array.isArray(currentSelection) ? currentSelection : []).map((aid) => ({ aid, folderIds: [...placementDraftFolderIds] })),
             currentSummary.revision,
             placementSyncRequested
           )
@@ -1568,6 +1600,7 @@ export function FavoriteLibraryApp({
     }
   }
   const adoptRemotePlacement = async () => {
+    await ensureCurrentMutationSummary()
     const currentSelected = selectedRef.current
     const currentDetail = await ensureCurrentDetailSnapshot()
     const currentSummary = summaryRef.current
@@ -1598,6 +1631,7 @@ export function FavoriteLibraryApp({
     await window.bilimiDesktop.syncFavoriteLibrarySelection(accountMid, { kind: 'aids', aids: [selected.aid] })
   }
   const deleteFromLibrary = async () => {
+    await ensureCurrentMutationSummary()
     const currentSelected = selectedRef.current
     const currentDetail = await ensureCurrentDetailSnapshot()
     const currentSummary = summaryRef.current
@@ -1662,6 +1696,7 @@ export function FavoriteLibraryApp({
     void loadClassificationAdjustments()
   }
   const restoreRecycledVideo = async () => {
+    await ensureCurrentMutationSummary()
     const api = window.bilimiDesktop
     const currentSelected = selectedRef.current
     const currentSummary = summaryRef.current
@@ -1669,6 +1704,7 @@ export function FavoriteLibraryApp({
     await api.restoreFavoriteLibraryVideo(accountMid, currentSelected.aid, currentSummary.revision)
   }
   const clearRecycledVideo = async () => {
+    await ensureCurrentMutationSummary()
     const api = window.bilimiDesktop
     const currentSelected = selectedRef.current
     const currentSummary = summaryRef.current
@@ -1676,6 +1712,7 @@ export function FavoriteLibraryApp({
     await api.clearRecycledFavoriteLibraryVideo(accountMid, currentSelected.aid, currentSummary.revision)
   }
   const deleteSelectedFromLibrary = async () => {
+    await ensureCurrentMutationSummary()
     const api = window.bilimiDesktop
     const currentSummary = summaryRef.current
     const selectionSnapshot = selectionStore.getSnapshot()
@@ -1730,6 +1767,7 @@ export function FavoriteLibraryApp({
     setRemoteUnfavoriteDialog(hasAnyRemoteRecord ? 'choice' : 'missing-target')
   }
   const beginRemoteUnfavorite = async () => {
+    await ensureCurrentMutationSummary()
     const api = window.bilimiDesktop
     const currentSummary = summaryRef.current
     const currentSelected = selectedRef.current
@@ -1809,11 +1847,14 @@ export function FavoriteLibraryApp({
     }
     setError('从 B 站 bilimi 收藏夹删除未成功，请稍后重试。')
   }
-  const previewBatchRemoteUnfavorite = async (selection: FavoriteLibraryOperationSelection, requestedAids: number[], logicalFolderIds: string[], includeOtherWorkFolders: boolean) => {
+  const previewBatchRemoteUnfavorite = async (selection: FavoriteLibraryOperationSelection, logicalFolderIds: string[], includeOtherWorkFolders: boolean) => {
+    await ensureCurrentMutationSummary()
     const api = window.bilimiDesktop
     const currentSummary = summaryRef.current
-    if (!accountMid || !currentSummary || !api?.previewFavoriteLibraryManagedPlacementRemoval) throw new Error(text.unavailable)
-    const preview = await api.previewFavoriteLibraryManagedPlacementRemoval(accountMid, selection, logicalFolderIds, currentSummary.revision, currentLogicalFolderId
+    const currentSelection = currentPageSelection().selection
+    const requestedAids = Array.isArray(currentSelection) ? currentSelection : []
+    if (!accountMid || !currentSummary || !api?.previewFavoriteLibraryManagedPlacementRemoval || (Array.isArray(currentSelection) && !currentSelection.length)) throw new Error(text.unavailable)
+    const preview = await api.previewFavoriteLibraryManagedPlacementRemoval(accountMid, currentSelection, logicalFolderIds, currentSummary.revision, currentLogicalFolderId
       ? operationSource(requestedAids)
       : bilimiMembershipSource(requestedAids, includeOtherWorkFolders ? 'all' : 'primary')) as {
       hasRemoteTarget?: boolean
@@ -1847,7 +1888,7 @@ export function FavoriteLibraryApp({
     ].join(' ') || undefined)
     setBatchRemoteUnfavoritePreview({
       hasRemoteTarget: true,
-      aids: preview.aids?.length ? preview.aids : Array.isArray(selection) ? [...selection] : [],
+      aids: preview.aids?.length ? preview.aids : requestedAids,
       executionToken: preview.executionToken,
       baselineRevision: preview.baselineRevision,
       affectedLogicalFolders: preview.affectedLogicalFolders ?? [],
@@ -2395,16 +2436,18 @@ export function FavoriteLibraryApp({
   const workspaceFeedbackContent = (() => {
     const errorFeedback = error ? <p role="alert" className="favorite-library__error">{error}</p> : null
     const unfavoriteReconciliations = remoteReconciliations.filter((item) => item.kind === 'unfavorite')
+    const remoteReconciliationFeedback = (announce = true) => unfavoriteReconciliations.length
+      ? <div className="favorite-library__remote-reconciliation" role={announce ? 'status' : undefined}>
+          <span>远程结果待确认：请先逐项对账，不能自动重试或再次执行。</span>
+          {unfavoriteReconciliations.map((remoteReconciliation) => <button key={`${remoteReconciliation.kind}:${remoteReconciliation.operationId}`} type="button" onClick={() => void runDetailAction(() => reconcileRemoteOperation(remoteReconciliation))}>对账取消收藏结果</button>)}
+        </div>
+      : null
     if (unfavoriteReconciliations.length) {
-      return <div className="favorite-library__remote-reconciliation" role="status">
-        <span>远程结果待确认：请先逐项对账，不能自动重试或再次执行。</span>
-        {unfavoriteReconciliations.map((remoteReconciliation) => <button key={`${remoteReconciliation.kind}:${remoteReconciliation.operationId}`} type="button" onClick={() => void runDetailAction(() => reconcileRemoteOperation(remoteReconciliation))}>对账取消收藏结果</button>)}
-      </div>
+      if (!batchSyncRun || (batchSyncRun.status !== 'running' && batchSyncRun.status !== 'paused')) return remoteReconciliationFeedback()
     }
-    if (batchSyncRun) {
-      return batchSyncRun.status === 'running' || batchSyncRun.status === 'paused'
-        ? <><div className="favorite-library__batch-sync-status" role="status">
-            <span>{`同步进度：${batchSyncRun.completed}/${batchSyncRun.total}${batchSyncRun.currentAid ? `，正在处理 ${batchSyncRun.currentAid}` : ''}${batchSyncRun.queued ? `，排队 ${batchSyncRun.queued}` : ''}${batchSyncRun.unknown ? `，结果待确认 ${batchSyncRun.unknown}` : ''}${batchSyncRun.failed ? `，失败 ${batchSyncRun.failed}` : ''}`}</span>
+    if (batchSyncRun && (batchSyncRun.status === 'running' || batchSyncRun.status === 'paused')) {
+      return <><div className="favorite-library__batch-sync-status" role="status">
+            <span>{`同步进度：${batchSyncRun.completed}/${batchSyncRun.total}${batchSyncRun.queued ? `，排队 ${batchSyncRun.queued}` : ''}${batchSyncRun.unknown ? `，结果待确认 ${batchSyncRun.unknown}` : ''}${batchSyncRun.failed ? `，失败 ${batchSyncRun.failed}` : ''}`}</span>
             <button type="button" onClick={() => {
               const api = window.bilimiDesktop
               if (!accountMid) return
@@ -2417,9 +2460,12 @@ export function FavoriteLibraryApp({
               if (!accountMid || !api?.stopFavoriteLibraryPlacementRun) return
               void api.stopFavoriteLibraryPlacementRun(accountMid, batchSyncRun.id).then(setBatchSyncRun).catch((error) => setError(favoriteLibraryActionFailureMessage(error)))
             }}>结束整理</button>
-          </div>{errorFeedback}</>
-        : <div className="favorite-library__batch-sync-status" role="status">
+          </div>{remoteReconciliationFeedback(false)}{errorFeedback}</>
+    }
+    if (batchSyncRun && dismissedBatchSyncRunId !== batchSyncRun.id) {
+      return <div className="favorite-library__batch-sync-status" role="status">
             <span>{batchSyncRun.status === 'stopped' ? `同步已结束：${batchSyncRun.completed}/${batchSyncRun.total}` : `同步完成：${batchSyncRun.completed}/${batchSyncRun.total}`}{batchSyncRun.queued ? `，排队 ${batchSyncRun.queued}` : ''}{batchSyncRun.unknown ? `，结果待确认 ${batchSyncRun.unknown}` : ''}{batchSyncRun.failed ? `，失败 ${batchSyncRun.failed}` : ''}</span>
+            <button type="button" aria-label="关闭同步完成提示" onClick={() => setDismissedBatchSyncRunId(batchSyncRun.id)}>关闭</button>
             {batchSyncRun.unknown && accountMid && window.bilimiDesktop?.reconcileFavoriteLibraryPlacementRun ? <button type="button" onClick={() => {
               void window.bilimiDesktop?.reconcileFavoriteLibraryPlacementRun?.(accountMid, batchSyncRun.id)
                 .then(setBatchSyncRun).then(() => refresh(accountMid)).catch((error) => setError(favoriteLibraryActionFailureMessage(error)))
@@ -2507,7 +2553,7 @@ export function FavoriteLibraryApp({
               ? workspaceDestinationOptions.map((folder) => folder.id).sort()
               : [currentLogicalFolderId]
             : []
-          await previewBatchRemoteUnfavorite(batchRemoteDeletionChoice.selection, batchRemoteDeletionChoice.requestedAids, logicalFolderIds, batchRemoteDeletionChoice.includeOtherWorkFolders)
+          await previewBatchRemoteUnfavorite(batchRemoteDeletionChoice.selection, logicalFolderIds, batchRemoteDeletionChoice.includeOtherWorkFolders)
           setBatchRemoteDeletionChoice(undefined)
         }, true)}>继续</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
@@ -2793,19 +2839,18 @@ export function FavoriteLibraryApp({
               setDocumentExport({ accountMid: requestedAccountMid, ...resolved })
             })
           }} onBatchPlacement={(action, folderIds) => {
-            const actionAids = action === 'copy' ? selectionSnapshot.selectedAids : eligibleSelectedAids
-            if (Array.isArray(selection) && !actionAids.length) return
             void runAction(async () => {
               const api = window.bilimiDesktop
               const currentSummary = summaryRef.current
-              if (!accountMid || !currentSummary) throw new Error(text.unavailable)
+              const { selection: currentSelection } = currentPageSelection()
+              if (!accountMid || !currentSummary || (Array.isArray(currentSelection) && !currentSelection.length)) throw new Error(text.unavailable)
               if (action === 'copy') {
                 if (!api?.copyFavoriteLibrarySelection) throw new Error(text.unavailable)
-                return api.copyFavoriteLibrarySelection(accountMid, selection, folderIds, currentSummary.revision, operationSource(Array.isArray(selection) ? selection : []))
+                return api.copyFavoriteLibrarySelection(accountMid, currentSelection, folderIds, currentSummary.revision, operationSource(Array.isArray(currentSelection) ? currentSelection : []))
               }
-              const sourceFolderId = currentLogicalFolderId ?? (sourceEligibility.sourceScopeKind === 'unmatched' ? 'local:inbox' : undefined)
+              const sourceFolderId = currentLogicalFolderId ?? (resolvedOperationSource.sourceScopeKind === 'unmatched' ? 'local:inbox' : undefined)
               if (!sourceFolderId || !api?.moveFavoriteLibrarySelection) throw new Error(text.unavailable)
-              return api.moveFavoriteLibrarySelection(accountMid, selection, sourceFolderId, folderIds, currentSummary.revision, operationSource(Array.isArray(selection) ? selection : []))
+              return api.moveFavoriteLibrarySelection(accountMid, currentSelection, sourceFolderId, folderIds, currentSummary.revision, operationSource(Array.isArray(currentSelection) ? currentSelection : []))
             })
           }} searchQuery={searchQuery} deferSearchChange onSearchChange={(query) => {
             setSearchQuery(query)
@@ -2837,7 +2882,7 @@ export function FavoriteLibraryApp({
               if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)
               return api.syncFavoriteLibrarySelection(accountMid, selectionSnapshot.selectAllScope ? selection : { kind: 'aids', aids: actionAids })
             })
-            if (action === 'sync') void runBatchPlacementSync(selection, actionAids).catch((error) => setError(favoriteLibraryActionFailureMessage(error)))
+            if (action === 'sync') void runBatchPlacementSync(selection).catch((error) => setError(favoriteLibraryActionFailureMessage(error)))
             if (action === 'transcribe') void runAction(async () => {
               const api = window.bilimiDesktop
               if (!api?.enqueueFavoriteLibraryTranscription || !accountMid) throw new Error(text.unavailable)
@@ -2865,7 +2910,7 @@ export function FavoriteLibraryApp({
               setBatchLocalDeleteConfirmationOpen(true)
             }
             if (action === 'remove-managed-placement' && accountMid && summary) {
-              setBatchRemoteDeletionChoice({ selection, requestedAids: Array.isArray(selection) ? selection : [], includeOtherWorkFolders: false })
+              setBatchRemoteDeletionChoice({ selection, includeOtherWorkFolders: false })
             }
           }}>
           </FavoriteLibraryToolbar>

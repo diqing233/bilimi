@@ -1844,6 +1844,30 @@ export class FavoriteRepositoryService {
         folderIdsByAid.set(aid, folderIds)
       }
     }
+    // Position records are the durable local intent.  Older backed-folder
+    // snapshots can retain a former logical/physical membership after a move
+    // or local deletion; project those stale Bilimi members read-only from the
+    // current position while keeping unrelated ordinary Bilibili sources.
+    for (const [key, position] of Object.entries(snapshot.positions ?? {})) {
+      if (!key.startsWith(`${snapshot.accountMid}:`) || recycledAids.has(position.aid) || !snapshot.videos[String(position.aid)]) continue
+      const desiredLogicalFolderIds = new Set(position.localDesiredFolderIds
+        .map((folderId) => canonicalIdByRawId.get(folderId) ?? folderId)
+        .filter((folderId) => folderId.startsWith('bilimi-logical:')))
+      for (const [folderId, aids] of aidsByCanonicalFolderId) {
+        if (!folderId.startsWith('bilimi-logical:')) continue
+        aids.delete(position.aid)
+      }
+      const folderIds = folderIdsByAid.get(position.aid) ?? new Set<string>()
+      for (const folderId of [...folderIds]) if (folderId.startsWith('bilimi-logical:')) folderIds.delete(folderId)
+      for (const folderId of desiredLogicalFolderIds) {
+        const aids = aidsByCanonicalFolderId.get(folderId) ?? new Set<number>()
+        aids.add(position.aid)
+        aidsByCanonicalFolderId.set(folderId, aids)
+        folderIds.add(folderId)
+      }
+      if (folderIds.size) folderIdsByAid.set(position.aid, folderIds)
+      else folderIdsByAid.delete(position.aid)
+    }
     return {
       revision: snapshot.revision,
       folders,
@@ -2031,7 +2055,7 @@ export class FavoriteRepositoryService {
   private actionablePendingAids(snapshot: AccountFavoriteRepositorySnapshot) {
     return [...this.pendingStatesByAid(snapshot)]
       .filter(([aid, states]) => Boolean(snapshot.videos[String(aid)]) &&
-        ['unsynced', 'continuation', 'failed', 'result-unknown'].some((state) => states.has(state as FavoriteRepositoryLibraryPageRow['pendingStates'][number])))
+        ['failed', 'result-unknown'].some((state) => states.has(state as FavoriteRepositoryLibraryPageRow['pendingStates'][number])))
       .map(([aid]) => aid)
       .sort((left, right) => left - right)
   }
