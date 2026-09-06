@@ -48,6 +48,11 @@ export function configureDevelopmentRuntimeSwitches(
   options: { isPackaged: boolean; deviceScaleFactor?: string; reducedMotion?: boolean }
 ) {
   if (options.isPackaged) return
+  // Development uses a long-lived, isolated Chromium profile. A corrupted
+  // disk cache can make otherwise valid Vite modules fail with
+  // ERR_CACHE_READ_FAILURE and leave the renderer blank. Keep that cache out
+  // of the development load path; packaged builds retain normal caching.
+  app.commandLine.appendSwitch('disable-http-cache')
   if (options.deviceScaleFactor === '1' || options.deviceScaleFactor === '1.25' || options.deviceScaleFactor === '1.5') {
     app.commandLine.appendSwitch('force-device-scale-factor', options.deviceScaleFactor)
   }

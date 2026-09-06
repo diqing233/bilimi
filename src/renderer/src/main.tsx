@@ -1,12 +1,23 @@
 import React, { lazy, Suspense } from 'react'
 import ReactDOM from 'react-dom/client'
+import App from './App'
 import { markFloatingWindowDocument } from './features/assistant/floatingWindowDocument'
+import { loadStartupModuleWithRetry } from './startupModuleLoader'
+import { StartupModuleRecoveryBoundary } from './startupModuleRecovery'
 import './styles.css'
 
-const App = lazy(() => import('./App').then((module) => ({ default: module.default })))
-const FloatingAssistantApp = lazy(() => import('./features/assistant/FloatingAssistantApp').then((module) => ({ default: module.FloatingAssistantApp })))
-const FloatingMenuApp = lazy(() => import('./features/assistant/FloatingMenuApp').then((module) => ({ default: module.FloatingMenuApp })))
-const PalaceMaidPetApp = lazy(() => import('./features/assistant/PalaceMaidPetApp').then((module) => ({ default: module.PalaceMaidPetApp })))
+const FloatingAssistantApp = lazy(() => loadStartupModuleWithRetry(
+  () => import('./features/assistant/FloatingAssistantApp').then((module) => ({ default: module.FloatingAssistantApp })),
+  () => import('./features/assistant/FloatingAssistantApp?startup-retry').then((module) => ({ default: module.FloatingAssistantApp }))
+))
+const FloatingMenuApp = lazy(() => loadStartupModuleWithRetry(
+  () => import('./features/assistant/FloatingMenuApp').then((module) => ({ default: module.FloatingMenuApp })),
+  () => import('./features/assistant/FloatingMenuApp?startup-retry').then((module) => ({ default: module.FloatingMenuApp }))
+))
+const PalaceMaidPetApp = lazy(() => loadStartupModuleWithRetry(
+  () => import('./features/assistant/PalaceMaidPetApp').then((module) => ({ default: module.PalaceMaidPetApp })),
+  () => import('./features/assistant/PalaceMaidPetApp?startup-retry').then((module) => ({ default: module.PalaceMaidPetApp }))
+))
 
 markFloatingWindowDocument(window.location.search)
 
@@ -71,16 +82,18 @@ function StartupRouteFallback() {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <Suspense fallback={<StartupRouteFallback />}>
-      {isFloatingAssistantWindow ? (
-        <FloatingAssistantApp />
-      ) : isFloatingMenuWindow ? (
-        <FloatingMenuApp />
-      ) : isFloatingSealWindow ? (
-        <PalaceMaidPetApp />
-      ) : (
-        <App />
-      )}
-    </Suspense>
+    <StartupModuleRecoveryBoundary>
+      <Suspense fallback={<StartupRouteFallback />}>
+        {isFloatingAssistantWindow ? (
+          <FloatingAssistantApp />
+        ) : isFloatingMenuWindow ? (
+          <FloatingMenuApp />
+        ) : isFloatingSealWindow ? (
+          <PalaceMaidPetApp />
+        ) : (
+          <App />
+        )}
+      </Suspense>
+    </StartupModuleRecoveryBoundary>
   </React.StrictMode>
 )

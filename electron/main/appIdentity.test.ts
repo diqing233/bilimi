@@ -53,14 +53,31 @@ describe('configureDevelopmentRuntimeSwitches', () => {
 
     expect(appendSwitch).toHaveBeenCalledWith('force-device-scale-factor', '1.5')
     expect(appendSwitch).toHaveBeenCalledWith('force-prefers-reduced-motion', 'reduce')
+    expect(appendSwitch).toHaveBeenCalledWith('disable-http-cache')
   })
 
-  it('does not pass test runtime switches to packaged builds or unknown scale values', () => {
+  it('does not pass any development runtime switch to packaged builds', () => {
     const appendSwitch = vi.fn()
 
     configureDevelopmentRuntimeSwitches({ commandLine: { appendSwitch } }, { isPackaged: true, deviceScaleFactor: '1.5', reducedMotion: true })
-    configureDevelopmentRuntimeSwitches({ commandLine: { appendSwitch } }, { isPackaged: false, deviceScaleFactor: '2', reducedMotion: false })
 
     expect(appendSwitch).not.toHaveBeenCalled()
+  })
+
+  it('does not pass visual test runtime switches for unknown development scale values', () => {
+    const appendSwitch = vi.fn()
+
+    configureDevelopmentRuntimeSwitches({ commandLine: { appendSwitch } }, { isPackaged: false, deviceScaleFactor: '2', reducedMotion: false })
+
+    expect(appendSwitch).toHaveBeenCalledTimes(1)
+    expect(appendSwitch).toHaveBeenCalledWith('disable-http-cache')
+  })
+
+  it('disables only the development HTTP cache even without visual test switches', () => {
+    const appendSwitch = vi.fn()
+
+    configureDevelopmentRuntimeSwitches({ commandLine: { appendSwitch } }, { isPackaged: false })
+
+    expect(appendSwitch).toHaveBeenCalledWith('disable-http-cache')
   })
 })
