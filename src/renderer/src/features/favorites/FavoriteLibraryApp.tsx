@@ -2071,6 +2071,7 @@ export function FavoriteLibraryApp({
   const currentLogicalFolderId = currentFolderId && eligibilityIndex.folderById.get(currentFolderId)?.kind === 'bilimi-logical'
     ? currentFolderId
     : undefined
+  const workspaceMoveLocked = Boolean(summary?.workspace && summary.workspace.status !== 'completed')
   const currentPhysicalShards = useMemo(() => currentFolder?.logicalLedgerId
     ? (summary?.physicalShards ?? []).filter((shard) => shard.logicalLedgerId === currentFolder.logicalLedgerId).sort((left, right) => left.shardNumber - right.shardNumber)
     : [], [currentFolder?.logicalLedgerId, summary?.physicalShards])
@@ -2641,7 +2642,8 @@ export function FavoriteLibraryApp({
             const hasPendingSelection = eligibleSelectedAids.some((aid) =>
               latestTranscriptionForRow(transcriptionQueue, accountMid, aid)?.status === 'pending')
             const batchDisabledActions: FavoriteLibraryBatchAction[] = [
-              ...(selectionSnapshot.selectAllScope || hasPendingSelection ? [] : ['cancel-transcribe'])
+              ...(selectionSnapshot.selectAllScope || hasPendingSelection ? [] : ['cancel-transcribe']),
+              ...(workspaceMoveLocked ? ['move'] : [])
             ]
             const currentSelectedCount = selectionSnapshot.selectAllScope
               ? Math.max(0, displayedTotal - selectionSnapshot.excludedAids.length)
@@ -2876,7 +2878,7 @@ export function FavoriteLibraryApp({
               const api = window.bilimiDesktop
               if (!accountMid || !summary || !selected || !api?.copyFavoriteLibrarySelection) throw new Error(text.unavailable)
               return api.copyFavoriteLibrarySelection(accountMid, [selected.aid], folderIds, summary.revision, operationSource([selected.aid]))
-            })} />{!detailIsOrdinarySource ? <>{currentLogicalFolderId || resolvedOperationSource.sourceScopeKind === 'unmatched' ? <FavoriteLibraryDestinationButton action="move" logicalFolders={workspaceDestinationOptions} onConfirm={(folderIds) => void runAction(async () => {
+            })} />{!detailIsOrdinarySource ? <>{currentLogicalFolderId || resolvedOperationSource.sourceScopeKind === 'unmatched' ? <FavoriteLibraryDestinationButton action="move" disabled={workspaceMoveLocked} logicalFolders={workspaceDestinationOptions} onConfirm={(folderIds) => void runAction(async () => {
               const api = window.bilimiDesktop
               const sourceFolderId = currentLogicalFolderId ?? (resolvedOperationSource.sourceScopeKind === 'unmatched' ? 'local:inbox' : undefined)
               if (!accountMid || !summary || !selected || !sourceFolderId || !api?.moveFavoriteLibrarySelection) throw new Error(text.unavailable)

@@ -30,6 +30,24 @@ function repository(current: AccountFavoriteRepositorySnapshot, commit = vi.fn(a
 }
 
 describe('FavoriteRepositoryBatchOperationService', () => {
+  it('rejects a local move while an organization workspace is unfinished', async () => {
+    const current: AccountFavoriteRepositorySnapshot = {
+      ...snapshot(),
+      workspace: {
+        id: 'workspace-1', accountMid: '100', status: 'previewing', baselineRevision: 7, continuationAids: [],
+        workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'previewing', baselineRevision: 7 }
+      }
+    }
+    const repo = repository(current)
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repo })
+
+    await expect(service.move('100', [1], 'bilimi-logical:source', ['bilimi-logical:target'], 7, {
+      kind: 'bilimi-logical', folderId: 'bilimi-logical:source'
+    })).rejects.toThrow('Favorite move is unavailable while organization is unfinished.')
+
+    expect(repo.commitWithAudit).not.toHaveBeenCalled()
+  })
+
   it('removes only selected bilimi placements while preserving ordinary Bilibili memberships', async () => {
     let current = {
       ...snapshot(),

@@ -505,6 +505,9 @@ export class FavoriteRepositoryBatchOperationService {
     const targets = targetFolderIds(requestedTargets)
     const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
     if (snapshot.revision !== expectedRevision) throw new Error('Favorite operation baseline is stale.')
+    if (action === 'move' && snapshot.workspace && snapshot.workspace.status !== 'completed') {
+      throw new Error('Favorite move is unavailable while organization is unfinished.')
+    }
     if (targets.some((id) => !snapshot.folders.some((folder) => folder.id === id && folder.kind === 'bilimi-logical'))) throw new Error('Favorite operation target was not found.')
     if (sourceFolderId && !snapshot.folders.some((folder) => folder.id === sourceFolderId && folder.kind === 'bilimi-logical')) throw new Error('Favorite move source was not found.')
     const timestamp = this.now()

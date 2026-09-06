@@ -8591,6 +8591,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         expect.objectContaining({ id: 'bilimi-logical:knowledge', kind: 'bilimi-logical', logicalLedgerId: 'knowledge', syncState: 'local-only' })
       ]),
       memberships: { 'bilimi-logical:music': [1], 'bilimi-logical:knowledge': [2] },
+      positions: {
+        '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }),
+        '100:2': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:knowledge'] })
+      },
       workspace: { status: 'previewing' }
     })
   })

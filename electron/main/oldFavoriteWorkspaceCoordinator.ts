@@ -4682,6 +4682,20 @@ export class OldFavoriteWorkspaceCoordinator {
           ])].sort((left, right) => left - right)
         }
       }
+      const placements = selectedAids.map((aid) => {
+        const prior = repository.positions[`${workspace.accountMid}:${aid}`]
+        const targetFolderIds = (assignmentsByAid.get(aid)?.targetLedgerIds ?? ['inbox'])
+          .filter((logicalLedgerId) => logicalLedgerId !== 'inbox')
+          .map(localFolderIdForLedger)
+        return {
+          aid,
+          localDesiredFolderIds: [...new Set(targetFolderIds)].sort(),
+          remoteObservedPhysicalFolderIds: [...(prior?.remoteObservedPhysicalFolderIds ?? [])],
+          remoteObservedLogicalFolderIds: [...(prior?.remoteObservedLogicalFolderIds ?? [])],
+          updatedAt: this.now(),
+          reason: 'old-favorite-local-save'
+        }
+      })
       const defaultTitles = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
       const existingLocalTitles = new Map(repository.folders
         .filter((folder) => folder.kind === 'local')
@@ -4737,6 +4751,7 @@ export class OldFavoriteWorkspaceCoordinator {
             completedAt: this.now(),
             classificationSource: repositoryClassificationSource(assignment.source)
           })),
+          placements,
           audit: { operation: 'organize-favorites' },
         }
       })

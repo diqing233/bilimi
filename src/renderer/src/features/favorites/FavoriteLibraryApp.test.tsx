@@ -2546,6 +2546,37 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认移动' }))
     await waitFor(() => expect(moveFavoriteLibrarySelection).toHaveBeenCalledWith('100', [1], 'bilimi-logical:music', ['bilimi-logical:games'], 6, expect.any(Object)))
   })
+
+  it('locks moving while the current account has an unfinished organization but leaves copy available', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 6, updatedAt: '2026-09-06T00:00:00.000Z', videoCount: 1, folderCount: 2,
+        folders: [
+          { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
+          { id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }
+        ],
+        physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 },
+        workspace: { id: 'workspace-1', status: 'previewing', baselineRevision: 6, continuationCount: 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 6,
+        items: [{ video: { aid: 1, title: '整理中的视频', tags: [], updatedAt: '2026-09-06T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }]
+      }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 整理中的视频' }))
+
+    expect(screen.getByRole('button', { name: '复制至' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '移动至' })).toBeDisabled()
+    fireEvent.click(await screen.findByRole('button', { name: /整理中的视频 未知 UP 主/ }))
+    const ownership = screen.getByRole('heading', { name: '收藏归属' }).closest('section')!
+    expect(within(ownership).getByRole('button', { name: '移动至' })).toBeDisabled()
+  })
+
   it('offers local draft work folders in copy destinations using their logical ids', async () => {
     const copyFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
     window.bilimiDesktop = {
