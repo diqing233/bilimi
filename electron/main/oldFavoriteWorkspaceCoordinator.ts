@@ -7295,7 +7295,6 @@ export class OldFavoriteWorkspaceCoordinator {
         ruleType: candidate.kind,
         enabled: true,
         priority: nextPriority++,
-        syncState: 'local-draft',
         ruleOrigin: 'saved-rule',
         bindingState: 'unbacked',
         isDefault: false

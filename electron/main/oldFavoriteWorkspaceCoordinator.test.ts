@@ -7534,17 +7534,18 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledTimes(1)
     expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledWith(
-      '100', expect.objectContaining({
-        upserts: [expect.objectContaining({
-          displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
-          ruleType: 'author', enabled: true, isDefault: false, syncState: 'local-draft'
-        })],
-        enabled: []
-      })
+      '100', expect.objectContaining({ enabled: [] })
     )
+    const adoptionUpsert = rules.applyFavoriteRecommendationRuleChanges.mock.calls[0]?.[1].upserts[0]
+    expect(adoptionUpsert).toMatchObject({
+      displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
+      ruleType: 'author', enabled: true, isDefault: false,
+      ruleOrigin: 'saved-rule', bindingState: 'unbacked'
+    })
+    expect(adoptionUpsert).not.toHaveProperty('syncState')
     const savedRule = rules.current()[0]
     expect(savedRule?.bilibiliFolderId).toBeUndefined()
-    expect(savedRule?.syncState).toBe('local-draft')
+    expect(savedRule?.syncState).toBeUndefined()
     const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
     expect(snapshot).toMatchObject({
       recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] }
@@ -7556,6 +7557,41 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledTimes(1)
     expect(rules.current()).toEqual([expect.objectContaining({ id: savedRule?.id, enabled: true })])
+  })
+
+  it('coalesces repeated adoption clicks for the same recommendation into one ordinary rule', async () => {
+    const root = await createRoot()
+    const rules = createOrdinaryRuleDirectory()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      ...rules,
+      classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha 1', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha 2', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+
+    await Promise.all([
+      coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha']),
+      coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    ])
+
+    expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledTimes(1)
+    expect(rules.current()).toHaveLength(1)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] }
+    })
   })
 
   it('does not retry the ordinary-rule transaction before blocking an unbacked target in preflight', async () => {

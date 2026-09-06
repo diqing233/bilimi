@@ -98,6 +98,52 @@ describe('BiliWebview', () => {
     expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('__BILIMI_OPEN_IN_TAB__'), true)
   })
 
+  it('installs a confirmed favorite-space mutation observer and reports create/rename success signals', () => {
+    const onFavoriteSpaceMutationConfirmed = vi.fn()
+    render(
+      <BiliWebview
+        active
+        tabId="home"
+        url="https://space.bilibili.com/100/favlist"
+        onFavoriteSpaceMutationConfirmed={onFavoriteSpaceMutationConfirmed}
+      />
+    )
+
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    const executeJavaScript = vi.fn().mockResolvedValue(true)
+    Object.assign(webview, { executeJavaScript })
+
+    act(() => webview.dispatchEvent(new Event('dom-ready')))
+
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('__BILIMI_FAVORITE_SPACE_MUTATION__'),
+      true
+    )
+    const observerScript = executeJavaScript.mock.calls
+      .map(([script]) => String(script))
+      .find((script) => script.includes('__BILIMI_FAVORITE_SPACE_MUTATION__')) ?? ''
+    expect(observerScript).toContain('/x/v3/fav/folder/add')
+    expect(observerScript).toContain('/x/v3/fav/folder/edit')
+    expect(observerScript).toContain('json?.code === 0')
+    const signal = `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid: '100', kind: 'rename' }))}`
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('page-title-updated', { detail: { title: signal } }))
+    })
+
+    expect(onFavoriteSpaceMutationConfirmed).toHaveBeenCalledWith('home', { accountMid: '100', kind: 'rename' })
+  })
+
+  it('does not forward a favorite mutation signal outside the matching current favorite space', () => {
+    const onFavoriteSpaceMutationConfirmed = vi.fn()
+    render(
+      <BiliWebview active tabId="home" url="https://www.bilibili.com/video/BV1outside" onFavoriteSpaceMutationConfirmed={onFavoriteSpaceMutationConfirmed} />
+    )
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    const signal = `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid: '100', kind: 'create', nonce: 1 }))}`
+    act(() => webview.dispatchEvent(new CustomEvent('page-title-updated', { detail: { title: signal } })))
+    expect(onFavoriteSpaceMutationConfirmed).not.toHaveBeenCalled()
+  })
+
   it('seeks a newly opened archived video after its guest page finishes loading', () => {
     render(<BiliWebview active tabId="archive-video" url="https://www.bilibili.com/video/BV1archive?p=2" seekSeconds={95} />)
 

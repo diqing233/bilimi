@@ -11,6 +11,7 @@ import {
 
 const OPEN_IN_TAB_TITLE_PREFIX = '__BILIMI_OPEN_IN_TAB__:'
 const PET_HINT_TITLE_PREFIX = '__BILIMI_PET_HINT__:'
+const FAVORITE_SPACE_MUTATION_TITLE_PREFIX = '__BILIMI_FAVORITE_SPACE_MUTATION__:'
 const VIDEO_REPAINT_AFTER_HOST_RESIZE_DELAY_MS = 80
 
 type BiliWebviewProps = {
@@ -22,6 +23,7 @@ type BiliWebviewProps = {
   onReady?: (tabId: string, webview: Electron.WebviewTag) => void
   onInitialLoadSettled?: (tabId: string, outcome: 'success' | 'failure') => void
   onPageInteractionHint?: (message: string) => void
+  onFavoriteSpaceMutationConfirmed?: (tabId: string, mutation: { accountMid: string; kind: 'create' | 'rename' | 'delete' }) => void
   hostResizePaused?: boolean
   onHtmlFullscreenChange?: (tabId: string, fullscreen: boolean) => void
   onTitleChange?: (tabId: string, title: string) => void
@@ -87,6 +89,78 @@ function readPetHintTitleSignal(title: string): string | undefined {
   }
 }
 
+function readFavoriteSpaceMutationTitleSignal(title: string): { accountMid: string; kind: 'create' | 'rename' | 'delete' } | undefined {
+  if (!title.startsWith(FAVORITE_SPACE_MUTATION_TITLE_PREFIX)) return undefined
+  try {
+    const parsed = JSON.parse(decodeURIComponent(title.slice(FAVORITE_SPACE_MUTATION_TITLE_PREFIX.length))) as Record<string, unknown>
+    const accountMid = typeof parsed.accountMid === 'string' ? parsed.accountMid.trim() : ''
+    const kind = parsed.kind
+    if (!/^\d+$/.test(accountMid) || !['create', 'rename', 'delete'].includes(String(kind))) return undefined
+    return { accountMid, kind: kind as 'create' | 'rename' | 'delete' }
+  } catch {
+    return undefined
+  }
+}
+
+function favoriteSpaceAccountMid(url: string): string | undefined {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'space.bilibili.com') return undefined
+    return parsed.pathname.match(/^\/(\d+)\/favlist(?:$|\/)/u)?.[1]
+  } catch {
+    return undefined
+  }
+}
+
+function buildFavoriteSpaceMutationObserverScript(): string {
+  return `
+    (() => {
+      if (window.__bilimiFavoriteSpaceMutationObserverInstalled) return true;
+      window.__bilimiFavoriteSpaceMutationObserverInstalled = true;
+      const prefix = ${JSON.stringify(FAVORITE_SPACE_MUTATION_TITLE_PREFIX)};
+      const normalizeMid = (value) => { const raw = String(value || '').trim(); return /^\\d+$/.test(raw) && raw !== '0' ? raw.replace(/^0+(?=\\d)/, '') : ''; };
+      const emit = (kind) => {
+        const accountMid = normalizeMid(String(document.cookie || '').split(';').map((part) => part.trim()).find((part) => part.startsWith('DedeUserID='))?.slice('DedeUserID='.length) || '');
+        const pathMatch = String(location.pathname || '').match(/^\\/(\\d+)\\/favlist(?:$|\\/)/);
+        const pageAccountMid = normalizeMid(pathMatch?.[1] || '');
+        if (!accountMid || !pageAccountMid || accountMid !== pageAccountMid) return;
+        const previousTitle = document.title;
+        const signal = prefix + encodeURIComponent(JSON.stringify({ accountMid, kind, nonce: Date.now() }));
+        document.title = signal;
+        setTimeout(() => { if (document.title === signal) document.title = previousTitle; }, 0);
+      };
+      const classify = (url) => {
+        const raw = String(url || '');
+        if (raw.includes('/x/v3/fav/folder/add')) return 'create';
+        if (raw.includes('/x/v3/fav/folder/edit')) return 'rename';
+        if (raw.includes('/x/v3/fav/folder/del')) return 'delete';
+        return undefined;
+      };
+      const originalFetch = window.fetch;
+      window.fetch = async function(...args) {
+        const response = await originalFetch.apply(this, args);
+        const kind = classify(args[0]?.url || args[0]);
+        if (kind && response.ok) {
+          try { const clone = response.clone(); const json = await clone.json(); if (json?.code === 0) emit(kind); } catch {}
+        }
+        return response;
+      };
+      const originalOpen = XMLHttpRequest.prototype.open;
+      const originalSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function(method, url, ...rest) { this.__bilimiFavoriteMutationUrl = url; return originalOpen.call(this, method, url, ...rest); };
+      XMLHttpRequest.prototype.send = function(...args) {
+        this.addEventListener('load', () => {
+          const kind = classify(this.__bilimiFavoriteMutationUrl);
+          if (!kind || this.status < 200 || this.status >= 300) return;
+          try { const json = JSON.parse(String(this.responseText || '')); if (json?.code === 0) emit(kind); } catch {}
+        }, { once: true });
+        return originalSend.apply(this, args);
+      };
+      return true;
+    })()
+  `
+}
+
 function buildVideoRepaintAfterHostResizeScript(): string {
   return `
     (() => {
@@ -132,6 +206,7 @@ export const BiliWebview = memo(function BiliWebview({
   onHtmlFullscreenChange,
   hostResizePaused = false,
   onPageInteractionHint,
+  onFavoriteSpaceMutationConfirmed,
   onReady,
   onInitialLoadSettled,
   onTitleChange,
@@ -157,6 +232,7 @@ export const BiliWebview = memo(function BiliWebview({
     onLocationChange,
     onOpenInTab,
     onPageInteractionHint,
+    onFavoriteSpaceMutationConfirmed,
     onReady,
     onInitialLoadSettled,
     onTargetState,
@@ -167,6 +243,7 @@ export const BiliWebview = memo(function BiliWebview({
     onLocationChange,
     onOpenInTab,
     onPageInteractionHint,
+    onFavoriteSpaceMutationConfirmed,
     onReady,
     onInitialLoadSettled,
     onTargetState,
@@ -243,6 +320,11 @@ export const BiliWebview = memo(function BiliWebview({
       void webview.executeJavaScript(buildDanmakuSeekRepaintScript(), true).catch(() => undefined)
     }
 
+    const installFavoriteSpaceMutationObserver = () => {
+      if (!webview.executeJavaScript || !favoriteSpaceAccountMid(latestUrl.current)) return
+      void webview.executeJavaScript(buildFavoriteSpaceMutationObserverScript(), true).catch(() => undefined)
+    }
+
     const handleNewWindow = (event: Event) => {
       const urlToOpen = readEventUrl(event as WebviewUrlEvent)
 
@@ -260,6 +342,7 @@ export const BiliWebview = memo(function BiliWebview({
       if (nextUrl) {
         latestUrl.current = nextUrl
         hostCallbacks.current.onLocationChange?.(tabId, nextUrl)
+        installFavoriteSpaceMutationObserver()
       }
     }
 
@@ -298,6 +381,12 @@ export const BiliWebview = memo(function BiliWebview({
 
       if (petHint) {
         hostCallbacks.current.onPageInteractionHint?.(petHint)
+        return
+      }
+
+      const favoriteMutation = readFavoriteSpaceMutationTitleSignal(nextTitle)
+      if (favoriteMutation && favoriteSpaceAccountMid(latestUrl.current) === favoriteMutation.accountMid) {
+        hostCallbacks.current.onFavoriteSpaceMutationConfirmed?.(tabId, favoriteMutation)
         return
       }
 
@@ -350,6 +439,8 @@ export const BiliWebview = memo(function BiliWebview({
     webview.addEventListener('did-finish-load', installLinkCapture)
     webview.addEventListener('dom-ready', installDanmakuSeekRepaint)
     webview.addEventListener('did-finish-load', installDanmakuSeekRepaint)
+    webview.addEventListener('dom-ready', installFavoriteSpaceMutationObserver)
+    webview.addEventListener('did-finish-load', installFavoriteSpaceMutationObserver)
     webview.addEventListener('did-finish-load', handleLoadSuccess)
     webview.addEventListener('did-stop-loading', handleLoadSuccess)
     const handleArchivedTimestamp = () => seekArchivedTimestampRef.current()
@@ -382,6 +473,8 @@ export const BiliWebview = memo(function BiliWebview({
       webview.removeEventListener('did-finish-load', installLinkCapture)
       webview.removeEventListener('dom-ready', installDanmakuSeekRepaint)
       webview.removeEventListener('did-finish-load', installDanmakuSeekRepaint)
+      webview.removeEventListener('dom-ready', installFavoriteSpaceMutationObserver)
+      webview.removeEventListener('did-finish-load', installFavoriteSpaceMutationObserver)
       webview.removeEventListener('did-finish-load', handleLoadSuccess)
       webview.removeEventListener('did-stop-loading', handleLoadSuccess)
       webview.removeEventListener('did-finish-load', handleArchivedTimestamp)

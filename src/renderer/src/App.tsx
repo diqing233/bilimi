@@ -1265,6 +1265,14 @@ export default function App() {
     window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
   }, [])
 
+  const handleFavoriteSpaceMutationConfirmed = useCallback((
+    _tabId: string,
+    mutation: { accountMid: string; kind: 'create' | 'rename' | 'delete' }
+  ) => {
+    void mutation.kind
+    void window.bilimiDesktop?.retryBilibiliFavoriteSpaceRefresh?.(mutation.accountMid).catch(() => undefined)
+  }, [])
+
   function getCurrentActiveWebview() {
     return (
       activeWebview ??
@@ -4601,6 +4609,7 @@ export default function App() {
               onInitialLoadSettled={tab.id === HOME_TAB_ID ? handleInitialWebviewLoadSettled : undefined}
               onHtmlFullscreenChange={handleHtmlFullscreenChange}
               onPageInteractionHint={handlePageInteractionHint}
+              onFavoriteSpaceMutationConfirmed={handleFavoriteSpaceMutationConfirmed}
               hostResizePaused={favoriteLibraryResizing || assistantSidebarResizing}
               onReady={handleWebviewReady}
               onTargetState={handleFavoriteRepositoryTargetState}

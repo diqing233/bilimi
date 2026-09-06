@@ -248,6 +248,42 @@ ok那可以
 整理收藏阶段删除按钮点击无效，应该始终有效
 ```
 
+### R028
+
+时间：2026-09-07
+
+```text
+还有我在b站创建收藏夹改名的时候未触发掌库收藏夹更新
+```
+
+### R029
+
+时间：2026-09-07
+
+截图：
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-f31dffc6-2af3-42ea-87f0-6ef22647d9a6.png`
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-dd5e9e69-b71c-4a01-b891-56665d40e170.png`
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-c8fccf27-d296-420e-9c39-d8c557f3c8bb.png`
+
+截图目标区域：
+- 图一：右侧掌库“收藏夹”区域中反复点击收藏夹后的重复生成结果，待界面验收。
+- 图二：右侧掌库“收藏夹”与“整理收藏 → 推荐收藏夹”区域；第二轮整理点击已有推荐收藏夹后短暂出现“未保存”草稿又消失的时序，待界面验收。
+- 图三：右侧掌库“整理收藏 → 推荐收藏夹”区域及“备册”入口；推荐收藏夹已勾选但备册仍提示“未保存 · 未绑定”的状态，待界面验收。
+
+```text
+图一反复点击收藏夹怎么会重复生成，
+图二第二轮整理，点击已有推荐收藏夹会出现未保存草稿，立刻又消失
+图三勾选推荐收藏夹后，我点击备册还是没有一键备册，提示未保存未绑定，按照设计勾选下方推荐收藏夹=一键生成 [新建收藏夹写好详情并且执行保存和勾选操作]，生成的这个收藏夹还是普通收藏夹，只不过勾选和删除的时候和下边产生联动而已。项目书和账本没有迭代这个设计吗
+```
+
+### R030
+
+时间：2026-09-07
+
+```text
+R028也一起改
+```
+
 ## 逐项索引表
 
 | ID | 原文 | 精确目标 | 目标界面 / 数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化 / B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
@@ -270,6 +306,9 @@ ok那可以
 | I014 | R025 | 项目书完成用户自审后，在新分支继续实施本账本和唯一项目书已确认的迭代。 | 当前 Git 分支与本轮实现文件。 | 只在用户明确“开始”后进入修改；分支隔离本轮未提交实现。 | 继续现有实施与验证，不扩展未确认范围。 | 仅允许本地代码、文档和本地提交；不得 merge、push、rebase、打包或执行未经确认的真实 B站副作用。 | 不覆盖同主题现有未提交改动；不新建第二套规范。 | I001–I013、`docs/项目功能项目书.md`、当前分支。 | 已确认，实施中 | 当前分支：`codex/name-bound-favorite-library-refresh`；基线：`5db49259`。 |
 | I015 | R026 | 遗留推荐草稿只要仍是 `local-draft`，即使保留旧 B 站主 ID 或分册 ID，也必须显示为未保存、未绑定；不得通过备册放行。用户必须先保存本地普通规则，再在既有备册确认中绑定真实远端夹。 | 账户偏好收藏夹规范化、掌库收藏夹状态、备册入口。 | 带旧远端事实的未保存推荐草稿显示“未保存 · 未绑定”，不显示“已备册”；已保存普通规则和已确认绑定不受影响。 | 点击备册跳过该草稿；保存后按普通规则流程持久化，随后由显式确认绑定。 | 保留旧远端 ID 仅作候选发现事实；不得借此创建、绑定或写入 B 站。 | 不改变扫描候选的一键采用本地保存/勾选，不改普通已绑定分册、B站 API ID 句柄或远端删除。 | R004、I004、I012 的推荐采用、远端观察草稿、备册确认与账户偏好迁移。 | 已实施待开发版验收 | 代码：`src/shared/favoriteLedgers.ts` 的 `cloneLedger` 迁移。失败回归：`npx vitest run src/shared/favoriteLedgers.test.ts -t "requires an explicit save and binding for a legacy recommendation draft with a remote folder" --reporter=verbose`，旧代码保留 `bindingState: "bound"`。通过：`npx vitest run src/shared/favoriteLedgers.test.ts --reporter=dot`（34/34）；`FavoriteLedgerOverview` 143/143；账户状态与草稿删除/观察合并 44/44。开发版截图状态与保存→备册确认流待验收。 |
 | I016 | R027 | 二次扫描先由扫描事实生成候选并预计算候选→普通规则链接，再按已链接普通规则的当前整理勾选状态投影下方勾选；不得先生成推荐草稿再删除/协调。整理收藏阶段普通规则的删除按钮始终可用。 | 主进程候选重建与链接投影、当前轮 `excludedLedgerIds`/普通规则勾选、右侧收藏夹编辑器删除按钮。 | 只有唯一语义链接时下方跟随上方规则；无链接或普通规则本轮未勾选时下方未勾选。删除按钮不因整理推荐联动、轮次选择或下方勾选而失效；仍保留在途重复操作和默认规则等既有安全条件。 | 第二轮及后续扫描不出现“先生成草稿、后删除”的中间状态；已勾选普通规则的已链接推荐自动勾选。删除成功后按既有删除流程解除链接并让候选保持/重新出现为未勾选。 | 仅更新本地工作区与普通规则投影；不得创建推荐专属草稿、写 B 站、改变备册/同步或删除远端。 | 不改变推荐候选只由扫描数据产生、唯一名称/规则语义链接、普通规则删除确认与默认规则保护。 | I003、I004、I005、I008、I015；扫描重建、链接快照、整理排除集、删除 IPC。 | 已实施待开发版界面验收 | 代码：`electron/main/oldFavoriteWorkspaceCoordinator.ts` 的 `withRecommendationLinks()` 在扫描重建时先计算链接并仅以已链接普通规则的 `enabled` 状态投影采用；`src/renderer/src/features/assistant/FavoriteLedgerOverview.tsx` 不再以 `draftRuleAnalysis` 锁定删除模式、单条删除和删除确认。定向回归：`oldFavoriteWorkspaceCoordinator.test.ts` 的 `links and adopts only enabled ordinary rules before a second scan publishes recommendations`（1/1 passed）；`FavoriteLedgerOverview.test.tsx` 的 `keeps ordinary rule deletion available while another rule analysis is running`（1/1 passed）。联合回归：2026-09-07 运行二次扫描、删除、名称绑定和刷新相关 6 files / 424 tests passed；完整 `npm test` 249 files / 4420 tests passed、`npm run build` passed，日志 `.codex-artifacts/recommended-favorites/r027-npm-test-rerun.log`、`r027-build-final.log`。截图所示实际 Electron 删除点击、二次扫描后勾选投影仍待开发版验收。 |
+| I017 | R028 | 用户直接在当前账号的 B 站个人空间页面成功创建收藏夹或完成收藏夹改名后，bilimi 掌库收藏夹区域必须读取并展示最新远端目录。 | 当前账号 B 站个人空间 `/favlist` WebView、主进程远端目录观察/投影、bilimi 掌库收藏夹区域。 | 仅在网页端创建或改名已被 B 站实际确认成功后触发；打开弹窗、取消、校验失败、网络失败、结果未知，以及非当前账号、视频页和其他非收藏页均不触发。 | 成功后刷新当前账号掌库目录投影；与已存在的页面刷新合并为一次，失败时保留待刷新/重试状态。 | 只读目录重读与本地投影更新；不得创建、绑定、删除或同步 B 站收藏夹。 | 不改 B 站原有弹窗交互，不将普通浏览/页面加载误判为创建或改名成功，不影响 bilimi 自行发起写入后的既有刷新。 | I013、B 站 WebView 成功信号/网络响应、`BilibiliFavoriteSpaceRefreshCoordinator`、账号隔离和失败重试。 | 已确认，待用户明确开始 | 根因：现有 `refreshConfirmedBilibiliFavoriteFolderMutation()` 只由 bilimi 自身已确认的写入服务调用；`App.tsx` 的页面创建补偿也只识别 bilimi 脚本返回的 `api:ledger:create:*`。目前没有监听用户直接在 B 站网页弹窗成功创建或改名的事件，因此不会进入掌库投影刷新。 |
+| I018 | R029 | 分别修复三条推荐链路回归：同一推荐候选反复点击必须幂等，只生成一个普通收藏夹规则；第二轮扫描必须先识别候选并预计算联动，再投影勾选，不得短暂生成“未保存”草稿后删除；推荐下方勾选必须按普通新建收藏夹流程立即保存详情并持久化勾选，生成结果仍是普通收藏夹，备册不能再以“未保存 · 未绑定”拦截。 | 主进程推荐规则变更事务与权威快照、二次扫描候选/联动投影、renderer 掌库“收藏夹/整理收藏/备册”状态。 | 同一候选的重复点击不新增规则；已有推荐在第二轮扫描不出现瞬时未保存中间态；推荐勾选成功后上方普通规则显示已保存且与下方联动，备册入口按普通规则处理。 | 采用/勾选执行一次普通规则创建或复用并保存、启用；第二轮扫描先计算候选与名称/语义链接再按当前普通规则勾选状态投影；删除仍解除联动但不改变扫描事实推荐；备册只跳过真正未保存的规则。 | 只写本地普通规则、成员关系和勾选状态；不得生成推荐专属草稿、墓碑或额外 B 站收藏夹，不改变显式备册/同步和普通删除语义。 | 不丢失现有同名分册、名称绑定、推荐删除和整理阶段删除按钮能力；不扩大到无关 B 站刷新或普通收藏夹流程。 | I004、I005、I008、I015、I016；普通规则保存事务、扫描快照、推荐链接索引、renderer 权威保存快照与备册筛选。 | 已实施待界面验收 | 实现：`electron/main/oldFavoriteWorkspaceCoordinator.ts:applyRecommendationRuleChangesUnsafe()` 不再给推荐采用规则写入 `syncState: 'local-draft'`，保持 `ruleOrigin: 'saved-rule'`、启用、未绑定的普通规则事务；既有 `withRecommendationLinks()` 负责二次扫描先计算链接再投影勾选。自动化：`oldFavoriteWorkspaceCoordinator.test.ts` 新增重复采用幂等测试并更新普通规则持久化断言；定向 2 files / 4 tests passed；全量 `npm test` 249 files / 4424 tests passed；`npm run build` passed。真实 Electron 三图（重复点击、二次扫描时序、勾选后备册）仍待界面验收。 |
+| I019 | R028、R030 | 本轮与 I018 一起实现：用户直接在 B 站当前账号个人空间收藏页确认创建收藏夹或改名成功后，触发掌库最新远端目录读取并刷新当前 `/favlist` 页面，消除目录计数与折叠项缓存；失败可见待刷新/重试，其他页面、其他账号、打开/取消弹窗和不明结果不触发。 | B 站个人空间 WebView 的确认成功信号、主进程目录刷新协调器、掌库权威快照、当前账号 `/favlist` 页面。 | 成功时刷新；失败不伪装为成功；离开页面、账号变更或重复触发时合并/取消过时刷新。 | WebView 识别 B 站成功响应后发布当前账号的目录刷新，主进程重读并通知掌库，再刷新同账号收藏页。 | 只读刷新和本地权威投影更新；不得自动创建、绑定、删除或同步 B 站收藏夹。 | 不改 B 站原始弹窗交互，不将普通加载视为变更，不改变 bilimi 自身已确认写入后的现有刷新。 | I013、I017、B 站响应观察、`BilibiliFavoriteSpaceRefreshCoordinator`、账号隔离与失败状态。 | 已实施待界面验收 | 实现：`src/renderer/src/features/browser/BiliWebview.tsx` 在当前 `space.bilibili.com/<mid>/favlist` 页面注入 fetch/XHR 观察器，仅对 `/x/v3/fav/folder/add|edit|del` 的 JSON `code === 0` 发出短暂标题信号；`src/renderer/src/App.tsx` 接收后调用现有 `retryBilibiliFavoriteSpaceRefresh`，由主进程账号校验、投影刷新和 `/favlist` single-flight 重载完成。自动化：`BiliWebview.test.tsx` 覆盖成功信号、非收藏页过滤；`App.test.tsx` 覆盖用户确认创建/改名信号触发一次刷新；全量 `npm test` 249 files / 4424 tests passed；`npm run build` passed。真实 B 站弹窗创建/改名后目录计数、折叠项和掌库同步仍待开发版界面验收。 |
 
 ## 讨论状态
 
@@ -294,3 +333,4 @@ ok那可以
 - R025 确认项目书已完成用户自审，授权在新分支继续实施本账本与唯一项目书中的已确认范围；当前分支为 `codex/name-bound-favorite-library-refresh`。
 - R026 指出推荐收藏夹仍出现“未保存 · 已备册”的矛盾状态。根因是历史 `recommendation-draft` 迁移只改规则来源而保留其 `bound` 远端状态。未保存且带任一旧远端分册 ID 的此类记录必须退回为未绑定观察草稿，先保存、再由既有备册确认绑定；不得用旧 ID 放行备册。
 - R027 指出第二轮扫描当前先出现推荐草稿、后又删除/协调，顺序错误。后续扫描必须先从扫描事实生成候选、预计算候选与普通规则链接，再以当前普通规则的整理勾选状态投影下方自动勾选；不得生成推荐专属草稿作为中间状态。整理收藏阶段的普通规则删除按钮必须始终有效，保留既有默认规则、确认和在途重复操作保护。
+- R028 指出用户直接在 B 站个人空间创建收藏夹或改名时，未触发掌库收藏夹更新。只读排查确认当前刷新仅覆盖 bilimi 自身已确认的远端写入；直接网页操作缺少成功信号到刷新协调器的桥接，待用户明确开始后以成功响应为边界补齐，不把普通页面加载当作变更。

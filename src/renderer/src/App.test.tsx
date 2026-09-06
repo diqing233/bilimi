@@ -2985,6 +2985,28 @@ describe('App runtime integration', () => {
     expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith(accountMid)
   })
 
+  it('refreshes the current favorite space after a user-confirmed create or rename signal', async () => {
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
+    const { desktopApi } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      retryBilibiliFavoriteSpaceRefresh
+    })
+    await waitFor(() => expect(desktopApi.loadPreferences).toHaveBeenCalled())
+    const webview = document.getElementById('bilimi-webview') as HTMLElement
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://space.bilibili.com/100/favlist' }
+      }))
+      webview.dispatchEvent(new CustomEvent('page-title-updated', {
+        detail: {
+          title: `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid: '100', kind: 'create', nonce: 1 }))}`
+        }
+      }))
+    })
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith('100'))
+    expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledTimes(1)
+  })
+
   it('does not refresh the Bilibili favorite space when backup reports no created folder', async () => {
     const accountMid = '100'
     const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
