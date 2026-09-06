@@ -297,22 +297,23 @@ describe('FavoriteLibraryApp', () => {
     await act(async () => { resolveRefreshPage?.({ version: 1, accountMid: '100', revision: 1, items: [] }) })
   })
 
-  it('updates only the summary when a repository change leaves the current page valid', async () => {
+  it('refreshes the page when a repository change is signalled as page-valid', async () => {
     let notify: ((change: { revision: number; pageInvalidated: boolean }) => void) | undefined
-    const getPage = vi.fn().mockResolvedValue({
-      version: 1, accountMid: '100', revision: 1, totalCount: 1,
-      items: [{ video: { aid: 1, title: 'Stable row', tags: [], updatedAt: '2026-07-27T00:00:00.000Z' }, folderIds: [], pendingStates: [] }]
-    })
+    let revision = 1
+    const getPage = vi.fn().mockImplementation(async () => ({
+      version: 1, accountMid: '100', revision, totalCount: 1,
+      items: [{ video: { aid: 1, title: revision === 1 ? 'Stable row' : 'Refreshed row', tags: [], updatedAt: '2026-07-27T00:00:00.000Z' }, folderIds: [], pendingStates: [] }]
+    }))
     const getSnapshot = vi.fn().mockResolvedValue({
       version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-27T00:00:01.000Z', videoCount: 2, folderCount: 0,
       folders: [], physicalShardCount: 0, syncRecordCount: 0,
       syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, scopeCounts: { all: 2, pending: 0, protected: 0, unsynced: 0 }
     })
-    const openAccount = vi.fn().mockResolvedValue({
-      version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-27T00:00:00.000Z', videoCount: 1, folderCount: 0,
+    const openAccount = vi.fn().mockImplementation(async () => ({
+      version: 1, accountMid: '100', revision, updatedAt: '2026-07-27T00:00:00.000Z', videoCount: 1, folderCount: 0,
       folders: [], physicalShardCount: 0, syncRecordCount: 0,
       syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, scopeCounts: { all: 1, pending: 0, protected: 0, unsynced: 0 }
-    })
+    }))
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: openAccount,
@@ -323,12 +324,56 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     expect(await screen.findByText('Stable row')).toBeInTheDocument()
+    revision = 2
     await act(async () => { notify?.({ revision: 2, pageInvalidated: false }) })
 
-    await waitFor(() => expect(getSnapshot).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(getPage).toHaveBeenCalledTimes(2))
+    expect(openAccount).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('Refreshed row')).toBeInTheDocument()
+    expect(screen.queryByText('Stable row')).not.toBeInTheDocument()
+  })
+
+  it('refreshes the page and selected detail when a newer repository revision is signalled as page-valid', async () => {
+    let notify: ((change: { revision: number; pageInvalidated: boolean }) => void) | undefined
+    let revision = 1
+    const getPage = vi.fn().mockImplementation(async () => ({
+      version: 1, accountMid: '100', revision,
+      items: [{ video: { aid: 1, title: revision === 1 ? '旧列表记录' : '最新列表记录', tags: [], updatedAt: '2026-09-07T00:00:00.000Z' }, folderIds: ['bilimi-logical:music'], pendingStates: [] }]
+    }))
+    const getDetail = vi.fn().mockImplementation(async () => ({
+      version: 1, accountMid: '100', revision,
+      video: { aid: 1, title: revision === 1 ? '旧列表记录' : '最新列表记录', tags: [], updatedAt: '2026-09-07T00:00:00.000Z' },
+      folderIds: ['bilimi-logical:music'], pendingStates: [],
+      position: { state: revision === 1 ? 'local-only-change' : 'aligned', localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['remote-music'], remoteObservedLogicalFolderIds: ['bilimi-logical:music'], updatedAt: '2026-09-07T00:00:00.000Z' },
+      mirror: { status: 'synced' }, transcription: { status: '未转写' }, archive: { status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false }
+    }))
+    const openAccount = vi.fn().mockImplementation(async () => ({
+      version: 1, accountMid: '100', revision, updatedAt: '2026-09-07T00:00:00.000Z', videoCount: 1, folderCount: 1,
+      folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }],
+      physicalShardCount: 1, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+    }))
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: openAccount,
+      getFavoriteRepositorySnapshot: openAccount,
+      getFavoriteRepositoryLibraryPage: getPage,
+      getFavoriteRepositoryLibraryVideoDetail: getDetail,
+      subscribeFavoriteRepository: vi.fn((_accountMid, _folderId, callback) => { notify = callback as typeof notify; return () => undefined })
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByText('旧列表记录'))
+    await screen.findByRole('complementary', { name: '视频详情' })
     expect(getPage).toHaveBeenCalledTimes(1)
-    expect(openAccount).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('Stable row')).toBeInTheDocument()
+    expect(getDetail).toHaveBeenCalledTimes(1)
+    revision = 2
+    await act(async () => { notify?.({ revision: 2, pageInvalidated: false }) })
+
+    await waitFor(() => expect(screen.getAllByText('最新列表记录').length).toBeGreaterThan(0))
+    await waitFor(() => expect(getDetail).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('button', { name: '打开视频：旧列表记录' })).not.toBeInTheDocument()
+    expect(openAccount).toHaveBeenCalledTimes(2)
+    expect(getPage).toHaveBeenCalledTimes(2)
   })
 
   it('does not turn a zero summary into an empty state when its initial page fails', async () => {

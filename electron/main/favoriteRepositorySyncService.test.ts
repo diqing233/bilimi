@@ -1189,6 +1189,31 @@ describe('FavoriteRepositorySyncService', () => {
     })
   })
 
+  it('synchronizes a saved local placement after the organization workspace is completed', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    await repository.commit('100', {
+      id: 'local-placement', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    const completedWorkspace = { ...workspace(), status: 'completed' as const, workspaceRef: { ...workspace().workspaceRef, status: 'completed' as const } }
+    await repository.commit('100', {
+      id: 'completed-workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: completedWorkspace
+    })
+    const append = vi.fn().mockResolvedValue({ observedAccountMid: '100' })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+
+    await expect(service.synchronizePlacements('100', [1])).resolves.toMatchObject({ status: 'succeeded', affectedAids: [1] })
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ aid: 1, folderIds: ['remote-music'] }))
+  })
+
   it('deletes only exact expected remote IDs instead of a same-title candidate', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

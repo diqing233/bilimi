@@ -106,6 +106,8 @@ export type FavoriteRepositoryRevisionChange = {
   subscriptionId: string
   accountMid: string
   revision: number
+  /** A placement-run checkpoint is progress-only while the run remains active. */
+  libraryPlacementRunProgress: boolean
   affectedFolderIds: string[]
   affectedFolderCount: number
   affectedFolderIdsTruncated: boolean
@@ -480,17 +482,18 @@ export function registerFavoriteRepositoryIpc(options: {
     // Some legacy/main-process publishers emit a compact result without the
     // optional command identity.  It must still notify subscribers; only the
     // library-run checkpoint commands get the lightweight invalidation path.
-    const libraryPlacementProgress = (result.commandId ?? '').startsWith('favorite-library-placement-run:')
+    const libraryPlacementRunProgress = (result.commandId ?? '').startsWith('favorite-library-placement-run:')
     for (const [senderId, records] of subscriptions) {
       for (const subscription of records.values()) {
         if (subscription.accountMid !== result.accountMid) continue
-        const pageInvalidated = !libraryPlacementProgress && (!subscription.folderId || result.affectedAids.length > 0 ||
+        const pageInvalidated = !libraryPlacementRunProgress && (!subscription.folderId || result.affectedAids.length > 0 ||
           result.affectedFolderIds.includes(subscription.folderId)
         )
         options.send?.(senderId, 'favorite-repository:revision-changed', {
           subscriptionId: subscription.id,
           accountMid: result.accountMid,
           revision: result.revision,
+          libraryPlacementRunProgress,
           affectedFolderIds,
           affectedFolderCount,
           affectedFolderIdsTruncated: affectedFolderCount > affectedFolderIds.length,

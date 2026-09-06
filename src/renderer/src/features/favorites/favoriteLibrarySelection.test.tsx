@@ -54,4 +54,14 @@ describe('favorite library selection island', () => {
     expect(screen.getByRole('checkbox', { name: 'select-1' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'select-2' })).not.toBeChecked()
   })
+
+  it('reconciles explicit selections against the latest authoritative page', () => {
+    const store = new FavoriteLibrarySelectionStore()
+    store.toggleAid(1)
+    store.toggleAid(2)
+
+    store.reconcile([2, 3])
+
+    expect(store.getSnapshot()).toEqual({ selectedAids: [2], selectAllScope: false, excludedAids: [] })
+  })
 })

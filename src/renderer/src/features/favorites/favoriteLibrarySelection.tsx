@@ -60,6 +60,17 @@ export class FavoriteLibrarySelectionStore {
     else this.publish({ selectedAids: [], selectAllScope: true, excludedAids: [] })
   }
 
+  /** Keep the visible selection aligned with the latest authoritative page. */
+  reconcile = (validAids: readonly number[]) => {
+    const valid = new Set(validAids)
+    const current = this.snapshot
+    const selectedAids = current.selectedAids.filter((aid) => valid.has(aid))
+    const excludedAids = current.excludedAids.filter((aid) => valid.has(aid))
+    if (selectedAids.length === current.selectedAids.length &&
+      excludedAids.length === current.excludedAids.length) return
+    this.publish({ ...current, selectedAids, excludedAids })
+  }
+
   private publish(snapshot: FavoriteLibrarySelectionSnapshot, changedAids?: readonly number[]) {
     const previous = this.snapshot
     this.snapshot = snapshot

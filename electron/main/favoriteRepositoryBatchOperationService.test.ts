@@ -1192,6 +1192,34 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     }))
   })
 
+  it('keeps local move and deletion available after an organization workspace has completed', async () => {
+    const current: AccountFavoriteRepositorySnapshot = {
+      ...snapshot(),
+      workspace: {
+        id: 'workspace-1', accountMid: '100', status: 'completed', baselineRevision: 7, continuationAids: [],
+        workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'completed', baselineRevision: 7 }
+      }
+    }
+    const repo = repository(current)
+    const service = new FavoriteRepositoryBatchOperationService({ repository: repo })
+
+    await expect(service.move('100', [1], 'bilimi-logical:source', ['bilimi-logical:target'], 7, {
+      kind: 'bilimi-logical', folderId: 'bilimi-logical:source'
+    })).resolves.toMatchObject({ status: 'succeeded', affectedAids: [1] })
+    await expect(service.deleteLocal('100', [1], 7, {
+      kind: 'bilimi-logical', folderId: 'bilimi-logical:source'
+    })).resolves.toMatchObject({ status: 'succeeded', affectedAids: [1] })
+
+    expect(repo.commitWithAudit).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({
+      type: 'set-favorite-placements',
+      payload: expect.objectContaining({ placements: [expect.objectContaining({ aid: 1, localDesiredFolderIds: ['bilimi-logical:target'] })] })
+    }), expect.any(Array))
+    expect(repo.commitWithAudit).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({
+      type: 'set-favorite-placements',
+      payload: expect.objectContaining({ placements: [expect.objectContaining({ aid: 1, localDesiredFolderIds: [] })] })
+    }), expect.any(Array))
+  })
+
   it('observes an imported reconciliation-required unfavorite before completing it', async () => {
     const current = {
       ...snapshot(),
