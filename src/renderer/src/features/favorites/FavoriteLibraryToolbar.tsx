@@ -371,11 +371,7 @@ function BatchActions({
     {(['copy', 'move'] as const).filter((action) => allowed(action)).map((action) => {
       const label = action === 'copy' ? '复制至' : '移动至'
       const actionDisabled = disabled || disabledActions.includes(action)
-      const actionDisabledTitle = disabled
-        ? disabledTitle
-        : action === 'move' && disabledActions.includes(action)
-          ? '整理收藏未结束，暂不能移动'
-          : undefined
+      const actionDisabledTitle = disabled ? disabledTitle : undefined
       return <span key={action} className="favorite-library__batch-split"><button ref={(element) => { triggerRefs.current[action] = element ?? undefined }} type="button" className="favorite-library__batch-destination-trigger" aria-expanded={destinationMenu === action} disabled={actionDisabled} title={actionDisabledTitle} onClick={() => toggleDestinationMenu(action)} onKeyDown={(event) => {
         if (event.key !== 'ArrowDown') return
         event.preventDefault()

@@ -163,7 +163,7 @@ export class FavoriteRepositoryBatchOperationService {
       const issuedAt = this.now()
       result = await this.options.repository.commitWithAudit(normalizedAccount, {
         id: `favorite-batch:delete-local-placement:${randomUUID()}`, accountMid: normalizedAccount, issuedAt, expectedRevision: revision,
-        type: 'set-favorite-placements', payload: { adjustmentKind: 'managed-placement-remove', audit: { operation: 'remove-bilimi-placement' }, placements: placementChunk }
+        type: 'set-favorite-placements', payload: { placements: placementChunk }
       }, this.events(placementChunk.map((placement) => placement.aid), 'batch-local-bilimi-placement-delete', issuedAt))
       revision = result.revision
     }
@@ -505,9 +505,6 @@ export class FavoriteRepositoryBatchOperationService {
     const targets = targetFolderIds(requestedTargets)
     const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
     if (snapshot.revision !== expectedRevision) throw new Error('Favorite operation baseline is stale.')
-    if (action === 'move' && snapshot.workspace && snapshot.workspace.status !== 'completed') {
-      throw new Error('Favorite move is unavailable while organization is unfinished.')
-    }
     if (targets.some((id) => !snapshot.folders.some((folder) => folder.id === id && folder.kind === 'bilimi-logical'))) throw new Error('Favorite operation target was not found.')
     if (sourceFolderId && !snapshot.folders.some((folder) => folder.id === sourceFolderId && folder.kind === 'bilimi-logical')) throw new Error('Favorite move source was not found.')
     const timestamp = this.now()
@@ -573,8 +570,8 @@ export class FavoriteRepositoryBatchOperationService {
         : []
       const known = [...new Set(desired.length || !options.includeRemoteObserved ? desired : observed)].sort()
       let targets = requested.length ? requested.filter((folderId) => known.includes(folderId)) : []
-      if (!requested.length && source?.kind === 'virtual' && source.bilimiMembershipSelection) {
-        targets = source.bilimiMembershipSelection === 'all' ? known : known.slice(0, 1)
+      if (!requested.length && source?.kind !== 'bilimi-logical') {
+        targets = source?.kind === 'virtual' && source.bilimiMembershipSelection === 'all' ? known : known.slice(0, 1)
       }
       if (!targets.length) {
         if (source?.kind === 'bilimi-logical' && !options.includeRemoteObserved && !options.allowMissingLocalPlacement) {
@@ -625,15 +622,14 @@ export class FavoriteRepositoryBatchOperationService {
 
   private requireScope(source: FavoriteOperationSourceScope | undefined, requestedAids: number[], action: 'copy' | 'move' | 'delete' | 'unfavorite' | 'managed-removal') {
     if (!source) {
-      if (action === 'delete') throw new Error('Favorite local deletion requires a current Bilimi work folder.')
+      if (action === 'delete') return
       return
     }
     if (source.kind === 'bilimi-logical') {
-      if (action === 'delete' && !source.folderId?.trim()) throw new Error('Favorite local deletion requires a current Bilimi work folder.')
       return
     }
     if (source.kind === 'bilibili-default' || source.kind === 'bilibili-user') {
-      if (action !== 'copy' && action !== 'managed-removal') throw new Error('This action is not permitted from a Bilibili source folder.')
+      if (action !== 'copy' && action !== 'delete' && action !== 'managed-removal') throw new Error('This action is not permitted from a Bilibili source folder.')
       return
     }
     const selected = aids(requestedAids)
@@ -643,7 +639,6 @@ export class FavoriteRepositoryBatchOperationService {
     if (skippedAids.some((aid) => eligibleAids.includes(aid))) throw new Error('Virtual source eligibility and skipped-item evidence overlap.')
     const eligible = new Set(eligibleAids)
     if (selected.some((aid) => !eligible.has(aid))) throw new Error('Virtual source actions require explicit eligibility and skipped-item evidence.')
-    if (action === 'delete' && !source.bilimiMembershipSelection) throw new Error('Favorite local deletion requires a current Bilimi work folder.')
   }
 
   private async recoverRemoteOperation(accountMid: string, operationId: string): Promise<PendingRemoteUnfavorite | undefined> {

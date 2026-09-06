@@ -14,7 +14,7 @@ describe('determineFavoriteOperationEligibility', () => {
       sourceScopeKind: 'bilimi-work-folder', eligibleAids: [1, 3], skipped: [], allowedActions: ['copy', 'move', 'delete-local', 'delete-managed-folder-local', 'delete-managed-folder-remote']
     })
     expect(determineFavoriteOperationEligibility({ source: { kind: 'folder', folderId: 'local:inbox' }, aids: [2], folders })).toMatchObject({
-      sourceScopeKind: 'unmatched', eligibleAids: [2], allowedActions: ['copy', 'move']
+      sourceScopeKind: 'unmatched', eligibleAids: [2], allowedActions: ['copy', 'move', 'delete-local']
     })
     expect(determineFavoriteOperationEligibility({ source: { kind: 'folder', folderId: 'bilibili:default' }, aids: [4], folders })).toMatchObject({
       sourceScopeKind: 'bilibili-default', allowedActions: ['copy', 'delete-local', 'remove-managed-placement']
