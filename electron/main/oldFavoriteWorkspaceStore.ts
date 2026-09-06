@@ -12,6 +12,7 @@ import {
   type OldFavoriteWorkspaceTagAdoption,
   type OldFavoriteWorkspaceFavoriteRuleHistoryState
 } from '../../src/shared/oldFavoriteWorkspace'
+import type { FavoriteRecommendationLink } from '../../src/shared/favoriteRecommendationProjection'
 
 type ScanItem = {
   aid: number
@@ -102,6 +103,8 @@ type Overlay = {
     initialized?: boolean
     candidates?: Recommendation[]
     adoptedCandidateIds?: string[]
+    linkedLedgerIdsByCandidateId?: Record<string, string>
+    links?: Record<string, FavoriteRecommendationLink>
   }
   planReadiness?: { selectedAidCount: number; classifiedAidCount: number }
   scanMetadata?: {
@@ -671,7 +674,13 @@ export class OldFavoriteWorkspaceStore {
       const history: History[] = []
       let sourceFolders = normalizeSourceFolders(manifest.sourceFolders?.map(clone) ?? [])
       let localWorkspaceFolders: OldFavoriteWorkspaceLocalWorkspaceFolder[] | undefined
-      let recommendations: { initialized: boolean; candidates: Recommendation[]; adoptedCandidateIds: string[] } = {
+      let recommendations: {
+        initialized: boolean
+        candidates: Recommendation[]
+        adoptedCandidateIds: string[]
+        linkedLedgerIdsByCandidateId?: Record<string, string>
+        links?: Record<string, FavoriteRecommendationLink>
+      } = {
         initialized: false, candidates: [], adoptedCandidateIds: []
       }
       let scan = clone(manifest.scan ?? { phase: 'inventory' as const, failureCount: 0, mode: 'incremental' as const })
@@ -706,6 +715,12 @@ export class OldFavoriteWorkspaceStore {
         if (overlay.recommendations?.initialized) recommendations.initialized = true
         if (overlay.recommendations?.adoptedCandidateIds) {
           recommendations.adoptedCandidateIds = [...new Set(overlay.recommendations.adoptedCandidateIds)]
+        }
+        if (overlay.recommendations?.linkedLedgerIdsByCandidateId !== undefined) {
+          recommendations.linkedLedgerIdsByCandidateId = clone(overlay.recommendations.linkedLedgerIdsByCandidateId)
+        }
+        if (overlay.recommendations?.links !== undefined) {
+          recommendations.links = clone(overlay.recommendations.links)
         }
         if (overlay.planReadiness) planReadiness = clone(overlay.planReadiness)
         if (overlay.scanMetadata?.sourceFolders) sourceFolders = normalizeSourceFolders(overlay.scanMetadata.sourceFolders.map(clone))
@@ -1142,6 +1157,10 @@ export class OldFavoriteWorkspaceStore {
         if (overlay.recommendations.adoptedCandidateIds) {
           recommendations.adoptedCandidateIds = [...new Set(overlay.recommendations.adoptedCandidateIds)]
         }
+        if (overlay.recommendations.linkedLedgerIdsByCandidateId !== undefined) {
+          recommendations.linkedLedgerIdsByCandidateId = clone(overlay.recommendations.linkedLedgerIdsByCandidateId)
+        }
+        if (overlay.recommendations.links !== undefined) recommendations.links = clone(overlay.recommendations.links)
       }
       if (overlay.planReadiness) planReadiness = clone(overlay.planReadiness)
       if (overlay.scanMetadata?.sourceFolders) sourceFolders = overlay.scanMetadata.sourceFolders.map(clone)

@@ -335,7 +335,7 @@ describe('App runtime integration', () => {
     expect(effect).not.toContain('setPreferences')
   })
 
-  it('passes deleted recommendation remote ids through the single-ledger backup path', () => {
+  it('does not pass deleted recommendation remote ids through the single-ledger backup path', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
     const ensureStart = source.indexOf(
       'buildEnsureFavoriteLedgersScript(',
@@ -344,7 +344,7 @@ describe('App runtime integration', () => {
     const ensureEnd = source.indexOf('\n      ) as AssistantAutomationResult', ensureStart)
     const ensureCall = source.slice(ensureStart, ensureEnd)
 
-    expect(ensureCall).toContain('remoteDraftBoundFolderIds, deletedRecommendationRemoteFolderIds')
+    expect(ensureCall).not.toContain('deletedRecommendationRemoteFolderIds')
   })
 
   it('updates a 30k-ledger runtime ref in constant work without rerendering the browser tree', async () => {
@@ -1484,13 +1484,18 @@ describe('App runtime integration', () => {
       }
     )
     const events: string[] = []
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn(async () => {
+      events.push('refresh')
+      return { status: 'idle' as const }
+    })
     const adoptFavoriteRepositoryLedgerBinding = vi.fn(async () => {
       events.push('bind')
     })
     const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({ favoriteLedgers: ledgers })),
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      adoptFavoriteRepositoryLedgerBinding
+      adoptFavoriteRepositoryLedgerBinding,
+      retryBilibiliFavoriteSpaceRefresh
     })
     await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
     notifyPreferencesChanged(createAppPreferences({ favoriteLedgers: ledgers }))
@@ -1556,7 +1561,8 @@ describe('App runtime integration', () => {
         options: { confirmNewFavoriteShards: true }
       })
     ).resolves.toMatchObject({ ok: true })
-    expect(events).toEqual(['create', 'bind', 'write'])
+    expect(events).toEqual(['create', 'refresh', 'bind', 'write'])
+    expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith('100')
     expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(
       '100',
       expect.objectContaining({
@@ -2109,7 +2115,7 @@ describe('App runtime integration', () => {
     const initialLedgers = createDefaultFavoriteLedgers()
     const recommendation = {
       id: 'recommended-local-only', displayName: 'bilimi·本地推荐', keywords: ['本地推荐'], ruleType: 'author' as const,
-      enabled: true, priority: 90, syncState: 'local-draft' as const, ruleOrigin: 'recommendation-draft' as const, isDefault: false
+      enabled: true, priority: 90, ruleOrigin: 'saved-rule' as const, isDefault: false
     }
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     const { requestRuntime } = renderAppWithRuntimeBridge({
@@ -2132,7 +2138,7 @@ describe('App runtime integration', () => {
     await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
     await expect(requestRuntime({
       id: 'recommendation-local-only', type: 'save-ledgers', ledgers: [...initialLedgers, recommendation],
-      options: { deleteDisabled: false, recommendationOnly: true }
+      options: { deleteDisabled: false }
     })).resolves.toMatchObject({
       ok: true,
       steps: ['favorite-ledgers:local-save'],
@@ -2141,7 +2147,7 @@ describe('App runtime integration', () => {
     expect(executeJavaScript).not.toHaveBeenCalled()
     const persistedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers
     expect(persistedLedgers).toEqual(expect.arrayContaining([expect.objectContaining({
-      id: recommendation.id, ruleOrigin: 'recommendation-draft', enabled: true
+      id: recommendation.id, ruleOrigin: 'saved-rule', enabled: true
     })]))
   })
 
@@ -2666,7 +2672,7 @@ describe('App runtime integration', () => {
       }
     })
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
-    const { requestRuntime } = renderAppWithRuntimeBridge({
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
       savePreferences,
       readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
@@ -2941,6 +2947,78 @@ describe('App runtime integration', () => {
     expect(executeJavaScript).toHaveBeenCalled()
   })
 
+  it('refreshes the current Bilibili favorite space after a confirmed backup creates a folder even when formal binding follows later', async () => {
+    const accountMid = '100'
+    const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      retryBilibiliFavoriteSpaceRefresh,
+      // The Bilibili create response is confirmed before this separate
+      // repository registration. A registration delay must not leave the
+      // personal-space folder list stale.
+      adoptFavoriteRepositoryLedgerBinding: vi.fn().mockRejectedValue(new Error('remote shard is absent from inventory'))
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        if (!script.includes(LEDGER_SAVE_SCRIPT_MARKER)) throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+        return {
+          ok: true,
+          verified: true,
+          ledgers: [{ ...music, bilibiliFolderId: '9001', bilibiliFolderIds: ['9001'], bindingState: 'bound' as const }],
+          steps: ['api:ledger:list', 'api:ledger:create:music'],
+          missingTargets: [],
+          message: '收藏夹已创建，等待正式绑定。'
+        }
+      })
+    })
+
+    await expect(requestRuntime({
+      id: 'refresh-confirmed-created-folder-before-binding', type: 'save-ledgers', ledgers: [music],
+      options: { deleteDisabled: false, confirmCreateAndBind: true }
+    })).resolves.toMatchObject({ ok: false })
+
+    expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith(accountMid)
+  })
+
+  it('does not refresh the Bilibili favorite space when backup reports no created folder', async () => {
+    const accountMid = '100'
+    const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      retryBilibiliFavoriteSpaceRefresh
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        if (!script.includes(LEDGER_SAVE_SCRIPT_MARKER)) throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+        return {
+          ok: true,
+          verified: true,
+          ledgers: [{ ...music, bilibiliFolderId: '9001', bilibiliFolderIds: ['9001'], bindingState: 'bound' as const }],
+          steps: ['api:ledger:list'],
+          missingTargets: [],
+          message: '仅完成目录读取。'
+        }
+      })
+    })
+
+    await expect(requestRuntime({
+      id: 'skip-refresh-without-created-folder', type: 'save-ledgers', ledgers: [music],
+      options: { deleteDisabled: false }
+    })).resolves.toMatchObject({ ok: false })
+
+    expect(retryBilibiliFavoriteSpaceRefresh).not.toHaveBeenCalled()
+  })
+
   it('persists remote-only drafts returned alongside an all-batch binding candidate', async () => {
     const accountMid = '100'
     const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
@@ -3069,6 +3147,45 @@ describe('App runtime integration', () => {
         rebindRemoteFolderIds: { game: '88' },
         rebindRemoteFolders: { game: [
           { id: '89', title: 'bilimi·游戏专区·2' },
+          { id: '88', title: 'bilimi·游戏专区' }
+        ] }
+      }
+    })).resolves.toMatchObject({ ok: true })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenNthCalledWith(1, accountMid, expect.objectContaining({
+      remoteFolderId: '89', shardNumber: 2
+    }))
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenNthCalledWith(2, accountMid, expect.objectContaining({
+      remoteFolderId: '88', shardNumber: 1
+    }))
+  })
+
+  it('registers manual circled rebind shards with their shared physical numbers', async () => {
+    const accountMid = '100'
+    const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async () => ({
+        ok: true,
+        verified: true,
+        ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' }],
+        steps: ['api:ledger:list'], missingTargets: [], message: 'ok'
+      }))
+    })
+
+    await expect(requestRuntime({
+      id: 'rebind-circled-shards', type: 'save-ledgers', ledgers: [game],
+      options: {
+        rebindRemoteFolderIds: { game: '88' },
+        rebindRemoteFolders: { game: [
+          { id: '89', title: 'bilimi·游戏专区②' },
           { id: '88', title: 'bilimi·游戏专区' }
         ] }
       }
@@ -3552,7 +3669,7 @@ describe('App runtime integration', () => {
     })
     const adoptFavoriteRepositoryLedgerBinding = vi.fn()
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
-    const { requestRuntime } = renderAppWithRuntimeBridge({
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
       readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
       savePreferences,
@@ -3568,6 +3685,10 @@ describe('App runtime integration', () => {
       })
     })
     await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    // Loading preferences only proves the async read began. Publish the
+    // account snapshot before running the explicit backup so this test never
+    // races the initial React state update and accidentally tests defaults.
+    notifyPreferencesChanged(initialPreferences)
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
@@ -4097,7 +4218,7 @@ describe('App runtime integration', () => {
       }
     })
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
-    const { requestRuntime } = renderAppWithRuntimeBridge({
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
       savePreferences,
       readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
@@ -4122,6 +4243,9 @@ describe('App runtime integration', () => {
     })
 
     await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    // The backup must observe the persisted deletion record, rather than the
+    // initial React default while the async preference load is still settling.
+    notifyPreferencesChanged(initialPreferences)
     const backupResult = await requestRuntime({
       id: 'deleted-recommendation-merge-guard', type: 'save-ledgers', ledgers: [deletedRecommendation],
       options: { backupTargetLedgerIds: [deletedRecommendation.id], confirmCreateAndBind: true, rediscoverDeletedRemoteDrafts: true }

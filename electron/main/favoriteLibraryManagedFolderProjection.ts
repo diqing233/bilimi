@@ -1,5 +1,10 @@
 import type { AccountFavoriteRepositorySnapshot, FavoriteRepositoryCommand } from '../../src/shared/favoriteRepository'
-import { createRemoteObservationFavoriteLedgerId, isBilimiManagedLedgerName } from '../../src/shared/favoriteLedgers'
+import {
+  createRemoteObservationFavoriteLedgerId,
+  favoriteLedgerBindingNameAndShard,
+  isBilimiManagedLedgerName,
+  normalizeFavoriteLedgerBindingName
+} from '../../src/shared/favoriteLedgers'
 import { resolveFavoriteFolderCapabilities } from '../../src/shared/favoriteLedgerCapabilities'
 import type { DeletedFavoriteLedgerRecord, FavoriteLedger } from '../../src/shared/types'
 
@@ -56,19 +61,17 @@ function emptyCustomPendingDuplicateLedgerIds(snapshot: AccountFavoriteRepositor
 }
 
 function normalizedLedgerDisplayTitle(title: string) {
-  return title.trim().replace(/^bilimi\s*[·.\s_-]*/iu, '').trim().toLocaleLowerCase()
+  return favoriteLedgerBindingNameAndShard(title).baseName
 }
 
-/** A numbered shard is recognized only as an exact configured title plus `·N`. */
+/** A numbered shard is recognized only as an exact configured title plus a circled number. */
 function configuredLedgerShard(title: string, ledgers: FavoriteLedger[]) {
   const normalizedTitle = normalizedLedgerDisplayTitle(title)
+  const titleShard = favoriteLedgerBindingNameAndShard(title)
   for (const ledger of ledgers) {
     const baseTitle = normalizedLedgerDisplayTitle(ledger.displayName)
     if (!baseTitle) continue
-    if (normalizedTitle === baseTitle) return { ledger, shardNumber: 1 }
-    const escapedBase = baseTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const match = normalizedTitle.match(new RegExp(`^${escapedBase}·([2-9]\\d*)$`, 'u'))
-    if (match) return { ledger, shardNumber: Number(match[1]) }
+    if (normalizedTitle === baseTitle) return { ledger, shardNumber: titleShard.shardNumber }
   }
   return undefined
 }
@@ -124,12 +127,8 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
   dismissedRemoteFolderIds: Iterable<string>
 }): FavoriteLibraryManagedFolderProjection[] {
   void input.dismissedRemoteFolderIds
-  const recommendationDeletedRemoteFolderIds = (input.deletedFavoriteLedgerRecords ?? [])
-    .filter((record) => record.ledger.ruleOrigin === 'recommendation-draft')
-    .flatMap((record) => [record.ledger.bilibiliFolderId, ...(record.ledger.bilibiliFolderIds ?? [])])
   const suppressedRemoteFolderIds = new Set([
-    ...(input.suppressedRemoteFolderIds ?? []),
-    ...recommendationDeletedRemoteFolderIds
+    ...(input.suppressedRemoteFolderIds ?? [])
   ].map((remoteFolderId) => remoteFolderId?.trim()).filter((remoteFolderId): remoteFolderId is string => Boolean(remoteFolderId)))
   const configuredLedgersByRemoteId = new Map(input.ledgers
     .filter((ledger) => ledger.bilibiliFolderId?.trim())
@@ -141,19 +140,8 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     .map((ledger) => [normalizedLedgerDisplayTitle(ledger.displayName), ledger] as const)
     .filter(([title]) => Boolean(title)))
   const deletedRecordsByLogicalLedgerId = new Map((input.deletedFavoriteLedgerRecords ?? [])
-    // A recommendation deletion is terminal local state, not a recovery
-    // authority. Existing non-recommendation deleted-rule recovery remains
-    // intentionally unchanged below.
-    .filter((record) => record.ledger.ruleOrigin !== 'recommendation-draft')
     .filter((record) => record.logicalLedgerId.trim() && record.ledger?.id === record.logicalLedgerId)
     .map((record) => [record.logicalLedgerId, record]))
-  const deletedRecordsByRemoteFolderId = new Map<string, DeletedFavoriteLedgerRecord>()
-  for (const record of deletedRecordsByLogicalLedgerId.values()) {
-    for (const remoteFolderId of [record.ledger.bilibiliFolderId, ...(record.ledger.bilibiliFolderIds ?? [])]) {
-      const normalizedRemoteFolderId = remoteFolderId?.trim()
-      if (normalizedRemoteFolderId) deletedRecordsByRemoteFolderId.set(normalizedRemoteFolderId, record)
-    }
-  }
   const formalBindingsByRemoteId = new Map(input.snapshot.physicalShards
     .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId)
     .map((shard) => [shard.remoteFolderId!, shard]))
@@ -193,16 +181,15 @@ export function planFavoriteLibraryManagedFolderProjection(input: {
     // A configured remote ID can recover the local logical ledger as an
     // explicitly unbound candidate. Title suffixes are ignored only in this
     // ID-directed case; otherwise they are user-authored candidate names.
-    const deletedRecord = deletedRecordsByRemoteFolderId.get(folder.remoteFolderId)
     const titleShard = configuredLedgerShard(title, input.ledgers)
-    const ledger = configuredById ?? deletedRecord?.ledger ?? titleShard?.ledger ?? configuredLedgersByLogicalTitle.get(normalizedLedgerDisplayTitle(title))
+    const ledger = configuredById ?? titleShard?.ledger ?? configuredLedgersByLogicalTitle.get(normalizedLedgerDisplayTitle(title))
     // A default rule deliberately deleted by the user stays visible in settings
     // but must not be reconstructed from a same-name remote candidate. A formal
     // repository binding above remains the only explicit recovery authority.
     if (ledger?.isDefault && ledger.managedFolderDeletedByUser) continue
     const logicalTitle = ledger?.displayName.trim() || title
-    const logicalLedgerId = deletedRecord?.logicalLedgerId ?? ledger?.id ?? createRemoteObservationFavoriteLedgerId(folder.remoteFolderId)
-    const shardNumber = configuredById ? 1 : titleShard?.shardNumber ?? 1
+    const logicalLedgerId = ledger?.id ?? createRemoteObservationFavoriteLedgerId(folder.remoteFolderId)
+    const shardNumber = configuredById ? favoriteLedgerBindingNameAndShard(title).shardNumber : titleShard?.shardNumber ?? 1
     const memberAids = [...new Set(input.snapshot.memberships[folder.id] ?? [])].sort((left, right) => left - right)
     candidates.push({
       logicalLedgerId,
@@ -268,25 +255,6 @@ export async function restoreFavoriteLibraryManagedFolderProjection(input: {
   now?: () => string
 }) {
   let snapshot = await input.repository.getSnapshot(input.accountMid)
-  const deletedRecommendationLogicalLedgerIds = new Set((input.deletedFavoriteLedgerRecords ?? [])
-    .filter((record) => record.ledger.ruleOrigin === 'recommendation-draft')
-    .map((record) => record.logicalLedgerId.trim())
-    .filter(Boolean))
-  const legacyDeletedRecommendationLogicalFolderIds = snapshot.folders
-    .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId &&
-      deletedRecommendationLogicalLedgerIds.has(folder.logicalLedgerId))
-    .map((folder) => folder.id)
-    .sort()
-  if (legacyDeletedRecommendationLogicalFolderIds.length) {
-    await input.repository.commit(input.accountMid, {
-      id: `favorite-library:remove-deleted-recommendation-managed:${snapshot.revision}`,
-      accountMid: input.accountMid,
-      issuedAt: input.now?.() ?? new Date().toISOString(),
-      type: 'delete-local-managed-folders',
-      payload: { logicalFolderIds: legacyDeletedRecommendationLogicalFolderIds }
-    })
-    snapshot = await input.repository.getSnapshot(input.accountMid)
-  }
   for (const logicalLedgerId of emptyCustomPendingDuplicateLedgerIds(snapshot, input.ledgers)) {
     await input.repository.commit(input.accountMid, {
       id: `favorite-library:remove-duplicate-managed:${logicalLedgerId}:${snapshot.revision}`,

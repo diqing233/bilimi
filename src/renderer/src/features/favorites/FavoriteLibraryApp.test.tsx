@@ -29,6 +29,28 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryApp', () => {
+  it('shows a retry action when the current account favorite-space refresh is pending', async () => {
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-09-06T00:00:00.000Z', videoCount: 0, folderCount: 0,
+        folders: [], physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, totalCount: 0, items: [] }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined),
+      getBilibiliFavoriteSpaceRefreshStatus: vi.fn().mockResolvedValue({ status: 'pending' }),
+      retryBilibiliFavoriteSpaceRefresh
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+
+    expect(await screen.findByText('收藏夹目录待刷新')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重试刷新收藏夹目录' }))
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith('100'))
+  })
+
   it('uses red for unbound status and a concise left-library binding prompt', () => {
     const source = readFileSync(
       resolve(process.cwd(), 'src/renderer/src/features/favorites/FavoriteLibraryApp.tsx'),

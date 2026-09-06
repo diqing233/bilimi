@@ -583,6 +583,7 @@ export type FavoriteLibraryDrawerNotice = {
   id: string
   priority: number
   message: string
+  actionLabel?: string
   onActivate: () => void
 }
 
@@ -693,6 +694,7 @@ export function FavoriteLibraryApp({
   const [managedFolderDeletionExecuting, setManagedFolderDeletionExecuting] = useState(false)
   const [conflictsOpen, setConflictsOpen] = useState(false)
   const [workspaceSyncResult, setWorkspaceSyncResult] = useState<string>()
+  const [favoriteSpaceRefreshPending, setFavoriteSpaceRefreshPending] = useState(false)
   const [workspaceSyncSelection, setWorkspaceSyncSelection] = useState<string[]>([])
   const [workspaceSyncConfirmationOpen, setWorkspaceSyncConfirmationOpen] = useState(false)
   const [workspaceSyncExecuting, setWorkspaceSyncExecuting] = useState(false)
@@ -836,6 +838,35 @@ export function FavoriteLibraryApp({
 
   useEffect(() => {
     if (!active || !accountMid) {
+      setFavoriteSpaceRefreshPending(false)
+      return
+    }
+    let disposed = false
+    const apply = (status: { accountMid: string; status: 'idle' | 'pending' }) => {
+      if (!disposed && status.accountMid === accountMid) setFavoriteSpaceRefreshPending(status.status === 'pending')
+    }
+    void window.bilimiDesktop?.getBilibiliFavoriteSpaceRefreshStatus?.(accountMid)
+      .then((status) => apply({ accountMid, ...status }))
+      .catch(() => { if (!disposed) setFavoriteSpaceRefreshPending(true) })
+    const unsubscribe = window.bilimiDesktop?.onBilibiliFavoriteSpaceRefreshStatusChanged?.(apply)
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [accountMid, active])
+
+  const retryFavoriteSpaceRefresh = useCallback(async () => {
+    if (!accountMid || !window.bilimiDesktop?.retryBilibiliFavoriteSpaceRefresh) return
+    try {
+      const status = await window.bilimiDesktop.retryBilibiliFavoriteSpaceRefresh(accountMid)
+      setFavoriteSpaceRefreshPending(status.status === 'pending')
+    } catch {
+      setFavoriteSpaceRefreshPending(true)
+    }
+  }, [accountMid])
+
+  useEffect(() => {
+    if (!active || !accountMid) {
       setTranscriptionQueue(undefined)
       setTranscriptionSuccessNotice(undefined)
       transcriptionStatusesRef.current = new Map()
@@ -922,6 +953,15 @@ export function FavoriteLibraryApp({
         onActivate: goToPending
       })
     }
+    if (favoriteSpaceRefreshPending) {
+      notices.push({
+        id: 'favorite-space-refresh-pending',
+        priority: 85,
+        message: '收藏夹目录待刷新',
+        actionLabel: '重试',
+        onActivate: retryFavoriteSpaceRefresh
+      })
+    }
     if (summary?.workspace?.status === 'scanning') {
       notices.push({
         id: 'old-favorite-scan-running',
@@ -967,7 +1007,7 @@ export function FavoriteLibraryApp({
       })
     }
     return notices.sort((left, right) => right.priority - left.priority || left.id.localeCompare(right.id))
-  }, [accountMid, goToPending, openAssistantWorkspace, remoteReconciliations, summary?.syncCounts.failed, summary?.syncCounts['result-unknown'], summary?.workspace?.status, transcriptionQueue, transcriptionSuccessCount])
+  }, [accountMid, favoriteSpaceRefreshPending, goToPending, openAssistantWorkspace, remoteReconciliations, retryFavoriteSpaceRefresh, summary?.syncCounts.failed, summary?.syncCounts['result-unknown'], summary?.workspace?.status, transcriptionQueue, transcriptionSuccessCount])
 
   useEffect(() => {
     if (!embedded) return
@@ -2273,6 +2313,9 @@ export function FavoriteLibraryApp({
   }
 
   const workspaceFeedbackContent = (() => {
+    if (favoriteSpaceRefreshPending) {
+      return <p role="status">收藏夹目录待刷新<button type="button" className="favorite-library__inline-action" aria-label="重试刷新收藏夹目录" onClick={() => void retryFavoriteSpaceRefresh()}>重试</button></p>
+    }
     if (error) {
       return <p role="alert" className="favorite-library__error">{error}</p>
     }

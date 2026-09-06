@@ -247,7 +247,8 @@ export type OldFavoriteWorkspaceDeepSeekProcessedItem = {
 export type OldFavoriteWorkspaceFavoriteRuleHistoryState = {
   ledgers: FavoriteLedger[]
   adoptedCandidateIds: string[]
-  linkedLedgerIdsByCandidateId: Record<string, string>
+  /** Snapshot-only candidate-to-rule links; rebuilt from these saved rules on restore. */
+  linkedLedgerIdsByCandidateId?: Record<string, string>
   excludedLedgerIds: string[]
 }
 
@@ -440,8 +441,8 @@ export type OldFavoriteWorkspaceSnapshot = {
   recommendations: {
     candidates: OldFavoriteWorkspaceRecommendationCandidate[]
     adoptedCandidateIds: string[]
-    linkedLedgerIdsByCandidateId: Record<string, string>
-    links: Record<string, FavoriteRecommendationLink>
+    linkedLedgerIdsByCandidateId?: Record<string, string>
+    links?: Record<string, FavoriteRecommendationLink>
   }
   planReadiness?: {
     selectedAidCount: number

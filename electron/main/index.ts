@@ -109,7 +109,7 @@ import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepS
 import { recordFavoriteLedgerHistoryAroundMutation } from './favoriteLedgerHistoryWiring'
 import { classifyOldFavoriteItemsCooperatively, classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 import { resolveSavedOldFavoriteWorkspaceLedgerTitle } from './oldFavoriteWorkspaceLedgerTitle'
-import { mergeRecoveredLedgerDrafts, reconcileRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
+import { mergeRecoveredLedgerDrafts } from './oldFavoriteWorkspaceRecommendationPersistence'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositoryArchiveService } from './favoriteRepositoryArchiveService'
@@ -124,7 +124,6 @@ import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperation
 import { persistConfirmedManagedFolderDeletion } from './managedFavoriteLedgerDeletionPersistence'
 import { resolveFavoriteLibraryOperationSource } from './favoriteLibraryOperationSource'
 import {
-  removePureRecommendationLedgerDraft,
   isUnsavedFavoriteLedgerDraft,
   removeLocalFavoriteLedgers,
   removeUnsavedFavoriteLedgerDraft
@@ -142,7 +141,8 @@ import { registerLocalDataIpc } from './localDataIpc'
 import { createLocalDataPersistenceAdapter } from './localDataPersistenceAdapter'
 import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
-import { refreshBilibiliGuestPages } from './bilibiliSessionRefresh'
+import { refreshBilibiliFavoriteSpacePages, refreshBilibiliGuestPages } from './bilibiliSessionRefresh'
+import { BilibiliFavoriteSpaceRefreshCoordinator } from './bilibiliFavoriteSpaceRefreshCoordinator'
 import { clearCurrentAccountLocalData } from './currentAccountLocalDataClear'
 import {
   configureFloatingMenuWindow,
@@ -833,6 +833,7 @@ let favoriteRepositoryService: FavoriteRepositoryService | undefined
 let favoriteRepositorySyncService: FavoriteRepositorySyncService | undefined
 let favoriteRepositoryPageBridgeManager: FavoriteRepositoryRuntimePageBridgeManager | undefined
 let favoriteRepositoryBindingService: FavoriteRepositoryBindingService | undefined
+let bilibiliFavoriteSpaceRefreshCoordinator: BilibiliFavoriteSpaceRefreshCoordinator | undefined
 let favoriteLibraryCommandService: FavoriteLibraryCommandService | undefined
 let favoriteRepositoryBatchOperationService: FavoriteRepositoryBatchOperationService | undefined
 let favoriteRepositoryManagedFolderService: FavoriteRepositoryManagedFolderService | undefined
@@ -1091,25 +1092,12 @@ function notifyFloatingAssistantSnapshotChanged() {
   sendAssistantSnapshotChangedToTargets([mainWindow, assistant])
 }
 
-function getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid: string) {
-  const preferences = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
-  return [...new Set((preferences.deletedFavoriteLedgerRecords ?? [])
-    .filter((record) => record.ledger.ruleOrigin === 'recommendation-draft')
-    .flatMap((record) => [record.ledger.bilibiliFolderId, ...(record.ledger.bilibiliFolderIds ?? [])])
-    .map((folderId) => folderId?.trim())
-    .filter((folderId): folderId is string => Boolean(folderId)))]
-}
-
 async function reconcileFavoriteLedgerBindingProjection(accountMid: string) {
   const store = getDesktopStore()
   const current = loadFavoriteAccountPreferences(store, accountMid)
   const repositorySnapshot = await favoriteRepositoryService?.getSnapshot(accountMid).catch(() => null)
   if (!repositorySnapshot) return false
-  const deletedRecommendationRemoteFolderIds = new Set(getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid))
-  const physicalShards = repositorySnapshot.physicalShards.filter((shard) =>
-    ![shard.remoteFolderId, ...(shard.knownRemoteFolderIds ?? [])]
-      .some((folderId) => folderId && deletedRecommendationRemoteFolderIds.has(folderId)))
-  const projectedLedgers = projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, physicalShards)
+  const projectedLedgers = projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, repositorySnapshot.physicalShards)
   const favoriteLedgers = projectedLedgers
   if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return false
   saveFavoriteAccountPreferences(store, accountMid, { ...current, favoriteLedgers })
@@ -1122,6 +1110,17 @@ async function reconcileFavoriteLedgerBindingProjection(accountMid: string) {
 async function refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid: string) {
   await reconcileFavoriteLedgerBindingProjection(accountMid)
   notifyFloatingAssistantSnapshotChanged()
+}
+
+/**
+ * A successful Bilibili folder create, rename, or delete has two independent
+ * UI consequences: the local managed-folder projection must converge, and
+ * Bilibili's favourite-list SPA must discard its stale directory cache. Keep
+ * both account-scoped and never let a page reload failure undo a confirmed
+ * remote mutation.
+ */
+async function refreshConfirmedBilibiliFavoriteFolderMutation(accountMid: string) {
+  await bilibiliFavoriteSpaceRefreshCoordinator?.refresh(accountMid)
 }
 
 function favoriteLedgerPreferencePatchTouchesRules(patch: Partial<AssistantPreferences>) {
@@ -1672,6 +1671,26 @@ function registerAssistantPreferenceHandlers() {
       return snapshot
     })
   })
+  ipcMain.handle('bilibili-favorite-space-refresh:status', async (event, requestedAccountMid: unknown) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
+      throw new Error('Bilibili favorite-space refresh request came from an untrusted renderer.')
+    }
+    const accountMid = typeof requestedAccountMid === 'string' ? requestedAccountMid.trim() : ''
+    if (!accountMid || accountMid !== await readCurrentBilibiliAccountMid()) {
+      throw new Error('Bilibili favorite-space refresh request does not match the current account.')
+    }
+    return bilibiliFavoriteSpaceRefreshCoordinator?.getStatus(accountMid) ?? { status: 'idle' as const }
+  })
+  ipcMain.handle('bilibili-favorite-space-refresh:retry', async (event, requestedAccountMid: unknown) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
+      throw new Error('Bilibili favorite-space refresh request came from an untrusted renderer.')
+    }
+    const accountMid = typeof requestedAccountMid === 'string' ? requestedAccountMid.trim() : ''
+    if (!accountMid || accountMid !== await readCurrentBilibiliAccountMid()) {
+      throw new Error('Bilibili favorite-space refresh request does not match the current account.')
+    }
+    return bilibiliFavoriteSpaceRefreshCoordinator?.retry(accountMid) ?? { status: 'idle' as const }
+  })
   ipcMain.handle('assistant:load-preferences', () =>
     withBilibiliConnectionMode(loadAssistantPreferences(getDesktopStore(), safeStorage))
   )
@@ -1829,9 +1848,7 @@ function registerAssistantPreferenceHandlers() {
     const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
     const draft = current.favoriteLedgers.find((ledger) => ledger.id === ledgerId)
     const remoteDraftRemoved = removeUnsavedFavoriteLedgerDraft(current.favoriteLedgers, ledgerId)
-    const favoriteLedgers = remoteDraftRemoved === current.favoriteLedgers
-      ? removePureRecommendationLedgerDraft(current.favoriteLedgers, ledgerId)
-      : remoteDraftRemoved
+    const favoriteLedgers = remoteDraftRemoved
     if (favoriteLedgers === current.favoriteLedgers) {
       throw new Error('Favorite ledger draft is unavailable.')
     }
@@ -1889,10 +1906,6 @@ function registerAssistantPreferenceHandlers() {
       ]
       : current.deletedFavoriteLedgerRecords
 
-    const remoteFolderIds = [...new Set(removedLedgers.flatMap((ledger) => [
-      ledger.bilibiliFolderId,
-      ...(ledger.bilibiliFolderIds ?? [])
-    ]).map((remoteFolderId) => remoteFolderId?.trim()).filter((remoteFolderId): remoteFolderId is string => Boolean(remoteFolderId)))]
     let workspaceSnapshot: Awaited<ReturnType<NonNullable<typeof oldFavoriteWorkspaceCoordinator>['getSnapshot']>> | null = null
     try {
       workspaceSnapshot = await oldFavoriteWorkspaceCoordinator?.getSnapshot(accountMid) ?? null
@@ -1945,7 +1958,6 @@ function registerAssistantPreferenceHandlers() {
       if (previewingWorkspace) await reclassifyFavoriteWorkspaceIfPreviewing(accountMid).catch(() => undefined)
       throw error
     }
-    markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, remoteFolderIds)
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     notifyFloatingAssistantSnapshotChanged()
     return { status: 'succeeded' as const, ledgerIds: removedLedgers.map((ledger) => ledger.id) }
@@ -2558,17 +2570,32 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   favoriteRepositoryPageBridgeManager = new FavoriteRepositoryRuntimePageBridgeManager(
     (request) => requestMainAssistantRuntime<FavoriteRepositoryPageOperationResult>(request)
   )
+  bilibiliFavoriteSpaceRefreshCoordinator = new BilibiliFavoriteSpaceRefreshCoordinator({
+    getCurrentAccountMid: readCurrentBilibiliAccountMid,
+    refreshProjection: refreshFavoriteLedgerBindingProjectionAfterPhysicalShard,
+    refreshFavoriteSpacePages: (accountMid) => refreshBilibiliFavoriteSpacePages({
+      getAllWebContents: () => webContents.getAllWebContents(),
+      targetSession: session.fromPartition(BILIMI_SESSION_PARTITION),
+      accountMid
+    }),
+    onStatusChange: (accountMid, status) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      mainWindow.webContents.send('bilibili-favorite-space-refresh:status-changed', { accountMid, status: status.status })
+    }
+  })
   favoriteRepositorySyncService = new FavoriteRepositorySyncService({
     repository: favoriteRepositoryService,
     pageBridgeManager: favoriteRepositoryPageBridgeManager,
     remoteOperations: favoriteRepositoryRemoteOperations,
     ensurePhysicalShard: (accountMid, input) => favoriteRepositoryBindingService!.ensurePhysicalShard(accountMid, input),
-    onPhysicalShardProvisioned: refreshFavoriteLedgerBindingProjectionAfterPhysicalShard
+    onPhysicalShardProvisioned: refreshFavoriteLedgerBindingProjectionAfterPhysicalShard,
+    onConfirmedRemoteFolderMutation: refreshConfirmedBilibiliFavoriteFolderMutation
   })
   favoriteRepositoryBindingService = new FavoriteRepositoryBindingService({
     repository: favoriteRepositoryService,
     pageBridgeManager: favoriteRepositoryPageBridgeManager,
-    remoteOperations: favoriteRepositoryRemoteOperations
+    remoteOperations: favoriteRepositoryRemoteOperations,
+    onConfirmedRemoteFolderMutation: refreshConfirmedBilibiliFavoriteFolderMutation
   })
   favoriteLibraryCommandService = new FavoriteLibraryCommandService({
     repository: favoriteRepositoryService,
@@ -2608,13 +2635,16 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         publish: () => sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore())),
       })
       notifyFloatingAssistantSnapshotChanged()
+      if (deletions.some((deletion) => deletion.remoteDeleted)) {
+        await refreshConfirmedBilibiliFavoriteFolderMutation(accountMid)
+      }
     },
     remote: {
       async removeRemoteFolder(accountMid, remoteFolderId) {
         const runId = `favorite-managed-folder-delete:${Date.now()}:${remoteFolderId}`
         await favoriteRepositoryPageBridgeManager!.bind(accountMid, runId)
         try {
-          await favoriteRepositoryPageBridgeManager!.pageBridge(accountMid, runId).deleteFolder({
+          return await favoriteRepositoryPageBridgeManager!.pageBridge(accountMid, runId).deleteFolder({
             accountMid, operationKey: `${runId}:delete`, folderId: remoteFolderId
           })
         } finally {
@@ -2873,8 +2903,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       .map((ledger) => ledger.id),
     getConfirmedDeletedRemoteFolderIds: (accountMid) => [
       ...loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
-        .flatMap((ledger) => ledger.confirmedDeletedRemoteFolderIds ?? []),
-      ...getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid)
+        .flatMap((ledger) => ledger.confirmedDeletedRemoteFolderIds ?? [])
     ]
       .map((folderId) => folderId.trim())
       .filter(Boolean),
@@ -2939,23 +2968,18 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     listSavedEnabledLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
       .filter((ledger) => {
         if (!ledger.enabled) return false
-        if (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule') return true
-        // Recommendation origin is linkage metadata, not a lifecycle gate.
-        // Any account-saved recommendation is a real backup target; only a
-        // remote observation without a rule origin is excluded.
-        return ledger.ruleOrigin === 'recommendation-draft'
+        return ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule'
       })
       .map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
     listSavedLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
       .filter((ledger) => {
-        if (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule') return true
-        return ledger.ruleOrigin === 'recommendation-draft'
+        return ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule'
       })
       .map((ledger) => ({ id: ledger.id, title: ledger.displayName })),
     resolveSavedLedgerRule: async (accountMid, logicalLedgerId) => {
       const ledger = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
         .find((candidate) => candidate.id === logicalLedgerId &&
-          (candidate.syncState !== 'local-draft' || candidate.ruleOrigin === 'saved-rule' || candidate.ruleOrigin === 'recommendation-draft'))
+          (candidate.syncState !== 'local-draft' || candidate.ruleOrigin === 'saved-rule'))
       if (!ledger) return undefined
       const ruleType = ledger.ruleType ?? 'keyword'
       if (ruleType === 'deepseek') return undefined
@@ -2998,23 +3022,34 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
       sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     },
-    saveRecommendedLedgers: async (accountMid, ledgers, adoptedLedgerIds = ledgers.map((ledger) => ledger.id)) => {
+    listSavedFavoriteLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+      .filter((ledger) => !isUnsavedFavoriteLedgerDraft(ledger))
+      .map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] })),
+    applyFavoriteRecommendationRuleChanges: async (accountMid, changes) => {
       const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
-      const favoriteLedgers = mergeRecoveredLedgerDrafts(
-        current.favoriteLedgers,
-        reconcileRecommendedLedgers(current.favoriteLedgers, ledgers, adoptedLedgerIds)
-      )
-      if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return false
+      const before = current.favoriteLedgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
+      const ledgersById = new Map(before.map((ledger) => [ledger.id, ledger]))
+      for (const ledger of changes.upserts) ledgersById.set(ledger.id, { ...ledger, keywords: [...ledger.keywords] })
+      for (const { ledgerId, enabled } of changes.enabled) {
+        const ledger = ledgersById.get(ledgerId)
+        if (ledger) ledgersById.set(ledgerId, { ...ledger, enabled })
+      }
+      const favoriteLedgers = [...ledgersById.values()]
+      if (JSON.stringify(favoriteLedgers) !== JSON.stringify(current.favoriteLedgers)) {
+        saveFavoriteAccountPreferences(getDesktopStore(), accountMid, { ...current, favoriteLedgers })
+        sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+        notifyFloatingAssistantSnapshotChanged()
+      }
+      return { before, after: favoriteLedgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] })) }
+    },
+    restoreFavoriteRuleDirectory: async (accountMid, ledgers) => {
+      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
       saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
         ...current,
-        favoriteLedgers
+        favoriteLedgers: ledgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
       })
-      return true
-    },
-    notifyRecommendedLedgersChanged: () => {
-      sendAssistantPreferencePatchChanged({
-        favoriteAccountPreferences: loadAssistantPreferences(getDesktopStore()).favoriteAccountPreferences
-      })
+      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+      notifyFloatingAssistantSnapshotChanged()
     },
     loadFavoriteLedgerHistoryLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
       .filter((ledger) => !isUnsavedFavoriteLedgerDraft(ledger)),
@@ -3155,10 +3190,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       await reconcileFavoriteLedgerBindingProjection(accountMid)
     },
     onAccountOpen: async (accountMid) => {
-      const deletedRecommendationRemoteFolderIds = getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid)
       const suppressedRemoteFolderIds = [...new Set([
-        ...loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid),
-        ...deletedRecommendationRemoteFolderIds
+        ...loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)
       ])]
       // Validate pending/migrated bindings against the current remote inventory
       // before any persisted scan projection is allowed to restore them.

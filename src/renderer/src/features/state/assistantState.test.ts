@@ -17,7 +17,7 @@ import { classifyVideoContent } from '../recommendation/videoClassifier'
 const LIKE_ACTION = '赞' as AssistantAction
 
 describe('assistant state', () => {
-  it('preserves account recommendation deletion tombstones during preference normalization', () => {
+  it('migrates a legacy recommendation deletion record to an ordinary saved rule during preference normalization', () => {
     const preferences = createInitialAssistantPreferences({
       favoriteAccountPreferences: {
         '100': {
@@ -46,7 +46,7 @@ describe('assistant state', () => {
       expect.objectContaining({
         logicalLedgerId: 'deleted-recommendation',
         ledger: expect.objectContaining({
-          ruleOrigin: 'recommendation-draft',
+          ruleOrigin: 'saved-rule',
           bilibiliFolderId: '77'
         })
       })

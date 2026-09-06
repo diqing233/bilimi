@@ -68,6 +68,68 @@ describe('FavoriteRepositorySyncService', () => {
     expect(readFolderInventory).not.toHaveBeenCalled()
   })
 
+  it('notifies one folder-mutation refresh after any confirmed remote deletion, including a partial result', async () => {
+    const repository = await createRepository()
+    for (const [logicalLedgerId, remoteFolderId] of [['music', 'remote-music'], ['game', 'remote-game']] as const) {
+      await repository.commit('100', {
+        id: `binding-${logicalLedgerId}`, accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [], remoteTitle: `bilimi·${logicalLedgerId}`, bindingState: 'bound', remoteFolderId }
+      })
+    }
+    const onConfirmedRemoteFolderMutation = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      onConfirmedRemoteFolderMutation,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(),
+        deleteFolder: vi.fn()
+          .mockResolvedValueOnce({ observedAccountMid: '100', status: 'ok' })
+          .mockResolvedValueOnce({ observedAccountMid: '100', status: 'rejected', reason: 'rejected' }),
+        readFolderInventory: vi.fn().mockResolvedValue({
+          observedAccountMid: '100', folders: [
+            { id: 'remote-music', title: 'bilimi·music', memberCount: 0 },
+            { id: 'remote-game', title: 'bilimi·game', memberCount: 0 }
+          ]
+        })
+      }
+    })
+
+    await expect(service.deleteManagedRemoteFolders('100', ['music', 'game'], false, {
+      music: 'bilimi·music', game: 'bilimi·game'
+    }, { music: ['remote-music'], game: ['remote-game'] })).resolves.toMatchObject({
+      status: 'partial-failed', succeededRemoteFolderIds: ['remote-music']
+    })
+
+    expect(onConfirmedRemoteFolderMutation).toHaveBeenCalledTimes(1)
+    expect(onConfirmedRemoteFolderMutation).toHaveBeenCalledWith('100')
+  })
+
+  it('does not notify a folder-mutation refresh when remote deletion is rejected or unknown', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'binding-music', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    const onConfirmedRemoteFolderMutation = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      onConfirmedRemoteFolderMutation,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(),
+        deleteFolder: vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'rejected', reason: 'rejected' }),
+        readFolderInventory: vi.fn().mockResolvedValue({
+          observedAccountMid: '100', folders: [{ id: 'remote-music', title: 'bilimi·music', memberCount: 0 }]
+        })
+      }
+    })
+
+    await expect(service.deleteManagedRemoteFolders('100', ['music'], false, {
+      music: 'bilimi·music'
+    }, { music: ['remote-music'] })).resolves.toMatchObject({ status: 'failed' })
+
+    expect(onConfirmedRemoteFolderMutation).not.toHaveBeenCalled()
+  })
+
   it('synchronizes a saved local placement through the per-account remote arbiter and projects the confirmed physical fact', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

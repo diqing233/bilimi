@@ -16,6 +16,9 @@ import {
   isBilimiManagedLedgerName,
   normalizeFavoriteLedgers,
   createRemoteObservationFavoriteLedgerId,
+  favoriteLedgerBindingNameAndShard,
+  favoriteLedgerCapacityShardName,
+  normalizeFavoriteLedgerBindingName,
   suggestFavoriteLedgerNames
 } from './favoriteLedgers'
 
@@ -349,6 +352,85 @@ describe('favorite ledger model', () => {
       ruleOrigin: 'saved-rule'
     }))
     expect(ledgers.find((ledger) => ledger.id === 'custom-legacy-rule')).not.toHaveProperty('syncState')
+  })
+
+  it('normalizes only equivalent binding names and recognizes manual circled-number shards', () => {
+    expect(normalizeFavoriteLedgerBindingName(' Ｂｉｌｉｍｉ· 游戏专区 ')).toBe('bilimi· 游戏专区')
+    expect(favoriteLedgerBindingNameAndShard('bilimi·游戏专区')).toEqual({ baseName: 'bilimi·游戏专区', shardNumber: 1 })
+    expect(favoriteLedgerBindingNameAndShard('bilimi·游戏专区①')).toEqual({ baseName: 'bilimi·游戏专区', shardNumber: 1 })
+    expect(favoriteLedgerBindingNameAndShard('bilimi·游戏专区②')).toEqual({ baseName: 'bilimi·游戏专区', shardNumber: 2 })
+    expect(favoriteLedgerCapacityShardName('bilimi·游戏专区', 1)).toBe('bilimi·游戏专区')
+    expect(favoriteLedgerCapacityShardName('bilimi·游戏专区', 2)).toBe('bilimi·游戏专区②')
+    expect(favoriteLedgerCapacityShardName('bilimi·游戏专区', 51)).toBe('bilimi·游戏专区⑤①')
+    expect(favoriteLedgerCapacityShardName('12345678901234567890', 2)).toBe('1234567890123456789②')
+    expect(favoriteLedgerBindingNameAndShard('bilimi·游戏专区⑤①')).toEqual({ baseName: 'bilimi·游戏专区', shardNumber: 51 })
+  })
+
+  it('migrates historical recommendation drafts into ordinary saved rules', () => {
+    const ledgers = normalizeFavoriteLedgers([{
+      id: 'custom-legacy-recommendation',
+      displayName: 'bilimi·历史推荐',
+      keywords: ['历史推荐'],
+      ruleType: 'keyword',
+      enabled: true,
+      priority: 90,
+      syncState: 'local-draft',
+      ruleOrigin: 'recommendation-draft',
+      bindingState: 'unbacked',
+      isDefault: false
+    }])
+
+    expect(ledgers.find((ledger) => ledger.id === 'custom-legacy-recommendation')).toMatchObject({
+      ruleOrigin: 'saved-rule',
+      enabled: true,
+      bindingState: 'unbacked'
+    })
+  })
+
+  it('requires an explicit save and binding for a legacy recommendation draft with a remote folder', () => {
+    const ledgers = normalizeFavoriteLedgers([{
+      id: 'custom-legacy-recommendation-remote',
+      displayName: 'bilimi·历史推荐',
+      keywords: ['历史推荐'],
+      ruleType: 'keyword',
+      enabled: true,
+      priority: 90,
+      syncState: 'local-draft',
+      ruleOrigin: 'recommendation-draft',
+      bindingState: 'bound',
+      bilibiliFolderId: 'remote-legacy-recommendation',
+      isDefault: false
+    }])
+
+    expect(ledgers.find((ledger) => ledger.id === 'custom-legacy-recommendation-remote')).toMatchObject({
+      ruleOrigin: 'saved-rule',
+      syncState: 'local-draft',
+      bindingState: 'unbound',
+      bilibiliFolderId: 'remote-legacy-recommendation'
+    })
+  })
+
+  it('requires an explicit save and binding when a legacy recommendation draft retains only shard ids', () => {
+    const ledgers = normalizeFavoriteLedgers([{
+      id: 'custom-legacy-recommendation-shards',
+      displayName: 'bilimi·历史推荐',
+      keywords: ['历史推荐'],
+      ruleType: 'keyword',
+      enabled: true,
+      priority: 90,
+      syncState: 'local-draft',
+      ruleOrigin: 'recommendation-draft',
+      bindingState: 'bound',
+      bilibiliFolderIds: ['remote-legacy-recommendation-1', 'remote-legacy-recommendation-2'],
+      isDefault: false
+    }])
+
+    expect(ledgers.find((ledger) => ledger.id === 'custom-legacy-recommendation-shards')).toMatchObject({
+      ruleOrigin: 'saved-rule',
+      syncState: 'local-draft',
+      bindingState: 'unbound',
+      bilibiliFolderIds: ['remote-legacy-recommendation-1', 'remote-legacy-recommendation-2']
+    })
   })
 
   it('keeps a saved legacy pending-classification inbox ledger as inbox', () => {

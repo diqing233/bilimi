@@ -89,6 +89,34 @@ describe('FavoriteRepositoryRuntimePageBridgeManager', () => {
     })
   })
 
+  it('preserves a rejected or ambiguous remote delete result for the managed-folder service', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({
+        status: 'rejected', observedAccountMid: '100', reason: 'permission-denied',
+        httpStatus: 200, responseCategory: 'json', bilibiliCode: -403
+      })
+      .mockResolvedValueOnce({
+        status: 'unknown', observedAccountMid: '100', reason: 'remote-ambiguous',
+        httpStatus: 412, responseCategory: 'html'
+      })
+    const manager = new FavoriteRepositoryRuntimePageBridgeManager(request)
+    await manager.bind('100', 'run-1')
+
+    await expect(manager.pageBridge('100', 'run-1').deleteFolder({
+      accountMid: '100', operationKey: 'run-1:delete-game-2', folderId: 'game-2'
+    })).resolves.toMatchObject({
+      status: 'rejected', observedAccountMid: '100', reason: 'permission-denied', bilibiliCode: -403
+    })
+
+    await expect(manager.pageBridge('100', 'run-1').deleteFolder({
+      accountMid: '100', operationKey: 'run-1:delete-game-2-retry', folderId: 'game-2'
+    })).resolves.toMatchObject({
+      status: 'unknown', observedAccountMid: '100', reason: 'remote-ambiguous', httpStatus: 412,
+      responseCategory: 'html'
+    })
+  })
+
   it('isolates same run ids across accounts and rejects an account-changed result', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })

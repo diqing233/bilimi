@@ -15,7 +15,14 @@ export type ManagedFolderDeletionResult = {
 }
 
 type RemoteFolderWriter = {
-  removeRemoteFolder(accountMid: string, remoteFolderId: string): Promise<void>
+  removeRemoteFolder(accountMid: string, remoteFolderId: string): Promise<void | {
+    status?: 'ok' | 'rejected' | 'unknown'
+    reason?: string
+    httpStatus?: number
+    contentType?: string
+    responseCategory?: 'html' | 'json' | 'text' | 'empty' | 'unknown'
+    bilibiliCode?: number
+  }>
 }
 
 type RemoteFolderObserver = {
@@ -276,7 +283,14 @@ export class FavoriteRepositoryManagedFolderService {
           }
           for (const remoteKey of remoteKeys) this.remoteDeletionOwners.set(remoteKey, operation.operationId)
           for (const remoteFolderId of operation.remoteBinding!.remoteFolderIds) {
-            await this.options.remote!.removeRemoteFolder(operation.accountMid, remoteFolderId)
+            const remoteResult = await this.options.remote!.removeRemoteFolder(operation.accountMid, remoteFolderId)
+            if (remoteResult?.status === 'rejected' || remoteResult?.status === 'unknown') {
+              const error = new Error(remoteResult.reason?.trim() || `Managed folder remote deletion ${remoteResult.status}.`)
+              Object.assign(error, remoteResult.status === 'rejected'
+                ? { remoteWriteRejected: true }
+                : { remoteWriteResultUnknown: true })
+              throw error
+            }
           }
           preferenceOutcome.status = await this.commitLocalProjection(operation, snapshot)
         }

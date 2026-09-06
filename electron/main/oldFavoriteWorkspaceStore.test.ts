@@ -18,6 +18,34 @@ afterEach(async () => {
 })
 
 describe('OldFavoriteWorkspaceStore', () => {
+  it('preserves precomputed recommendation links across a restart', async () => {
+    const root = await createRoot()
+    const first = new OldFavoriteWorkspaceStore({ root })
+    await first.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1,
+      currentSegmentId: 'segment-1', segments: [{ id: 'segment-1', aids: [1] }]
+    })
+    await first.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [], recommendations: {
+        initialized: true,
+        candidates: [{
+          id: 'candidate-up', displayName: 'bilimi·UP', kind: 'author', sourceName: 'UP',
+          keywords: ['UP'], count: 2, reason: 'UP appeared twice.'
+        }],
+        adoptedCandidateIds: ['candidate-up'],
+        linkedLedgerIdsByCandidateId: { 'candidate-up': 'custom-up' },
+        links: { 'candidate-up': { status: 'linked', ledgerId: 'custom-up' } }
+      }
+    })
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      recommendations: {
+        linkedLedgerIdsByCandidateId: { 'candidate-up': 'custom-up' },
+        links: { 'candidate-up': { status: 'linked', ledgerId: 'custom-up' } }
+      }
+    })
+  })
+
   it('restores and clears a whole-run execution intent across process restarts', async () => {
     const root = await createRoot()
     const first = new OldFavoriteWorkspaceStore({ root })

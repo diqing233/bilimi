@@ -5,6 +5,7 @@ import type { FavoriteLedger } from '@shared/types'
 import * as favoriteLedgerApiModule from './favoriteLedgerApi'
 import {
   buildEnsureFavoriteLedgersScript,
+  buildCreateFavoriteLedgerPhysicalShardScript,
   buildExecuteFavoriteLedgerPlanScript,
   buildFavoriteLedgerStatusScript,
   buildSaveFavoriteLedgersScript,
@@ -559,6 +560,34 @@ describe('favorite ledger API scripts', () => {
       expect.objectContaining({ id: 'custom-genshin', displayName: '原神', bindingState: 'unbound' })
     ])
     expect(result.ledgers[0]).not.toHaveProperty('bilibiliFolderId')
+  })
+
+  it('groups manual circled-name folders as one explicit rebind candidate set', async () => {
+    installCookies()
+    const ledgers: FavoriteLedger[] = [{
+      id: 'custom-game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], enabled: true,
+      priority: 90, isDefault: false
+    }]
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 41, title: 'bilimi·游戏专区①', media_count: 2 },
+          { id: 42, title: 'bilimi·游戏专区②', media_count: 3 }
+        ] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript(ledgers))
+
+    expect(result.unboundLedgerIds).toEqual(['custom-game'])
+    expect(result.unboundCandidates).toEqual([{
+      ledgerId: 'custom-game',
+      candidates: [
+        { id: '41', title: 'bilimi·游戏专区①', memberCount: 2 },
+        { id: '42', title: 'bilimi·游戏专区②', memberCount: 3 }
+      ]
+    }])
   })
 
   it('does not restore a user-deleted binding from a stale remote folder id', async () => {
@@ -1493,7 +1522,7 @@ describe('favorite ledger API scripts', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toBe(false)
   })
 
-  it('keeps a deleted recommendation remote id suppressed across status, ensure, and save projections', async () => {
+  it('does not treat a legacy deleted-recommendation remote id as a remote-draft blacklist', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -1505,19 +1534,101 @@ describe('favorite ledger API scripts', () => {
     const buildStatus = buildFavoriteLedgerStatusScript as unknown as (...args: unknown[]) => string
     const buildEnsure = buildEnsureFavoriteLedgersScript as unknown as (...args: unknown[]) => string
     const buildSave = buildSaveFavoriteLedgersScript as unknown as (...args: unknown[]) => string
-    const deletedRecommendationIds = ['77']
+    // Legacy callers may still pass a former recommendation-deletion list as
+    // an extra argument. It must not hide a live B站 folder from the ordinary
+    // remote-observation projection.
+    const legacyDeletedRecommendationIds = ['77']
 
-    const status = await window.eval(buildStatus([], [], [], [], deletedRecommendationIds))
-    expect(status.remoteOnlyDraftLedgerIds).toEqual([])
-    expect(status.ledgers).toEqual([])
+    const status = await window.eval(buildStatus([], [], [], [], legacyDeletedRecommendationIds))
+    expect(status.remoteOnlyDraftLedgerIds).toEqual(['custom-remote-77'])
+    expect(status.ledgers).toEqual([expect.objectContaining({ id: 'custom-remote-77', bilibiliFolderId: '77' })])
 
-    const ensure = await window.eval(buildEnsure([], { confirmCreateAndBind: true }, [], deletedRecommendationIds))
-    expect(ensure.remoteOnlyDraftLedgerIds).toEqual([])
-    expect(ensure.ledgers).toEqual([])
+    const ensure = await window.eval(buildEnsure([], { confirmCreateAndBind: true }, [], legacyDeletedRecommendationIds))
+    expect(ensure.remoteOnlyDraftLedgerIds).toEqual(['custom-remote-77'])
+    expect(ensure.ledgers).toEqual([expect.objectContaining({ id: 'custom-remote-77', bilibiliFolderId: '77' })])
 
-    const save = await window.eval(buildSave([], [], { confirmCreateAndBind: true }, [], deletedRecommendationIds))
-    expect(save.remoteOnlyDraftLedgerIds).toEqual([])
-    expect(save.ledgers).toEqual([])
+    const save = await window.eval(buildSave([], [], { confirmCreateAndBind: true }, [], legacyDeletedRecommendationIds))
+    expect(save.remoteOnlyDraftLedgerIds).toEqual(['custom-remote-77'])
+    expect(save.ledgers).toEqual([expect.objectContaining({ id: 'custom-remote-77', bilibiliFolderId: '77' })])
+  })
+
+  it('groups manual circled shards for one binding and creates the next capacity shard as ②', async () => {
+    installCookies()
+    const createdTitles: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 101, title: 'bilimi·游戏专区①', media_count: 1000 },
+          { id: 102, title: 'bilimi·游戏专区②', media_count: 1000 }
+        ] } })
+      }
+      if (url.includes('/x/v3/fav/resource/ids')) {
+        const folderId = new URL(url).searchParams.get('media_id')
+        const firstAid = folderId === '101' ? 1 : 1001
+        return Response.json({ code: 0, data: Array.from({ length: 1000 }, (_, index) => ({ id: firstAid + index, type: 2 })) })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        createdTitles.push(String(new URLSearchParams(String(init?.body)).get('title')))
+        return Response.json({ code: 0, data: { id: 103 } })
+      }
+      if (url.includes('/x/v3/fav/resource/deal')) return Response.json({ code: 0, data: {} })
+      throw new Error(`Unexpected URL: ${url}`)
+    }))
+
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([
+      { aid: 2001, title: '游戏视频', sourceFolderTitle: '来源', targetLedgerId: 'game', targetFolderId: '101', targetDisplayName: 'bilimi·游戏专区', selected: true, reviewRequired: false, alreadyInTarget: false }
+    ]))
+
+    expect(result.ok).toBe(true)
+    expect(createdTitles).toEqual(['bilimi·游戏专区③'])
+  })
+
+  it('uses a non-repeating circled capacity suffix after fifty manual shards', async () => {
+    installCookies()
+    const createdTitles: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 101, title: 'bilimi·游戏专区㊿', media_count: 1000 }
+        ] } })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        createdTitles.push(String(new URLSearchParams(String(init?.body)).get('title')))
+        return Response.json({ code: 0, data: { id: 102 } })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    }))
+
+    const result = await window.eval(buildCreateFavoriteLedgerPhysicalShardScript({
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], enabled: true,
+      priority: 1, isDefault: false, bindingState: 'bound', bilibiliFolderId: '101', bilibiliFolderIds: ['101']
+    }))
+
+    expect(result).toMatchObject({ ok: true, folder: { id: '102', title: 'bilimi·游戏专区⑤①', shardNumber: 51 } })
+    expect(createdTitles).toEqual(['bilimi·游戏专区⑤①'])
+  })
+
+  it('creates the first capacity shard as ② after an unnumbered full folder', async () => {
+    installCookies()
+    const createdTitles: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: 'bilimi·游戏专区', media_count: 1000 }] } })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        createdTitles.push(String(new URLSearchParams(String(init?.body)).get('title')))
+        return Response.json({ code: 0, data: { id: 102 } })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    }))
+
+    const result = await window.eval(buildCreateFavoriteLedgerPhysicalShardScript({
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], enabled: true,
+      priority: 1, isDefault: false, bindingState: 'bound', bilibiliFolderId: '101', bilibiliFolderIds: ['101']
+    }))
+
+    expect(result).toMatchObject({ ok: true, folder: { id: '102', title: 'bilimi·游戏专区②', shardNumber: 2 } })
+    expect(createdTitles).toEqual(['bilimi·游戏专区②'])
   })
 
   it('keeps every newly created default folder bound while later batch rechecks observe it', async () => {
@@ -2602,7 +2713,7 @@ describe('favorite ledger API scripts', () => {
     }]))
 
     expect(result).toMatchObject({ ok: true, completedItems: [expect.objectContaining({ targetFolderId: '9003' })] })
-    expect(requests.find(({ url }) => url.includes('/folder/add'))?.body?.get('title')).toBe('bilimi·原神·3')
+    expect(requests.find(({ url }) => url.includes('/folder/add'))?.body?.get('title')).toBe('bilimi·原神③')
     expect(requests.find(({ url }) => url.includes('/resource/deal'))?.body?.get('add_media_ids')).toBe('9003')
   })
 
@@ -3565,6 +3676,35 @@ describe('favorite ledger API scripts', () => {
         return Response.json({ code: 0, data: { list: [
           { id: 9001, title: ledger.displayName, media_count: 1 },
           { id: 9002, title: `${ledger.displayName}·2`, media_count: 1 }
+        ] } })
+      }
+      if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9001')) {
+        return Response.json({ code: 0, data: [{ id: 1, type: 2 }] })
+      }
+      if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9002')) {
+        return Response.json({ code: 0, data: [{ id: 2, type: 2 }] })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript([ledger]))
+
+    expect(result.managedFolders).toEqual([
+      expect.objectContaining({ id: '9001', ledgerId: ledger.id }),
+      expect.objectContaining({ id: '9002', ledgerId: ledger.id })
+    ])
+    expect(result.targetMembership).toEqual({ '9001': [1], '9002': [2] })
+  })
+
+  it('recognizes manual circled-number folders as one stable logical managed folder', async () => {
+    installCookies()
+    localStorage.clear()
+    const ledger = { ...createDefaultFavoriteLedgers()[0], bilibiliFolderId: '9001' }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 9001, title: ledger.displayName, media_count: 1 },
+          { id: 9002, title: `${ledger.displayName}②`, media_count: 1 }
         ] } })
       }
       if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9001')) {

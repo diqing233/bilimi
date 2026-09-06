@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { REMOTE_FAVORITE_SHARD_CAPACITY } from '../../src/shared/favoriteRepositoryPlanning'
 import { REMOTE_FAVORITE_FOLDER_LIMIT } from '../../src/shared/favoriteRepositoryPlanning'
 import type { AccountFavoriteRepositorySnapshot } from '../../src/shared/favoriteRepository'
+import {
+  favoriteLedgerBindingNameAndShard,
+  favoriteLedgerCapacityShardName
+} from '../../src/shared/favoriteLedgers'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositoryPageBridgeManager } from './favoriteRepositorySyncService'
 import type { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
@@ -68,10 +72,8 @@ function titleToken(value: string) {
 }
 
 function comparableManagedShardTitle(value: string) {
-  return value.trim()
-    .replace(/\s+/g, ' ')
-    .replace(/\s*·\s*/gu, '·')
-    .replace(/·0*(\d+)$/u, '·$1')
+  const { baseName, shardNumber } = favoriteLedgerBindingNameAndShard(value)
+  return `${baseName}\u0000${shardNumber}`
 }
 
 function remoteRenameFailure(result: {
@@ -107,9 +109,8 @@ export function favoriteRepositoryManagedShardTitleForDisplay(
 ) {
   const displayTitle = remoteDisplayTitle?.trim()
   if (displayTitle) {
-    if (shardNumber === 1) return Array.from(displayTitle).slice(0, 20).join('')
-    const suffix = `\u00b7${String(shardNumber)}`
-    return `${Array.from(displayTitle).slice(0, Math.max(1, 20 - Array.from(suffix).length)).join('')}${suffix}`
+    const physicalTitle = favoriteLedgerCapacityShardName(displayTitle, shardNumber)
+    return Array.from(physicalTitle).slice(0, 20).join('')
   }
   const ledgerToken = logicalLedgerId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5).padEnd(5, '0')
   const token = titleToken(bindingToken).padEnd(6, '0')
@@ -215,6 +216,8 @@ export class FavoriteRepositoryBindingService {
     waitForInventoryRetry?: (milliseconds: number) => Promise<void>
     pageBridgeManager?: FavoriteRepositoryPageBridgeManager
     remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
+    /** Runs only after a Bilibili create or rename has been confirmed. */
+    onConfirmedRemoteFolderMutation?: (accountMid: string) => Promise<void> | void
   }) {}
 
   async getBindings(accountMid: string): Promise<FavoriteRepositoryBindingSnapshot> {
@@ -347,6 +350,7 @@ export class FavoriteRepositoryBindingService {
           remoteMemberCount: remote.memberCount
         }
       })
+      if (requiresRename) await this.options.onConfirmedRemoteFolderMutation?.(account)
       return this.getBindings(account)
     } finally {
       pageBridgeManager.release(account, runId)
@@ -482,6 +486,7 @@ export class FavoriteRepositoryBindingService {
           remoteMemberCount: remote.memberCount
         }
       })
+      if (requiresRename) await this.options.onConfirmedRemoteFolderMutation?.(account)
       return this.getBindings(account)
     } finally {
       pageBridgeManager.release(account, runId)
@@ -587,12 +592,14 @@ export class FavoriteRepositoryBindingService {
       }
       try {
         const created = await bridge.createFolder({ accountMid: account, operationKey: `${runId}:create`, title })
-        return this.preparePhysicalShardWithToken(account, {
+        const result = await this.preparePhysicalShardWithToken(account, {
           ...input,
           observedAccountMid: created.observedAccountMid,
           remoteFolderId: created.folder.id,
           inventory: [...finalInventory.folders, { ...created.folder, memberAids: [] }]
         }, token)
+        await this.options.onConfirmedRemoteFolderMutation?.(account)
+        return result
       } catch (error) {
         // The write may have succeeded remotely. Persist only a pending marker
         // and require a later inventory diff before any binding is trusted.
@@ -715,8 +722,7 @@ export class FavoriteRepositoryBindingService {
             if (!historicalShardNumberByRemoteId.has(remoteFolderId)) historicalShardNumberByRemoteId.set(remoteFolderId, shard.shardNumber)
           }
         }
-        const normalize = (title: string) => title.trim().replace(/^bilimi\s*[·.:：\-_]?\s*/iu, '').trim().toLocaleLowerCase()
-        const normalizeLogicalTitle = (title: string) => normalize(title).replace(/\s*·\s*[2-9]\d*$/u, '').trim()
+        const normalizeLogicalTitle = (title: string) => favoriteLedgerBindingNameAndShard(title).baseName
         return ledgers.map((ledger) => ({
           ledgerId: ledger.ledgerId.trim(),
           candidates: inventory.folders

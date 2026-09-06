@@ -257,6 +257,8 @@ export class FavoriteRepositorySyncService {
       memberAids: number[]
     }) => Promise<unknown>
     onPhysicalShardProvisioned?: (accountMid: string) => Promise<unknown> | unknown
+    /** Runs once after one or more Bilibili folder deletions are confirmed. */
+    onConfirmedRemoteFolderMutation?: (accountMid: string) => Promise<unknown> | unknown
     reconciliationReadTimeoutMs?: number
     remoteWriteTimeoutMs?: number
     retryCooldownMs?: number
@@ -1012,6 +1014,9 @@ export class FavoriteRepositorySyncService {
               payload: { remoteFolderId }
             })
           }
+          if (remoteDeletion.succeededRemoteFolderIds.length) {
+            await this.options.onConfirmedRemoteFolderMutation?.(account)
+          }
           return remoteDeletion
         }
         const { candidates } = remoteDeletion
@@ -1048,6 +1053,9 @@ export class FavoriteRepositorySyncService {
               ...(confirmedRemoteFolderIds.size ? { confirmedRemoteFolderIds: [...confirmedRemoteFolderIds].sort() } : {})
             }
           })
+        }
+        if (remoteDeletion.succeededRemoteFolderIds.length) {
+          await this.options.onConfirmedRemoteFolderMutation?.(account)
         }
         return remoteDeletion
       } finally {
@@ -1100,6 +1108,9 @@ export class FavoriteRepositorySyncService {
             type: 'remove-physical-shard-binding',
             payload: { remoteFolderId }
           })
+        }
+        if (result.succeededRemoteFolderIds.length) {
+          await this.options.onConfirmedRemoteFolderMutation?.(account)
         }
         return result
       } finally {

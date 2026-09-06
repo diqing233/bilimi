@@ -222,9 +222,9 @@ describe('buildFavoriteApiFallbackScript', () => {
 
     expect(creation).toMatchObject({
       ok: true,
-      folder: { id: '91000002', title: 'bilimi·游戏专区·2', shardNumber: 2 }
+      folder: { id: '91000002', title: 'bilimi·游戏专区②', shardNumber: 2 }
     })
-    expect(requests.at(-1)?.body).toContain(`title=${encodeURIComponent('bilimi·游戏专区·2')}`)
+    expect(requests.at(-1)?.body).toContain(`title=${encodeURIComponent('bilimi·游戏专区②')}`)
   })
 
   it('reports a missing formal bound shard instead of allowing a title-based fallback', async () => {

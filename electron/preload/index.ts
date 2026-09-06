@@ -206,6 +206,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.send('floating-seal:move-to', screenX, screenY),
   notifyAssistantSnapshotChanged: () => ipcRenderer.send('floating-assistant:snapshot-changed'),
   retryBilibiliSessionDirect: () => ipcRenderer.invoke('bilibili-session:retry-direct') as Promise<{ mode: 'auto' | 'direct'; effectiveMode: 'direct' | 'system'; temporaryDirect: boolean }>,
+  getBilibiliFavoriteSpaceRefreshStatus: (accountMid: string) =>
+    ipcRenderer.invoke('bilibili-favorite-space-refresh:status', accountMid) as Promise<{ status: 'idle' | 'pending' }>,
+  retryBilibiliFavoriteSpaceRefresh: (accountMid: string) =>
+    ipcRenderer.invoke('bilibili-favorite-space-refresh:retry', accountMid) as Promise<{ status: 'idle' | 'pending' }>,
   readBilibiliAccountMid: () => ipcRenderer.invoke('bilibili:account-mid') as Promise<string>,
   readBilibiliAccount: () =>
     ipcRenderer.invoke('favorite-library:read-account') as Promise<{ mid: string; nickname?: string }>,
@@ -228,6 +232,11 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     const listener = () => callback()
     ipcRenderer.on('bilibili-session:reload-requested', listener)
     return () => ipcRenderer.removeListener('bilibili-session:reload-requested', listener)
+  },
+  onBilibiliFavoriteSpaceRefreshStatusChanged: (callback: (status: { accountMid: string; status: 'idle' | 'pending' }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: { accountMid: string; status: 'idle' | 'pending' }) => callback(status)
+    ipcRenderer.on('bilibili-favorite-space-refresh:status-changed', listener)
+    return () => ipcRenderer.removeListener('bilibili-favorite-space-refresh:status-changed', listener)
   },
   onFavoriteLibraryTranscriptionChanged: (callback: () => void) => {
     const listener = () => callback()

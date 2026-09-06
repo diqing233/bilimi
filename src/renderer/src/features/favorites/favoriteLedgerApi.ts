@@ -147,8 +147,47 @@ function sharedScriptHelpers(): string {
       .trim()
       .replace(/^bilimi\\s*[·:：\-]?\\s*/iu, '')
       .trim();
-    // Only the current numeric shard suffix denotes a capacity shard.
-    const normalizeLogicalFolderTitle = (title) => normalizeFolderTitle(title).replace(/\\s*·\\s*([2-9]\\d*)$/u, '').trim();
+    const circledShardNumbers = [
+      '',
+      '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩',
+      '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳',
+      '㉑', '㉒', '㉓', '㉔', '㉕', '㉖', '㉗', '㉘', '㉙', '㉚',
+      '㉛', '㉜', '㉝', '㉞', '㉟', '㊱', '㊲', '㊳', '㊴', '㊵',
+      '㊶', '㊷', '㊸', '㊹', '㊺', '㊻', '㊼', '㊽', '㊾', '㊿'
+    ];
+    const circledDigitValues = new Map([
+      ['⓪', 0], ['①', 1], ['②', 2], ['③', 3], ['④', 4],
+      ['⑤', 5], ['⑥', 6], ['⑦', 7], ['⑧', 8], ['⑨', 9]
+    ]);
+    const circledShardSuffix = (source) => {
+      const characters = Array.from(String(source || ''));
+      const last = characters.at(-1) || '';
+      const penultimate = characters.at(-2) || '';
+      const tens = circledDigitValues.get(penultimate);
+      const units = circledDigitValues.get(last);
+      if (tens !== undefined && units !== undefined && tens >= 5) {
+        return { suffix: penultimate + last, shardNumber: tens * 10 + units };
+      }
+      const shardNumber = circledShardNumbers.indexOf(last);
+      return shardNumber > 0 ? { suffix: last, shardNumber } : undefined;
+    };
+    const circledCapacityShardSuffix = (shardNumber) => {
+      if (shardNumber <= 1) return '';
+      if (circledShardNumbers[shardNumber]) return circledShardNumbers[shardNumber];
+      return String(shardNumber).split('').map((digit) => circledShardNumbers[Number(digit)] || digit).join('');
+    };
+    // A manual circled suffix must be stripped before NFKC turns it into a
+    // normal digit. Legacy dot-number shards remain readable only.
+    const normalizeLogicalFolderTitle = (title) => {
+      const normalizedTitle = normalizeFolderTitle(title);
+      const suffix = circledShardSuffix(normalizedTitle);
+      const withoutCircledShard = suffix ? normalizedTitle.slice(0, -suffix.suffix.length) : normalizedTitle;
+      return withoutCircledShard
+        .normalize('NFKC')
+        .replace(/\\s*·\\s*([2-9]\\d*)$/u, '')
+        .trim()
+        .toLocaleLowerCase();
+    };
     const isBilimiManagedFolder = (folder) => /^bilimi(?=$|[\\s·.：:-]|[\\u3400-\\u9fff])/iu.test(String(folder?.title || '').trim());
     const ledgerRemoteFolderIds = (ledger) => Array.from(new Set([
       ...(Array.isArray(ledger?.bilibiliFolderIds) ? ledger.bilibiliFolderIds : []),
@@ -313,7 +352,6 @@ function sharedScriptHelpers(): string {
         ledger.bindingState === 'unbound' &&
         folderIds.length === 1 &&
         ledger.ruleOrigin !== 'saved-rule' &&
-        ledger.ruleOrigin !== 'recommendation-draft' &&
         !ledger.enabled &&
         !keywords.some((keyword) => String(keyword || '').trim());
     };
@@ -325,8 +363,7 @@ function sharedScriptHelpers(): string {
       folders,
       dismissedRemoteFolderIds = [],
       remoteDraftKnownFolderIds = [],
-      remoteDraftBoundFolderIds = [],
-      deletedRecommendationRemoteFolderIds = []
+      remoteDraftBoundFolderIds = []
     ) => {
       const nextLedgers = [];
       const ledgerIndexById = new Map();
@@ -382,10 +419,6 @@ function sharedScriptHelpers(): string {
       const suppressedFolderIds = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : [])
         .map((folderId) => String(folderId || '').trim())
         .filter(Boolean));
-      for (const folderId of Array.isArray(deletedRecommendationRemoteFolderIds) ? deletedRecommendationRemoteFolderIds : []) {
-        const normalized = String(folderId || '').trim();
-        if (normalized) suppressedFolderIds.add(normalized);
-      }
       const deduplicatedLedgers = nextLedgers.filter((ledger) => {
         if (!isPureRemoteObservationDraft(ledger)) return true;
         const folderIds = ledgerRemoteFolderIds(ledger);
@@ -469,24 +502,18 @@ function sharedScriptHelpers(): string {
       folders,
       dismissedRemoteFolderIds = [],
       remoteDraftKnownFolderIds = [],
-      remoteDraftBoundFolderIds = [],
-      deletedRecommendationRemoteFolderIds = []
+      remoteDraftBoundFolderIds = []
     ) => {
       const projectedLedgers = appendRemoteOnlyDrafts(
         ledgers,
         folders,
         dismissedRemoteFolderIds,
         remoteDraftKnownFolderIds,
-        remoteDraftBoundFolderIds,
-        deletedRecommendationRemoteFolderIds
+        remoteDraftBoundFolderIds
       );
       const dismissedRemoteFolderIdSet = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : [])
         .map((id) => String(id || '').trim())
         .filter(Boolean));
-      for (const folderId of Array.isArray(deletedRecommendationRemoteFolderIds) ? deletedRecommendationRemoteFolderIds : []) {
-        const normalized = String(folderId || '').trim();
-        if (normalized) dismissedRemoteFolderIdSet.add(normalized);
-      }
       return {
         ledgers: projectedLedgers,
         remoteOnlyDraftLedgerIds: projectedLedgers
@@ -502,15 +529,13 @@ export function buildFavoriteLedgerStatusScript(
   ledgers: FavoriteLedger[],
   dismissedRemoteFolderIds: string[] = [],
   remoteDraftKnownFolderIds: string[] = [],
-  remoteDraftBoundFolderIds: string[] = [],
-  deletedRecommendationRemoteFolderIds: string[] = []
+  remoteDraftBoundFolderIds: string[] = []
 ): string {
   const payload = scriptPayload({
     ledgers: normalizeLedgerPayload(ledgers),
     dismissedRemoteFolderIds,
     remoteDraftKnownFolderIds,
-    remoteDraftBoundFolderIds,
-    deletedRecommendationRemoteFolderIds
+    remoteDraftBoundFolderIds
   })
 
   return `
@@ -530,8 +555,7 @@ export function buildFavoriteLedgerStatusScript(
         folders,
         payload.dismissedRemoteFolderIds,
         payload.remoteDraftKnownFolderIds,
-        payload.remoteDraftBoundFolderIds,
-        payload.deletedRecommendationRemoteFolderIds
+        payload.remoteDraftBoundFolderIds
       );
       const nextLedgers = remoteDraftProjection.ledgers;
       const remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
@@ -634,17 +658,26 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
       if (available) {
         return { ok: true, steps: ['api:favorite:capacity-list'], existingFolder: { id: String(findFolderId(available)), title: String(available.title || ''), shardNumber: 1 }, message: '已有可用收藏夹分区。' };
       }
-      const suffixNumber = (value) => {
-        const match = String(value || '').trim().match(/·(?:0*(\d+))$/u);
-        return match ? Number(match[1]) : 1;
+      const parseShard = (value) => {
+        // Read a manual circled suffix before NFKC normalization, because
+        // NFKC converts a circled 1 into ASCII 1. Old dot-number shard names still reserve a
+        // shard number, but any newly created shard uses a circled suffix.
+        const source = String(value || '').trim();
+        const circled = circledShardSuffix(source);
+        const normalized = String(circled ? source.slice(0, -circled.suffix.length) : source)
+          .normalize('NFKC').trim().replace(/\\s+/g, ' ');
+        if (circled && normalized) return { baseTitle: normalized, shardNumber: circled.shardNumber };
+        const legacy = normalized.match(/^(.*?)\\s*·\\s*(?:0*([2-9]\\d*))$/u);
+        if (legacy && legacy[1].trim()) return { baseTitle: legacy[1].trim(), shardNumber: Number(legacy[2]) };
+        return { baseTitle: normalized, shardNumber: 1 };
       };
       // Count every matching remote shard, not just the IDs whose formal
       // binding is already persisted. A prior creation can be visible before
       // its binding reconciliation completes; it must still reserve its slot.
-      const normalizeShardBaseTitle = (value) => String(value || '').trim().replace(/\s*\u00b7\s*(?:0*(?:[2-9]\d*))$/u, '');
-      const matchingRemoteShards = folders.filter((folder) => normalizeShardBaseTitle(folder.title) === title);
-      const nextShardNumber = Math.max(...matchingRemoteShards.map((folder) => suffixNumber(folder.title)), 1) + 1;
-      const suffix = '·' + String(nextShardNumber);
+      const logicalTitle = parseShard(title).baseTitle;
+      const matchingRemoteShards = folders.filter((folder) => parseShard(folder.title).baseTitle === logicalTitle);
+      const nextShardNumber = Math.max(...matchingRemoteShards.map((folder) => parseShard(folder.title).shardNumber), 1) + 1;
+      const suffix = circledCapacityShardSuffix(nextShardNumber);
       const shardTitle = Array.from(title).slice(0, Math.max(1, 20 - Array.from(suffix).length)).join('') + suffix;
       const body = new URLSearchParams({ csrf, privacy: '0', title: shardTitle });
       const createResponse = await fetch('https://api.bilibili.com/x/v3/fav/folder/add', {
@@ -667,8 +700,7 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
 export function buildEnsureFavoriteLedgersScript(
   ledgers: FavoriteLedger[],
   options: Pick<FavoriteLedgerSaveOptions, 'rebindRemoteFolderIds' | 'lightweightBackup' | 'confirmCreateAndBind' | 'dismissedRemoteFolderIds' | 'remoteDraftKnownFolderIds'> = {},
-  remoteDraftBoundFolderIds: string[] = [],
-  deletedRecommendationRemoteFolderIds: string[] = []
+  remoteDraftBoundFolderIds: string[] = []
 ): string {
   const { remoteDraftKnownFolderIds = [], ...remoteOptions } = options
   const payload = scriptPayload({
@@ -680,8 +712,7 @@ export function buildEnsureFavoriteLedgersScript(
       dismissedRemoteFolderIds: remoteOptions.dismissedRemoteFolderIds
     },
     remoteDraftKnownFolderIds,
-    remoteDraftBoundFolderIds,
-    deletedRecommendationRemoteFolderIds
+    remoteDraftBoundFolderIds
   })
 
   return `
@@ -734,8 +765,7 @@ export function buildEnsureFavoriteLedgersScript(
           folders,
           payload.options?.dismissedRemoteFolderIds,
           payload.remoteDraftKnownFolderIds,
-          payload.remoteDraftBoundFolderIds,
-          payload.deletedRecommendationRemoteFolderIds
+          payload.remoteDraftBoundFolderIds
       );
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
@@ -783,8 +813,7 @@ export function buildEnsureFavoriteLedgersScript(
           recheckedFolders,
           payload.options?.dismissedRemoteFolderIds,
           payload.remoteDraftKnownFolderIds,
-          payload.remoteDraftBoundFolderIds,
-          payload.deletedRecommendationRemoteFolderIds
+          payload.remoteDraftBoundFolderIds
         );
         nextLedgers = remoteDraftProjection.ledgers;
         remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
@@ -864,8 +893,7 @@ export function buildSaveFavoriteLedgersScript(
   nextLedgers: FavoriteLedger[],
   _previousLedgers: FavoriteLedger[],
   options: FavoriteLedgerSaveOptions = {},
-  remoteDraftBoundFolderIds: string[] = [],
-  deletedRecommendationRemoteFolderIds: string[] = []
+  remoteDraftBoundFolderIds: string[] = []
 ): string {
   const {
     backupTargetLedgerIds: _backupTargetLedgerIds,
@@ -878,8 +906,7 @@ export function buildSaveFavoriteLedgersScript(
     nextLedgers: normalizeLedgerPayload(nextLedgers),
     options: remoteSaveOptions,
     remoteDraftKnownFolderIds,
-    remoteDraftBoundFolderIds,
-    deletedRecommendationRemoteFolderIds
+    remoteDraftBoundFolderIds
   })
 
   return `
@@ -938,8 +965,7 @@ export function buildSaveFavoriteLedgersScript(
         folders,
         payload.options?.dismissedRemoteFolderIds,
         payload.remoteDraftKnownFolderIds,
-        payload.remoteDraftBoundFolderIds,
-        payload.deletedRecommendationRemoteFolderIds
+        payload.remoteDraftBoundFolderIds
       );
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
@@ -987,8 +1013,7 @@ export function buildSaveFavoriteLedgersScript(
           recheckedFolders,
           payload.options?.dismissedRemoteFolderIds,
           payload.remoteDraftKnownFolderIds,
-          payload.remoteDraftBoundFolderIds,
-          payload.deletedRecommendationRemoteFolderIds
+          payload.remoteDraftBoundFolderIds
         );
         nextLedgers = remoteDraftProjection.ledgers;
         remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
@@ -1669,11 +1694,18 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           throw error;
         }
         const folders = readFavoriteFolderList(listJson);
-        const normalizedLedgerName = (value) => String(value ?? '')
-          .trim()
-          .replace(/^bilimi[·\\s\\-路]*/i, '')
-          .replace(/·[2-9]\\d*$/, '')
-          .trim();
+        const normalizedLedgerName = (value) => {
+          // A circled suffix must be removed before NFKC, which otherwise
+          // turns it into an ordinary digit. Legacy dot-number suffixes are
+          // still accepted only for reading old physical shards.
+          const source = String(value ?? '').trim().replace(/^bilimi[·\\s\\-路]*/i, '').trim();
+          const circled = circledShardSuffix(source);
+          const withoutCircledShard = circled ? source.slice(0, -circled.suffix.length) : source;
+          return withoutCircledShard
+            .normalize('NFKC')
+            .replace(/·[2-9]\\d*$/, '')
+            .trim();
+        };
         const ledgerByFolderId = new Map(
           payload.ledgers
             .filter((ledger) => ledger.bilibiliFolderId)
@@ -2905,15 +2937,31 @@ export function buildExecuteFavoriteLedgerPlanScript(
           await ensureApiOk(response, 'favorite ledger staging removal');
         };
         const trimFolderTitle = (title, limit) => Array.from(String(title || '').trim()).slice(0, limit).join('');
-        const logicalFolderTitle = (title) => trimFolderTitle(String(title || '').trim().replace(/·[2-9]\d*$/, ''), 14);
-        const physicalShardNumber = (title) => {
-          const match = String(title || '').trim().match(/·([2-9]\d*)$/);
-          return match ? Number(match[1]) : 1;
+        const folderTitleShard = (title) => {
+          // NFKC turns ① into 1, so read a manual circled suffix before
+          // normalizing spaces/full-width characters. Existing ·2 folders
+          // remain readable, but newly created capacity folders never use it.
+          const source = String(title || '').trim();
+          const circled = circledShardSuffix(source);
+          const normalized = String(circled ? source.slice(0, -circled.suffix.length) : source)
+            .normalize('NFKC')
+            .trim()
+            .replace(/\s+/g, ' ');
+          if (circled && normalized) {
+            return { logicalTitle: trimFolderTitle(normalized, 14), shardNumber: circled.shardNumber };
+          }
+          const legacy = normalized.match(/^(.*?)\s*·\s*([2-9]\d*)$/);
+          if (legacy && legacy[1].trim()) {
+            return { logicalTitle: trimFolderTitle(legacy[1].trim(), 14), shardNumber: Number(legacy[2]) };
+          }
+          return { logicalTitle: trimFolderTitle(normalized, 14), shardNumber: 1 };
         };
+        const logicalFolderTitle = (title) => folderTitleShard(title).logicalTitle;
+        const physicalShardNumber = (title) => folderTitleShard(title).shardNumber;
         const physicalShardTitle = (logicalTitle, shardNumber) => {
-          const base = trimFolderTitle(logicalTitle, 14);
+          const base = trimFolderTitle(logicalFolderTitle(logicalTitle), 14);
           if (shardNumber <= 1) return base;
-          const suffix = '·' + shardNumber;
+          const suffix = circledCapacityShardSuffix(shardNumber);
           return trimFolderTitle(base, 20 - Array.from(suffix).length) + suffix;
         };
         let remoteFolderSnapshotPromise;
