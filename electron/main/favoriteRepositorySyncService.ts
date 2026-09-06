@@ -1262,6 +1262,14 @@ export class FavoriteRepositorySyncService {
         }
         const desiredRemoteIds = [...new Set(desiredShards.map((shard) => shard.remoteFolderId!))].sort()
         const observedRemoteIds = [...new Set(placement.remoteObservedPhysicalFolderIds)].sort()
+        if (!desiredLogicalIds.size && !observedRemoteIds.length) {
+          await this.writePlacement(account, placement, {
+            positionState: 'target-missing', reason: 'logical-target-unbound'
+          })
+          await this.writeClassificationAdjustmentSyncStatus(account, queuedAdjustmentId, 'failed')
+          status = 'failed'
+          continue
+        }
         const appendIds = desiredRemoteIds.filter((folderId) => !observedRemoteIds.includes(folderId))
         const removeIds = observedRemoteIds.filter((folderId) => !desiredRemoteIds.includes(folderId) &&
         current.physicalShards.some((shard) => shard.remoteFolderId === folderId && shard.bindingState === 'bound'))

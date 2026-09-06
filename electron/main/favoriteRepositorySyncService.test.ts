@@ -1163,6 +1163,32 @@ describe('FavoriteRepositorySyncService', () => {
     ])
   })
 
+  it('does not report success or write Bilibili when a staging placement has no logical target', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'staging-placement', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    const append = vi.fn()
+    const remove = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove, readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn(), readFolderInventory: vi.fn() },
+      now: () => '2026-07-19T00:01:00.000Z', pacingMs: 0
+    })
+
+    await expect(service.synchronizePlacements('100', [1])).resolves.toMatchObject({ status: 'failed', affectedAids: [1] })
+    expect(append).not.toHaveBeenCalled()
+    expect(remove).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      positions: { '100:1': expect.objectContaining({ positionState: 'target-missing', localDesiredFolderIds: [] }) },
+      syncRecords: [],
+      classificationAdjustments: [expect.objectContaining({
+        operation: 'synchronize-bilibili', bilibiliSync: { attempted: true, status: 'failed' }
+      })]
+    })
+  })
+
   it('deletes only exact expected remote IDs instead of a same-title candidate', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

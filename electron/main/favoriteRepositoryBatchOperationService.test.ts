@@ -176,7 +176,7 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(preview).not.toHaveProperty('executionToken')
   })
 
-  it('recycles only after a managed placement removal is confirmed aligned and preserves local evidence', async () => {
+  it('keeps the local bilimi placement after a managed remote removal and marks it unsynced', async () => {
     let current = {
       ...snapshot(),
       videos: { '1': { aid: 1, title: 'Kept title', description: 'Kept description', tags: ['kept-tag'], updatedAt: '2026-07-24T00:00:00.000Z' } },
@@ -217,7 +217,13 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     expect(preview.recycleAids).toEqual([1])
     await service.executeManagedPlacementRemoval('100', preview.executionToken, service.confirmManagedPlacementRemoval('100', preview.executionToken))
 
-    expect(current.tombstones['100:1']).toMatchObject({ aid: 1, allowRediscovery: true, kind: 'recycled' })
+    expect(current.tombstones['100:1']).toBeUndefined()
+    expect(current.positions['100:1']).toMatchObject({
+      localDesiredFolderIds: ['bilimi-logical:source'],
+      remoteObservedPhysicalFolderIds: [],
+      remoteObservedLogicalFolderIds: [],
+      positionState: 'local-only-change'
+    })
     expect(current.videos['1']).toEqual({
       ...originalVideo,
       lastAdjustment: { kind: 'managed-placement-remove', occurredAt: '2026-07-24T01:00:00.000Z' }
@@ -375,8 +381,13 @@ describe('FavoriteRepositoryBatchOperationService', () => {
     current = { ...current, positions: { ...current.positions, '100:1': { ...current.positions['100:1'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'aligned' as const } } }
     await expect(service.reconcileManagedPlacementRemoval('100', preview.operationId)).resolves.toMatchObject({ status: 'completed' })
     expect(synchronizePlacements).toHaveBeenCalledTimes(1)
-    expect(current.tombstones['100:1']).toMatchObject({ kind: 'recycled' })
-    expect(current.positions['100:1'].localDesiredFolderIds).toEqual([])
+    expect(current.tombstones['100:1']).toBeUndefined()
+    expect(current.positions['100:1']).toMatchObject({
+      localDesiredFolderIds: ['bilimi-logical:source'],
+      remoteObservedPhysicalFolderIds: [],
+      remoteObservedLogicalFolderIds: [],
+      positionState: 'local-only-change'
+    })
   })
 
   it('restores the local bilimi placement when remote managed deletion is rejected', async () => {
