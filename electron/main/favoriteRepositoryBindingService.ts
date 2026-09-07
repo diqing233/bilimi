@@ -7,7 +7,7 @@ import {
   favoriteLedgerCapacityShardName
 } from '../../src/shared/favoriteLedgers'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
-import type { FavoriteRepositoryPageBridgeManager } from './favoriteRepositorySyncService'
+import type { FavoriteRepositoryPageBridge, FavoriteRepositoryPageBridgeManager } from './favoriteRepositorySyncService'
 import type { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
 const EXPLICIT_RENAME_CONFIRMATION_RETRY_DELAYS = [0, 250, 750, 1500, 2500] as const
@@ -95,6 +95,24 @@ function remoteRenameFailure(result: {
   if (result.status === 'rejected') Object.assign(error, { remoteWriteRejected: true })
   if (result.status === 'unknown') Object.assign(error, { remoteWriteResultUnknown: true })
   return error
+}
+
+async function readExactRemoteFolderForRename(
+  bridge: FavoriteRepositoryPageBridge,
+  account: string,
+  operationKey: string,
+  remoteFolderId: string
+) {
+  // The account folder list is a discovery projection and can lag a successful
+  // edit. The detail endpoint is scoped to the exact user-confirmed ID, so it
+  // is the authority for committing a rename. The inventory fallback exists
+  // only for legacy in-process test bridges; production runtime bridges always
+  // implement readFolder.
+  if (bridge.readFolder) {
+    const exact = await bridge.readFolder({ accountMid: account, operationKey, folderId: remoteFolderId })
+    return { observedAccountMid: exact.observedAccountMid, folders: [exact.folder] }
+  }
+  return bridge.readFolderInventory({ accountMid: account, operationKey })
 }
 
 export function favoriteRepositoryManagedShardTitle(logicalLedgerId: string, shardNumber: number, bindingToken: string) {
@@ -302,10 +320,12 @@ export class FavoriteRepositoryBindingService {
           if (attempt > 0) await this.waitForInventoryRetry(delayMs)
           let verifiedInventory
           try {
-            verifiedInventory = await bridge.readFolderInventory({
-              accountMid: account,
-              operationKey: `${runId}:verify-rename:${normalized.remoteFolderId}${attempt ? `-recheck-${attempt}` : ''}`
-            })
+            verifiedInventory = await readExactRemoteFolderForRename(
+              bridge,
+              account,
+              `${runId}:verify-rename:${normalized.remoteFolderId}${attempt ? `-recheck-${attempt}` : ''}`,
+              normalized.remoteFolderId
+            )
           } catch {
             if (renameResultUnknown) throw remoteRenameFailure(renameResult)
             throw new Error('Favorite repository remote shard rename is not confirmed.')
@@ -442,10 +462,12 @@ export class FavoriteRepositoryBindingService {
           if (attempt > 0) await this.waitForInventoryRetry(delayMs)
           let verifiedInventory
           try {
-            verifiedInventory = await bridge.readFolderInventory({
-              accountMid: account,
-              operationKey: `${runId}:verify-rename:${normalized.remoteFolderId}${attempt ? `-recheck-${attempt}` : ''}`
-            })
+            verifiedInventory = await readExactRemoteFolderForRename(
+              bridge,
+              account,
+              `${runId}:verify-rename:${normalized.remoteFolderId}${attempt ? `-recheck-${attempt}` : ''}`,
+              normalized.remoteFolderId
+            )
           } catch {
             if (renameResultUnknown) throw remoteRenameFailure(renameResult)
             throw new Error('Favorite repository remote shard rename is not confirmed.')

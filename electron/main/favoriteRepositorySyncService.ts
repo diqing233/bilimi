@@ -107,6 +107,7 @@ export type FavoriteRepositoryPageBridge = {
     folderIds: string[]
   }): Promise<PageBridgeResult & { members: Record<string, number[]> }>
   readFolderInventory(input: { accountMid: string; operationKey: string }): Promise<PageBridgeResult & { folders: FavoriteRepositoryRemoteFolder[] }>
+  readFolder?(input: { accountMid: string; operationKey: string; folderId: string }): Promise<PageBridgeResult & { folder: FavoriteRepositoryRemoteFolder }>
   createFolder(input: { accountMid: string; operationKey: string; title: string }): Promise<PageBridgeResult & { folder: FavoriteRepositoryRemoteFolder }>
   deleteFolder(input: { accountMid: string; operationKey: string; folderId: string }): Promise<PageBridgeDeleteResult>
   renameFolder(input: { accountMid: string; operationKey: string; folderId: string; title: string }): Promise<PageBridgeResult>

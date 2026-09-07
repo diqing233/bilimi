@@ -1129,26 +1129,22 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(readFolderInventory).toHaveBeenCalledTimes(3)
   })
 
-  it('confirms an explicitly selected unbound renamed candidate through a delayed inventory mirror', async () => {
+  it('confirms an explicitly selected unbound renamed candidate from its exact remote id while the directory remains stale', async () => {
     const repository = await createRepository()
     const expectedTitle = 'bilimi·生活日常你好'
     let renamed = false
-    let inventoryReads = 0
     const waitForInventoryRetry = vi.fn().mockResolvedValue(undefined)
     const renameFolder = vi.fn(async () => {
       renamed = true
       return { observedAccountMid: '100' }
     })
-    const readFolderInventory = vi.fn(async () => {
-      inventoryReads += 1
-      return {
-        observedAccountMid: '100',
-        folders: [{
-          id: 'life-1',
-          title: renamed && inventoryReads >= 5 ? expectedTitle : 'bilimi·生活日常',
-          memberCount: 0
-        }]
-      }
+    const readFolderInventory = vi.fn(async () => ({
+      observedAccountMid: '100',
+      folders: [{ id: 'life-1', title: 'bilimi·生活日常', memberCount: 0 }]
+    }))
+    const readFolder = vi.fn(async () => {
+      expect(renamed).toBe(true)
+      return { observedAccountMid: '100', folder: { id: 'life-1', title: expectedTitle, memberCount: 0 } }
     })
     const service = new FavoriteRepositoryBindingService({
       repository,
@@ -1156,7 +1152,7 @@ describe('FavoriteRepositoryBindingService', () => {
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
         pageBridge: vi.fn(() => ({
-          readFolderInventory, renameFolder,
+          readFolderInventory, readFolder, renameFolder,
           createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
@@ -1171,8 +1167,9 @@ describe('FavoriteRepositoryBindingService', () => {
     })
 
     expect(renameFolder).toHaveBeenCalledOnce()
-    expect(readFolderInventory).toHaveBeenCalledTimes(5)
-    expect(waitForInventoryRetry).toHaveBeenCalledTimes(3)
+    expect(readFolderInventory).toHaveBeenCalledOnce()
+    expect(readFolder).toHaveBeenCalledOnce()
+    expect(waitForInventoryRetry).not.toHaveBeenCalled()
   })
 
   it('treats a repeated exact adoption as idempotent when the inventory changes', async () => {
@@ -1297,7 +1294,7 @@ describe('FavoriteRepositoryBindingService', () => {
     expect((await repository.getSnapshot('100')).memberships['bilimi:game:001']).toEqual([7])
   })
 
-  it('keeps confirming a bound rename by the same remote id when the Bilibili directory is late', async () => {
+  it('confirms a bound rename from the exact remote id when the Bilibili directory remains stale', async () => {
     const repository = await createRepository()
     await repository.commit('100', {
       id: 'bound-game-shard', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z',
@@ -1308,21 +1305,28 @@ describe('FavoriteRepositoryBindingService', () => {
       }
     })
     let renamed = false
-    let inventoryReads = 0
     const waitForInventoryRetry = vi.fn().mockResolvedValue(undefined)
     const renameFolder = vi.fn(async () => {
       renamed = true
       return { status: 'ok' as const, observedAccountMid: '100' }
     })
-    const readFolderInventory = vi.fn(async () => {
-      inventoryReads += 1
+    const readFolderInventory = vi.fn(async () => ({
+      observedAccountMid: '100',
+      folders: [{
+        id: 'game-late',
+        title: 'bilimi·游戏专区',
+        memberCount: 0
+      }]
+    }))
+    const readFolder = vi.fn(async () => {
+      expect(renamed).toBe(true)
       return {
         observedAccountMid: '100',
-        folders: [{
+        folder: {
           id: 'game-late',
-          title: renamed && inventoryReads >= 6 ? 'bilimi·游戏专区你好' : 'bilimi·游戏专区',
+          title: 'bilimi·游戏专区你好',
           memberCount: 0
-        }]
+        }
       }
     })
     const service = new FavoriteRepositoryBindingService({
@@ -1331,7 +1335,7 @@ describe('FavoriteRepositoryBindingService', () => {
       pageBridgeManager: {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
         pageBridge: vi.fn(() => ({
-          readFolderInventory, renameFolder,
+          readFolderInventory, readFolder, renameFolder,
           createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
       }
@@ -1344,8 +1348,9 @@ describe('FavoriteRepositoryBindingService', () => {
     })
 
     expect(renameFolder).toHaveBeenCalledOnce()
-    expect(readFolderInventory).toHaveBeenCalledTimes(6)
-    expect(waitForInventoryRetry).toHaveBeenCalledTimes(4)
+    expect(readFolderInventory).toHaveBeenCalledOnce()
+    expect(readFolder).toHaveBeenCalledOnce()
+    expect(waitForInventoryRetry).not.toHaveBeenCalled()
   })
 
   it('repairs an exact formally bound shard title when the remote id is already renamed', async () => {

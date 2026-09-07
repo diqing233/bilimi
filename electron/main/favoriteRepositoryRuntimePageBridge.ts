@@ -13,7 +13,7 @@ export type FavoriteRepositoryRuntimePageBridgeInput = {
   folderId?: string
 }
 
-export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder' | 'rename-folder'
+export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'read-folder' | 'create-folder' | 'delete-folder' | 'rename-folder'
 
 function normalizedAccountMid(value: string) {
   const raw = value.trim()
@@ -108,6 +108,11 @@ export class FavoriteRepositoryRuntimePageBridgeManager {
         const result = await execute('read-folder-inventory', input)
         if (!result.folders) throw new Error('Favorite repository page bridge returned incomplete folder inventory.')
         return { observedAccountMid: result.observedAccountMid, folders: result.folders }
+      },
+      async readFolder(input) {
+        const result = await execute('read-folder', input)
+        if (!result.folder) throw new Error('Favorite repository page bridge returned incomplete remote folder.')
+        return { observedAccountMid: result.observedAccountMid, folder: result.folder }
       },
       async createFolder(input) {
         const result = await execute('create-folder', input)

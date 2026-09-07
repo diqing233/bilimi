@@ -89,6 +89,27 @@ describe('FavoriteRepositoryRuntimePageBridgeManager', () => {
     })
   })
 
+  it('routes an exact remote folder confirmation through the same account-bound target', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({
+        status: 'ok', observedAccountMid: '100',
+        folder: { id: 'game-2', title: 'bilimi·游戏专区你好', memberCount: 2 }
+      })
+    const manager = new FavoriteRepositoryRuntimePageBridgeManager(request)
+    const readInput = { accountMid: '100', operationKey: 'run-1:verify-rename:game-2', folderId: 'game-2' }
+
+    await manager.bind('100', 'run-1')
+    await expect(manager.pageBridge('100', 'run-1').readFolder(readInput)).resolves.toEqual({
+      observedAccountMid: '100', folder: { id: 'game-2', title: 'bilimi·游戏专区你好', memberCount: 2 }
+    })
+
+    expect(request).toHaveBeenLastCalledWith({
+      type: 'favorite-repository-page-operation', accountMid: '100', runId: 'run-1', target,
+      action: 'read-folder', input: readInput
+    })
+  })
+
   it('preserves a rejected or ambiguous remote delete result for the managed-folder service', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
