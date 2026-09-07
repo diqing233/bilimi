@@ -2633,6 +2633,7 @@ export default function App() {
         unboundLedgerIds: (status.unboundLedgerIds ?? []).filter((ledgerId) => !preservedBoundLedgerIds.has(ledgerId)),
         unboundCandidates: (status.unboundCandidates ?? []).filter((candidate) => !preservedBoundLedgerIds.has(candidate.ledgerId)),
         remoteOnlyDraftLedgerIds: status.remoteOnlyDraftLedgerIds ?? [],
+        remoteObservations: options.includeRemoteOnlyDrafts === true ? status.remoteObservations ?? [] : [],
         message: status.message
       }
       assistantSnapshotCacheRef.current.favoriteLedgerStatus = recoveredStatus
@@ -3011,6 +3012,8 @@ export default function App() {
         ledgersAfterDirectRename,
         {
           ...options,
+          // A single-ledger backup never returns remote observations from its
+          // write script. The dedicated read-only preflight owns that data.
           includeRemoteOnlyDrafts: false,
           remoteDraftKnownFolderIds: [...new Set([
             ...(options?.remoteDraftKnownFolderIds ?? []),
@@ -3112,6 +3115,7 @@ export default function App() {
     const hasRemoteSaveOptions = Boolean(
       options?.backupTargetLedgerIds?.length ||
       options?.rediscoverDeletedRemoteDrafts ||
+      options?.remoteObservationPreflight ||
       options?.lightweightBackup ||
       options?.confirmCreateAndBind ||
       options?.confirmBoundRename ||
@@ -3209,6 +3213,34 @@ export default function App() {
       previousLedgers,
       requestedLedgers
     )
+    if (options?.remoteObservationPreflight) {
+      const observationStatus = await readRemoteFavoriteDiscovery(accountMid)
+      const targetLedgerIds = new Set(options.backupTargetLedgerIds ?? [])
+      const targetLedgers = targetLedgerIds.size
+        ? observationStatus.ledgers.filter((ledger) => targetLedgerIds.has(ledger.id))
+        : observationStatus.ledgers
+      const targetUnboundCandidates = (observationStatus.unboundCandidates ?? [])
+        .filter((candidate) => targetLedgerIds.size === 0 || targetLedgerIds.has(candidate.ledgerId))
+      const targetUnboundLedgerIds = (observationStatus.unboundLedgerIds ?? [])
+        .filter((ledgerId) => targetLedgerIds.size === 0 || targetLedgerIds.has(ledgerId))
+      const targetMissingLedgerIds = observationStatus.missingLedgerIds
+        .filter((ledgerId) => targetLedgerIds.size === 0 || targetLedgerIds.has(ledgerId))
+      const targetUnbackedCandidates = targetLedgers
+        .filter((ledger) => ledger.enabled && ledger.bindingState === 'unbacked')
+        .map((ledger) => ({ ledgerId: ledger.id, candidates: [] }))
+      return {
+        ok: observationStatus.verified === true && targetUnboundLedgerIds.length === 0 && targetMissingLedgerIds.length === 0,
+        verified: observationStatus.verified,
+        ledgers: observationStatus.ledgers,
+        steps: ['favorite:remote-observation-preflight'],
+        missingTargets: [...targetMissingLedgerIds],
+        unboundLedgerIds: targetUnboundLedgerIds,
+        unboundCandidates: [...targetUnboundCandidates, ...targetUnbackedCandidates],
+        remoteOnlyDraftLedgerIds: [],
+        remoteObservations: observationStatus.remoteObservations ?? [],
+        message: observationStatus.message
+      }
+    }
     const observedFormalBindings = await readBoundRenameCandidatesForTargets(
       ledgersWithFormalBindings,
       formalBoundShards,
@@ -3257,10 +3289,13 @@ export default function App() {
 
     const result = await runScript(
       buildSaveFavoriteLedgersScript(ledgersForRemoteDiscovery, previousLedgers, {
-        ...options,
-        dismissedRemoteFolderIds,
-        remoteDraftKnownFolderIds,
-        includeRemoteOnlyDrafts: false
+          ...options,
+          dismissedRemoteFolderIds,
+          remoteDraftKnownFolderIds,
+          // Only the user-triggered backup preflight exposes B 站-only
+          // observations. They remain in this result and never enter
+          // preferences as local rules.
+          includeRemoteOnlyDrafts: options?.includeRemoteOnlyDrafts === true
       }, remoteDraftBoundFolderIds)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
     await refreshFavoriteSpaceAfterConfirmedPageCreate(accountMid, result)
@@ -3432,9 +3467,15 @@ export default function App() {
         ? {
             ...visibleMergedResult,
             ledgers: finalDiscoveryStatus.ledgers,
-            remoteOnlyDraftLedgerIds: finalDiscoveryStatus.remoteOnlyDraftLedgerIds ?? []
+            remoteOnlyDraftLedgerIds: finalDiscoveryStatus.remoteOnlyDraftLedgerIds ?? [],
+            remoteObservations: visibleMergedResult.remoteObservations ?? []
           }
-        : { ...visibleMergedResult, ledgers: persistedLedgersWithHistory, remoteOnlyDraftLedgerIds: [] }
+        : {
+            ...visibleMergedResult,
+            ledgers: persistedLedgersWithHistory,
+            remoteOnlyDraftLedgerIds: [],
+            remoteObservations: visibleMergedResult.remoteObservations ?? []
+          }
     }
 
     return Array.isArray(visibleMergedResult.ledgers) && options?.rebindRemoteFolders

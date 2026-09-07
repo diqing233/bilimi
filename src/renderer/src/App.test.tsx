@@ -3428,6 +3428,95 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('returns remote observations from a read-only backup preflight without running a B站 write script', async () => {
+    const accountMid = '100'
+    const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
+    const observation = { folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (isLedgerStatusScript(script)) {
+        expect(script).toContain('"includeRemoteOnlyDrafts":true')
+        return { ...emptyLedgerStatus(), remoteObservations: [observation] }
+      }
+      throw new Error(`Unexpected write script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({
+      id: 'remote-observation-preflight', type: 'save-ledgers', ledgers: [music],
+      options: {
+        backupTargetLedgerIds: [music.id],
+        deleteDisabled: false,
+        rediscoverDeletedRemoteDrafts: true,
+        remoteObservationPreflight: true
+      }
+    })).resolves.toMatchObject({
+      ok: true,
+      steps: ['favorite:remote-observation-preflight'],
+      remoteObservations: [observation]
+    })
+    expect(executeJavaScript.mock.calls.map(([script]) => String(script))).not.toContain(
+      expect.stringContaining(LEDGER_SAVE_SCRIPT_MARKER)
+    )
+  })
+
+  it('returns remote observations before a bound-rename preflight during backup discovery', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      bilibiliFolderId: '4106106611',
+      bilibiliFolderIds: ['4106106611'],
+      bindingState: 'bound' as const
+    }
+    const observation = { folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-04T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 1,
+        physicalShards: [{
+          logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+          remoteFolderId: '4106106611', remoteTitle: 'bilimi·旧游戏专区', remoteMemberCount: 0, bindingState: 'bound'
+        }],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (isLedgerStatusScript(script)) {
+        expect(script).toContain('"includeRemoteOnlyDrafts":true')
+        return { ...emptyLedgerStatus(), ledgers: [game], remoteObservations: [observation] }
+      }
+      throw new Error(`Unexpected non-status preflight: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({
+      id: 'remote-observation-before-bound-rename', type: 'save-ledgers', ledgers: [game],
+      options: {
+        backupTargetLedgerIds: [game.id], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true,
+        remoteObservationPreflight: true
+      }
+    })).resolves.toMatchObject({
+      ok: true,
+      steps: ['favorite:remote-observation-preflight'],
+      remoteObservations: [observation]
+    })
+    expect(executeJavaScript.mock.calls.map(([script]) => String(script))).not.toContain(
+      expect.stringContaining('已绑定收藏夹改名预检')
+    )
+  })
+
   it('registers rebinding shards from their explicit numeric titles instead of selection order', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!

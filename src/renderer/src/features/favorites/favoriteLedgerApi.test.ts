@@ -808,7 +808,7 @@ describe('favorite ledger API scripts', () => {
     })])
   })
 
-  it('creates an unsaved local draft for an unconfigured remote bilimi folder', async () => {
+  it('returns an unconfigured remote bilimi folder as a read-only observation instead of a local draft', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -821,11 +821,32 @@ describe('favorite ledger API scripts', () => {
 
     expect(result.ok).toBe(true)
     expect(result.missingLedgerIds).toEqual([])
-    expect(result.ledgers).toEqual([expect.objectContaining({
-      displayName: 'bilimi·你好', keywords: [], ruleType: 'keyword', enabled: false, isDefault: false,
-      bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft'
-    })])
-    expect(result.remoteOnlyDraftLedgerIds).toEqual([expect.any(String)])
+    expect(result.ledgers).toEqual([])
+    expect(result.ledgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: createRemoteObservationFavoriteLedgerId('88') })
+    ]))
+    expect(result.remoteObservations).toEqual([{
+      folderId: '88', title: 'bilimi·你好', memberCount: 6
+    }])
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+  })
+
+  it('does not report a formally bound folder as a remote observation', async () => {
+    installCookies()
+    const bound: FavoriteLedger = {
+      id: 'saved-remote', displayName: 'bilimi·已绑定', keywords: ['已绑定'], enabled: true,
+      priority: 10, isDefault: false, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound', ruleOrigin: 'saved-rule'
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·已绑定', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([bound]))
+
+    expect(result.remoteObservations).toEqual([])
   })
 
   it('does not project an unknown remote folder during a status-only read', async () => {
@@ -855,7 +876,7 @@ describe('favorite ledger API scripts', () => {
     expect(result.remoteOnlyDraftLedgerIds).toEqual([])
   })
 
-  it('reuses a recovered remote draft instead of appending a second copy after its folder id was lost', async () => {
+  it('migrates a legacy remote draft out of local ledgers and returns its current folder as an observation', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -864,19 +885,16 @@ describe('favorite ledger API scripts', () => {
       throw new Error(`Unexpected request: ${url}`)
     }))
 
-    const first = await window.eval(buildFavoriteLedgerStatusScript([])) as { ledgers: FavoriteLedger[] }
-    const recoveredWithoutRemoteId = first.ledgers.map(({ bilibiliFolderId: _bilibiliFolderId, bilibiliFolderIds: _bilibiliFolderIds, ...ledger }) => ledger)
-    const result = await window.eval(buildFavoriteLedgerStatusScript(recoveredWithoutRemoteId))
+    const result = await window.eval(buildFavoriteLedgerStatusScript([{
+      id: 'custom-remote-88', displayName: 'bilimi·你好', keywords: [], enabled: false, priority: 10,
+      isDefault: false, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft'
+    }]))
 
-    expect(result.ledgers).toEqual([expect.objectContaining({
-      id: first.ledgers[0]?.id,
-      bilibiliFolderId: '88',
-      bindingState: 'unbound',
-      syncState: 'local-draft'
-    })])
+    expect(result.ledgers).toEqual([])
+    expect(result.remoteObservations).toEqual([{ folderId: '88', title: 'bilimi·你好', memberCount: 6 }])
   })
 
-  it('normalizes a pure legacy remote observation draft to its exact folder-derived id', async () => {
+  it('migrates a pure legacy remote observation draft out of local ledgers', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -890,12 +908,11 @@ describe('favorite ledger API scripts', () => {
       isDefault: false, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'unbound', syncState: 'local-draft'
     }])) as { ledgers: FavoriteLedger[] }
 
-    expect(result.ledgers).toEqual([expect.objectContaining({
-      id: createRemoteObservationFavoriteLedgerId('88'), bilibiliFolderId: '88'
-    })])
+    expect(result.ledgers).toEqual([])
+    expect(result.remoteObservations).toEqual([{ folderId: '88', title: 'bilimi·你好', memberCount: 6 }])
   })
 
-  it('projects same-name Bilibili folders as separate remote-only drafts by folder id', async () => {
+  it('reports same-name Bilibili folders as distinct exact-id observations', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -909,28 +926,11 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildFavoriteLedgerStatusScript([]))
 
-    expect(result.ledgers).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        displayName: 'bilimi·同名',
-        bilibiliFolderId: '88',
-        bilibiliFolderIds: ['88'],
-        bindingState: 'unbound',
-        syncState: 'local-draft'
-      }),
-      expect.objectContaining({
-        displayName: 'bilimi·同名',
-        bilibiliFolderId: '89',
-        bilibiliFolderIds: ['89'],
-        bindingState: 'unbound',
-        syncState: 'local-draft'
-      })
-    ]))
-    expect(result.ledgers).toHaveLength(2)
-    expect(result.ledgers.map((ledger) => ledger.id)).toEqual(expect.arrayContaining([
-      expect.any(String),
-      expect.any(String)
-    ]))
-    expect(new Set(result.ledgers.map((ledger) => ledger.id)).size).toBe(2)
+    expect(result.ledgers).toEqual([])
+    expect(result.remoteObservations).toEqual([
+      { folderId: '88', title: 'bilimi·同名', memberCount: 6 },
+      { folderId: '89', title: 'bilimi·同名', memberCount: 9 }
+    ])
   })
 
   it('attaches same-title remote shards to the existing default ledger as a recovery candidate', async () => {
@@ -1028,7 +1028,7 @@ describe('favorite ledger API scripts', () => {
     expect(result.ledgers.map((ledger: FavoriteLedger) => ledger.id)).toEqual(expect.arrayContaining(['life', 'saved-life']))
   })
 
-  it('does not project account-known folders as remote drafts during a single-target backup', async () => {
+  it('reports only an unknown folder as an observation during a single-target backup', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -1050,17 +1050,18 @@ describe('favorite ledger API scripts', () => {
       remoteDraftKnownFolderIds: ['bound-other', 'pending-other']
     } as never))
 
-    expect(result.remoteOnlyDraftLedgerIds).toEqual([createRemoteObservationFavoriteLedgerId('unknown-folder')])
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(result.remoteObservations).toEqual([{ folderId: 'unknown-folder', title: 'bilimi·真正陌生', memberCount: 0 }])
     expect(result.ledgers).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ bilibiliFolderId: 'bound-other' }),
       expect.objectContaining({ bilibiliFolderId: 'pending-other' })
     ]))
-    expect(result.ledgers).toEqual(expect.arrayContaining([
+    expect(result.ledgers).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ bilibiliFolderId: 'unknown-folder', syncState: 'local-draft' })
     ]))
   })
 
-  it('does not return unrelated remote-only drafts from an explicit single-ledger backup', async () => {
+  it('creates the Merlin FIT target with its own title when an unrelated bilimi小咪 folder is observed', async () => {
     installCookies()
     const meilin: FavoriteLedger = {
       id: 'meilin', displayName: 'bilimi·梅林FIT', keywords: ['梅林'], enabled: true, priority: 1,
@@ -1069,7 +1070,7 @@ describe('favorite ledger API scripts', () => {
     const createTitles: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
-        return Response.json({ code: 0, data: { list: [{ id: 'xiaomi', title: 'bilimi·小咪的收藏夹', media_count: 3 }] } })
+        return Response.json({ code: 0, data: { list: [{ id: 'xiaomi', title: 'bilimi小咪的收藏夹', media_count: 3 }] } })
       }
       if (url.includes('/x/v3/fav/folder/add')) {
         createTitles.push(new URLSearchParams(String(init?.body ?? '')).get('title') ?? '')
@@ -1084,6 +1085,7 @@ describe('favorite ledger API scripts', () => {
     } as never))
 
     expect(createTitles).toEqual(['bilimi·梅林FIT'])
+    expect(createTitles).not.toContain('bilimi小咪的收藏夹')
     expect(result.remoteOnlyDraftLedgerIds).toEqual([])
     expect(result.ledgers).toEqual([
       expect.objectContaining({ id: 'meilin', bilibiliFolderId: 'created-meilin', bindingState: 'bound' })
@@ -1326,7 +1328,7 @@ describe('favorite ledger API scripts', () => {
     expect(result.ledgers).toEqual([])
   })
 
-  it('rediscovers a remote-only draft only after its explicit-backup pending suppression is released', async () => {
+  it('returns a remote observation only after its explicit-backup pending suppression is released', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -1341,16 +1343,12 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildFavoriteLedgerStatusScript([], []))
 
-    expect(result.remoteOnlyDraftLedgerIds).toEqual([expect.any(String)])
-    expect(result.ledgers).toEqual([expect.objectContaining({
-      displayName: 'bilimi·你好',
-      bilibiliFolderId: '88',
-      bindingState: 'unbound',
-      syncState: 'local-draft'
-    })])
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(result.ledgers).toEqual([])
+    expect(result.remoteObservations).toEqual([{ folderId: '88', title: 'bilimi·你好', memberCount: 6 }])
   })
 
-  it('removes an existing pure remote observation draft when its exact folder id is suppressed', async () => {
+  it('migrates pure remote observation drafts and applies exact-id suppression to observations', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -1370,12 +1368,8 @@ describe('favorite ledger API scripts', () => {
       }
     ], ['88'])) as { ledgers: FavoriteLedger[] }
 
-    expect(result.ledgers).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ bilibiliFolderId: '88' })
-    ]))
-    expect(result.ledgers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ bilibiliFolderId: '89' })
-    ]))
+    expect(result.ledgers).toEqual([])
+    expect(result.remoteObservations).toEqual([{ folderId: '89', title: 'bilimi·你好', memberCount: 3 }])
   })
 
   it.each([
@@ -1409,11 +1403,11 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildFavoriteLedgerStatusScript([]))
 
-    expect(result.ledgers).toEqual([
-      expect.objectContaining({ displayName: 'bilimi 资料', bilibiliFolderId: '89', syncState: 'local-draft' }),
-      expect.objectContaining({ displayName: 'bilimi知识', bilibiliFolderId: '90', syncState: 'local-draft' })
+    expect(result.ledgers).toEqual([])
+    expect(result.remoteObservations).toEqual([
+      { folderId: '89', title: 'bilimi 资料', memberCount: 0 },
+      { folderId: '90', title: 'bilimi知识', memberCount: 0 }
     ])
-    expect(result.ledgers).not.toEqual(expect.arrayContaining([expect.objectContaining({ displayName: 'bilimini' })]))
   })
 
   it('does not guess when multiple folders normalize to the same custom rule name', async () => {
@@ -1710,16 +1704,19 @@ describe('favorite ledger API scripts', () => {
     const legacyDeletedRecommendationIds = ['77']
 
     const status = await window.eval(buildStatus([], [], [], [], legacyDeletedRecommendationIds))
-    expect(status.remoteOnlyDraftLedgerIds).toEqual(['custom-remote-77'])
-    expect(status.ledgers).toEqual([expect.objectContaining({ id: 'custom-remote-77', bilibiliFolderId: '77' })])
+    expect(status.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(status.ledgers).toEqual([])
+    expect(status.remoteObservations).toEqual([{ folderId: '77', title: 'bilimi·已删除推荐', memberCount: 3 }])
 
     const ensure = await window.eval(buildEnsure([], { confirmCreateAndBind: true }, [], legacyDeletedRecommendationIds))
-    expect(ensure.remoteOnlyDraftLedgerIds).toEqual(['custom-remote-77'])
-    expect(ensure.ledgers).toEqual([expect.objectContaining({ id: 'custom-remote-77', bilibiliFolderId: '77' })])
+    expect(ensure.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(ensure.ledgers).toEqual([])
+    expect(ensure.remoteObservations).toEqual([{ folderId: '77', title: 'bilimi·已删除推荐', memberCount: 3 }])
 
     const save = await window.eval(buildSave([], [], { confirmCreateAndBind: true }, [], legacyDeletedRecommendationIds))
-    expect(save.remoteOnlyDraftLedgerIds).toEqual(['custom-remote-77'])
-    expect(save.ledgers).toEqual([expect.objectContaining({ id: 'custom-remote-77', bilibiliFolderId: '77' })])
+    expect(save.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(save.ledgers).toEqual([])
+    expect(save.remoteObservations).toEqual([{ folderId: '77', title: 'bilimi·已删除推荐', memberCount: 3 }])
   })
 
   it('groups manual circled shards for one binding and creates the next capacity shard as ②', async () => {
@@ -1899,15 +1896,11 @@ describe('favorite ledger API scripts', () => {
 
     expect(result.ok).toBe(false)
     expect(result.unboundCandidates).toEqual([{ ledgerId: ledger.id, candidates: [{ id: '77', title: ledger.displayName, memberCount: 0 }] }])
-    expect(result.remoteOnlyDraftLedgerIds).toEqual([expect.any(String)])
-    expect(result.ledgers).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        displayName: 'bilimi·远端草稿',
-        bilibiliFolderId: '78',
-        bindingState: 'unbound',
-        syncState: 'local-draft'
-      })
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(result.ledgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ displayName: 'bilimi·远端草稿' })
     ]))
+    expect(result.remoteObservations).toEqual([{ folderId: '78', title: 'bilimi·远端草稿', memberCount: 6 }])
     expect(fetchSpy.mock.calls.filter(([url]) => String(url).includes('/folder/add'))).toHaveLength(0)
   })
 
@@ -1931,15 +1924,11 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger]))
 
     expect(result.ok).toBe(false)
-    expect(result.remoteOnlyDraftLedgerIds).toEqual([expect.any(String)])
-    expect(result.ledgers).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        displayName: 'bilimi·远端草稿',
-        bilibiliFolderId: '78',
-        bindingState: 'unbound',
-        syncState: 'local-draft'
-      })
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(result.ledgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ displayName: 'bilimi·远端草稿' })
     ]))
+    expect(result.remoteObservations).toEqual([{ folderId: '78', title: 'bilimi·远端草稿', memberCount: 6 }])
     expect(fetchSpy.mock.calls.filter(([url]) => String(url).includes('/folder/add'))).toHaveLength(1)
   })
 

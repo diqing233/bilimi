@@ -105,6 +105,8 @@ export type FavoriteLedgerSaveOptions = {
   remoteDraftKnownFolderIds?: string[]
   /** Whether this operation is an explicit stable directory discovery that may return remote-only observation drafts. */
   includeRemoteOnlyDrafts?: boolean
+  /** Read-only directory preflight for an explicit backup; it must not create, bind, rename, or persist remote observations. */
+  remoteObservationPreflight?: boolean
   /** Restricts backup to create-or-confirm-bind for explicit library targets. */
   lightweightBackup?: boolean
   /** The user has explicitly approved creating the current library work folder after a read-only preflight found no reusable candidate. */
@@ -122,6 +124,16 @@ export type FavoriteLedgerSaveOptions = {
     currentRemoteTitle?: string
     targetTitle?: string
   }>>
+}
+
+/** A Bilibili-only folder observed during an explicit backup preflight. */
+export type RemoteFavoriteLedgerObservation = {
+  /** Exact remote operation handle; it is never a local rule identity. */
+  folderId: string
+  /** Title returned by Bilibili's folder inventory. */
+  title: string
+  /** Member count returned by the same inventory snapshot. */
+  memberCount: number
 }
 
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
@@ -293,6 +305,8 @@ export type FavoriteLedgerStatus = {
   unboundLedgerIds?: FavoriteLedgerId[]
   /** Remote-only Bilimi drafts found on Bilibili but not configured locally. */
   remoteOnlyDraftLedgerIds?: FavoriteLedgerId[]
+  /** Read-only Bilibili-only folders from an explicit discovery or backup preflight. */
+  remoteObservations?: RemoteFavoriteLedgerObservation[]
   unboundCandidates?: Array<{
     ledgerId: FavoriteLedgerId
     candidates: Array<{
@@ -404,6 +418,8 @@ export type AssistantAutomationResult = {
   resultUnknown?: boolean
   /** Remote-only Bilimi drafts observed during the operation and projected locally. */
   remoteOnlyDraftLedgerIds?: FavoriteLedgerId[]
+  /** Read-only Bilibili-only folders from this operation's fresh directory snapshot. */
+  remoteObservations?: RemoteFavoriteLedgerObservation[]
   /** Remote Bilibili folder ids confirmed by a successful favorite API call. */
   favoriteFolderIdsByLedgerId?: Record<string, string>
   /** Read-only exact-ID preflight for title-different formal bound shards. */

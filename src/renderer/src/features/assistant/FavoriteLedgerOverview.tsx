@@ -1,6 +1,7 @@
 import {
   BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH,
   BILIMI_LEDGER_PREFIX,
+  createRemoteObservationFavoriteLedgerId,
   createUserFavoriteLedgerId,
   createDefaultFavoriteLedgers,
   favoriteLedgerNameValidation,
@@ -14,9 +15,11 @@ import {
 import { isUnsavedFavoriteLedgerDraft } from '@shared/favoriteLedgerDraftDeletion'
 import type {
   FavoriteLedger,
+  AssistantAutomationResult,
   FavoriteLedgerBoundRenameCandidate,
   FavoriteLedgerRuleType,
-  FavoriteLedgerSaveOptions
+  FavoriteLedgerSaveOptions,
+  RemoteFavoriteLedgerObservation
 } from '@shared/types'
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
@@ -454,6 +457,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const [boundRenameError, setBoundRenameError] = useState<string | null>(null)
   const [rebindSelections, setRebindSelections] = useState<Record<string, string>>({})
   const [rebindSelectedFolderIds, setRebindSelectedFolderIds] = useState<Record<string, string[]>>({})
+  const [rebindTargetLedgerIds, setRebindTargetLedgerIds] = useState<string[]>([])
+  const [remoteObservations, setRemoteObservations] = useState<RemoteFavoriteLedgerObservation[]>([])
+  const [selectedRemoteObservationFolderIds, setSelectedRemoteObservationFolderIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [remoteObservationSaveError, setRemoteObservationSaveError] = useState<string | null>(null)
   const [deletionConfirmed, setDeletionConfirmed] = useState(false)
   const [deletionAcknowledgedUnbound, setDeletionAcknowledgedUnbound] = useState(false)
   const [deletionScope, setDeletionScope] = useState<ManagedDeletionScope>('local-only')
@@ -1040,9 +1047,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         deleteDisabled: false,
         backupTargetLedgerIds: eligibleLedgers.map((ledger) => ledger.id),
         rediscoverDeletedRemoteDrafts: true,
+        remoteObservationPreflight: true,
         ...options?.confirmedBackupOptions
-      }) as {
-        ok?: boolean
+      }) as AssistantAutomationResult & {
         unboundCandidates?: RebindCandidateEntry[]
         boundRenameCandidates?: FavoriteLedgerBoundRenameCandidate[]
       } | undefined
@@ -1051,22 +1058,34 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         setBoundRenameError(null)
         return result
       }
-      if (result?.unboundCandidates?.length) {
+      const freshRemoteObservations = Array.isArray(result?.remoteObservations) ? result.remoteObservations : []
+      if (result?.unboundCandidates?.length || freshRemoteObservations.length) {
         if (options?.suppressConfirmationDialog) return result
-        setRebindCandidates(result.unboundCandidates)
-        setRebindSelections(Object.fromEntries(result.unboundCandidates
+        const nextCandidates = result?.unboundCandidates ?? []
+        setRebindCandidates(nextCandidates)
+        setRebindTargetLedgerIds(eligibleLedgers.map((ledger) => ledger.id))
+        setRemoteObservations(freshRemoteObservations)
+        setSelectedRemoteObservationFolderIds(new Set())
+        setRemoteObservationSaveError(null)
+        setRebindSelections(Object.fromEntries(nextCandidates
           .filter((entry) => entry.candidates.length)
           .map((entry) => {
             const logicalTitle = displayTitle(draftLedgersRef.current.find((ledger) => ledger.id === entry.ledgerId)?.displayName ?? entry.ledgerId)
             return [entry.ledgerId, orderedRebindCandidates(entry.candidates, logicalTitle)[0]!.id]
           })))
-        setRebindSelectedFolderIds(Object.fromEntries(result.unboundCandidates
+        setRebindSelectedFolderIds(Object.fromEntries(nextCandidates
           .map((entry) => {
             const logicalTitle = displayTitle(draftLedgersRef.current.find((ledger) => ledger.id === entry.ledgerId)?.displayName ?? entry.ledgerId)
             return [entry.ledgerId, orderedRebindCandidates(entry.candidates, logicalTitle).map((candidate) => candidate.id)]
           })))
+        return result
       }
-      return result
+      return onSyncLedgers(eligibleLedgers, {
+        deleteDisabled: false,
+        backupTargetLedgerIds: eligibleLedgers.map((ledger) => ledger.id),
+        rediscoverDeletedRemoteDrafts: true,
+        ...options?.confirmedBackupOptions
+      })
     })()
     backupInFlightRef.current = operation
     try {
@@ -1548,16 +1567,79 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     ]))
     const rebindRemoteFolderIds = Object.fromEntries(Object.entries(rebindSelections)
       .filter(([ledgerId, remoteFolderId]) => rebindCandidates.some((entry) => entry.ledgerId === ledgerId && entry.candidates.length > 0) && Boolean(remoteFolderId)))
-    const result = await onSyncLedgers(projectEnabled(draftLedgers), {
-      backupTargetLedgerIds: rebindCandidates.map((entry) => entry.ledgerId),
+    const selectedObservations = remoteObservations.filter((observation) => selectedRemoteObservationFolderIds.has(observation.folderId))
+    let ledgersForBackup = projectEnabled(draftLedgersRef.current)
+    if (selectedObservations.length) {
+      const existingLedgerIds = new Set(ledgersForBackup.map((ledger) => ledger.id))
+      const nextPriority = ledgersForBackup.reduce((maximum, ledger) => Math.max(maximum, ledger.priority), 0)
+      const selectedDrafts = selectedObservations.flatMap((observation, index) => {
+        const id = createRemoteObservationFavoriteLedgerId(observation.folderId)
+        if (existingLedgerIds.has(id)) return []
+        return [{
+          id,
+          displayName: observation.title,
+          keywords: [],
+          ruleType: 'keyword' as const,
+          enabled: false,
+          priority: nextPriority + ((index + 1) * 10),
+          bilibiliFolderId: observation.folderId,
+          bilibiliFolderIds: [observation.folderId],
+          bilibiliFolderTitle: observation.title,
+          bilibiliFolderVideoCount: observation.memberCount,
+          bindingState: 'unbound' as const,
+          syncState: 'local-draft' as const,
+          ruleOrigin: 'saved-rule' as const,
+          pendingRemoteBinding: true,
+          pendingRemoteFolderId: observation.folderId,
+          isDefault: false
+        } satisfies FavoriteLedger]
+      })
+      if (selectedDrafts.length) {
+        const nextLedgers = [...ledgersForBackup, ...selectedDrafts]
+        try {
+          const saveResult = await onSaveLedgers(nextLedgers, { deleteDisabled: false }) as { ok?: boolean; message?: string } | undefined
+          if (saveResult?.ok === false) {
+            setRemoteObservationSaveError(saveResult.message ?? '本地草稿未能保存，请稍后重试。')
+            return
+          }
+        } catch {
+          setRemoteObservationSaveError('本地草稿未能保存，请稍后重试。')
+          return
+        }
+        ledgersForBackup = nextLedgers
+        draftLedgersRef.current = nextLedgers
+        setDraftLedgers(nextLedgers)
+        enableStore.reset(enableEntries(nextLedgers, false))
+        deletionStore.reset(enableEntries(nextLedgers, true))
+        setSavedLedgerSnapshots(Object.fromEntries(nextLedgers.map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))
+      }
+    }
+    const result = await onSyncLedgers(projectEnabled(ledgersForBackup), {
+      backupTargetLedgerIds: rebindTargetLedgerIds,
       deleteDisabled: false,
       rediscoverDeletedRemoteDrafts: true,
       ...(hasCreationConfirmation ? { confirmCreateAndBind: true } : {}),
       ...(Object.keys(rebindRemoteFolderIds).length ? { rebindRemoteFolderIds } : {}),
       ...(Object.keys(rebindRemoteFolders).length ? { rebindRemoteFolders } : {})
-    }) as { ok?: boolean; unboundCandidates?: RebindCandidateEntry[] } | undefined
+    }) as AssistantAutomationResult & { unboundCandidates?: RebindCandidateEntry[] } | undefined
+    if (result?.boundRenameCandidates?.length) {
+      setBoundRenameCandidates(result.boundRenameCandidates)
+      setBoundRenameError(null)
+      setRebindCandidates(null)
+      setRebindTargetLedgerIds([])
+      setRebindSelections({})
+      setRebindSelectedFolderIds({})
+      setRemoteObservations([])
+      setSelectedRemoteObservationFolderIds(new Set())
+      setRemoteObservationSaveError(null)
+      return
+    }
     if (result?.unboundCandidates?.length) {
       setRebindCandidates(result.unboundCandidates)
+      setRebindTargetLedgerIds(result.unboundCandidates.map((entry) => entry.ledgerId))
+      setRemoteObservations(Array.isArray(result.remoteObservations) ? result.remoteObservations : [])
+      setSelectedRemoteObservationFolderIds(new Set())
+      setRemoteObservationSaveError(null)
       setRebindSelections(Object.fromEntries(result.unboundCandidates
         .filter((entry) => entry.candidates.length)
         .map((entry) => {
@@ -1574,8 +1656,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     onBackupConfirmationFinished?.(result)
     if (result?.ok !== false) {
       setRebindCandidates(null)
+      setRebindTargetLedgerIds([])
       setRebindSelections({})
       setRebindSelectedFolderIds({})
+      setRemoteObservations([])
+      setSelectedRemoteObservationFolderIds(new Set())
     }
   }
   const confirmBoundRename = async () => {
@@ -1646,6 +1731,17 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const duplicateLedgerTitleIndexes = new Map<string, number>()
   const rebindHasCreationTarget = Boolean(rebindCandidates?.some((entry) => entry.candidates.length === 0))
   const rebindHasExistingCandidate = Boolean(rebindCandidates?.some((entry) => entry.candidates.length > 0))
+  const rebindHasCandidates = Boolean(rebindCandidates?.length)
+  const rebindModalTitle = rebindHasCreationTarget
+    ? '确认创建并绑定 bilimi 收藏夹'
+    : rebindHasExistingCandidate
+      ? '确认绑定 bilimi 收藏夹'
+      : '继续备册 bilimi 收藏夹'
+  const rebindConfirmLabel = rebindHasCreationTarget
+    ? '确认创建并绑定'
+    : rebindHasExistingCandidate
+      ? '确认绑定'
+      : '继续备册'
   return <section ref={ledgerHintPanelRef} className="favorite-ledger-panel__ledger-list" aria-label="收藏夹">
     <div className="favorite-ledger-panel__workspace">
       <section className="favorite-ledger-panel__checklist" aria-label="收藏夹规则">
@@ -1759,10 +1855,12 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         </div>)}
         {boundRenameError ? <p role="alert" className="favorite-ledger-panel__notice">{boundRenameError}</p> : null}
       </OldFavoriteModal> : null}
-      {rebindCandidates ? <OldFavoriteModal title={rebindHasCreationTarget ? '确认创建并绑定 bilimi 收藏夹' : '确认绑定 bilimi 收藏夹'} confirmLabel={rebindHasCreationTarget ? '确认创建并绑定' : '确认绑定'} confirmDisabled={rebindCandidates.some((entry) => entry.candidates.length > 0 && !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
-         {rebindHasCreationTarget
-           ? <p>以下已选收藏夹中，未找到可复用同名 bilimi 收藏夹的项会创建并绑定新的 B 站收藏夹；不会同步视频或处理其他收藏夹。{rebindHasExistingCandidate ? '已有候选的项请确认要绑定的实际收藏夹。' : ''}</p>
-           : <p>检测到 B 站已有疑似 bilimi 收藏夹，请确认它们是否属于同一个 bilimi 工作夹。确认后将按每个掌库收藏夹的当前名称更新 B 站收藏夹名称并完成绑定；取消则不改名。系统不会按名称自动绑定。</p>}
+      {rebindCandidates ? <OldFavoriteModal title={rebindModalTitle} confirmLabel={rebindConfirmLabel} confirmDisabled={rebindCandidates.some((entry) => entry.candidates.length > 0 && !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindTargetLedgerIds([]); setRebindSelections({}); setRebindSelectedFolderIds({}); setRemoteObservations([]); setSelectedRemoteObservationFolderIds(new Set()); setRemoteObservationSaveError(null) }} onConfirm={() => void confirmRebinding()}>
+        {rebindHasCreationTarget
+          ? <p>以下已选收藏夹中，未找到可复用同名 bilimi 收藏夹的项会创建并绑定新的 B 站收藏夹；不会同步视频或处理其他收藏夹。{rebindHasExistingCandidate ? '已有候选的项请确认要绑定的实际收藏夹。' : ''}</p>
+          : rebindHasCandidates
+            ? <p>检测到 B 站已有疑似 bilimi 收藏夹，请确认它们是否属于同一个 bilimi 工作夹。确认后将按每个掌库收藏夹的当前名称更新 B 站收藏夹名称并完成绑定；取消则不改名。系统不会按名称自动绑定。</p>
+            : <p>已发现未保存的 B 站 bilimi 收藏夹。它们不会自动加入本地规则，也不会影响本次备册。确认后将继续备册当前已选收藏夹。</p>}
         {rebindCandidates.map((entry) => {
            const ledger = draftLedgers.find((item) => item.id === entry.ledgerId)
            const logicalTitle = displayTitle(ledger?.displayName ?? entry.ledgerId)
@@ -1816,6 +1914,13 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             </div> : null}
           </div>
         })}
+        {remoteObservations.length ? <fieldset className="favorite-ledger-panel__rebind-choice"><legend>另发现 {remoteObservations.length} 个未保存的 B 站 bilimi 收藏夹</legend><p>它们不会自动加入本地规则，也不会影响本次备册。可按需生成本地草稿。</p>{remoteObservations.map((observation) => <label key={observation.folderId}><input type="checkbox" checked={selectedRemoteObservationFolderIds.has(observation.folderId)} onChange={(event) => { const checked = event.currentTarget.checked; setSelectedRemoteObservationFolderIds((current) => {
+          const next = new Set(current)
+          if (checked) next.add(observation.folderId)
+          else next.delete(observation.folderId)
+          return next
+        }) }} />{observation.title}（{observation.memberCount} 个视频）</label>)}</fieldset> : null}
+        {remoteObservationSaveError ? <p role="alert" className="favorite-ledger-panel__notice">{remoteObservationSaveError}</p> : null}
       </OldFavoriteModal> : null}
     </div>
     {resetConfirmOpen ? <OldFavoriteModal title="重置收藏夹规则？" confirmLabel="确认重置" onCancel={() => setResetConfirmOpen(false)} onConfirm={() => { resetLedgers(); setResetConfirmOpen(false) }}><p>恢复默认收藏夹名称和分类规则，保留自建收藏夹但取消其勾选，不会删除已有收藏夹。</p></OldFavoriteModal> : null}
