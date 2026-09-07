@@ -2750,7 +2750,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认删除 B 站 bilimi 归属' }))
     await waitFor(() => expect(confirmFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', 'batch-preview'))
     expect(executeFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', 'batch-preview', 'batch-confirm')
-    expect(await screen.findByText('从 B 站 bilimi 收藏夹删除未成功，请稍后重试。')).toHaveAttribute('role', 'alert')
+    expect(await screen.findByText('暂时无法确认是否已从 B 站 bilimi 收藏夹删除；请稍后对账。')).toHaveAttribute('role', 'alert')
     expect(screen.queryByText('远程结果待确认')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '对账工作夹移出结果' })).not.toBeInTheDocument()
   })
@@ -2791,7 +2791,7 @@ describe('FavoriteLibraryApp', () => {
 
     await waitFor(() => expect(previewFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', [1], ['bilimi-logical:games', 'bilimi-logical:music'], 4, expect.any(Object)))
   })
-  it('keeps only legacy unfavorite reconciliation actionable and hides managed reconciliation notices', async () => {
+  it('keeps remote unfavorite and managed-placement reconciliation actionable', async () => {
     const reconcileFavoriteLibraryRemoteUnfavoriteOperation = vi.fn().mockResolvedValue({ status: 'succeeded' })
     const reconcileFavoriteLibraryManagedFolderDelete = vi.fn().mockResolvedValue({ status: 'succeeded' })
     const reconcileFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({ status: 'succeeded' })
@@ -2813,12 +2813,32 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByTestId('favorite-library-topbar')).toContainElement(reconcileButton)
     expect(document.querySelector('.favorite-library__workspace')?.contains(reconcileButton)).toBe(false)
     expect(screen.queryByRole('button', { name: '对账文件夹删除结果' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '对账工作夹移出结果' })).not.toBeInTheDocument()
-    fireEvent.click(reconcileButton)
-    await waitFor(() => expect(reconcileFavoriteLibraryRemoteUnfavoriteOperation).toHaveBeenCalledWith('100', 'recovered-unfavorite'))
-    await waitFor(() => expect(openFavoriteRepositoryAccount).toHaveBeenCalledTimes(2))
-    expect(screen.queryByRole('button', { name: '对账取消收藏结果' })).not.toBeInTheDocument()
+    const managedReconcileButton = screen.getByRole('button', { name: '对账工作夹移出结果' })
+    fireEvent.click(managedReconcileButton)
+    await waitFor(() => expect(reconcileFavoriteLibraryManagedPlacementRemoval).toHaveBeenCalledWith('100', 'recovered-placement'))
     expect(reconcileFavoriteLibraryManagedFolderDelete).not.toHaveBeenCalled()
+  })
+  it('refreshes the library before reporting a managed placement that remains on B站', async () => {
+    const reconcileFavoriteLibraryManagedPlacementRemoval = vi.fn().mockResolvedValue({ status: 'failed' })
+    const openFavoriteRepositoryAccount = vi.fn()
+      .mockResolvedValueOnce({ version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-23T00:00:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 1, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 1 }, remoteReconciliations: [{ kind: 'managed-placement', operationId: 'recovered-placement' }] })
+      .mockResolvedValue({ version: 1, accountMid: '100', revision: 5, updatedAt: '2026-07-23T00:01:00.000Z', videoCount: 1, folderCount: 0, folders: [], physicalShardCount: 0, syncRecordCount: 1, syncCounts: { pending: 0, succeeded: 0, failed: 1, 'result-unknown': 0 }, remoteReconciliations: [] })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount,
+      getFavoriteRepositoryLibraryPage: vi.fn()
+        .mockResolvedValueOnce({ version: 1, accountMid: '100', revision: 4, items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: ['result-unknown'] }] })
+        .mockResolvedValue({ version: 1, accountMid: '100', revision: 5, items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }, folderIds: [], pendingStates: ['failed'] }] }),
+      reconcileFavoriteLibraryManagedPlacementRemoval,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '对账工作夹移出结果' }))
+
+    expect(await screen.findByText('未从 B 站 bilimi 收藏夹删除：目标收藏夹仍包含该视频。')).toHaveAttribute('role', 'alert')
+    expect(openFavoriteRepositoryAccount).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('button', { name: '待处理' }).parentElement).toHaveTextContent('1')
   })
   it('does not publish a drawer reconciliation notice for managed-folder or placement results awaiting confirmation', async () => {
     const onDrawerStatusChange = vi.fn()
@@ -3167,7 +3187,7 @@ describe('FavoriteLibraryApp', () => {
     expect(await screen.findByText(/同步完成：2\/2/u)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '关闭同步完成提示' }))
     expect(screen.queryByText(/同步完成：2\/2/u)).not.toBeInTheDocument()
-    expect(await screen.findByText('远程状态待确认：操作失败或结果未知')).toBeInTheDocument()
+    expect(screen.queryByText('远程状态待确认：操作失败或结果未知')).not.toBeInTheDocument()
   })
   it('keeps a running library sync controllable when another library action fails', async () => {
     const startFavoriteLibraryPlacementRun = vi.fn().mockResolvedValue({ id: 'run-1', status: 'running', completed: 0, total: 1, failed: 0, queued: 0, unknown: 0 })
@@ -3468,7 +3488,7 @@ describe('FavoriteLibraryApp', () => {
     expect(document.querySelector('.favorite-library__workspace-heading')).not.toContainElement(feedback)
   })
 
-  it('projects remote pending guidance into the same library title-row feedback slot', async () => {
+  it('does not duplicate the drawer sync-confirmation notice in the library title row', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
@@ -3485,10 +3505,8 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
 
-    const feedback = await screen.findByTestId('favorite-library-workspace-feedback')
-    expect(feedback).toHaveTextContent('远程状态待确认：操作失败或结果未知')
-    expect(screen.getByTestId('favorite-library-topbar')).toContainElement(feedback)
-    expect(document.querySelector('.favorite-library__workspace-heading')).not.toContainElement(feedback)
+    await screen.findByText('待确认视频')
+    expect(screen.queryByTestId('favorite-library-workspace-feedback')).not.toBeInTheDocument()
   })
 
   it('renders initial and successful-sync facts in the ownership block while retaining adjustment history', async () => {
@@ -4476,7 +4494,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '已转写' }))
     expect(await screen.findByText('Completed row')).toBeInTheDocument()
     await act(async () => { notifyRepository?.() })
-    fireEvent.click(await screen.findByRole('button', { name: 'go-pending-scope' }))
+    fireEvent.click(screen.getByRole('button', { name: '待处理' }))
 
     await waitFor(() => expect(getPage.mock.calls.at(-1)?.slice(0, 2)).toEqual(['100', { kind: 'pending' }]))
     expect(await screen.findByText('Pending row')).toBeInTheDocument()

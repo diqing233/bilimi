@@ -835,6 +835,7 @@ export function FavoriteLibraryApp({
     scopeRef.current = { kind: 'pending' }
     setSearchQuery('')
     setLibraryStateFilters({ sync: 'all', protection: 'all', organization: 'all' })
+    setSourceFilter('all')
     setTranscriptionFilters([])
     setClassificationSources([])
     setPageNumber(1)
@@ -920,7 +921,6 @@ export function FavoriteLibraryApp({
   const drawerNotices = useMemo<FavoriteLibraryDrawerNotice[]>(() => {
     const failedCount = summary?.syncCounts.failed ?? 0
     const confirmationCount = summary?.syncCounts['result-unknown'] ?? 0
-    const legacyRemoteReconciliations = remoteReconciliations.filter((item) => item.kind === 'unfavorite')
     const notices: FavoriteLibraryDrawerNotice[] = []
     if (failedCount) {
       notices.push({
@@ -935,14 +935,6 @@ export function FavoriteLibraryApp({
         id: 'sync-confirmation-required',
         priority: 90,
         message: `${confirmationCount}个视频同步待确认`,
-        onActivate: goToPending
-      })
-    }
-    if (legacyRemoteReconciliations.length) {
-      notices.push({
-        id: 'remote-reconciliation-required',
-        priority: 80,
-        message: `${legacyRemoteReconciliations.length}项远程操作待处理`,
         onActivate: goToPending
       })
     }
@@ -991,7 +983,7 @@ export function FavoriteLibraryApp({
       })
     }
     return notices.sort((left, right) => right.priority - left.priority || left.id.localeCompare(right.id))
-  }, [accountMid, goToPending, openAssistantWorkspace, remoteReconciliations, summary?.syncCounts.failed, summary?.syncCounts['result-unknown'], summary?.workspace?.status, transcriptionQueue, transcriptionSuccessCount])
+  }, [accountMid, goToPending, openAssistantWorkspace, summary?.syncCounts.failed, summary?.syncCounts['result-unknown'], summary?.workspace?.status, transcriptionQueue, transcriptionSuccessCount])
 
   useEffect(() => {
     if (!embedded) return
@@ -1822,11 +1814,9 @@ export function FavoriteLibraryApp({
       ) as { status?: string; operationId?: string; reason?: string }
       setRemoteUnfavoritePreview(undefined)
       setRemoveManagedOtherFolders(false)
-      if (result.status === 'succeeded') {
-        await refresh(accountMid)
-      } else {
-        setError('从 B 站 bilimi 收藏夹删除未成功，请稍后重试。')
-      }
+      await refresh(accountMid)
+      if (result.status === 'failed') setError('未从 B 站 bilimi 收藏夹删除：目标收藏夹仍包含该视频。')
+      else if (result.status !== 'succeeded') setError('暂时无法确认是否已从 B 站 bilimi 收藏夹删除；请稍后对账。')
     } finally {
       setRemoteUnfavoriteExecuting(false)
     }
@@ -1841,11 +1831,9 @@ export function FavoriteLibraryApp({
       accountMid, batchRemoteUnfavoritePreview.executionToken, confirmation.confirmationToken
     ) as { status?: string; operationId?: string }
     setBatchRemoteUnfavoritePreview(undefined)
-    if (result.status === 'succeeded') {
-      await refresh(accountMid)
-      return
-    }
-    setError('从 B 站 bilimi 收藏夹删除未成功，请稍后重试。')
+    await refresh(accountMid)
+    if (result.status === 'failed') setError('未从 B 站 bilimi 收藏夹删除：目标收藏夹仍包含所选视频。')
+    else if (result.status !== 'succeeded') setError('暂时无法确认是否已从 B 站 bilimi 收藏夹删除；请稍后对账。')
   }
   const previewBatchRemoteUnfavorite = async (selection: FavoriteLibraryOperationSelection, logicalFolderIds: string[], includeOtherWorkFolders: boolean) => {
     await ensureCurrentMutationSummary()
@@ -1901,14 +1889,17 @@ export function FavoriteLibraryApp({
   const reconcileRemoteOperation = async (remoteReconciliation: { kind: 'unfavorite' | 'managed-folder' | 'managed-placement'; operationId: string }) => {
     const api = window.bilimiDesktop
     if (!accountMid || !remoteReconciliation) throw new Error(text.unavailable)
+    let placementStillPresent = false
     if (remoteReconciliation.kind === 'unfavorite') {
       await api?.reconcileFavoriteLibraryRemoteUnfavoriteOperation?.(accountMid, remoteReconciliation.operationId)
     } else if (remoteReconciliation.kind === 'managed-folder') {
       await api?.reconcileFavoriteLibraryManagedFolderDelete?.(accountMid, remoteReconciliation.operationId)
     } else {
-      await api?.reconcileFavoriteLibraryManagedPlacementRemoval?.(accountMid, remoteReconciliation.operationId)
+      const result = await api?.reconcileFavoriteLibraryManagedPlacementRemoval?.(accountMid, remoteReconciliation.operationId)
+      placementStillPresent = result?.status === 'failed'
     }
     await refresh(accountMid)
+    if (placementStillPresent) setError('未从 B 站 bilimi 收藏夹删除：目标收藏夹仍包含该视频。')
   }
   const openManagedFolderDeletion = async (ledgerIds: string[], mode: 'single' | 'batch' = 'batch') => {
     const api = window.bilimiDesktop
@@ -2435,14 +2426,16 @@ export function FavoriteLibraryApp({
 
   const workspaceFeedbackContent = (() => {
     const errorFeedback = error ? <p role="alert" className="favorite-library__error">{error}</p> : null
-    const unfavoriteReconciliations = remoteReconciliations.filter((item) => item.kind === 'unfavorite')
-    const remoteReconciliationFeedback = (announce = true) => unfavoriteReconciliations.length
+    const actionableReconciliations = remoteReconciliations.filter((item) => item.kind === 'unfavorite' || item.kind === 'managed-placement')
+    const reconciliationActionLabel = (kind: typeof actionableReconciliations[number]['kind']) =>
+      kind === 'unfavorite' ? '对账取消收藏结果' : '对账工作夹移出结果'
+    const remoteReconciliationFeedback = (announce = true) => actionableReconciliations.length
       ? <div className="favorite-library__remote-reconciliation" role={announce ? 'status' : undefined}>
           <span>远程结果待确认：请先逐项对账，不能自动重试或再次执行。</span>
-          {unfavoriteReconciliations.map((remoteReconciliation) => <button key={`${remoteReconciliation.kind}:${remoteReconciliation.operationId}`} type="button" onClick={() => void runDetailAction(() => reconcileRemoteOperation(remoteReconciliation))}>对账取消收藏结果</button>)}
+          {actionableReconciliations.map((remoteReconciliation) => <button key={`${remoteReconciliation.kind}:${remoteReconciliation.operationId}`} type="button" onClick={() => void runDetailAction(() => reconcileRemoteOperation(remoteReconciliation))}>{reconciliationActionLabel(remoteReconciliation.kind)}</button>)}
         </div>
       : null
-    if (unfavoriteReconciliations.length) {
+    if (actionableReconciliations.length) {
       if (!batchSyncRun || (batchSyncRun.status !== 'running' && batchSyncRun.status !== 'paused')) return remoteReconciliationFeedback()
     }
     if (batchSyncRun && (batchSyncRun.status === 'running' || batchSyncRun.status === 'paused')) {
@@ -2473,12 +2466,6 @@ export function FavoriteLibraryApp({
           </div>
     }
     if (errorFeedback) return errorFeedback
-    if ((summary?.syncCounts.failed ?? 0) || (summary?.syncCounts['result-unknown'] ?? 0)) {
-      return <div className="favorite-library__remote-reconciliation" role="status">
-        <span>远程状态待确认：操作失败或结果未知</span>
-        <button type="button" aria-label="go-pending-scope" onClick={goToPending}>去待处理</button>
-      </div>
-    }
     if (workspaceSyncResult) return <p role="status">{workspaceSyncResult}</p>
     if (batchEligibilityNotice) return <p role="alert">{batchEligibilityNotice}</p>
     return null
@@ -2682,7 +2669,12 @@ export function FavoriteLibraryApp({
             const confirmedScopeId = pageScopeId
             const nextScope = scopeForNavigation(id)
             const enteringRecycle = nextScope.kind === 'recycle'
-            const nextPageOptions = enteringRecycle ? { sort: rowSort } : pageOptions
+            const enteringPending = nextScope.kind === 'pending'
+            // Pending and recycle are top-level operational ranges. They must
+            // not inherit a transcription filter from the prior library view;
+            // otherwise the first request still queries the old filtered set
+            // before the state reset below is applied.
+            const nextPageOptions = enteringRecycle || enteringPending ? { sort: rowSort } : pageOptions
             setScopeId(id)
             setSelectedShardNumber('all')
             return load(accountMid, nextScope, 1, pageSize, nextPageOptions).then((applied) => {
@@ -2691,7 +2683,7 @@ export function FavoriteLibraryApp({
                 setScopeId(confirmedScopeId)
                 return false
               }
-              if (enteringRecycle) {
+              if (enteringRecycle || enteringPending) {
                 setSearchQuery('')
                 setLibraryStateFilters({ sync: 'all', protection: 'all', organization: 'all' })
                 setSourceFilter('all')
