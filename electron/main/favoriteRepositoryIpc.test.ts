@@ -70,11 +70,13 @@ describe('registerFavoriteRepositoryIpc', () => {
     })
 
     await expect(ipcMain.invoke('favorite-repository:rename-bound-ledger-shard', 7, '100', {
-      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1,
+      currentRemoteTitle: 'bilimi·游戏专区', targetTitle: 'bilimi·游戏专区哈哈'
     })).resolves.toEqual({ logicalLedgerId: 'game' })
 
     expect(renameBoundPhysicalShard).toHaveBeenCalledWith('100', {
-      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1,
+      currentRemoteTitle: 'bilimi·游戏专区', targetTitle: 'bilimi·游戏专区哈哈'
     })
     expect(adoptExistingPhysicalShard).not.toHaveBeenCalled()
     expect(onLedgerBindingAdopted).toHaveBeenCalledWith('100', 'game')

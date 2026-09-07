@@ -1663,7 +1663,16 @@ export default function App() {
     const confirmedKeys = Object.entries(confirmedShards)
       .flatMap(([ledgerId, shards]) => shards.map((shard) => tupleKey(ledgerId, shard)))
       .sort()
-    return candidateKeys.length === confirmedKeys.length && candidateKeys.every((key, index) => key === confirmedKeys[index])
+    if (candidateKeys.length !== confirmedKeys.length || !candidateKeys.every((key, index) => key === confirmedKeys[index])) return false
+    const candidatesByKey = new Map(candidates.flatMap((candidate) => candidate.shards.map((shard) => [
+      tupleKey(candidate.ledgerId, shard), shard
+    ] as const)))
+    return Object.entries(confirmedShards).every(([ledgerId, shards]) => shards.every((shard) => {
+      const candidate = candidatesByKey.get(tupleKey(ledgerId, shard))
+      return Boolean(candidate) &&
+        (shard.currentRemoteTitle === undefined || shard.currentRemoteTitle === candidate.currentRemoteTitle) &&
+        (shard.targetTitle === undefined || shard.targetTitle === candidate.targetTitle)
+    }))
   }
 
   function declaredBoundRemoteFolderIdsForTargets(
@@ -1703,52 +1712,6 @@ export default function App() {
       return { reason: '已绑定收藏夹改名回执未确认，未重新绑定或创建收藏夹，请刷新后重试。', detail }
     }
     return { reason: '已绑定收藏夹改名未完成，未重新绑定或创建收藏夹，请稍后重试。', detail }
-  }
-
-  function boundRenameSnapshotShard(
-    result: unknown,
-    expected: FormalBoundFavoriteShard,
-    targetTitle: string
-  ) {
-    const shards = result && typeof result === 'object' && !Array.isArray(result) &&
-      Array.isArray((result as { shards?: unknown }).shards)
-      ? (result as { shards: Array<{
-          logicalLedgerId?: unknown
-          shardNumber?: unknown
-          remoteFolderId?: unknown
-          remoteTitle?: unknown
-          remoteMemberCount?: unknown
-          bindingState?: unknown
-        }> }).shards
-      : []
-    return shards.find((shard) =>
-      shard.logicalLedgerId === expected.logicalLedgerId &&
-      shard.shardNumber === expected.shardNumber &&
-      shard.remoteFolderId === expected.remoteFolderId &&
-      shard.bindingState === 'bound' &&
-      typeof shard.remoteTitle === 'string' && shard.remoteTitle.trim() === targetTitle
-    )
-  }
-
-  async function readBoundRenameAuthoritySnapshot(
-    accountMid: string,
-    expected: FormalBoundFavoriteShard,
-    targetTitle: string
-  ): Promise<{ shards: unknown[] } | undefined> {
-    const open = window.bilimiDesktop?.openFavoriteRepositoryAccount
-    if (!open) return undefined
-    const summary = await open(accountMid)
-    if (String(summary?.accountMid ?? '').trim() !== accountMid || !Array.isArray(summary?.physicalShards)) {
-      return undefined
-    }
-    const matched = summary.physicalShards.some((shard) =>
-      shard.logicalLedgerId === expected.logicalLedgerId &&
-      shard.shardNumber === expected.shardNumber &&
-      shard.remoteFolderId === expected.remoteFolderId &&
-      shard.bindingState === 'bound' &&
-      shard.remoteTitle.trim() === targetTitle
-    )
-    return matched ? { shards: summary.physicalShards } : undefined
   }
 
   function applyBoundRenameSnapshot(
@@ -1818,7 +1781,8 @@ export default function App() {
     ledgers: FavoriteLedger[],
     formalShards: readonly FormalBoundFavoriteShard[],
     targetLedgerIds: ReadonlySet<string>,
-    declaredBoundRemoteFolderIds: ReadonlyMap<string, readonly string[]> = new Map()
+    declaredBoundRemoteFolderIds: ReadonlyMap<string, readonly string[]> = new Map(),
+    confirmedBoundRenameShards: FavoriteLedgerSaveOptions['boundRenameShards'] = undefined
   ): Promise<{ ledgers: FavoriteLedger[]; renamedLedgerIds: Set<string>; failures: BoundRenameFailure[] }> {
     const api = window.bilimiDesktop?.renameFavoriteRepositoryBoundLedgerShard
     const updatedByLedgerId = new Map<string, FavoriteLedger>()
@@ -1856,17 +1820,22 @@ export default function App() {
       for (const shard of shards) {
         try {
           const targetTitle = favoriteLedgerCapacityShardName(ledger.displayName, shard.shardNumber)
-          const result = await api(accountMid, {
+          const confirmedDialogShard = confirmedBoundRenameShards?.[ledger.id]?.find((candidate) =>
+            candidate.remoteFolderId === shard.remoteFolderId && candidate.shardNumber === shard.shardNumber)
+          await api(accountMid, {
             logicalLedgerId: shard.logicalLedgerId,
             logicalTitle: ledger.displayName,
             remoteFolderId: shard.remoteFolderId,
-            shardNumber: shard.shardNumber
+            shardNumber: shard.shardNumber,
+            currentRemoteTitle: confirmedDialogShard?.currentRemoteTitle ?? shard.remoteTitle.trim(),
+            targetTitle: confirmedDialogShard?.targetTitle ?? targetTitle
           })
-          const confirmedSnapshot = boundRenameSnapshotShard(result, shard, targetTitle)
-            ? result
-            : await readBoundRenameAuthoritySnapshot(accountMid, shard, targetTitle)
-          if (!confirmedSnapshot) {
-            throw new Error('Favorite repository bound shard rename receipt is unconfirmed by authority snapshot.')
+          const confirmedSnapshot = {
+            shards: formalShards
+              .filter((candidate) => candidate.logicalLedgerId === ledger.id)
+              .map((candidate) => candidate.remoteFolderId === shard.remoteFolderId && candidate.shardNumber === shard.shardNumber
+                ? { ...candidate, remoteTitle: targetTitle, bindingState: 'bound' as const }
+                : { ...candidate, bindingState: 'bound' as const })
           }
           updatedLedger = applyBoundRenameSnapshot(updatedLedger, confirmedSnapshot, formalShards)
         } catch (error) {
@@ -2949,7 +2918,8 @@ export default function App() {
       ledgersWithFormalBindings,
       observedFormalShards,
       explicitBackupTargetIds,
-      declaredBoundRemoteFolderIds
+      declaredBoundRemoteFolderIds,
+      options?.boundRenameShards
     )
     if (directRename.failures.length) {
       const failed = directRename.failures[0]
@@ -3192,7 +3162,8 @@ export default function App() {
       ledgersWithFormalBindings,
       observedFormalShards,
       backupTargetLedgerIdSet,
-      declaredBoundRemoteFolderIds
+      declaredBoundRemoteFolderIds,
+      options?.boundRenameShards
     )
     if (directRename.failures.length) {
       const failed = directRename.failures[0]

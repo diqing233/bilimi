@@ -3453,7 +3453,8 @@ describe('App runtime integration', () => {
     })
 
     expect(renameFavoriteRepositoryBoundLedgerShard).toHaveBeenCalledWith(accountMid, {
-      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1,
+      currentRemoteTitle: 'bilimi·游戏专区', targetTitle: 'bilimi·游戏专区哈哈'
     })
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
     expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
@@ -3570,12 +3571,14 @@ describe('App runtime integration', () => {
       logicalLedgerId: 'game',
       logicalTitle: 'bilimi·游戏专区哈哈',
       remoteFolderId: '4106106611',
-      shardNumber: 1
+      shardNumber: 1,
+      currentRemoteTitle: 'bilimi·游戏专区',
+      targetTitle: 'bilimi·游戏专区哈哈'
     })
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
   })
 
-  it('keeps the rename failed and does not start backup when an incomplete IPC receipt lacks authority confirmation', async () => {
+  it('continues a dialog-confirmed rename without reading an authority snapshot', async () => {
     const accountMid = '100'
     const game = {
       ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
@@ -3587,35 +3590,22 @@ describe('App runtime integration', () => {
     }
     const renameFavoriteRepositoryBoundLedgerShard = vi.fn().mockResolvedValue({ shards: [] })
     const adoptFavoriteRepositoryLedgerBinding = vi.fn()
+    const openFavoriteRepositoryAccount = vi.fn().mockResolvedValue({
+      version: 1, accountMid, revision: 1, updatedAt: '2026-09-07T00:00:00.000Z',
+      videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+      physicalShardCount: 1,
+      physicalShards: [{
+        logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+        remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0,
+        bindingState: 'bound' as const
+      }],
+      syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+    })
     const { requestRuntime } = renderAppWithRuntimeBridge({
       readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
       renameFavoriteRepositoryBoundLedgerShard,
       adoptFavoriteRepositoryLedgerBinding,
-      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
-        version: 1,
-        accountMid,
-        revision: 1,
-        updatedAt: '2026-09-07T00:00:00.000Z',
-        videoCount: 0,
-        folderCount: 1,
-        folders: [],
-        folderCounts: {},
-        scopeCounts: {},
-        physicalShardCount: 1,
-        physicalShards: [{
-          logicalLedgerId: 'game',
-          folderId: 'bilimi:game:001',
-          shardNumber: 1,
-          remoteFolderId: '4106106611',
-          remoteTitle: 'bilimi·游戏专区',
-          remoteMemberCount: 0,
-          bindingState: 'bound' as const
-        }],
-        syncRecordCount: 0,
-        syncCounts: {},
-        pendingAidCount: 0,
-        remoteReconciliations: []
-      })
+      openFavoriteRepositoryAccount
     })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -3635,10 +3625,14 @@ describe('App runtime integration', () => {
           }]
         }
       }
-      throw new Error(`Unexpected backup script: ${script.slice(0, 80)}`)
+      return {
+        ok: true,
+        verified: true,
+        ledgers: [{ ...game, bilibiliFolderTitle: 'bilimi·游戏专区哈哈' }],
+        steps: ['api:ledger:list'], missingTargets: [], message: '已备册'
+      }
     })
     Object.assign(webview, { executeJavaScript })
-
     await expect(requestRuntime({
       id: 'confirmed-bound-rename-unconfirmed-receipt',
       type: 'save-ledgers',
@@ -3647,19 +3641,19 @@ describe('App runtime integration', () => {
         backupTargetLedgerIds: ['game'],
         rediscoverDeletedRemoteDrafts: true,
         confirmBoundRename: true,
-        boundRenameShards: { game: [{ remoteFolderId: '4106106611', shardNumber: 1 }] }
+        boundRenameShards: { game: [{
+          remoteFolderId: '4106106611', shardNumber: 1,
+          currentRemoteTitle: 'bilimi·游戏专区', targetTitle: 'bilimi·游戏专区哈哈'
+        }] }
       }
-    })).resolves.toMatchObject({
-      ok: false,
-      steps: ['favorite:bound-shard-rename'],
-      message: '已绑定收藏夹改名回执未确认，未重新绑定或创建收藏夹，请刷新后重试。'
-    })
+    })).resolves.toMatchObject({ ok: true })
 
     expect(renameFavoriteRepositoryBoundLedgerShard).toHaveBeenCalledTimes(1)
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
     expect(executeJavaScript.mock.calls.filter(([script]) =>
       typeof script === 'string' && script.includes('已绑定收藏夹改名预检')
     )).toHaveLength(1)
+    expect(openFavoriteRepositoryAccount).toHaveBeenCalledTimes(2)
   })
 
   it('returns a no-write confirmation preflight before renaming a title-different formal bound shard', async () => {
@@ -3919,7 +3913,8 @@ describe('App runtime integration', () => {
 
     expect(renameFavoriteRepositoryBoundLedgerShard).toHaveBeenCalledTimes(1)
     expect(renameFavoriteRepositoryBoundLedgerShard).toHaveBeenCalledWith(accountMid, {
-      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteFolderId: '4106106611', shardNumber: 1
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteFolderId: '4106106611', shardNumber: 1,
+      currentRemoteTitle: '用户改过的名称', targetTitle: 'bilimi·游戏专区'
     })
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
   })
@@ -4310,7 +4305,8 @@ describe('App runtime integration', () => {
       options: { lightweightBackup: true, confirmBoundRename: true, boundRenameShards: { game: [{ remoteFolderId: '4106106611', shardNumber: 1 }] } }
     })).resolves.toMatchObject({ ok: true })
     expect(renameFavoriteRepositoryBoundLedgerShard).toHaveBeenCalledWith(accountMid, {
-      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈', remoteFolderId: '4106106611', shardNumber: 1,
+      currentRemoteTitle: 'bilimi·游戏专区', targetTitle: 'bilimi·游戏专区哈哈'
     })
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
     expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({

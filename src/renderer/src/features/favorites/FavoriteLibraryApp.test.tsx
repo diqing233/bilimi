@@ -518,7 +518,10 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(ensureFavoriteLedger).toHaveBeenLastCalledWith('bilimi-logical:music', {
       lightweightBackup: true,
       confirmBoundRename: true,
-      boundRenameShards: { music: [{ remoteFolderId: '81', shardNumber: 1 }] }
+      boundRenameShards: { music: [{
+        remoteFolderId: '81', shardNumber: 1,
+        currentRemoteTitle: '用户改过的音乐夹', targetTitle: 'bilimi·音乐'
+      }] }
     }))
   })
 
@@ -1263,7 +1266,10 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(ensureFavoriteLedger).toHaveBeenLastCalledWith('bilimi-logical:music', {
       lightweightBackup: true,
       confirmBoundRename: true,
-      boundRenameShards: { music: [{ remoteFolderId: '81', shardNumber: 1 }] }
+      boundRenameShards: { music: [{
+        remoteFolderId: '81', shardNumber: 1,
+        currentRemoteTitle: '用户改过的音乐夹', targetTitle: 'bilimi·音乐'
+      }] }
     }))
   })
 

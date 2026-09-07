@@ -558,11 +558,13 @@ export function registerFavoriteRepositoryIpc(options: {
     const logicalTitle = typeof input.logicalTitle === 'string' ? input.logicalTitle.trim() : ''
     const remoteFolderId = typeof input.remoteFolderId === 'string' ? input.remoteFolderId.trim() : ''
     const shardNumber = Number(input.shardNumber)
+    const currentRemoteTitle = typeof input.currentRemoteTitle === 'string' ? input.currentRemoteTitle.trim() : undefined
+    const targetTitle = typeof input.targetTitle === 'string' ? input.targetTitle.trim() : undefined
     if (!logicalLedgerId || !logicalTitle || !remoteFolderId || !Number.isSafeInteger(shardNumber) || shardNumber < 1) {
       throw new Error('Favorite repository bound shard rename input is invalid.')
     }
     const result = await options.bindingService.renameBoundPhysicalShard(accountMid, {
-      logicalLedgerId, logicalTitle, remoteFolderId, shardNumber
+      logicalLedgerId, logicalTitle, remoteFolderId, shardNumber, currentRemoteTitle, targetTitle
     })
     try {
       await options.onLedgerBindingAdopted?.(accountMid, logicalLedgerId)

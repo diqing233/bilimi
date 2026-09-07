@@ -2485,7 +2485,10 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), {
       backupTargetLedgerIds: ['game'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, confirmBoundRename: true,
-      boundRenameShards: { game: [{ remoteFolderId: '4106106611', shardNumber: 1 }] }
+      boundRenameShards: { game: [{
+        remoteFolderId: '4106106611', shardNumber: 1,
+        currentRemoteTitle: 'bilimi·游戏专区', targetTitle: 'bilimi·游戏专区哈哈'
+      }] }
     }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument())
   })

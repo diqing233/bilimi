@@ -116,7 +116,12 @@ export type FavoriteLedgerSaveOptions = {
   /** The owner explicitly approved renaming already formal bound shards listed by the read-only preflight. */
   confirmBoundRename?: boolean
   /** Exact formal Bilibili shard tuples displayed by the bound-rename preflight; confirmation fails closed if they change. */
-  boundRenameShards?: Record<FavoriteLedgerId, Array<{ remoteFolderId: string; shardNumber: number }>>
+  boundRenameShards?: Record<FavoriteLedgerId, Array<{
+    remoteFolderId: string
+    shardNumber: number
+    currentRemoteTitle?: string
+    targetTitle?: string
+  }>>
 }
 
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'

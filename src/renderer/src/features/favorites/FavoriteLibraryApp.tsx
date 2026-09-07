@@ -1951,7 +1951,9 @@ export function FavoriteLibraryApp({
             boundRenameShards: {
               [entry.logicalLedgerId]: entry.shards.map((shard) => ({
                 remoteFolderId: shard.remoteFolderId,
-                shardNumber: shard.shardNumber
+                shardNumber: shard.shardNumber,
+                currentRemoteTitle: shard.currentRemoteTitle,
+                targetTitle: shard.targetTitle
               }))
             }
           }) as LightweightBackupResult
