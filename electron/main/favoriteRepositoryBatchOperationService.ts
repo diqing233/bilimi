@@ -77,7 +77,6 @@ type PendingManagedPlacementRemoval = Extract<FavoriteManagedPlacementRemovalPre
   /** Immutable physical B站 targets captured at preview; never reconstruct from a later binding. */
   managedPhysicalFolderIdsByAid: Record<string, string[]>
   confirmationToken?: string
-  preserveLocalIntentAfterRemoteRemoval: boolean
   status: 'previewed' | 'result-unknown' | 'reconciliation-required' | 'failed' | 'succeeded'
 }
 
@@ -257,7 +256,6 @@ export class FavoriteRepositoryBatchOperationService {
       skippedUnmatchedAids: targetPlan.skippedUnmatchedAids, requestedAids: selected,
       selectedLogicalFolderIdsByAid: Object.fromEntries(changedAids.map((aid) => [aid, targetPlan.folderIdsByAid[aid]])),
       managedPhysicalFolderIdsByAid: Object.fromEntries(changedAids.map((aid) => [aid, managedPhysicalFolderIdsByAid[aid]])),
-      preserveLocalIntentAfterRemoteRemoval: source?.kind !== 'bilibili-user' && source?.kind !== 'bilibili-default',
       baselineRevision: snapshot.revision, executionToken: randomUUID(), status: 'previewed'
     }
     this.managedPlacementRemovalOperations.set(operation.operationId, operation)
@@ -347,8 +345,8 @@ export class FavoriteRepositoryBatchOperationService {
         }
       }
       if (status === 'succeeded') {
-        if (operation.preserveLocalIntentAfterRemoteRemoval) await this.restoreManagedPlacementLocalIntent(operation)
-        else await this.finalizeManagedPlacementRecycling(operation)
+        await this.finalizeManagedPlacementLocalRemoval(operation, true)
+        await this.finalizeManagedPlacementRecycling(operation)
       }
       await this.recordManagedPlacementRemovalResult(operation, status)
       if (status === 'result-unknown' && this.options.remoteObserver?.areManagedPlacementsRemoved) {
@@ -403,11 +401,8 @@ export class FavoriteRepositoryBatchOperationService {
         observation = 'unknown'
       }
       if (observation === 'removed') {
-        if (operation.preserveLocalIntentAfterRemoteRemoval) await this.restoreManagedPlacementLocalIntent(operation, true)
-        else {
-          await this.finalizeManagedPlacementLocalRemoval(operation, true)
-          await this.finalizeManagedPlacementRecycling(operation)
-        }
+        await this.finalizeManagedPlacementLocalRemoval(operation, true)
+        await this.finalizeManagedPlacementRecycling(operation)
         operation.status = 'succeeded'
         try {
           await this.recordManagedPlacementRemovalResult(operation, 'succeeded', 'reconciled')
@@ -418,6 +413,7 @@ export class FavoriteRepositoryBatchOperationService {
         return { status: 'completed' as const, operationId, aids: [...operation.aids] }
       }
       if (observation === 'present') {
+        await this.refreshManagedPlacementPresentObservation(operation)
         operation.status = 'failed'
         try {
           await this.recordManagedPlacementRemovalResult(operation, 'failed', 'reconciled', 'Managed remote placement still contains the video.')
@@ -434,11 +430,8 @@ export class FavoriteRepositoryBatchOperationService {
     const remoteRemovalObserved = states.every((state) => state === 'aligned') && operation.aids.every((aid) =>
       !this.hasObservedManagedPlacement(snapshot, new Set(operation.selectedLogicalFolderIdsByAid[aid]), aid))
     if (remoteRemovalObserved) {
-      if (operation.preserveLocalIntentAfterRemoteRemoval) await this.restoreManagedPlacementLocalIntent(operation)
-      else {
-        await this.finalizeManagedPlacementLocalRemoval(operation)
-        await this.finalizeManagedPlacementRecycling(operation)
-      }
+      await this.finalizeManagedPlacementLocalRemoval(operation, true)
+      await this.finalizeManagedPlacementRecycling(operation)
       operation.status = 'succeeded'
       await this.recordManagedPlacementRemovalResult(operation, 'succeeded', 'reconciled')
       return { status: 'completed' as const, operationId, aids: [...operation.aids] }
@@ -750,7 +743,6 @@ export class FavoriteRepositoryBatchOperationService {
       managedPhysicalFolderIdsByAid: record.managedPhysicalFolderIdsByAid
         ? Object.fromEntries(Object.entries(record.managedPhysicalFolderIdsByAid).map(([aid, folderIds]) => [aid, [...new Set(folderIds)].sort()]))
         : {},
-      preserveLocalIntentAfterRemoteRemoval: true,
       recycleAids: record.affectedAids.filter((aid) => {
         const position = snapshot.positions[`${accountMid}:${aid}`]
         return position?.sourceAuthority === 'complete' && !position.localDesiredFolderIds.length &&
@@ -783,42 +775,47 @@ export class FavoriteRepositoryBatchOperationService {
     }
   }
 
-  /** A confirmed remote deletion keeps the local bilimi intent and records the remote absence as unsynced. */
-  private async restoreManagedPlacementLocalIntent(operation: PendingManagedPlacementRemoval, force = false) {
+  /** A locked-folder read that finds the video again is durable evidence, not an ambiguous outcome. */
+  private async refreshManagedPlacementPresentObservation(operation: PendingManagedPlacementRemoval) {
     let snapshot = await this.options.repository.getSnapshot(operation.accountMid)
     const placements = operation.aids.flatMap((aid) => {
       const prior = snapshot.positions[`${operation.accountMid}:${aid}`]
-      const selectedFolderSet = new Set(operation.selectedLogicalFolderIdsByAid[aid])
-      if (!prior || (!force && this.hasObservedManagedPlacement(snapshot, selectedFolderSet, aid))) return []
-      const restoredLocalFolderIds = [...new Set([...prior.localDesiredFolderIds, ...operation.selectedLogicalFolderIdsByAid[aid]])].sort()
+      const physicalFolderIds = operation.managedPhysicalFolderIdsByAid[String(aid)] ?? []
+      const logicalFolderIds = operation.selectedLogicalFolderIdsByAid[String(aid)] ?? []
+      if (!prior || !physicalFolderIds.length || !logicalFolderIds.length) return []
       return [{
-        ...this.placement(aid, restoredLocalFolderIds, prior, this.now()),
-        remoteObservedPhysicalFolderIds: [],
-        remoteObservedLogicalFolderIds: [],
-        positionState: 'local-only-change' as const,
-        reason: undefined
+        ...this.placement(aid, prior.localDesiredFolderIds, prior, this.now()),
+        remoteObservedPhysicalFolderIds: [...new Set([...prior.remoteObservedPhysicalFolderIds, ...physicalFolderIds])].sort(),
+        remoteObservedLogicalFolderIds: [...new Set([...prior.remoteObservedLogicalFolderIds, ...logicalFolderIds])].sort(),
+        positionState: 'failed' as const,
+        observedAt: this.now(),
+        reason: 'Managed remote placement still contains the video.'
       }]
     })
     for (const selectedChunk of chunks(placements)) {
       const issuedAt = this.now()
       snapshot = await this.options.repository.commitWithAudit(operation.accountMid, {
-        id: `favorite-managed-placement-removal:restore-local-intent:${operation.operationId}:${randomUUID()}`,
+        id: `favorite-managed-placement-removal:present-observation:${operation.operationId}:${randomUUID()}`,
         accountMid: operation.accountMid, issuedAt, expectedRevision: snapshot.revision, type: 'set-favorite-placements',
         payload: { placements: selectedChunk }
-      }, this.events(selectedChunk.map((placement) => placement.aid), 'managed-placement-removal-reconciled', issuedAt))
+      }, this.events(selectedChunk.map((placement) => placement.aid), 'managed-placement-removal-present-observation', issuedAt))
     }
   }
 
-  /** Legacy non-library-source removals retain their original local-delete-and-recycle behavior. */
+  /** Confirmed remote removal converges only the selected local logical placements. */
   private async finalizeManagedPlacementLocalRemoval(operation: PendingManagedPlacementRemoval, force = false) {
     let snapshot = await this.options.repository.getSnapshot(operation.accountMid)
     const placements = operation.aids.flatMap((aid) => {
       const prior = snapshot.positions[`${operation.accountMid}:${aid}`]
       const selectedFolderSet = new Set(operation.selectedLogicalFolderIdsByAid[aid])
-      if (!prior || !prior.localDesiredFolderIds.some((folderId) => selectedFolderSet.has(folderId))) return []
+      if (!prior || (!force && !prior.localDesiredFolderIds.some((folderId) => selectedFolderSet.has(folderId)))) return []
       if (!force && this.hasObservedManagedPlacement(snapshot, selectedFolderSet, aid)) return []
+      const removedPhysicalFolderIds = operation.managedPhysicalFolderIdsByAid[String(aid)] ?? []
       return [{
         ...this.placement(aid, prior.localDesiredFolderIds.filter((folderId) => !selectedFolderSet.has(folderId)), prior, this.now()),
+        remoteObservedPhysicalFolderIds: prior.remoteObservedPhysicalFolderIds.filter((folderId) =>
+          !removedPhysicalFolderIds.some((removedFolderId) => this.matchesRemoteFolderId(folderId, removedFolderId))),
+        remoteObservedLogicalFolderIds: prior.remoteObservedLogicalFolderIds.filter((folderId) => !selectedFolderSet.has(folderId)),
         positionState: 'aligned' as const
       }]
     })

@@ -7511,6 +7511,13 @@ export class OldFavoriteWorkspaceCoordinator {
         count + new Set(candidate.matchedAidsBySegment?.[segmentId] ?? []).size, 0)
     })).filter((candidate) => candidate.count > 0)
     const archiveCounts = new Map<string, Map<string, number>>()
+    // The single-batch preview consumes this main-process projection directly,
+    // unlike the whole-run view which can synthesize enabled empty rows from
+    // its ledger list. Retain an already-saved participating rule even when
+    // its just-finished analysis found no matching videos.
+    for (const ledgerId of this.participatingSavedLedgerIdsByAccount.get(workspace.accountMid) ?? []) {
+      if (!excludedLedgerIds.has(ledgerId)) archiveCounts.set(ledgerId, new Map())
+    }
     let processedItemCount = 0
     let classifiedItemCount = 0
     let unmatchedItemCount = 0

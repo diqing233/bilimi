@@ -9810,6 +9810,44 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('projects a persisted participating zero-match saved ledger into a single-batch archive preview without creating a folder', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' })
+    const savedGenshinRule = {
+      id: 'genshin', title: '原神', keywords: ['原神'], ruleType: 'keyword' as const, enabled: true
+    }
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      listSavedLedgers: vi.fn().mockResolvedValue([{ id: 'genshin', title: 'bilimi·原神' }]),
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([{ id: 'genshin', title: 'bilimi·原神' }]),
+      resolveSavedLedgerRule: vi.fn().mockResolvedValue(savedGenshinRule)
+    })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const commits = vi.spyOn(repository, 'commit')
+
+    await coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'analysis-new-genshin-zero-match', ledgerId: 'genshin', title: '原神', keywords: ['原神'], ruleType: 'keyword'
+    })
+    await coordinator.setRoundExcludedLedgerIds('100', [], { participatingSavedLedgerIds: ['genshin'] })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: {
+        candidates: [expect.objectContaining({ id: 'genshin', displayName: 'bilimi·原神', count: 0 })],
+        adoptedCandidateIds: ['genshin']
+      },
+      overview: {
+        archiveTargets: expect.arrayContaining([
+          { ledgerId: 'genshin', itemCount: 0, segmentCounts: [] }
+        ])
+      }
+    })
+    expect(commits).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ physicalShards: [] })
+    expect((await repository.getSnapshot('100')).folders).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:genshin' })
+    ]))
+  })
+
   it('reclassifies when the participating rule set changes while exclusions stay empty', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' })
