@@ -393,6 +393,43 @@ describe('account favorite repository contracts', () => {
     expect(result.affectedAids).toEqual([1, 2])
   })
 
+  it('removes old logical and physical shard memberships for a batched local backed-folder move', () => {
+    const now = '2026-09-07T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      videos: { '1': { aid: 1, title: 'Move me', tags: [], updatedAt: now } },
+      folders: [
+        { id: 'bilimi-logical:game', title: 'bilimi·游戏', kind: 'bilimi-logical' as const, logicalLedgerId: 'game', syncState: 'bound' as const },
+        { id: 'bilimi-logical:knowledge', title: 'bilimi·知识', kind: 'bilimi-logical' as const, logicalLedgerId: 'knowledge', syncState: 'bound' as const }
+      ],
+      physicalShards: [
+        { logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1, remoteTitle: 'bilimi·游戏', bindingState: 'bound' as const, remoteFolderId: 'game-001' },
+        { logicalLedgerId: 'game', folderId: 'bilimi:game:002', shardNumber: 2, remoteTitle: 'bilimi·游戏·2', bindingState: 'bound' as const, remoteFolderId: 'game-002' },
+        { logicalLedgerId: 'knowledge', folderId: 'bilimi:knowledge:001', shardNumber: 1, remoteTitle: 'bilimi·知识', bindingState: 'bound' as const, remoteFolderId: 'knowledge-001' }
+      ],
+      memberships: {
+        'bilimi-logical:game': [1],
+        'bilimi:game:001': [1],
+        'bilimi:game:002': [1],
+        'bilimi-logical:knowledge': [],
+        'bilimi:knowledge:001': []
+      }
+    }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'move-backed-video', accountMid: '100', issuedAt: now, type: 'set-favorite-placements',
+      payload: {
+        placements: [{ aid: 1, localDesiredFolderIds: ['bilimi-logical:knowledge'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: now }]
+      }
+    }, now)
+
+    expect(result.memberships['bilimi-logical:game']).not.toContain(1)
+    expect(result.memberships['bilimi:game:001']).not.toContain(1)
+    expect(result.memberships['bilimi:game:002']).not.toContain(1)
+    expect(result.memberships['bilimi-logical:knowledge']).toContain(1)
+    expect(result.memberships['bilimi:knowledge:001']).toContain(1)
+  })
+
   it('accepts a bounded 257-video remote observation repair in one revision', () => {
     const now = '2026-07-23T00:00:00.000Z'
     const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now })

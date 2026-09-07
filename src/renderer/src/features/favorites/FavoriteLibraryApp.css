@@ -136,6 +136,7 @@
 .favorite-library__batch-more-menu { gap: 2px; }
 .favorite-library__batch-more-menu hr { width: 100%; height: 1px; margin: 3px 0; border: 0; background: #dbe7f7; }
 .favorite-library__batch-more-menu button { padding: 5px 7px; border: 0; border-radius: 4px; background: transparent; color: #1e3a8a; text-align: left; }
+.favorite-library__batch-more-menu button:not(.favorite-library__danger-action):hover, .favorite-library__batch-more-menu button:not(.favorite-library__danger-action):focus-visible, .favorite-library__detail-action-row > button:hover, .favorite-library__detail-action-row > button:focus-visible { border-color: #8eb5e6; background: #edf5ff; color: #1d4ed8; }
 .favorite-library__batch-floating-menu .favorite-library__danger-action { color: #9d2e2e; border-color: transparent; background: transparent; }
 .favorite-library__batch-floating-menu .favorite-library__danger-action:hover, .favorite-library__batch-floating-menu .favorite-library__danger-action:focus-visible { background: #fff4f3; }
 .favorite-library__detail-danger .favorite-library__danger-action { color: #9d2e2e; }

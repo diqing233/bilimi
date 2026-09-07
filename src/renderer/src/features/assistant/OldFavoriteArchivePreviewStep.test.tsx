@@ -3,6 +3,56 @@ import { describe, expect, it, vi } from 'vitest'
 import { groupOldFavoritePreviewItems, OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 
 describe('OldFavoriteArchivePreviewStep', () => {
+  it('shows a participating zero-match saved ledger in a single-batch archive preview', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 1, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }], segments: [],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'No matching video', sourceFolderIds: ['source'] }] },
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+      overview: {
+        available: true, completedSegmentCount: 1, totalSegmentCount: 1, unavailableItemCount: 0, sourceFolders: [], recommendationCounts: [],
+        processedItemCount: 1, classifiedItemCount: 0, unmatchedItemCount: 1, waitingItemCount: 0,
+        archiveTargets: [{ ledgerId: 'custom-genshin', itemCount: 0, segmentCounts: [] }]
+      }
+    }
+
+    render(<OldFavoriteArchivePreviewStep snapshot={snapshot} ledgers={[
+      { id: 'custom-genshin', displayName: 'bilimi·原神', keywords: [], enabled: true, priority: 0, isDefault: false }
+    ]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()} />)
+
+    const target = screen.getByRole('group', { name: 'bilimi·原神 0 条' })
+    expect(within(target).getByText('0 条适合')).toBeInTheDocument()
+  })
+
+  it('does not add a whole-run zero-match target to a multi-batch current preview', () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,
+      segmentSize: 1, hasMultipleSegments: true, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
+      segments: [
+        { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 },
+        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1, readiness: 'ready' as const, completedTagItemCount: 1, pendingTagItemCount: 0 }
+      ], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'No matching video', sourceFolderIds: ['source'] }] },
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] },
+      overview: {
+        available: true, completedSegmentCount: 2, totalSegmentCount: 2, unavailableItemCount: 0, sourceFolders: [], recommendationCounts: [],
+        processedItemCount: 2, classifiedItemCount: 1, unmatchedItemCount: 1, waitingItemCount: 0,
+        archiveTargets: [{ ledgerId: 'custom-genshin', itemCount: 0, segmentCounts: [] }]
+      }
+    }
+
+    render(<OldFavoriteArchivePreviewStep snapshot={snapshot} ledgers={[
+      { id: 'custom-genshin', displayName: 'bilimi·原神', keywords: [], enabled: true, priority: 0, isDefault: false }
+    ]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()}
+      onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()} />)
+
+    expect(screen.queryByRole('group', { name: 'bilimi·原神 0 条' })).not.toBeInTheDocument()
+  })
+
   it('keeps an adopted recommendation in the current preview while renderer selection is temporarily empty', () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const, mode: 'incremental' as const,

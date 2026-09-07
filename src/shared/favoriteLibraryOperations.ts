@@ -78,7 +78,7 @@ export function determineFavoriteOperationEligibility(input: {
         ? ['copy', 'delete-local', 'remove-managed-placement']
         : sourceScopeKind === 'mixed-virtual'
           ? [...BASE_ACTIONS, 'delete-local', 'remove-managed-placement']
-          : [...BASE_ACTIONS]
+          : [...BASE_ACTIONS, 'delete-local']
   }
 }
 

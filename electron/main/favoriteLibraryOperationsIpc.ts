@@ -159,11 +159,8 @@ export function registerFavoriteLibraryOperationsIpc(options: {
       : parsedSource
     const scope = await options.resolveSourceScope(normalized, authoritativeSource, selected)
     await current(normalized)
-    if ((scope.kind === 'bilibili-default' || scope.kind === 'bilibili-user') && action !== 'copy' && action !== 'managed-removal') {
+    if ((scope.kind === 'bilibili-default' || scope.kind === 'bilibili-user') && action !== 'copy' && action !== 'delete' && action !== 'managed-removal') {
       throw new Error('This action is not permitted from a Bilibili source folder.')
-    }
-    if (action === 'delete' && scope.kind !== 'bilimi-logical' && !(scope.kind === 'virtual' && scope.bilimiMembershipSelection)) {
-      throw new Error('Favorite local deletion requires a current Bilimi work folder.')
     }
     return { normalized, selected, scope }
   }

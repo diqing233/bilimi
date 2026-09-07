@@ -220,6 +220,10 @@ function portableSyncRecord(record: FavoriteRepositorySyncRecord) {
     ...(record.targetFolderIdsByAid ? {
       targetFolderIdsByAid: Object.fromEntries(Object.entries(record.targetFolderIdsByAid)
         .map(([aid, folderIds]) => [aid, portableLogicalFolderIds(folderIds)]))
+    } : {}),
+    ...(record.managedPhysicalFolderIdsByAid ? {
+      managedPhysicalFolderIdsByAid: Object.fromEntries(Object.entries(record.managedPhysicalFolderIdsByAid)
+        .map(([aid, folderIds]) => [aid, [...new Set(folderIds.map((folderId) => folderId.trim()).filter(Boolean))].sort()]))
     } : {})
   }
 }
@@ -619,6 +623,8 @@ export type FavoriteRepositorySyncRecord = {
   targetFolderIds?: string[]
   /** Exact logical targets per video for recovering a partially executed membership deletion. */
   targetFolderIdsByAid?: Record<string, string[]>
+  /** Exact B站 physical targets locked for a managed placement removal. */
+  managedPhysicalFolderIdsByAid?: Record<string, string[]>
   attempt?: number
   retryAvailableAt?: string
   /** Archive restoration marker. Runtime commands cannot set this status. */
@@ -1317,7 +1323,7 @@ function isPortableFrozenSyncPlan(value: unknown, accountMid: string, workspaceI
 function isPortableRecoverySyncRecord(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
-  const allowedKeys = new Set(['id', 'commandId', 'status', 'affectedAids', 'updatedAt', 'reason', 'runId', 'operationKey', 'targetFolderIds', 'targetFolderIdsByAid', 'attempt', 'retryAvailableAt', 'autoRetry'])
+  const allowedKeys = new Set(['id', 'commandId', 'status', 'affectedAids', 'updatedAt', 'reason', 'runId', 'operationKey', 'targetFolderIds', 'targetFolderIdsByAid', 'managedPhysicalFolderIdsByAid', 'attempt', 'retryAvailableAt', 'autoRetry'])
   return !Object.keys(record).some((key) => !allowedKeys.has(key)) && typeof record.id === 'string' && !!record.id.trim() && typeof record.commandId === 'string' && !!record.commandId.trim() &&
     isPortableSyncStatus(record.status) && isValidAidList(record.affectedAids) && typeof record.updatedAt === 'string' && !Number.isNaN(Date.parse(record.updatedAt)) &&
     (record.status !== 'reconciliation-required' || record.autoRetry === false) && (record.autoRetry === undefined || record.autoRetry === false) &&
@@ -1326,6 +1332,8 @@ function isPortableRecoverySyncRecord(value: unknown) {
     (record.targetFolderIds === undefined || (Array.isArray(record.targetFolderIds) && record.targetFolderIds.every(isPortableLogicalFolderId))) &&
     (record.targetFolderIdsByAid === undefined || (typeof record.targetFolderIdsByAid === 'object' && record.targetFolderIdsByAid !== null && !Array.isArray(record.targetFolderIdsByAid) &&
       Object.entries(record.targetFolderIdsByAid).every(([aid, folderIds]) => /^\d+$/u.test(aid) && Array.isArray(folderIds) && folderIds.every(isPortableLogicalFolderId)))) &&
+    (record.managedPhysicalFolderIdsByAid === undefined || (typeof record.managedPhysicalFolderIdsByAid === 'object' && record.managedPhysicalFolderIdsByAid !== null && !Array.isArray(record.managedPhysicalFolderIdsByAid) &&
+      Object.entries(record.managedPhysicalFolderIdsByAid).every(([aid, folderIds]) => /^\d+$/u.test(aid) && Array.isArray(folderIds) && folderIds.length > 0 && folderIds.every((folderId) => typeof folderId === 'string' && !!folderId.trim())))) &&
     (record.attempt === undefined || (Number.isSafeInteger(record.attempt) && Number(record.attempt) >= 0)) &&
     (record.retryAvailableAt === undefined || (typeof record.retryAvailableAt === 'string' && !Number.isNaN(Date.parse(record.retryAvailableAt))))
 }
@@ -1604,6 +1612,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         (payload.targetFolderIdsByAid !== undefined && (!payload.targetFolderIdsByAid || typeof payload.targetFolderIdsByAid !== 'object' || Array.isArray(payload.targetFolderIdsByAid) ||
           Object.entries(payload.targetFolderIdsByAid as Record<string, unknown>).some(([aid, folderIds]) => !/^\d+$/u.test(aid) || !Array.isArray(folderIds) ||
             !folderIds.length || folderIds.some((id) => typeof id !== 'string' || !/^bilimi-logical:\S+$/u.test(id))))) ||
+        (payload.managedPhysicalFolderIdsByAid !== undefined && (!payload.managedPhysicalFolderIdsByAid || typeof payload.managedPhysicalFolderIdsByAid !== 'object' || Array.isArray(payload.managedPhysicalFolderIdsByAid) ||
+          Object.entries(payload.managedPhysicalFolderIdsByAid as Record<string, unknown>).some(([aid, folderIds]) => !/^\d+$/u.test(aid) || !Array.isArray(folderIds) ||
+            !folderIds.length || folderIds.some((id) => typeof id !== 'string' || !id.trim())))) ||
         (payload.attempt !== undefined && (!Number.isSafeInteger(payload.attempt) || Number(payload.attempt) < 1))) invalidCommand()
       return
     case 'record-library-placement-run':
@@ -1780,7 +1791,9 @@ export function applyFavoriteRepositoryCommand(
     const localDesiredFolderIds = normalizeFolderIds(payload.localDesiredFolderIds)
     const remoteObservedPhysicalFolderIds = normalizeFolderIds(payload.remoteObservedPhysicalFolderIds)
     const remoteObservedLogicalFolderIds = normalizeFolderIds(payload.remoteObservedLogicalFolderIds)
-    const explicitPlacementChange = Boolean((payload as { adjustmentKind?: FavoriteRepositoryAdjustmentKind }).adjustmentKind)
+    const priorLocalDesiredFolderIds = normalizeFolderIds(positions[key]?.localDesiredFolderIds ?? [])
+    const localPlacementChanged = priorLocalDesiredFolderIds.length !== localDesiredFolderIds.length ||
+      priorLocalDesiredFolderIds.some((folderId, index) => folderId !== localDesiredFolderIds[index])
     positions[key] = {
       accountMid: snapshot.accountMid, aid: payload.aid, localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
       positionState: deriveFavoriteRepositoryPositionState({ localDesiredFolderIds, remoteObservedPhysicalFolderIds, remoteObservedLogicalFolderIds,
@@ -1793,7 +1806,7 @@ export function applyFavoriteRepositoryCommand(
     }
     const formalFolderIds = Object.keys(memberships).filter((folderId) =>
       (folderId.startsWith('local:') && folderId !== 'local:inbox') ||
-      (folderId.startsWith('bilimi-logical:') && (explicitPlacementChange || !physicalShards.some((shard) => `bilimi-logical:${shard.logicalLedgerId}` === folderId))))
+      (folderId.startsWith('bilimi-logical:') && (localPlacementChanged || !physicalShards.some((shard) => `bilimi-logical:${shard.logicalLedgerId}` === folderId))))
     const nextFormalFolderIds = new Set(localDesiredFolderIds)
     for (const folderId of new Set([...formalFolderIds, ...nextFormalFolderIds])) {
       const members = new Set(memberships[folderId] ?? [])
@@ -1802,18 +1815,25 @@ export function applyFavoriteRepositoryCommand(
       memberships = { ...memberships, [folderId]: [...members].sort((left, right) => left - right) }
       affectedFolderIds.push(folderId)
     }
-    if (explicitPlacementChange) {
-      const physicalShardByLogicalFolderId = new Map(physicalShards.map((shard) => [
-        `bilimi-logical:${shard.logicalLedgerId}`, shard
-      ]))
+    if (localPlacementChanged) {
+      const physicalShardsByLogicalFolderId = new Map<string, typeof physicalShards>()
+      for (const shard of physicalShards) {
+        const logicalFolderId = `bilimi-logical:${shard.logicalLedgerId}`
+        physicalShardsByLogicalFolderId.set(logicalFolderId, [
+          ...(physicalShardsByLogicalFolderId.get(logicalFolderId) ?? []), shard
+        ])
+      }
       for (const logicalFolderId of new Set([...formalFolderIds, ...nextFormalFolderIds])) {
-        const shard = physicalShardByLogicalFolderId.get(logicalFolderId)
-        if (!shard) continue
-        const shardMembers = new Set(memberships[shard.folderId] ?? [])
-        if (nextFormalFolderIds.has(logicalFolderId)) shardMembers.add(payload.aid)
-        else shardMembers.delete(payload.aid)
-        memberships = { ...memberships, [shard.folderId]: [...shardMembers].sort((left, right) => left - right) }
-        affectedFolderIds.push(shard.folderId)
+        const shards = physicalShardsByLogicalFolderId.get(logicalFolderId)
+        if (!shards?.length) continue
+        const targetShard = nextFormalFolderIds.has(logicalFolderId) ? shards.at(-1) : undefined
+        for (const shard of shards) {
+          const shardMembers = new Set(memberships[shard.folderId] ?? [])
+          if (shard === targetShard) shardMembers.add(payload.aid)
+          else shardMembers.delete(payload.aid)
+          memberships = { ...memberships, [shard.folderId]: [...shardMembers].sort((left, right) => left - right) }
+          affectedFolderIds.push(shard.folderId)
+        }
       }
     }
     const inbox = new Set(memberships['local:inbox'] ?? [])
@@ -2466,7 +2486,9 @@ export function applyFavoriteRepositoryCommand(
         command.payload.placements, command.payload.adjustmentKind, command.issuedAt,
         command.payload.audit?.operation, command.payload.audit?.bilibiliSync
       ) : []
-      for (const placement of command.payload.placements) applyPlacement(placement)
+      for (const placement of command.payload.placements) applyPlacement(command.payload.adjustmentKind
+        ? { ...placement, adjustmentKind: command.payload.adjustmentKind }
+        : placement)
       if (command.payload.adjustmentKind && adjustedAids.length) recordLastAdjustment(adjustedAids, command.payload.adjustmentKind, command.issuedAt)
       break
     }

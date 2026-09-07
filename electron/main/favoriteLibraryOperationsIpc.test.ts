@@ -142,7 +142,7 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     }))
   })
 
-  it('rejects local deletion from a resolved all-results virtual selection before invoking the batch service', async () => {
+  it('passes a resolved all-results virtual selection to the local deletion service', async () => {
     const ipcMain = new FakeIpcMain()
     const batch = { copy: vi.fn(), move: vi.fn(), deleteLocal: vi.fn().mockResolvedValue({ status: 'succeeded' }), previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn() }
     const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
@@ -150,12 +150,12 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     const resolveSourceScope = vi.fn(async (_accountMid, source) => ({ kind: 'virtual', ...source }))
     registerFavoriteLibraryOperationsIpc({ ipcMain, batch: batch as never, managed: managed as never, isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'), resolveSelection, resolveSourceScope: resolveSourceScope as never })
 
-    await expect(ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', {
+    await ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', {
       kind: 'scope', scope: { kind: 'all' }, options: {}, excludedAids: []
-    }, 4, { kind: 'virtual', eligibleAids: [], skippedAids: [] })).rejects.toThrow('current Bilimi work folder')
+    }, 4, { kind: 'virtual', eligibleAids: [], skippedAids: [] })
 
     expect(resolveSourceScope).toHaveBeenCalledWith('100', { kind: 'virtual', eligibleAids: [1, 2], skippedAids: [] }, [1, 2])
-    expect(batch.deleteLocal).not.toHaveBeenCalled()
+    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [1, 2], 4, { kind: 'virtual', eligibleAids: [1, 2], skippedAids: [] })
   })
 
   it('passes a virtual bilimi-membership deletion request only after resolving the selected aids in main', async () => {
@@ -302,7 +302,7 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
     expect(previewAll).toHaveBeenCalledWith('100')
   })
 
-  it('rejects local deletion, remote mutation, and placement mutation from a Bilibili source', async () => {
+  it('allows local deletion while rejecting remote and placement mutation from a Bilibili source', async () => {
     const ipcMain = new FakeIpcMain()
     const batch = { copy: vi.fn(), move: vi.fn(), deleteLocal: vi.fn(), previewRemoteUnfavorite: vi.fn(), confirmRemoteUnfavorite: vi.fn(), executeRemoteUnfavorite: vi.fn(), reconcileRemoteUnfavorite: vi.fn() }
     const managed = { preview: vi.fn(), deleteLocal: vi.fn(), confirm: vi.fn(), executeRemote: vi.fn(), reconcile: vi.fn() }
@@ -315,13 +315,13 @@ describe('registerFavoriteLibraryOperationsIpc', () => {
 
     const forgedFolder = { kind: 'folder', folderId: 'bilibili:1' }
     await expect(ipcMain.invoke('favorite-library-operations:move', 7, '100', [1], 'bilimi-logical:source', ['bilimi-logical:target'], 4, forgedFolder)).rejects.toThrow('not permitted')
-    await expect(ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [1], 4, forgedFolder)).rejects.toThrow('not permitted')
+    await ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [1], 4, forgedFolder)
     expect(() => ipcMain.invoke('favorite-library-operations:preview-unfavorite', 7, '100', [1], 4, forgedFolder)).toThrow('retired')
     expect(batch.move).not.toHaveBeenCalled()
-    expect(batch.deleteLocal).not.toHaveBeenCalled()
+    expect(batch.deleteLocal).toHaveBeenCalledWith('100', [1], 4, { kind: 'bilibili-default', folderId: 'bilibili:1' })
     expect(batch.previewRemoteUnfavorite).not.toHaveBeenCalled()
 
-    await expect(ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [1], 4, { kind: 'virtual', eligibleAids: [1], skippedAids: [2] })).rejects.toThrow('not permitted')
-    expect(batch.deleteLocal).not.toHaveBeenCalled()
+    await ipcMain.invoke('favorite-library-operations:delete-local', 7, '100', [1], 4, { kind: 'virtual', eligibleAids: [1], skippedAids: [2] })
+    expect(batch.deleteLocal).toHaveBeenCalledTimes(2)
   })
 })

@@ -351,7 +351,7 @@ function BatchActions({
     ? current.filter((id) => id !== folderId)
     : [...current, folderId].sort())
   const confirmDestination = () => {
-    if (!openMenu || openMenu === 'more' || !destinationIds.length) return
+    if (!openMenu || openMenu === 'more' || disabled || disabledActions.includes(openMenu) || !destinationIds.length) return
     onBatchPlacement?.(openMenu, destinationIds)
     closeMenu()
   }
@@ -361,7 +361,7 @@ function BatchActions({
   const destinationMenu = openMenu === 'copy' || openMenu === 'move' ? openMenu : undefined
   const floatingMenu = destinationMenu ? <div {...menuScope} ref={menuRef} role="menu" aria-label={`${destinationMenu === 'copy' ? '复制至' : '移动至'}收藏夹`} className="favorite-library__batch-floating-menu favorite-library__batch-destination-menu" style={menuPosition}>
     <FavoriteLibraryDestinationList logicalFolders={logicalFolders} destinationIds={destinationIds} onToggle={toggleDestination} focusFirst={focusDestinationFirst} />
-    <span className="favorite-library__batch-destination-actions"><button type="button" disabled={disabled || !destinationIds.length} onClick={confirmDestination}>{`确认${destinationMenu === 'copy' ? '复制' : '移动'}`}</button><button type="button" onClick={closeMenu}>取消</button></span>
+    <span className="favorite-library__batch-destination-actions"><button type="button" disabled={disabled || disabledActions.includes(destinationMenu) || !destinationIds.length} onClick={confirmDestination}>{`确认${destinationMenu === 'copy' ? '复制' : '移动'}`}</button><button type="button" onClick={closeMenu}>取消</button></span>
   </div> : openMenu === 'more' ? <div {...menuScope} ref={menuRef} role="menu" aria-label="更多批量操作菜单" className="favorite-library__batch-floating-menu favorite-library__batch-more-menu" style={menuPosition}>
     {allowed('sync') ? <button type="button" disabled={disabled} onClick={() => run('sync')}>同步到B站</button> : null}
     <hr />
@@ -370,7 +370,9 @@ function BatchActions({
   return <div {...menuScope} ref={rootRef} className="favorite-library__batch-actions">
     {(['copy', 'move'] as const).filter((action) => allowed(action)).map((action) => {
       const label = action === 'copy' ? '复制至' : '移动至'
-      return <span key={action} className="favorite-library__batch-split"><button ref={(element) => { triggerRefs.current[action] = element ?? undefined }} type="button" className="favorite-library__batch-destination-trigger" aria-expanded={destinationMenu === action} disabled={disabled} title={disabledTitle} onClick={() => toggleDestinationMenu(action)} onKeyDown={(event) => {
+      const actionDisabled = disabled || disabledActions.includes(action)
+      const actionDisabledTitle = disabled ? disabledTitle : undefined
+      return <span key={action} className="favorite-library__batch-split"><button ref={(element) => { triggerRefs.current[action] = element ?? undefined }} type="button" className="favorite-library__batch-destination-trigger" aria-expanded={destinationMenu === action} disabled={actionDisabled} title={actionDisabledTitle} onClick={() => toggleDestinationMenu(action)} onKeyDown={(event) => {
         if (event.key !== 'ArrowDown') return
         event.preventDefault()
         setDestinationIds([])

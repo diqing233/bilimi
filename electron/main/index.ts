@@ -188,6 +188,7 @@ import { resolveMediaToolPaths } from './mediaToolPaths'
 import { runStartupDiagnostics } from './startupDiagnostics'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
 import { resolveLocalFavoriteLedgerToggleAccountMid } from '../../src/shared/favoriteAccountFallback'
+import { createAccountFavoriteRepositorySnapshot } from '../../src/shared/favoriteRepository'
 import { classifyVideoContent } from '../../src/shared/recommendation/videoClassifier'
 import { createNotePosterText } from '../../src/shared/videoNoteArchive'
 import { normalizeAssistantPreferencePatchMeta } from '../../src/shared/assistantPreferencePatchMeta'
@@ -2596,6 +2597,41 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         void accountMid
         void aids
         return 'unknown' as const
+      },
+      async areManagedPlacementsRemoved(accountMid, targets) {
+        const account = createAccountFavoriteRepositorySnapshot({
+          accountMid,
+          now: '1970-01-01T00:00:00.000Z'
+        }).accountMid
+        const runId = `favorite-managed-placement-reconcile:${Date.now()}:${randomUUID()}`
+        await favoriteRepositoryPageBridgeManager!.bind(account, runId)
+        try {
+          const bridge = favoriteRepositoryPageBridgeManager!.pageBridge(account, runId)
+          for (const target of targets) {
+            const folderIds = [...new Set(target.folderIds.map((id) => id.trim()).filter(Boolean))].sort()
+            if (!folderIds.length) return 'unknown' as const
+            const result = await bridge.readMembers({
+              accountMid: account,
+              operationKey: `${runId}:${target.aid}`,
+              aid: target.aid,
+              folderIds
+            })
+            if (createAccountFavoriteRepositorySnapshot({ accountMid: result.observedAccountMid, now: '1970-01-01T00:00:00.000Z' }).accountMid !== account) {
+              return 'unknown' as const
+            }
+            if (!folderIds.every((folderId) => Array.isArray(result.members[folderId]))) {
+              return 'unknown' as const
+            }
+            if (folderIds.some((folderId) => result.members[folderId].includes(target.aid))) {
+              return 'present' as const
+            }
+          }
+          return 'removed' as const
+        } catch {
+          return 'unknown' as const
+        } finally {
+          favoriteRepositoryPageBridgeManager!.release(account, runId)
+        }
       }
     }
   })

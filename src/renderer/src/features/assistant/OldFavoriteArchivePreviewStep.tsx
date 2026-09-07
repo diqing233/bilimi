@@ -152,6 +152,14 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
   const selectedRecommendations = useMemo(() => new Set(selectedRecommendationKey.split('\u0001').filter(Boolean)), [selectedRecommendationKey])
   const selectedRecommendationLedgerIds = useMemo(() => new Set([...selectedRecommendations]
     .map((candidateId) => candidateLedgerIds?.get(candidateId) ?? candidateId)), [candidateLedgerIds, selectedRecommendations])
+  const zeroMatchArchiveLedgerIds = useMemo(() => {
+    const archiveTargets = !snapshot.hasMultipleSegments && snapshot.segments.length <= 1
+      ? snapshot.overview?.archiveTargets ?? []
+      : []
+    return new Set(archiveTargets
+      .filter((target) => target.itemCount === 0)
+      .map((target) => candidateLedgerIds?.get(target.ledgerId) ?? target.ledgerId))
+  }, [candidateLedgerIds, snapshot.hasMultipleSegments, snapshot.overview?.archiveTargets, snapshot.segments.length])
   const unmatched = items.filter((item) => !effectiveClassifications[String(item.aid)]?.targetLedgerIds.length)
   const classified = groupOldFavoritePreviewItems(items, effectiveClassifications, new Set(ledgers.map((ledger) => ledger.id)))
   const previewGroups = [
@@ -166,7 +174,8 @@ const OldFavoriteArchiveGroups = memo(function OldFavoriteArchiveGroups({
     }))
   ]
   for (const ledger of ledgers) {
-    if (!selectedRecommendationLedgerIds.has(ledger.id) || previewGroups.some((group) => group.id === ledger.id)) continue
+    const shouldShowEmptyGroup = selectedRecommendationLedgerIds.has(ledger.id) || zeroMatchArchiveLedgerIds.has(ledger.id)
+    if (!shouldShowEmptyGroup || previewGroups.some((group) => group.id === ledger.id)) continue
     previewGroups.push({ id: ledger.id, title: ledger.displayName, items: [] })
   }
   const handleManualClassification = (aid: number, currentLedgerId: string | undefined, nextTargetLedgerIds: string[]) => {

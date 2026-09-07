@@ -9,6 +9,24 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryDrawer integration', () => {
+  it('shows only the specific sync confirmation notice for an unknown remote result', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-09-07T00:00:00.000Z', videoCount: 1, folderCount: 0,
+        folders: [], physicalShardCount: 0, syncRecordCount: 1,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 1 }, remoteReconciliations: []
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryDrawer open collapsed={false} onClose={vi.fn()} onCollapsedChange={vi.fn()} />)
+
+    expect(await screen.findByText('1个视频同步待确认')).toBeInTheDocument()
+    expect(screen.queryByText('远程状态待确认：操作失败或结果未知')).not.toBeInTheDocument()
+  })
+
   it('keeps its rendered view while reopening and performs one background validation', async () => {
     const getFavoriteRepositoryLibraryPage = vi.fn().mockResolvedValue({
       version: 1, accountMid: '100', revision: 1,
@@ -90,6 +108,11 @@ describe('FavoriteLibraryDrawer integration', () => {
     }))
     fireEvent.click(screen.getByRole('button', { name: '下一页' }))
     await screen.findByText('Cached result 21')
+    // The page rows are published before the paging callback commits its
+    // post-navigation scroll reset.  Wait for that committed page state
+    // before emulating a user scroll, otherwise a slow concurrent suite can
+    // race the test's scroll with the legitimate page-change reset.
+    await screen.findByText('第 2 页')
     const list = screen.getByRole('list', { name: '收藏库视频列表' })
     list.scrollTop = 120
     fireEvent.scroll(list)
@@ -331,7 +354,7 @@ describe('FavoriteLibraryDrawer integration', () => {
     await screen.findByText('1个视频同步失败')
     const header = screen.getByRole('banner', { name: '小咪收藏库' })
     expect(header).toHaveTextContent('1个视频同步失败')
-    expect(header).toHaveTextContent('另有1条')
+    expect(header).not.toHaveTextContent('另有1条')
     expect(screen.queryByText('远程操作待处理')).not.toBeInTheDocument()
     expect(screen.getByTestId('favorite-library-drawer').querySelectorAll('.favorite-library__layout > *')).toHaveLength(4)
     expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('选择一个视频查看详情')

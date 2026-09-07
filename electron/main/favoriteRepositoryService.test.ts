@@ -235,6 +235,40 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
+  it('uses a persisted local desired position instead of stale backed-folder memberships', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-09-07T00:00:00.000Z' })
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-09-07T00:00:00.000Z' })
+    snapshot.videos = { '1': { aid: 1, title: '历史残留视频', tags: [], updatedAt: '2026-09-07T00:00:00.000Z' } }
+    snapshot.folders = [
+      { id: 'bilimi-logical:game', title: 'bilimi·游戏', kind: 'bilimi-logical', logicalLedgerId: 'game', syncState: 'bound' },
+      { id: 'bilimi-logical:knowledge', title: 'bilimi·知识', kind: 'bilimi-logical', logicalLedgerId: 'knowledge', syncState: 'bound' }
+    ]
+    snapshot.physicalShards = [
+      { logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1, remoteTitle: 'bilimi·游戏', bindingState: 'bound', remoteFolderId: 'game-001' },
+      { logicalLedgerId: 'knowledge', folderId: 'bilimi:knowledge:001', shardNumber: 1, remoteTitle: 'bilimi·知识', bindingState: 'bound', remoteFolderId: 'knowledge-001' }
+    ]
+    snapshot.memberships = {
+      'bilimi-logical:game': [1],
+      'bilimi:game:001': [1],
+      'bilimi-logical:knowledge': []
+    }
+    snapshot.positions = {
+      '100:1': {
+        accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:knowledge'], remoteObservedPhysicalFolderIds: [],
+        remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-09-07T00:00:00.000Z', revision: 1
+      }
+    }
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: { version: 1, accountMid: '100', snapshot, commandResults: {} }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:game' }, { limit: 10 }))
+      .resolves.toMatchObject({ totalCount: 0, items: [] })
+    await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:knowledge' }, { limit: 10 }))
+      .resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
+  })
+
   it('projects persisted classification provenance to library rows and details and filters it before pagination', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-08-13T00:00:00.000Z' })
@@ -1184,10 +1218,15 @@ describe('FavoriteRepositoryService', () => {
     await service.recordSyncCheckpoint('100', 'same-aid-pending', {
       id: 'same-aid-pending', commandId: 'same-aid-pending', status: 'pending', affectedAids: [2], updatedAt: '2026-07-23T00:00:03.000Z'
     })
+    const cached = (service as unknown as { cache: Map<string, { repository: { snapshot: { workspace?: unknown } } }> }).cache.get('100')!
+    cached.repository.snapshot.workspace = {
+      id: 'legacy-continuation', accountMid: '100', status: 'completed', baselineRevision: 0, continuationAids: [2],
+      workspaceRef: { workspaceId: 'legacy-continuation', accountMid: '100', status: 'completed', baselineRevision: 0, currentSegmentId: '', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64) }
+    }
 
-    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ pendingAidCount: 3 })
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ pendingAidCount: 2 })
     await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({
-      items: [{ video: { aid: 2 } }, { video: { aid: 3 } }, { video: { aid: 4 } }]
+      items: [{ video: { aid: 3 } }, { video: { aid: 4 } }]
     })
   })
 

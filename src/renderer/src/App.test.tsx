@@ -2614,8 +2614,13 @@ describe('App runtime integration', () => {
       }
     })
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    let resolveInitialPreferences: ((preferences: AssistantPreferences) => void) | undefined
+    const initialPreferencesLoaded = new Promise<AssistantPreferences>((resolve) => {
+      resolveInitialPreferences = resolve
+    })
+    const loadPreferences = vi.fn(() => initialPreferencesLoaded)
     const { requestRuntime } = renderAppWithRuntimeBridge({
-      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      loadPreferences,
       savePreferences,
       readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
@@ -2645,7 +2650,11 @@ describe('App runtime integration', () => {
       })
     })
 
-    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await waitFor(() => expect(loadPreferences).toHaveBeenCalled())
+    await act(async () => {
+      resolveInitialPreferences?.(initialPreferences)
+      await initialPreferencesLoaded
+    })
     await expect(requestRuntime({ id: 'preserve-unbound-shard-history', type: 'ensure-ledgers' })).resolves.toMatchObject({ ok: false, unboundLedgerIds: ['game'] })
     const savedLedger = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers?.find((ledger) => ledger.id === 'game')
     expect(savedLedger).toMatchObject({ bindingState: 'unbound', historicalBilibiliFolderIds: ['unbound-game-2'], historicalBilibiliFolderTitle: 'bilimi·游戏专区·2' })
@@ -3552,8 +3561,13 @@ describe('App runtime integration', () => {
     })
     const adoptFavoriteRepositoryLedgerBinding = vi.fn()
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    let resolveInitialPreferences: ((preferences: AssistantPreferences) => void) | undefined
+    const initialPreferencesLoaded = new Promise<AssistantPreferences>((resolve) => {
+      resolveInitialPreferences = resolve
+    })
+    const loadPreferences = vi.fn(() => initialPreferencesLoaded)
     const { requestRuntime } = renderAppWithRuntimeBridge({
-      loadPreferences: vi.fn().mockResolvedValue(initialPreferences),
+      loadPreferences,
       readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
       savePreferences,
       renameFavoriteRepositoryBoundLedgerShard,
@@ -3567,7 +3581,11 @@ describe('App runtime integration', () => {
         syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
       })
     })
-    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    await waitFor(() => expect(loadPreferences).toHaveBeenCalled())
+    await act(async () => {
+      resolveInitialPreferences?.(initialPreferences)
+      await initialPreferencesLoaded
+    })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }

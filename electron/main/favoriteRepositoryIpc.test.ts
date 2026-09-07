@@ -748,6 +748,7 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(send).toHaveBeenCalledTimes(2)
     expect(send).toHaveBeenCalledWith(7, 'favorite-repository:revision-changed', {
       subscriptionId: activeSubscription, accountMid: '100', revision: 2,
+      libraryPlacementRunProgress: false,
       affectedFolderIds: ['folder-a'], affectedFolderCount: 1, affectedFolderIdsTruncated: false,
       affectedAidCount: 2, pageInvalidated: true
     })
@@ -813,7 +814,9 @@ describe('registerFavoriteRepositoryIpc', () => {
       }
     })
 
-    expect(send).toHaveBeenCalledWith(7, 'favorite-repository:revision-changed', expect.objectContaining({ pageInvalidated: false, affectedAidCount: 0 }))
+    expect(send).toHaveBeenCalledWith(7, 'favorite-repository:revision-changed', expect.objectContaining({
+      pageInvalidated: false, libraryPlacementRunProgress: true, affectedAidCount: 0
+    }))
   })
 
   it('removes every subscription owned by a destroyed renderer', async () => {
