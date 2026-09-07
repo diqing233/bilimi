@@ -1699,10 +1699,17 @@ export default function App() {
     if (/remote shard is absent from inventory/i.test(detail)) {
       return { reason: '已绑定的 B 站收藏夹未出现在当前清单中，未重新绑定。请刷新后重试。', detail }
     }
+    if (/rename receipt is unconfirmed by authority snapshot/i.test(detail)) {
+      return { reason: '已绑定收藏夹改名回执未确认，未重新绑定或创建收藏夹，请刷新后重试。', detail }
+    }
     return { reason: '已绑定收藏夹改名未完成，未重新绑定或创建收藏夹，请稍后重试。', detail }
   }
 
-  function boundRenameSnapshotShard(result: unknown, expected: FormalBoundFavoriteShard) {
+  function boundRenameSnapshotShard(
+    result: unknown,
+    expected: FormalBoundFavoriteShard,
+    targetTitle: string
+  ) {
     const shards = result && typeof result === 'object' && !Array.isArray(result) &&
       Array.isArray((result as { shards?: unknown }).shards)
       ? (result as { shards: Array<{
@@ -1719,8 +1726,29 @@ export default function App() {
       shard.shardNumber === expected.shardNumber &&
       shard.remoteFolderId === expected.remoteFolderId &&
       shard.bindingState === 'bound' &&
-      typeof shard.remoteTitle === 'string' && shard.remoteTitle.trim()
+      typeof shard.remoteTitle === 'string' && shard.remoteTitle.trim() === targetTitle
     )
+  }
+
+  async function readBoundRenameAuthoritySnapshot(
+    accountMid: string,
+    expected: FormalBoundFavoriteShard,
+    targetTitle: string
+  ): Promise<{ shards: unknown[] } | undefined> {
+    const open = window.bilimiDesktop?.openFavoriteRepositoryAccount
+    if (!open) return undefined
+    const summary = await open(accountMid)
+    if (String(summary?.accountMid ?? '').trim() !== accountMid || !Array.isArray(summary?.physicalShards)) {
+      return undefined
+    }
+    const matched = summary.physicalShards.some((shard) =>
+      shard.logicalLedgerId === expected.logicalLedgerId &&
+      shard.shardNumber === expected.shardNumber &&
+      shard.remoteFolderId === expected.remoteFolderId &&
+      shard.bindingState === 'bound' &&
+      shard.remoteTitle.trim() === targetTitle
+    )
+    return matched ? { shards: summary.physicalShards } : undefined
   }
 
   function applyBoundRenameSnapshot(
@@ -1827,16 +1855,20 @@ export default function App() {
       let ledgerFailed = false
       for (const shard of shards) {
         try {
+          const targetTitle = favoriteLedgerCapacityShardName(ledger.displayName, shard.shardNumber)
           const result = await api(accountMid, {
             logicalLedgerId: shard.logicalLedgerId,
             logicalTitle: ledger.displayName,
             remoteFolderId: shard.remoteFolderId,
             shardNumber: shard.shardNumber
           })
-          if (!boundRenameSnapshotShard(result, shard)) {
-            throw new Error('Favorite repository bound shard rename returned no matching bound shard.')
+          const confirmedSnapshot = boundRenameSnapshotShard(result, shard, targetTitle)
+            ? result
+            : await readBoundRenameAuthoritySnapshot(accountMid, shard, targetTitle)
+          if (!confirmedSnapshot) {
+            throw new Error('Favorite repository bound shard rename receipt is unconfirmed by authority snapshot.')
           }
-          updatedLedger = applyBoundRenameSnapshot(updatedLedger, result, formalShards)
+          updatedLedger = applyBoundRenameSnapshot(updatedLedger, confirmedSnapshot, formalShards)
         } catch (error) {
           const failure = favoriteLedgerBoundRenameFailure(error)
           failures.push({ ledgerId: ledger.id, ...failure })
