@@ -206,6 +206,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.send('floating-seal:move-to', screenX, screenY),
   notifyAssistantSnapshotChanged: () => ipcRenderer.send('floating-assistant:snapshot-changed'),
   retryBilibiliSessionDirect: () => ipcRenderer.invoke('bilibili-session:retry-direct') as Promise<{ mode: 'auto' | 'direct'; effectiveMode: 'direct' | 'system'; temporaryDirect: boolean }>,
+  getBilibiliFavoriteSpaceRefreshStatus: (accountMid: string) =>
+    ipcRenderer.invoke('bilibili-favorite-space-refresh:status', accountMid) as Promise<{ status: 'idle' | 'pending' }>,
+  retryBilibiliFavoriteSpaceRefresh: (accountMid: string) =>
+    ipcRenderer.invoke('bilibili-favorite-space-refresh:retry', accountMid) as Promise<{ status: 'idle' | 'pending' }>,
   readBilibiliAccountMid: () => ipcRenderer.invoke('bilibili:account-mid') as Promise<string>,
   readBilibiliAccount: () =>
     ipcRenderer.invoke('favorite-library:read-account') as Promise<{ mid: string; nickname?: string }>,
@@ -229,6 +233,11 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.on('bilibili-session:reload-requested', listener)
     return () => ipcRenderer.removeListener('bilibili-session:reload-requested', listener)
   },
+  onBilibiliFavoriteSpaceRefreshStatusChanged: (callback: (status: { accountMid: string; status: 'idle' | 'pending' }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: { accountMid: string; status: 'idle' | 'pending' }) => callback(status)
+    ipcRenderer.on('bilibili-favorite-space-refresh:status-changed', listener)
+    return () => ipcRenderer.removeListener('bilibili-favorite-space-refresh:status-changed', listener)
+  },
   onFavoriteLibraryTranscriptionChanged: (callback: () => void) => {
     const listener = () => callback()
     ipcRenderer.on('favorite-library:transcription-changed', listener)
@@ -240,7 +249,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-repository:get-snapshot', accountMid) as Promise<FavoriteRepositorySnapshotSummary>,
   adoptFavoriteRepositoryLedgerBinding: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; remoteTitle: string; shardNumber?: number; allowRemoteRename?: boolean }) =>
     ipcRenderer.invoke('favorite-repository:adopt-ledger-binding', accountMid, input) as Promise<unknown>,
-  renameFavoriteRepositoryBoundLedgerShard: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; shardNumber: number }) =>
+  renameFavoriteRepositoryBoundLedgerShard: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; shardNumber: number; currentRemoteTitle?: string; targetTitle?: string }) =>
     ipcRenderer.invoke('favorite-repository:rename-bound-ledger-shard', accountMid, input) as Promise<unknown>,
   previewFavoriteRepositoryLedgerBindingCandidates: (accountMid: string, ledgers: Array<{ ledgerId: string; title: string }>) =>
     ipcRenderer.invoke('favorite-repository:preview-ledger-binding-candidates', accountMid, ledgers) as Promise<Array<{

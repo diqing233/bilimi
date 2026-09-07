@@ -1,3 +1,4 @@
+import type { FavoriteRecommendationLink } from './favoriteRecommendationProjection'
 import type { DeepSeekArchiveMode, FavoriteLedger } from './types'
 
 export const OLD_FAVORITE_WORKSPACE_VERSION = 1 as const
@@ -115,7 +116,7 @@ export type OldFavoriteWorkspaceRecommendationCandidate = {
   displayName: string
   /** Complete rule terms for projecting a selected recommendation into the editor. */
   keywords?: string[]
-  kind: 'author' | 'series' | 'tag'
+  kind: 'author' | 'tag'
   count: number
   /** Number of matches in the currently selected batch; the full AID index stays main-process only. */
   currentSegmentCount?: number
@@ -246,6 +247,8 @@ export type OldFavoriteWorkspaceDeepSeekProcessedItem = {
 export type OldFavoriteWorkspaceFavoriteRuleHistoryState = {
   ledgers: FavoriteLedger[]
   adoptedCandidateIds: string[]
+  /** Snapshot-only candidate-to-rule links; rebuilt from these saved rules on restore. */
+  linkedLedgerIdsByCandidateId?: Record<string, string>
   excludedLedgerIds: string[]
 }
 
@@ -438,6 +441,8 @@ export type OldFavoriteWorkspaceSnapshot = {
   recommendations: {
     candidates: OldFavoriteWorkspaceRecommendationCandidate[]
     adoptedCandidateIds: string[]
+    linkedLedgerIdsByCandidateId?: Record<string, string>
+    links?: Record<string, FavoriteRecommendationLink>
   }
   planReadiness?: {
     selectedAidCount: number

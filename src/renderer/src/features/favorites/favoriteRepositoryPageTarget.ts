@@ -4,12 +4,13 @@ import {
   type FavoriteRepositoryUnfavoriteInput,
   type FavoriteRepositoryFolderCreateInput,
   type FavoriteRepositoryFolderInventoryInput,
+  type FavoriteRepositoryFolderReadInput,
   type FavoriteRepositoryFolderDeleteInput,
   type FavoriteRepositoryFolderRenameInput,
   type FavoriteRepositoryPageBridgeReadResult
 } from './favoriteRepositoryPageBridge'
 
-type PageBridgeAction = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder' | 'rename-folder'
+type PageBridgeAction = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'read-folder' | 'create-folder' | 'delete-folder' | 'rename-folder'
 
 export type FavoriteRepositoryPageTarget = {
   webContentsId: number
@@ -40,7 +41,7 @@ export function createFavoriteRepositoryPageTarget(options: {
     async run(
       binding: FavoriteRepositoryPageTarget,
       action: PageBridgeAction,
-      input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput | FavoriteRepositoryFolderRenameInput
+      input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderReadInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput | FavoriteRepositoryFolderRenameInput
     ): Promise<FavoriteRepositoryPageBridgeReadResult> {
       const target = options.findWebviewById(binding.webContentsId) ?? null
       if (!target?.executeJavaScript) {
@@ -63,6 +64,8 @@ export function createFavoriteRepositoryPageTarget(options: {
             ? bridge.readMembers(input as FavoriteRepositoryPageBridgeInput)
             : action === 'read-folder-inventory'
               ? bridge.readFolderInventory(input as FavoriteRepositoryFolderInventoryInput)
+              : action === 'read-folder'
+                ? bridge.readFolder(input as FavoriteRepositoryFolderReadInput)
               : action === 'create-folder'
                 ? bridge.createFolder(input as FavoriteRepositoryFolderCreateInput)
                 : action === 'delete-folder'

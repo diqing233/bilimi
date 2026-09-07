@@ -109,6 +109,83 @@ describe('favorite repository page bridge', () => {
     expect(script).not.toContain('bili_jct')
   })
 
+  it('reads one exact remote folder by media id without relying on the delayed account directory', async () => {
+    document.cookie = 'DedeUserID=100'
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        code: 0,
+        data: { id: 11, title: 'bilimi·游戏专区你好', media_count: 2 }
+      })
+    })
+    const executeJavaScript = vi.fn((script: string) => {
+      const evaluate = new Function('fetch', 'document', `return (${script})`)
+      return evaluate(fetch, document)
+    })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+
+    await expect(bridge.readFolder({ accountMid: '100', operationKey: 'bind:verify-rename:11', folderId: '11' })).resolves.toEqual({
+      status: 'ok', observedAccountMid: '100', folder: { id: '11', title: 'bilimi·游戏专区你好', memberCount: 2 }
+    })
+
+    const script = executeJavaScript.mock.calls[0][0]
+    expect(script).toContain('/x/v3/fav/folder/info?media_id=')
+    expect(script).toContain("encodeURIComponent(String(input.folderId).trim())")
+    expect(script).toContain("cache: 'no-store'")
+    expect(script).not.toContain('bili_jct')
+    expect(fetch).toHaveBeenCalledWith('https://api.bilibili.com/x/v3/fav/folder/info?media_id=11', {
+      credentials: 'include', cache: 'no-store'
+    })
+  })
+
+  it('rejects an exact folder read when Bilibili returns another folder id', async () => {
+    document.cookie = 'DedeUserID=100'
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: vi.fn().mockReturnValue('application/json; charset=utf-8') },
+      json: vi.fn().mockResolvedValue({
+        code: 0,
+        data: { id: 12, title: 'bilimi·游戏专区你好', media_count: 2 }
+      })
+    })
+    const executeJavaScript = vi.fn((script: string) => {
+      const evaluate = new Function('fetch', 'document', `return (${script})`)
+      return evaluate(fetch, document)
+    })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+
+    await expect(bridge.readFolder({ accountMid: '100', operationKey: 'bind:verify-rename:11', folderId: '11' })).resolves.toEqual({
+      status: 'unknown', observedAccountMid: '100', reason: 'remote-ambiguous', httpStatus: 200,
+      contentType: 'application/json', responseCategory: 'json', bilibiliCode: 0
+    })
+  })
+
+  it('keeps Bilibili response diagnostics when an exact folder read cannot confirm the target', async () => {
+    document.cookie = 'DedeUserID=100'
+    const fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 412,
+      headers: { get: vi.fn().mockReturnValue('text/html; charset=utf-8') },
+      json: vi.fn().mockResolvedValue({ code: -352 })
+    })
+    const executeJavaScript = vi.fn((script: string) => {
+      const evaluate = new Function('fetch', 'document', `return (${script})`)
+      return evaluate(fetch, document)
+    })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+
+    await expect(bridge.readFolder({ accountMid: '100', operationKey: 'bind:verify-rename:11', folderId: '11' })).resolves.toEqual({
+      status: 'unknown',
+      observedAccountMid: '100',
+      reason: 'remote-ambiguous',
+      httpStatus: 412,
+      contentType: 'text/html',
+      responseCategory: 'html',
+      bilibiliCode: -352
+    })
+  })
+
   it('creates only a bounded explicit folder title through the page primitive', async () => {
     const executeJavaScript = vi.fn().mockResolvedValue({
       status: 'ok', observedAccountMid: '100', folder: { id: '11', title: 'B-music-001-a1b2c3', memberCount: 0 }

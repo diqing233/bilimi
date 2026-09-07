@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositoryBindingService, favoriteRepositoryManagedShardTitle } from './favoriteRepositoryBindingService'
 import { FavoriteRepositorySyncService, type FavoriteRepositoryPageBridge } from './favoriteRepositorySyncService'
-import { mergeGeneratedRecommendations, OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
+import {
+  mergeGeneratedRecommendations,
+  OldFavoriteWorkspaceCoordinator as OldFavoriteWorkspaceCoordinatorImplementation
+} from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import {
   classifierLedgersForAccount,
@@ -24,6 +27,85 @@ import { classifyVideoContent } from '../../src/shared/recommendation/videoClass
 import type { FavoriteLedger } from '../../src/shared/types'
 
 const roots: string[] = []
+const directCoordinatorRulesByAccount = new Map<string, FavoriteLedger[]>()
+
+function cloneFavoriteLedgers(ledgers: readonly FavoriteLedger[]) {
+  return ledgers.map((ledger) => ({
+    ...ledger,
+    keywords: [...ledger.keywords],
+    ...(ledger.bilibiliFolderIds ? { bilibiliFolderIds: [...ledger.bilibiliFolderIds] } : {})
+  }))
+}
+
+type OrdinaryRuleChanges = {
+  upserts: FavoriteLedger[]
+  enabled: Array<{ ledgerId: string; enabled: boolean }>
+}
+
+/**
+ * Test the same persistence boundary used by recommendation adoption: scan
+ * candidates only select ordinary rules; they never become saved rules
+ * themselves.
+ */
+function createOrdinaryRuleDirectory(initialRules: FavoriteLedger[] = []) {
+  let rules = cloneFavoriteLedgers(initialRules)
+  const listSavedFavoriteLedgers = vi.fn(async (_accountMid: string) => cloneFavoriteLedgers(rules))
+  const applyFavoriteRecommendationRuleChanges = vi.fn(async (_accountMid: string, changes: OrdinaryRuleChanges) => {
+    const before = cloneFavoriteLedgers(rules)
+    const nextById = new Map(rules.map((ledger) => [ledger.id, ledger]))
+    for (const ledger of changes.upserts) nextById.set(ledger.id, cloneFavoriteLedgers([ledger])[0]!)
+    for (const { ledgerId, enabled } of changes.enabled) {
+      const ledger = nextById.get(ledgerId)
+      if (ledger) nextById.set(ledgerId, { ...ledger, enabled })
+    }
+    rules = cloneFavoriteLedgers([...nextById.values()])
+    return { before, after: cloneFavoriteLedgers(rules) }
+  })
+  const restoreFavoriteRuleDirectory = vi.fn(async (_accountMid: string, ledgers: FavoriteLedger[]) => {
+    rules = cloneFavoriteLedgers(ledgers)
+  })
+  return {
+    listSavedFavoriteLedgers,
+    applyFavoriteRecommendationRuleChanges,
+    restoreFavoriteRuleDirectory,
+    loadFavoriteLedgerHistoryLedgers: vi.fn(async (_accountMid: string) => cloneFavoriteLedgers(rules)),
+    current: () => cloneFavoriteLedgers(rules)
+  }
+}
+
+/**
+ * Older coordinator tests construct the service directly.  Keep their focus
+ * on workspace behavior while supplying the same ordinary-rule transaction
+ * boundary the production composition now requires.
+ */
+class OldFavoriteWorkspaceCoordinator extends OldFavoriteWorkspaceCoordinatorImplementation {
+  constructor(options: ConstructorParameters<typeof OldFavoriteWorkspaceCoordinatorImplementation>[0]) {
+    const listSavedFavoriteLedgers = async (accountMid: string) =>
+      cloneFavoriteLedgers(directCoordinatorRulesByAccount.get(accountMid) ?? [])
+    const applyFavoriteRecommendationRuleChanges: NonNullable<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinatorImplementation>[0]['applyFavoriteRecommendationRuleChanges']> = async (accountMid, changes) => {
+      const before = await listSavedFavoriteLedgers(accountMid)
+      const nextById = new Map(before.map((ledger) => [ledger.id, ledger]))
+      for (const ledger of changes.upserts) nextById.set(ledger.id, cloneFavoriteLedgers([ledger])[0]!)
+      for (const { ledgerId, enabled } of changes.enabled) {
+        const ledger = nextById.get(ledgerId)
+        if (ledger) nextById.set(ledgerId, { ...ledger, enabled })
+      }
+      const after = cloneFavoriteLedgers([...nextById.values()])
+      directCoordinatorRulesByAccount.set(accountMid, after)
+      return { before, after: cloneFavoriteLedgers(after) }
+    }
+    super({
+      listSavedFavoriteLedgers,
+      applyFavoriteRecommendationRuleChanges,
+      restoreFavoriteRuleDirectory: async (accountMid, ledgers) => {
+        directCoordinatorRulesByAccount.set(accountMid, cloneFavoriteLedgers(ledgers))
+      },
+      resolveLedgerTitle: async (accountMid, ledgerId) =>
+        directCoordinatorRulesByAccount.get(accountMid)?.find((ledger) => ledger.id === ledgerId)?.displayName,
+      ...options
+    })
+  }
+}
 
 async function createRoot() {
   const root = await mkdtemp(join(tmpdir(), 'bilimi-old-favorite-coordinator-'))
@@ -33,20 +115,41 @@ async function createRoot() {
 
 afterEach(async () => {
   vi.restoreAllMocks()
+  directCoordinatorRulesByAccount.clear()
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'notifyRecommendedLedgersChanged' | 'saveRecoveredLedgerDrafts' | 'prepareForOrganization' | 'resolveRecoveryConfiguration' | 'resolveSavedLedgerRule' | 'refreshSelectedVideoMetadata' | 'segmentSize' | 'onSegmentsReady' | 'syncService' | 'onManagedFolderDeletion' | 'restoreFavoriteLedgerHistoryState' | 'loadFavoriteLedgerHistoryLedgers' | 'listSavedLedgers' | 'listSavedEnabledLedgers'> & { getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; getConfirmedDeletedRemoteFolderIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>; initializeOnOpen?: boolean } = {}
+  options: Partial<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0]> & { initializeOnOpen?: boolean } = {}
 ) {
-  const { initializeOnOpen = true, ...coordinatorOptions } = options
+  const { initializeOnOpen = true, now = () => '2026-07-19T00:00:00.000Z', ...coordinatorOptions } = options
+  let ordinaryRules: FavoriteLedger[] = []
+  const cloneRules = cloneFavoriteLedgers
+  const defaultApplyFavoriteRecommendationRuleChanges: NonNullable<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0]['applyFavoriteRecommendationRuleChanges']> = async (_accountMid, changes) => {
+    const before = cloneRules(ordinaryRules)
+    const nextById = new Map(ordinaryRules.map((ledger) => [ledger.id, ledger]))
+    for (const ledger of changes.upserts) nextById.set(ledger.id, cloneRules([ledger])[0]!)
+    for (const { ledgerId, enabled } of changes.enabled) {
+      const ledger = nextById.get(ledgerId)
+      if (ledger) nextById.set(ledgerId, { ...ledger, enabled })
+    }
+    ordinaryRules = cloneRules([...nextById.values()])
+    return { before, after: cloneRules(ordinaryRules) }
+  }
   const coordinator = new OldFavoriteWorkspaceCoordinator({
     repository,
     workspaceStore,
+    listSavedFavoriteLedgers: async () => cloneRules(ordinaryRules),
+    applyFavoriteRecommendationRuleChanges: defaultApplyFavoriteRecommendationRuleChanges,
+    restoreFavoriteRuleDirectory: async (_accountMid, ledgers) => {
+      ordinaryRules = cloneRules(ledgers)
+    },
+    resolveLedgerTitle: async (_accountMid, ledgerId) =>
+      ordinaryRules.find((ledger) => ledger.id === ledgerId)?.displayName,
     ...(coordinatorOptions as ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0]),
-    now: () => '2026-07-19T00:00:00.000Z'
+    now
   })
   if (initializeOnOpen) {
     const open = coordinator.open.bind(coordinator)
@@ -66,6 +169,40 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+function ordinaryAuthorLedger(id: string, author: string, enabled = false): FavoriteLedger {
+  return {
+    id,
+    displayName: `bilimi·${author}`,
+    keywords: [author],
+    ruleType: 'author',
+    enabled,
+    priority: 1,
+    syncState: 'local-draft',
+    bindingState: 'unbacked',
+    ruleOrigin: 'saved-rule',
+    isDefault: false
+  }
+}
+
+async function readyWorkspaceWithAuthorRecommendation(coordinator: OldFavoriteWorkspaceCoordinator, author: string) {
+  await coordinator.open('100')
+  await coordinator.beginScan('100', 'incremental')
+  await coordinator.recordScanPage('100', {
+    folderId: 'source', page: 1, hasMore: false,
+    items: [
+      { aid: 1, title: 'First', author, sourceFolderIds: ['source'] },
+      { aid: 2, title: 'Second', author, sourceFolderIds: ['source'] }
+    ]
+  })
+  await coordinator.finishScan('100')
+  await coordinator.acceptCurrentTags('100')
+  const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+  return {
+    snapshot,
+    candidateId: snapshot.recommendations.candidates.find((item) => item.displayName === `bilimi·${author}`)!.id
+  }
+}
+
 function requireWorkspace(value: OldFavoriteWorkspace | OldFavoriteWorkspaceRecoveryRequired | null) {
   if (!value || 'recovery' in value) throw new Error('workspace unexpectedly unavailable')
   return value
@@ -74,6 +211,12 @@ function requireWorkspace(value: OldFavoriteWorkspace | OldFavoriteWorkspaceReco
 function requireSnapshot(value: OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired | null) {
   if (!value || 'recovery' in value) throw new Error('workspace unexpectedly unavailable')
   return value
+}
+
+function requireLinkedRecommendationLedgerId(snapshot: OldFavoriteWorkspaceSnapshot, candidateId: string) {
+  const link = snapshot.recommendations.links?.[candidateId]
+  if (!link || link.status !== 'linked') throw new Error(`recommendation ${candidateId} is not linked to an ordinary rule`)
+  return link.ledgerId
 }
 
 function createPageBridge(overrides: Partial<FavoriteRepositoryPageBridge> = {}): FavoriteRepositoryPageBridge {
@@ -108,7 +251,7 @@ function createSyncService(overrides: Partial<CoordinatorSyncService> = {}): Coo
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
-  it('keeps an adopted recommendation when a later scan no longer regenerates it', () => {
+  it('drops an adopted recommendation when a later scan no longer generates it', () => {
     const adopted = {
       id: 'custom-author-alice', displayName: 'bilimi\u00b7Alice', kind: 'author' as const,
       sourceName: 'Alice', keywords: ['Alice'], count: 2,
@@ -117,8 +260,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     expect(mergeGeneratedRecommendations([], [adopted.id], [adopted])).toEqual({
       initialized: true,
-      candidates: [adopted],
-      adoptedCandidateIds: [adopted.id]
+      candidates: [],
+      adoptedCandidateIds: []
     })
   })
 
@@ -4047,11 +4190,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     if (!tagCandidate) throw new Error('tag recommendation unexpectedly unavailable')
 
     await coordinator.setRecommendedCandidates('100', [tagCandidate.id])
+    const selected = requireSnapshot(await coordinator.getSnapshot('100'))
+    const ledgerId = selected.recommendations.linkedLedgerIdsByCandidateId?.[tagCandidate.id]
+    if (!ledgerId) throw new Error('adopted tag recommendation unexpectedly has no linked ordinary rule')
     await coordinator.prepareRecommendationPreview('100', [tagCandidate.id])
 
     expect(classifyCurrentItem).toHaveBeenLastCalledWith(
       expect.anything(),
-      expect.arrayContaining([expect.objectContaining({ id: tagCandidate.id, ruleType: 'tag' })])
+      expect.arrayContaining([expect.objectContaining({ id: ledgerId, ruleType: 'tag' })])
     )
   })
 
@@ -4061,13 +4207,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const coordinator = createCoordinator(repository, workspaceStore, {
       initializeOnOpen: false,
-      classifyCurrentItem: (item, recommendedLedgers = []) => ({
-        targetLedgerIds: recommendedLedgers.some((ledger) => ledger.ruleType === 'tag' &&
+      classifyCurrentItem: (item, recommendedLedgers = []) => {
+        const matchingLedger = recommendedLedgers.find((ledger) => ledger.ruleType === 'tag' &&
           ledger.keywords.includes('Genshin') && item.tags?.includes('Genshin'))
-          ? ['custom-tag-genshin']
-          : ['game'],
-        confidence: 'high' as const
-      })
+        return {
+          targetLedgerIds: matchingLedger ? [matchingLedger.id] : ['game'],
+          confidence: 'high' as const
+        }
+      }
     })
     await coordinator.beginScan('100', 'full')
     await coordinator.recordScanInventory('100', {
@@ -4082,14 +4229,18 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await coordinator.finishScan('100')
     const initial = requireSnapshot(await coordinator.getSnapshot('100'))
-    const tagCandidate = initial.recommendations.candidates.find((candidate) => candidate.id === 'custom-tag-genshin')
+    const tagCandidate = initial.recommendations.candidates.find((candidate) => candidate.kind === 'tag' &&
+      candidate.keywords.includes('Genshin'))
     if (!tagCandidate) throw new Error('Genshin tag recommendation unexpectedly unavailable')
     expect(tagCandidate.currentSegmentCount).toBe(2)
 
     await coordinator.setRecommendedCandidates('100', [tagCandidate.id])
+    const selected = requireSnapshot(await coordinator.getSnapshot('100'))
+    const ledgerId = selected.recommendations.linkedLedgerIdsByCandidateId?.[tagCandidate.id]
+    if (!ledgerId) throw new Error('adopted tag recommendation unexpectedly has no linked ordinary rule')
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ classifications: {
-      '1': { aid: 1, targetLedgerIds: [tagCandidate.id], source: 'system-high' },
-      '2': { aid: 2, targetLedgerIds: [tagCandidate.id], source: 'system-high' }
+      '1': { aid: 1, targetLedgerIds: [ledgerId], source: 'system-high' },
+      '2': { aid: 2, targetLedgerIds: [ledgerId], source: 'system-high' }
     } })
 
     const recovered = await workspaceStore.recover('100', initial.workspaceId)
@@ -4109,26 +4260,42 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(reselected).toMatchObject({
       recommendations: { adoptedCandidateIds: [tagCandidate.id] },
       classifications: {
-        '1': { aid: 1, targetLedgerIds: [tagCandidate.id], source: 'system-high' },
-        '2': { aid: 2, targetLedgerIds: [tagCandidate.id], source: 'system-high' }
+        '1': { aid: 1, targetLedgerIds: [ledgerId], source: 'system-high' },
+        '2': { aid: 2, targetLedgerIds: [ledgerId], source: 'system-high' }
       }
     })
     expect(Object.values(reselected.classifications).filter((classification) =>
-      classification.targetLedgerIds.includes(tagCandidate.id)
+      classification.targetLedgerIds.includes(ledgerId)
     )).toHaveLength(2)
     await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toMatchObject({
-      missingLedgers: [expect.objectContaining({ logicalLedgerId: tagCandidate.id })]
+      missingLedgers: [expect.objectContaining({ logicalLedgerId: ledgerId })]
     })
   })
 
-  it('allows stable-id recommendation cancellation after a completed round remains open', async () => {
+  it('does not retain a user-created local organization rule as a scan recommendation after restart', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
+    let savedLedgers: FavoriteLedger[] = []
+    const applyFavoriteRecommendationRuleChanges = vi.fn(async (_accountMid: string, changes: {
+      upserts: FavoriteLedger[]
+      enabled: Array<{ ledgerId: string; enabled: boolean }>
+    }) => {
+      const before = savedLedgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
+      const byId = new Map(savedLedgers.map((ledger) => [ledger.id, ledger]))
+      for (const ledger of changes.upserts) byId.set(ledger.id, { ...ledger, keywords: [...ledger.keywords] })
+      for (const { ledgerId, enabled } of changes.enabled) {
+        const ledger = byId.get(ledgerId)
+        if (ledger) byId.set(ledgerId, { ...ledger, enabled })
+      }
+      savedLedgers = [...byId.values()]
+      return { before, after: savedLedgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] })) }
+    })
     const coordinator = createCoordinator(repository, store, {
       initializeOnOpen: false,
       classifyCurrentItem: () => ({ targetLedgerIds: [], confidence: 'low' as const }),
-      saveRecommendedLedgers: vi.fn()
+      listSavedFavoriteLedgers: vi.fn(async () => savedLedgers),
+      applyFavoriteRecommendationRuleChanges
     })
     await coordinator.beginScan('100', 'full')
     await coordinator.recordScanInventory('100', {
@@ -4141,19 +4308,27 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.finishScan('100')
     await coordinator.createLocalLedgerAndReclassify('100', '候选')
     const preview = requireSnapshot(await coordinator.getSnapshot('100'))
-    const candidate = preview.recommendations.candidates.find((item) => item.id === 'custom-local-候选') ?? preview.recommendations.candidates[0]
-    if (!candidate) throw new Error('recommendation unexpectedly unavailable')
-    await coordinator.setRecommendedCandidates('100', [candidate.id])
+    expect(savedLedgers).toEqual([expect.objectContaining({
+      id: expect.stringMatching(/^local-/), displayName: 'bilimi·候选', ruleOrigin: 'saved-rule', enabled: true
+    })])
+    expect(preview.recommendations.candidates.map((candidate) => candidate.id)).not.toContain(savedLedgers[0]!.id)
+    expect(preview.recommendations.adoptedCandidateIds).not.toContain(savedLedgers[0]!.id)
     const marker = (await repository.getSnapshot('100')).workspace!
     await repository.commit('100', {
       id: 'mark-completed', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
         ...marker, status: 'completed', workspaceRef: { ...marker.workspaceRef, status: 'completed' }
       }
     })
-    const restarted = createCoordinator(repository, store, { initializeOnOpen: false, classifyCurrentItem: () => ({ targetLedgerIds: [], confidence: 'low' as const }) })
+    const restarted = createCoordinator(repository, store, {
+      initializeOnOpen: false,
+      classifyCurrentItem: () => ({ targetLedgerIds: [], confidence: 'low' as const }),
+      listSavedFavoriteLedgers: vi.fn(async () => savedLedgers),
+      applyFavoriteRecommendationRuleChanges
+    })
     await restarted.open('100')
-    await expect(restarted.setRecommendedCandidates('100', [])).resolves.toBeDefined()
-    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({ recommendations: { adoptedCandidateIds: [] } })
+    const restartedSnapshot = requireSnapshot(await restarted.getSnapshot('100'))
+    expect(restartedSnapshot.recommendations.candidates.map((candidate) => candidate.id)).not.toContain(savedLedgers[0]!.id)
+    expect(restartedSnapshot.recommendations.adoptedCandidateIds).not.toContain(savedLedgers[0]!.id)
   })
 
   it('reclassifies when an adopted recommendation is submitted again after its classification became stale', async () => {
@@ -4162,13 +4337,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const coordinator = createCoordinator(repository, workspaceStore, {
       initializeOnOpen: false,
-      classifyCurrentItem: (item, recommendedLedgers = []) => ({
-        targetLedgerIds: recommendedLedgers.some((ledger) => ledger.ruleType === 'tag' &&
+      classifyCurrentItem: (item, recommendedLedgers = []) => {
+        const matchingLedger = recommendedLedgers.find((ledger) => ledger.ruleType === 'tag' &&
           ledger.keywords.includes('Genshin') && item.tags?.includes('Genshin'))
-          ? ['custom-tag-genshin']
-          : ['game'],
-        confidence: 'high' as const
-      })
+        return {
+          targetLedgerIds: matchingLedger ? [matchingLedger.id] : ['game'],
+          confidence: 'high' as const
+        }
+      }
     })
     await coordinator.beginScan('100', 'full')
     await coordinator.recordScanInventory('100', {
@@ -4187,6 +4363,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     if (!tagCandidate) throw new Error('Genshin tag recommendation unexpectedly unavailable')
 
     await coordinator.setRecommendedCandidates('100', [tagCandidate.id])
+    const selected = requireSnapshot(await coordinator.getSnapshot('100'))
+    const ledgerId = selected.recommendations.linkedLedgerIdsByCandidateId?.[tagCandidate.id]
+    if (!ledgerId) throw new Error('adopted tag recommendation unexpectedly has no linked ordinary rule')
     await coordinator.applyClassificationBatch('100', {
       source: 'system-high', assignments: [
         { aid: 1, targetLedgerIds: ['game'] },
@@ -4199,8 +4378,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: { adoptedCandidateIds: [tagCandidate.id] },
       classifications: {
-        '1': { aid: 1, targetLedgerIds: [tagCandidate.id], source: 'system-high' },
-        '2': { aid: 2, targetLedgerIds: [tagCandidate.id], source: 'system-high' }
+        '1': { aid: 1, targetLedgerIds: [ledgerId], source: 'system-high' },
+        '2': { aid: 2, targetLedgerIds: [ledgerId], source: 'system-high' }
       }
     })
   })
@@ -4569,19 +4748,20 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace).toMatchObject({ id: next.workspaceId, status: 'scanning' })
   })
 
-  it('adopts only exact trimmed saved-enabled recommendation ids when a fresh round rebuilds its candidates', async () => {
+  it('links and adopts only enabled ordinary rules before a second scan publishes recommendations', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
-    let savedEnabledLedgers: Array<{ id: string; title: string }> = []
+    let savedLedgers: FavoriteLedger[] = []
+    const applyFavoriteRecommendationRuleChanges = vi.fn()
     const coordinator = createCoordinator(repository, store, {
-      listSavedEnabledLedgers: vi.fn(async () => savedEnabledLedgers),
-      // `custom-author-up-disabled` is saved but intentionally absent from
-      // the enabled projection. Its matching recommendation must start clear.
-      listSavedLedgers: vi.fn(async () => [
-        ...savedEnabledLedgers,
-        { id: 'custom-author-up-disabled', title: 'bilimi·UP Disabled' }
-      ])
+      listSavedFavoriteLedgers: vi.fn(async () => cloneFavoriteLedgers(savedLedgers)),
+      listSavedEnabledLedgers: vi.fn(async () => savedLedgers
+        .filter((ledger) => ledger.enabled)
+        .map((ledger) => ({ id: ledger.id, title: ledger.displayName }))),
+      listSavedLedgers: vi.fn(async () => savedLedgers
+        .map((ledger) => ({ id: ledger.id, title: ledger.displayName }))),
+      applyFavoriteRecommendationRuleChanges
     })
 
     await coordinator.open('100')
@@ -4605,10 +4785,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       }
     })
 
-    savedEnabledLedgers = [
-      { id: ' custom-author-up-alpha ', title: 'bilimi·UP Alpha' },
-      // Same display name as the generated Beta candidate, but not its stable ID.
-      { id: 'custom-author-up-beta-previous-rule', title: 'bilimi·UP Beta' }
+    savedLedgers = [
+      ordinaryAuthorLedger('custom-author-up-alpha', 'UP Alpha', true),
+      // The second scan must match this by name and rule semantics, never by
+      // its old candidate-shaped id.
+      ordinaryAuthorLedger('custom-author-up-beta-previous-rule', 'UP Beta', true),
+      ordinaryAuthorLedger('custom-author-up-disabled', 'UP Disabled', false)
     ]
     await coordinator.beginScan('100', 'incremental')
     await coordinator.recordScanInventory('100', {
@@ -4628,9 +4810,296 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.finishScan('100')
 
     const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
-    expect(snapshot.recommendations.adoptedCandidateIds).toContain('custom-author-up-alpha')
-    expect(snapshot.recommendations.adoptedCandidateIds).not.toContain('custom-author-up-beta')
+    expect(snapshot.recommendations.links).toMatchObject({
+      'custom-author-up-alpha': { status: 'linked', ledgerId: 'custom-author-up-alpha' },
+      'custom-author-up-beta': { status: 'linked', ledgerId: 'custom-author-up-beta-previous-rule' }
+    })
+    expect(snapshot.recommendations.adoptedCandidateIds).toEqual([
+      'custom-author-up-alpha',
+      'custom-author-up-beta'
+    ])
     expect(snapshot.recommendations.adoptedCandidateIds).not.toContain('custom-author-up-disabled')
+    expect(applyFavoriteRecommendationRuleChanges).not.toHaveBeenCalled()
+  })
+
+  it('recovers a manual circled shard as the same default logical folder', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'circled-game', title: 'bilimi·游戏专区②', itemCount: 1, isBilimiWorkFolder: true }]
+    })
+    await coordinator.recordManagedMembers('100', { 'circled-game': [1] })
+    await coordinator.finishScan('100')
+
+    expect((await repository.getSnapshot('100')).physicalShards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 2, knownRemoteFolderIds: ['circled-game'] })
+    ]))
+  })
+
+  it('publishes a precomputed ordinary-rule link without auto-adopting the scan candidate', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      listSavedFavoriteLedgers: vi.fn().mockResolvedValue([{
+        id: 'custom-up-link', displayName: 'bilimi·UP Link', keywords: ['UP Link'], ruleType: 'author',
+        enabled: false, priority: 1, syncState: 'local-draft', bindingState: 'unbacked', ruleOrigin: 'saved-rule', isDefault: false
+      }])
+    })
+
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1, hasMore: false,
+      items: [
+        { aid: 1, title: 'First', author: 'UP Link', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Second', author: 'UP Link', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    const candidate = snapshot.recommendations.candidates.find((item) => item.displayName === 'bilimi·UP Link')!
+    expect(snapshot.recommendations.links?.[candidate.id]).toEqual({ status: 'linked', ledgerId: 'custom-up-link' })
+    expect(snapshot.recommendations.linkedLedgerIdsByCandidateId?.[candidate.id]).toBe('custom-up-link')
+    expect(snapshot.recommendations.adoptedCandidateIds).not.toContain(candidate.id)
+  })
+
+  it('recomputes remembered links after a rule rename and creates a new rule when re-adopted', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    let savedRules: FavoriteLedger[] = [ordinaryAuthorLedger('custom-up-link', 'UP Link', true)]
+    const cloneRules = (rules: readonly FavoriteLedger[]) => rules.map((rule) => ({
+      ...rule,
+      keywords: [...rule.keywords]
+    }))
+    const applyFavoriteRecommendationRuleChanges = vi.fn(async (_accountMid: string, changes: {
+      upserts: FavoriteLedger[]
+      enabled: Array<{ ledgerId: string; enabled: boolean }>
+    }) => {
+      const before = cloneRules(savedRules)
+      const byId = new Map(savedRules.map((rule) => [rule.id, rule]))
+      for (const rule of changes.upserts) byId.set(rule.id, cloneRules([rule])[0]!)
+      for (const change of changes.enabled) {
+        const rule = byId.get(change.ledgerId)
+        if (rule) byId.set(change.ledgerId, { ...rule, enabled: change.enabled })
+      }
+      savedRules = cloneRules([...byId.values()])
+      return { before, after: cloneRules(savedRules) }
+    })
+    const coordinator = createCoordinator(repository, store, {
+      listSavedFavoriteLedgers: async () => cloneRules(savedRules),
+      applyFavoriteRecommendationRuleChanges
+    })
+
+    const { candidateId } = await readyWorkspaceWithAuthorRecommendation(coordinator, 'UP Link')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { links: { [candidateId]: { status: 'linked', ledgerId: 'custom-up-link' } } }
+    })
+
+    savedRules = [ordinaryAuthorLedger('custom-up-link', 'UP Renamed', true)]
+    await coordinator.getFavoriteLedgerHistoryState('100')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { links: { [candidateId]: { status: 'unlinked' } } }
+    })
+
+    await coordinator.setRecommendedCandidates('100', [candidateId])
+
+    expect(savedRules).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'custom-up-link', displayName: 'bilimi·UP Renamed' }),
+      expect.objectContaining({ displayName: 'bilimi·UP Link', ruleType: 'author', ruleOrigin: 'saved-rule', enabled: true })
+    ]))
+    expect(savedRules).toHaveLength(2)
+    expect(applyFavoriteRecommendationRuleChanges).toHaveBeenLastCalledWith('100', expect.objectContaining({
+      upserts: [expect.objectContaining({ displayName: 'bilimi·UP Link', ruleType: 'author', ruleOrigin: 'saved-rule' })]
+    }))
+  })
+
+  it('adopts an unlinked candidate by saving one ordinary rule and classifying with its real id', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    let savedLedgers: FavoriteLedger[] = []
+    const applyFavoriteRecommendationRuleChanges = vi.fn(async (_accountMid: string, changes: {
+      upserts: FavoriteLedger[]
+      enabled: Array<{ ledgerId: string; enabled: boolean }>
+    }) => {
+      const before = savedLedgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
+      const byId = new Map(savedLedgers.map((ledger) => [ledger.id, ledger]))
+      for (const ledger of changes.upserts) byId.set(ledger.id, { ...ledger, keywords: [...ledger.keywords] })
+      for (const { ledgerId, enabled } of changes.enabled) {
+        const ledger = byId.get(ledgerId)
+        if (ledger) byId.set(ledgerId, { ...ledger, enabled })
+      }
+      savedLedgers = [...byId.values()]
+      return { before, after: savedLedgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] })) }
+    })
+    const coordinator = createCoordinator(repository, store, {
+      listSavedFavoriteLedgers: vi.fn(async () => savedLedgers),
+      applyFavoriteRecommendationRuleChanges,
+      classifyCurrentItems: vi.fn((_items, ledgers: FavoriteLedger[]) => _items.map(() => ({
+        targetLedgerIds: ledgers.length ? [ledgers[0]!.id] : [], confidence: 'high' as const
+      })))
+    })
+
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1, hasMore: false,
+      items: [
+        { aid: 1, title: 'First', author: 'UP Adopt', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Second', author: 'UP Adopt', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    const before = requireSnapshot(await coordinator.getSnapshot('100'))
+    const candidateId = before.recommendations.candidates.find((item) => item.displayName === 'bilimi·UP Adopt')!.id
+
+    const after = await coordinator.setRecommendedCandidates('100', [candidateId])
+    const ledgerId = requireSnapshot(await coordinator.getSnapshot('100')).recommendations.linkedLedgerIdsByCandidateId?.[candidateId]
+
+    expect(ledgerId).toMatch(/^custom-/)
+    expect(ledgerId).not.toBe(candidateId)
+    expect(applyFavoriteRecommendationRuleChanges).toHaveBeenCalledWith('100', expect.objectContaining({
+      upserts: [expect.objectContaining({
+        id: ledgerId, displayName: 'bilimi·UP Adopt', ruleType: 'author', ruleOrigin: 'saved-rule', enabled: true
+      })]
+    }))
+    expect(Object.values(after.classifications).some((row) => row.targetLedgerIds.includes(ledgerId!))).toBe(true)
+  })
+
+  it('reuses a prelinked ordinary rule without creating another rule', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const existing = ordinaryAuthorLedger('custom-existing', 'UP Reuse')
+    const applyFavoriteRecommendationRuleChanges = vi.fn(async () => ({
+      before: [existing], after: [{ ...existing, enabled: true }]
+    }))
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      listSavedFavoriteLedgers: vi.fn(async () => [existing]),
+      applyFavoriteRecommendationRuleChanges
+    })
+    const { candidateId } = await readyWorkspaceWithAuthorRecommendation(coordinator, 'UP Reuse')
+
+    await coordinator.setRecommendedCandidates('100', [candidateId])
+
+    expect(applyFavoriteRecommendationRuleChanges).toHaveBeenCalledWith('100', {
+      upserts: [], enabled: [{ ledgerId: 'custom-existing', enabled: true }]
+    })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: {
+        adoptedCandidateIds: [candidateId],
+        linkedLedgerIdsByCandidateId: { [candidateId]: 'custom-existing' }
+      }
+    })
+  })
+
+  it('cancels a candidate by disabling its linked ordinary rule without deleting it', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    let savedLedgers = [ordinaryAuthorLedger('custom-cancel', 'UP Cancel', true)]
+    const applyFavoriteRecommendationRuleChanges = vi.fn(async (_accountMid: string, changes: {
+      upserts: FavoriteLedger[]
+      enabled: Array<{ ledgerId: string; enabled: boolean }>
+    }) => {
+      const before = savedLedgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
+      savedLedgers = savedLedgers.map((ledger) => {
+        const change = changes.enabled.find((entry) => entry.ledgerId === ledger.id)
+        return change ? { ...ledger, enabled: change.enabled } : ledger
+      })
+      return { before, after: savedLedgers }
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      listSavedFavoriteLedgers: vi.fn(async () => savedLedgers),
+      applyFavoriteRecommendationRuleChanges
+    })
+    const { candidateId } = await readyWorkspaceWithAuthorRecommendation(coordinator, 'UP Cancel')
+    await coordinator.setRecommendedCandidates('100', [candidateId])
+
+    await coordinator.setRecommendedCandidates('100', [])
+
+    expect(savedLedgers).toEqual([expect.objectContaining({ id: 'custom-cancel', enabled: false })])
+    expect(applyFavoriteRecommendationRuleChanges).toHaveBeenLastCalledWith('100', {
+      upserts: [], enabled: [{ ledgerId: 'custom-cancel', enabled: false }]
+    })
+  })
+
+  it('fails closed for ambiguous recommendation links', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const applyFavoriteRecommendationRuleChanges = vi.fn()
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      listSavedFavoriteLedgers: vi.fn(async () => [
+        ordinaryAuthorLedger('custom-duplicate-a', 'UP Duplicate'),
+        ordinaryAuthorLedger('custom-duplicate-b', 'UP Duplicate')
+      ]),
+      applyFavoriteRecommendationRuleChanges
+    })
+    const { candidateId } = await readyWorkspaceWithAuthorRecommendation(coordinator, 'UP Duplicate')
+
+    await expect(coordinator.setRecommendedCandidates('100', [candidateId]))
+      .rejects.toThrow('存在重复收藏夹，请先处理重复项。')
+    expect(applyFavoriteRecommendationRuleChanges).not.toHaveBeenCalled()
+  })
+
+  it('restores the ordinary rule directory when classification publication fails', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const restoreFavoriteRuleDirectory = vi.fn(async () => undefined)
+    const saved = ordinaryAuthorLedger('custom-rollback', 'UP Rollback')
+    let failClassificationPublication = false
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      listSavedFavoriteLedgers: vi.fn(async () => [saved]),
+      applyFavoriteRecommendationRuleChanges: vi.fn(async () => ({ before: [saved], after: [{ ...saved, enabled: true }] })),
+      restoreFavoriteRuleDirectory,
+      classifyCurrentItems: vi.fn(async (items: Array<{ aid: number }>) => {
+        if (failClassificationPublication) throw new Error('classification publication failed')
+        return items.map(() => ({ targetLedgerIds: [], confidence: 'low' as const }))
+      })
+    })
+    const { candidateId } = await readyWorkspaceWithAuthorRecommendation(coordinator, 'UP Rollback')
+    failClassificationPublication = true
+
+    await expect(coordinator.setRecommendedCandidates('100', [candidateId]))
+      .rejects.toThrow('classification publication failed')
+    expect(restoreFavoriteRuleDirectory).toHaveBeenCalledWith('100', [saved])
+  })
+
+  it('keeps a user-created organization rule outside scan recommendations', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    let savedLedgers: FavoriteLedger[] = []
+    const applyFavoriteRecommendationRuleChanges = vi.fn(async (_accountMid: string, changes: {
+      upserts: FavoriteLedger[]
+      enabled: Array<{ ledgerId: string; enabled: boolean }>
+    }) => {
+      const before = savedLedgers
+      savedLedgers = [...changes.upserts]
+      return { before, after: savedLedgers }
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      listSavedFavoriteLedgers: vi.fn(async () => savedLedgers),
+      applyFavoriteRecommendationRuleChanges,
+      classifyCurrentItems: vi.fn((items: Array<{ aid: number }>, ledgers: FavoriteLedger[]) => items.map(() => ({
+        targetLedgerIds: ledgers.length ? [ledgers[0]!.id] : [], confidence: 'high' as const
+      })))
+    })
+    await readyWorkspaceWithAuthorRecommendation(coordinator, 'UP Manual')
+
+    await coordinator.saveDraftLedgerRule('100', {
+      analysisId: 'manual-rule', ledgerId: 'custom-music', title: '音乐',
+      keywords: ['First'], ruleType: 'keyword', adopt: true
+    })
+
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(savedLedgers).toEqual([expect.objectContaining({
+      id: 'custom-music', displayName: 'bilimi·音乐', ruleOrigin: 'saved-rule', enabled: true
+    })])
+    expect(snapshot.recommendations.candidates.map((candidate) => candidate.id)).not.toContain('custom-music')
+    expect(Object.values(snapshot.classifications).some((row) => row.targetLedgerIds.includes('custom-music'))).toBe(true)
   })
 
   it.each([
@@ -5080,11 +5549,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('creates one disabled local rule draft for a uniquely recovered custom workspace', async () => {
+  it('persists one unbound observation draft for a uniquely recovered custom workspace', async () => {
     const root = await createRoot()
     const saved = vi.fn(async (_accountMid: string, _ledgers: FavoriteLedger[]) => undefined)
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
-    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { saveRecommendedLedgers: saved })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { saveRecoveredLedgerDrafts: saved })
     await coordinator.open('100')
     await coordinator.beginScan('100', 'incremental')
     await coordinator.recordScanInventory('100', {
@@ -5745,14 +6214,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
   it('withdraws an adopted recommendation by the deleted saved rule semantics before reclassifying the preview', async () => {
     const root = await createRoot()
-    const saved = vi.fn().mockResolvedValue(true)
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
-      saveRecommendedLedgers: saved,
       classifyCurrentItem: (_item, recommendedLedgers = []) => recommendedLedgers.some((ledger) =>
-        ledger.id === 'custom-author-up-alpha'
+        ledger.ruleType === 'author' && ledger.keywords.includes('UP Alpha')
       )
-        ? { targetLedgerIds: ['custom-author-up-alpha'], confidence: 'high' as const }
+        ? { targetLedgerIds: [recommendedLedgers.find((ledger) => ledger.ruleType === 'author')!.id], confidence: 'high' as const }
         : { targetLedgerIds: ['remaining-ledger'], confidence: 'high' as const }
     })
     await coordinator.open('100')
@@ -5767,9 +6234,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.finishScan('100')
     await coordinator.acceptCurrentTags('100')
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    const adopted = requireSnapshot(await coordinator.getSnapshot('100'))
+    const adoptedLedgerId = adopted.recommendations.links?.['custom-author-up-alpha']?.status === 'linked'
+      ? adopted.recommendations.links['custom-author-up-alpha'].ledgerId
+      : undefined
+    if (!adoptedLedgerId) throw new Error('adopted recommendation rule unexpectedly unavailable')
 
     await coordinator.reconcileDeletedFavoriteLedgerRules('100', [{
-      id: 'custom-author-up-alpha', ruleType: 'author', keywords: [' UP Alpha ']
+      id: adoptedLedgerId, ruleType: 'author', keywords: [' UP Alpha ']
     }])
 
     const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
@@ -5799,17 +6271,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         ]
       }
     })
-    expect(saved).toHaveBeenLastCalledWith('100', [
-      expect.objectContaining({ id: 'custom-author-up-alpha', ruleType: 'author', keywords: ['UP Alpha'] })
-    ], [])
   })
 
-  it('withdraws only the exact recommendation when two candidates share rule semantics', async () => {
+  it('withdraws every linked recommendation when its single ordinary rule is deleted', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
+    const rules = createOrdinaryRuleDirectory([ordinaryAuthorLedger('saved-up-alpha', 'UP Alpha', true)])
     const coordinator = createCoordinator(repository, store, {
-      saveRecommendedLedgers: vi.fn(),
+      ...rules,
       classifyCurrentItem: (_item, recommendedLedgers = []) => ({
         targetLedgerIds: recommendedLedgers.map((ledger) => ledger.id), confidence: 'high' as const
       })
@@ -5845,18 +6315,19 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     const restarted = createCoordinator(repository, store, {
       initializeOnOpen: false,
+      ...rules,
       classifyCurrentItem: (_item, recommendedLedgers = []) => ({
         targetLedgerIds: recommendedLedgers.map((ledger) => ledger.id), confidence: 'high' as const
       })
     })
     await restarted.getSnapshot('100')
     await restarted.reconcileDeletedFavoriteLedgerRules('100', [{
-      id: candidateA.id, ruleType: 'author', keywords: [' UP Alpha ']
+      id: 'saved-up-alpha', ruleType: 'author', keywords: [' UP Alpha ']
     }])
 
     const snapshot = requireSnapshot(await restarted.getSnapshot('100'))
     expect(snapshot.recommendations.adoptedCandidateIds).not.toContain(candidateA.id)
-    expect(snapshot.recommendations.adoptedCandidateIds).toContain(candidateB.id)
+    expect(snapshot.recommendations.adoptedCandidateIds).not.toContain(candidateB.id)
   })
 
   it('keeps the preview recommendation and classifications when deleted-rule reconciliation cannot reclassify', async () => {
@@ -5899,12 +6370,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
   it('lets a completed saved-rule analysis replace an affected manual classification across the current round', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
-    const coordinator = new OldFavoriteWorkspaceCoordinator({
-      repository,
-      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
       classifyCurrentItems: (items, ledgers) => items.map((item) => ({
-        targetLedgerIds: ledgers.some((ledger) => ledger.id === 'local-alpha') && item.aid === 1
-          ? ['local-alpha']
+        targetLedgerIds: ledgers.some((ledger) => ledger.displayName === 'bilimi·Alpha') && item.aid === 1
+          ? [ledgers.find((ledger) => ledger.displayName === 'bilimi·Alpha')!.id]
           : ['music'],
         confidence: 'high' as const
       }))
@@ -5928,8 +6397,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       ruleType: 'keyword'
     })
 
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ classifications: {
-      '1': { targetLedgerIds: ['local-alpha'], source: 'system-high' },
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    // This is a user-created keyword rule, not a scan recommendation. Its
+    // deterministic ordinary-rule ID must be used directly; no candidate link
+    // exists for a scan with neither author nor tag recommendations.
+    const savedRuleId = 'local-alpha'
+    expect(snapshot).toMatchObject({ classifications: {
+      '1': { targetLedgerIds: [savedRuleId], source: 'system-high' },
       '2': { targetLedgerIds: ['music'], source: 'system-high' }
     } })
   })
@@ -5964,13 +6438,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
     const classifyCurrentItem = vi.fn((item: { author?: string }, recommendedLedgers: Array<{ id: string }> = []) => {
-      const authorLedger = recommendedLedgers.find((ledger) => ledger.id === 'custom-author-up-alpha')
+      const authorLedger = recommendedLedgers[0]
       return authorLedger && item.author === 'UP Alpha'
         ? { targetLedgerIds: [authorLedger.id], confidence: 'high' as const }
         : { targetLedgerIds: [], confidence: 'low' as const }
     })
-    const coordinator = new OldFavoriteWorkspaceCoordinator({
-      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: bindings, classifyCurrentItem,
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      bindingService: bindings, classifyCurrentItem,
       now: () => '2026-07-20T00:00:00.000Z'
     })
     await coordinator.open('100')
@@ -6002,7 +6476,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
 
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+    const selected = requireSnapshot(await coordinator.getSnapshot('100'))
+    const selectedLedgerId = requireLinkedRecommendationLedgerId(selected, 'custom-author-up-alpha')
+    expect(selected).toMatchObject({
       recommendations: {
         candidates: [expect.objectContaining({
           id: 'custom-author-up-alpha', kind: 'author', count: 2
@@ -6010,13 +6486,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         adoptedCandidateIds: ['custom-author-up-alpha']
       },
       classifications: {
-        '1': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-high' },
-        '2': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-high' }
+        '1': { targetLedgerIds: [selectedLedgerId], source: 'system-high' },
+        '2': { targetLedgerIds: [selectedLedgerId], source: 'system-high' }
       }
     })
     expect(classifyCurrentItem).toHaveBeenCalledWith(
       expect.objectContaining({ aid: 1 }),
-      expect.arrayContaining([expect.objectContaining({ id: 'custom-author-up-alpha' })])
+      expect.arrayContaining([expect.objectContaining({ id: selectedLedgerId })])
     )
 
     await coordinator.setRecommendedCandidates('100', [])
@@ -6045,23 +6521,22 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItem = vi.fn((item: { author?: string }, recommendedLedgers: Array<{ id: string }> = []) => ({
-      targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha')
-        ? ['custom-author-up-alpha']
+      targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers[0]
+        ? [recommendedLedgers[0].id]
         : [],
       confidence: 'high' as const
     }))
     const restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)
     let savedRuleIsEnabled = false
+    const rules = createOrdinaryRuleDirectory([ordinaryAuthorLedger('saved-up-alpha', 'UP Alpha', false)])
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
       classifyCurrentItem,
       restoreFavoriteLedgerHistoryState,
+      ...rules,
       listSavedEnabledLedgers: vi.fn(async () => savedRuleIsEnabled ? [{
-        id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', enabled: true
+        id: 'saved-up-alpha', displayName: 'bilimi·UP Alpha', enabled: true
       }] : []),
-      loadFavoriteLedgerHistoryLedgers: vi.fn().mockResolvedValue([{
-        id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'], ruleType: 'author',
-        enabled: true, priority: 10, ruleOrigin: 'saved-rule', bindingState: 'unbacked', isDefault: false
-      } as FavoriteLedger])
+      loadFavoriteLedgerHistoryLedgers: vi.fn(async () => [ordinaryAuthorLedger('saved-up-alpha', 'UP Alpha', savedRuleIsEnabled)])
     })
     await coordinator.open('100')
     await coordinator.beginScan('100', 'incremental')
@@ -6082,40 +6557,45 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     // hydrated as an adopted recommendation. Simulate the account-level
     // enable save reaching the coordinator before the linked selection command.
     savedRuleIsEnabled = true
+    await rules.applyFavoriteRecommendationRuleChanges('100', { upserts: [], enabled: [{ ledgerId: 'saved-up-alpha', enabled: true }] })
 
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    const linkedLedgerId = requireLinkedRecommendationLedgerId(
+      requireSnapshot(await coordinator.getSnapshot('100')),
+      'custom-author-up-alpha'
+    )
+    expect(linkedLedgerId).toBe('saved-up-alpha')
     const afterRecommendation = requireSnapshot(await coordinator.getSnapshot('100'))
     expect(afterRecommendation.history.length).toBe(historyLengthBeforeSelection + 1)
     expect(afterRecommendation.history.entries.at(-1)).toMatchObject({
       source: 'favorite-rules',
       changeCount: 2,
-      targetLedgerIds: ['custom-author-up-alpha'],
+      targetLedgerIds: [linkedLedgerId],
       summary: expect.objectContaining({
         movedCount: 2,
-        favoriteRule: {
+        favoriteRule: expect.objectContaining({
           action: 'checked',
-          title: 'bilimi·UP Alpha',
           movementGroups: [{
             beforeTargetLedgerIds: [],
-            afterTargetLedgerIds: ['custom-author-up-alpha'],
+            afterTargetLedgerIds: [linkedLedgerId],
             count: 2
           }]
-        }
+        })
       })
     })
 
-    await coordinator.setRoundExcludedLedgerIds('100', ['custom-author-up-alpha'], { mergeWithLatestClassification: true })
+    await coordinator.setRoundExcludedLedgerIds('100', [linkedLedgerId], { mergeWithLatestClassification: true })
     const afterExclusion = requireSnapshot(await coordinator.getSnapshot('100'))
     expect(afterExclusion.history.length).toBe(historyLengthBeforeSelection + 1)
     expect(afterExclusion.history.entries.at(-1)).toMatchObject({
       source: 'favorite-rules',
       changeCount: 2,
-      targetLedgerIds: ['custom-author-up-alpha']
+      targetLedgerIds: [linkedLedgerId]
     })
     await coordinator.moveHistoryCursor('100', historyLengthBeforeSelection)
     await coordinator.moveHistoryCursor('100', historyLengthBeforeSelection + 1)
     expect(restoreFavoriteLedgerHistoryState.mock.calls).toEqual(expect.arrayContaining([
-      ['100', expect.objectContaining({ adoptedCandidateIds: ['custom-author-up-alpha'], excludedLedgerIds: ['custom-author-up-alpha'] })]
+      ['100', expect.objectContaining({ adoptedCandidateIds: ['custom-author-up-alpha'], excludedLedgerIds: [linkedLedgerId] })]
     ]))
   })
 
@@ -6327,8 +6807,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItems = vi.fn((items: Array<{ aid: number; author?: string }>, recommendedLedgers: Array<{ id: string }>) =>
       items.map((item) => ({
-        targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha')
-          ? ['custom-author-up-alpha']
+        targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers[0]
+          ? [recommendedLedgers[0].id]
           : [],
         confidence: 'low' as const
       })))
@@ -6351,19 +6831,21 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const before = await coordinator.getSnapshot('100')
 
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    const selected = requireSnapshot(await coordinator.getSnapshot('100'))
+    const linkedLedgerId = requireLinkedRecommendationLedgerId(selected, 'custom-author-up-alpha')
 
-    expect(classifyCurrentItems).toHaveBeenCalledWith(
+    expect(classifyCurrentItems).toHaveBeenLastCalledWith(
       [expect.objectContaining({ aid: 1 }), expect.objectContaining({ aid: 2 })],
-      [expect.objectContaining({ id: 'custom-author-up-alpha' })],
+      [expect.objectContaining({ id: linkedLedgerId })],
       '100',
       { excludedRecommendedLedgers: [] }
     )
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+    expect(selected).toMatchObject({
       recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] },
       classifications: {
         ...(before && !('recovery' in before) ? before.classifications : {}),
-        '1': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-low' },
-        '2': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-low' }
+        '1': { targetLedgerIds: [linkedLedgerId], source: 'system-low' },
+        '2': { targetLedgerIds: [linkedLedgerId], source: 'system-low' }
       }
     })
   })
@@ -6442,34 +6924,27 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     if (!candidate) throw new Error('UP Alpha recommendation unexpectedly unavailable')
 
     await coordinator.setRecommendedCandidates('100', [candidate.id])
-
     const immediatelySelected = requireSnapshot(await coordinator.getSnapshot('100'))
+    const linkedLedgerId = requireLinkedRecommendationLedgerId(immediatelySelected, candidate.id)
     expect(immediatelySelected.classifications).toMatchObject({
-      '1': { targetLedgerIds: [candidate.id] },
-      '2': { targetLedgerIds: [candidate.id] }
+      '1': { targetLedgerIds: [linkedLedgerId] },
+      '2': { targetLedgerIds: [linkedLedgerId] }
     })
     expect(immediatelySelected.overview?.archiveTargets).toEqual(expect.arrayContaining([
-      expect.objectContaining({ ledgerId: candidate.id, itemCount: 2 })
+      expect.objectContaining({ ledgerId: linkedLedgerId, itemCount: 2 })
     ]))
-    expect(persistedRecommendations).toEqual([expect.arrayContaining([
-      expect.objectContaining({
-        id: candidate.id,
-        syncState: 'local-draft',
-        ruleOrigin: 'recommendation-draft',
-        bindingState: 'unbacked'
-      })
-    ])])
+    expect(persistedRecommendations).toEqual([])
 
     await coordinator.setRoundExcludedLedgerIds('100', [], {
-      participatingSavedLedgerIds: ['game', candidate.id]
+      participatingSavedLedgerIds: ['game', linkedLedgerId]
     })
     const afterSavedRuleParticipationRefresh = requireSnapshot(await coordinator.getSnapshot('100'))
     expect(afterSavedRuleParticipationRefresh.classifications).toMatchObject({
-      '1': { targetLedgerIds: [candidate.id] },
-      '2': { targetLedgerIds: [candidate.id] }
+      '1': { targetLedgerIds: [linkedLedgerId] },
+      '2': { targetLedgerIds: [linkedLedgerId] }
     })
     expect(afterSavedRuleParticipationRefresh.overview?.archiveTargets).toEqual(expect.arrayContaining([
-      expect.objectContaining({ ledgerId: candidate.id, itemCount: 2 })
+      expect.objectContaining({ ledgerId: linkedLedgerId, itemCount: 2 })
     ]))
   })
 
@@ -6478,8 +6953,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const repository = new FavoriteRepositoryService({ root })
     const classifyCurrentItems = vi.fn((items: Array<{ aid: number }>, recommendedLedgers: Array<{ id: string }>) =>
       items.map((item) => ({
-        targetLedgerIds: recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha') && item.aid <= 2
-          ? ['custom-author-up-alpha'] : [],
+        targetLedgerIds: recommendedLedgers[0] && item.aid <= 2 ? [recommendedLedgers[0].id] : [],
         confidence: 'high' as const
       })))
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
@@ -6510,8 +6984,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.setRecommendedCandidates('100', [candidate.id])
     const selected = requireSnapshot(await coordinator.getSnapshot('100'))
+    const linkedLedgerId = requireLinkedRecommendationLedgerId(selected, candidate.id)
     expect(selected.overview?.archiveTargets).toEqual(expect.arrayContaining([
-      expect.objectContaining({ ledgerId: candidate.id, itemCount: 2 })
+      expect.objectContaining({ ledgerId: linkedLedgerId, itemCount: 2 })
     ]))
   })
 
@@ -6565,8 +7040,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ]
     const classifyCurrentItems = (items: Array<{ aid: number; author?: string }>, recommendedLedgers: Array<{ id: string }>) =>
       items.map((item) => ({
-        targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha')
-          ? ['custom-author-up-alpha'] : ['game'],
+        targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers[0]
+          ? [recommendedLedgers[0].id] : ['game'],
         confidence: 'high' as const
       }))
     const coordinator = createCoordinator(repository, workspaceStore, {
@@ -6592,10 +7067,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const candidate = initial.recommendations.candidates.find((item) => item.id === 'custom-author-up-alpha')
     if (!candidate) throw new Error('UP Alpha recommendation unexpectedly unavailable')
     await coordinator.setRecommendedCandidates('100', [candidate.id])
-    await coordinator.setRoundExcludedLedgerIds('100', [], { participatingSavedLedgerIds: ['game', candidate.id] })
+    const adopted = requireSnapshot(await coordinator.getSnapshot('100'))
+    const linkedLedgerId = requireLinkedRecommendationLedgerId(adopted, candidate.id)
+    await coordinator.setRoundExcludedLedgerIds('100', [], { participatingSavedLedgerIds: ['game', linkedLedgerId] })
     const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
     expect(Object.values(snapshot.classifications).filter((classification) =>
-      classification.targetLedgerIds.includes(candidate.id))).toHaveLength(2)
+      classification.targetLedgerIds.includes(linkedLedgerId))).toHaveLength(2)
   })
 
   it('publishes distinct canonical author recommendations with complete renderer rules', async () => {
@@ -6709,7 +7186,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', [])
 
     expect(classifiedAids).toEqual([[1, 2], [1, 2]])
-    expect(excludedRecommendationIds).toEqual([[], ['custom-author-up-alpha']])
+    expect(excludedRecommendationIds).toEqual([[], [expect.stringMatching(/^custom-/)]])
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       classifications: {
         '1': { targetLedgerIds: ['system'], source: 'system-high' },
@@ -6868,13 +7345,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await restarted.setRecommendedCandidates('100', [recommendationId])
+    const adopted = requireSnapshot(await restarted.getSnapshot('100'))
+    const linkedLedgerId = requireLinkedRecommendationLedgerId(adopted, recommendationId)
 
     expect(classifyCurrentItems.mock.calls.some(([classified]) =>
       classified.map((item: { aid: number }) => item.aid).sort((a, b) => a - b).join(',') === '1,501')).toBe(true)
     await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', workspace.id)).resolves.toMatchObject({
       classifications: {
-        '1': { targetLedgerIds: [recommendationId] },
-        '501': { targetLedgerIds: [recommendationId] }
+        '1': { targetLedgerIds: [linkedLedgerId] },
+        '501': { targetLedgerIds: [linkedLedgerId] }
       }
     })
   })
@@ -6888,8 +7367,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       _accountMid: string,
       options?: { onBatchComplete?: (completed: number, total: number) => void; shouldCancel?: () => boolean }
     ) => classifyOldFavoriteItemsCooperatively(items, (batch) => batch.map((item) => ({
-      targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha')
-        ? ['custom-author-up-alpha']
+      targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers[0]
+        ? [recommendedLedgers[0].id]
         : [],
       confidence: 'low' as const
     })), { batchSize: 128, ...options }))
@@ -7028,14 +7507,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('persists an adopted recommendation immediately as an enabled local rule without creating a Bilibili folder', async () => {
+  it('persists an adopted recommendation through the ordinary-rule transaction without creating a Bilibili folder', async () => {
     const root = await createRoot()
-    const saved = vi.fn().mockResolvedValue(true)
-    const published = vi.fn()
+    const rules = createOrdinaryRuleDirectory()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
-      saveRecommendedLedgers: saved,
-      notifyRecommendedLedgersChanged: published,
+      ...rules,
       classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
     })
     const initial = await coordinator.open('100')
@@ -7055,44 +7532,75 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
 
-    expect(saved).toHaveBeenCalledTimes(1)
-    expect(saved).toHaveBeenCalledWith(
-      '100',
-      [expect.objectContaining({
-        id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
-        ruleType: 'author', enabled: true, isDefault: false, syncState: 'local-draft'
-      })],
-      ['custom-author-up-alpha']
+    expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledTimes(1)
+    expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledWith(
+      '100', expect.objectContaining({ enabled: [] })
     )
-    expect(saved.mock.calls[0]?.[1][0]?.bilibiliFolderId).toBeUndefined()
-    expect(saved.mock.calls[0]?.[1][0]?.syncState).toBe('local-draft')
-    expect(published).toHaveBeenCalledTimes(1)
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+    const adoptionUpsert = rules.applyFavoriteRecommendationRuleChanges.mock.calls[0]?.[1].upserts[0]
+    expect(adoptionUpsert).toMatchObject({
+      displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
+      ruleType: 'author', enabled: true, isDefault: false,
+      ruleOrigin: 'saved-rule', bindingState: 'unbacked'
+    })
+    expect(adoptionUpsert).not.toHaveProperty('syncState')
+    const savedRule = rules.current()[0]
+    expect(savedRule?.bilibiliFolderId).toBeUndefined()
+    expect(savedRule?.syncState).toBeUndefined()
+    const snapshot = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(snapshot).toMatchObject({
       recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] }
     })
+    expect(requireLinkedRecommendationLedgerId(snapshot, 'custom-author-up-alpha')).toBe(savedRule?.id)
 
     await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
     await coordinator.saveCurrentSegmentToLocalLibrary('100')
 
-    expect(published).toHaveBeenCalledTimes(2)
-    expect(saved).toHaveBeenCalledTimes(2)
-    expect(saved).toHaveBeenCalledWith(
-      '100',
-      [expect.objectContaining({
-        id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
-        ruleType: 'author', enabled: true, isDefault: false, syncState: 'local-draft'
-      })],
-      ['custom-author-up-alpha']
-    )
+    expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledTimes(1)
+    expect(rules.current()).toEqual([expect.objectContaining({ id: savedRule?.id, enabled: true })])
   })
 
-  it('does not retry recommendation persistence before blocking an unbacked target in preflight', async () => {
+  it('coalesces repeated adoption clicks for the same recommendation into one ordinary rule', async () => {
     const root = await createRoot()
-    const saved = vi.fn().mockResolvedValue(false)
+    const rules = createOrdinaryRuleDirectory()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      ...rules,
+      classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha 1', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha 2', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+
+    await Promise.all([
+      coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha']),
+      coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    ])
+
+    expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledTimes(1)
+    expect(rules.current()).toHaveLength(1)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] }
+    })
+  })
+
+  it('does not retry the ordinary-rule transaction before blocking an unbacked target in preflight', async () => {
+    const root = await createRoot()
+    const rules = createOrdinaryRuleDirectory()
     const ensurePhysicalShard = vi.fn().mockResolvedValue({})
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
-      saveRecommendedLedgers: saved,
+      ...rules,
       bindingService: { ensurePhysicalShard },
       classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
     })
@@ -7115,16 +7623,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('backup-preflight-required')
 
-    expect(saved).toHaveBeenCalledTimes(1)
+    expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledTimes(1)
     expect(ensurePhysicalShard).not.toHaveBeenCalled()
   })
 
-  it('repairs recommendation preferences when immediate local persistence fails and the process reopens', async () => {
+  it('does not publish a recommendation selection when the ordinary-rule transaction fails', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
     const first = createCoordinator(repository, workspaceStore, {
-      saveRecommendedLedgers: vi.fn().mockRejectedValue(new Error('preferences unavailable')),
+      applyFavoriteRecommendationRuleChanges: vi.fn().mockRejectedValue(new Error('preferences unavailable')),
       classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
     })
     await first.open('100')
@@ -7142,31 +7650,17 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await first.finishScan('100')
     await first.acceptCurrentTags('100')
     await expect(first.setRecommendedCandidates('100', ['custom-author-up-alpha'])).rejects.toThrow('preferences unavailable')
-
-    const repaired = vi.fn().mockResolvedValue(true)
-    const published = vi.fn()
-    const reopened = createCoordinator(repository, workspaceStore, {
-      initializeOnOpen: false,
-      saveRecommendedLedgers: repaired,
-      notifyRecommendedLedgersChanged: published
+    await expect(first.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: [] }
     })
-    await expect(reopened.open('100')).resolves.toMatchObject({ status: 'previewing' })
-    expect(repaired).toHaveBeenCalledWith(
-      '100',
-      [expect.objectContaining({ id: 'custom-author-up-alpha' })],
-      ['custom-author-up-alpha']
-    )
-    expect(published).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the saved local recommendation when it is deselected from the current round', async () => {
+  it('disables the linked ordinary rule when a recommendation is deselected from the current round', async () => {
     const root = await createRoot()
-    const saved = vi.fn().mockResolvedValue(false)
-    const published = vi.fn()
+    const rules = createOrdinaryRuleDirectory()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
-      saveRecommendedLedgers: saved,
-      notifyRecommendedLedgersChanged: published,
+      ...rules,
       classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
     })
     await coordinator.open('100')
@@ -7189,28 +7683,19 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', [])
     await coordinator.prepareRecommendationPreview('100', [])
 
-    expect(saved).toHaveBeenCalledTimes(2)
-    expect(saved).toHaveBeenLastCalledWith(
-      '100',
-      [expect.objectContaining({ id: 'custom-author-up-alpha', enabled: true })],
-      []
-    )
-    expect(published).not.toHaveBeenCalled()
+    expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledTimes(2)
+    const savedRule = rules.current()[0]
+    expect(savedRule).toMatchObject({ enabled: false })
 
     await coordinator.saveCurrentSegmentToLocalLibrary('100')
 
-    expect(saved).toHaveBeenLastCalledWith(
-      '100',
-      [expect.objectContaining({ id: 'custom-author-up-alpha' })],
-      []
-    )
-    expect(published).not.toHaveBeenCalled()
+    expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledTimes(2)
+    expect(rules.current()).toEqual([expect.objectContaining({ id: savedRule?.id, enabled: false })])
   })
 
-  it('retains an already-saved recommendation when freeze requires its explicit backup', async () => {
+  it('retains an adopted ordinary rule when freeze requires its explicit backup', async () => {
     const root = await createRoot()
-    const saved = vi.fn().mockResolvedValue(true)
-    const published = vi.fn()
+    const rules = createOrdinaryRuleDirectory()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const bindings = new FavoriteRepositoryBindingService({
       repository,
@@ -7231,8 +7716,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       repository,
       workspaceStore: new OldFavoriteWorkspaceStore({ root }),
       bindingService: bindings,
-      saveRecommendedLedgers: saved,
-      notifyRecommendedLedgersChanged: published,
+      ...rules,
       classifyCurrentItem: (item, recommendedLedgers = []) => item.author === 'UP Alpha' && recommendedLedgers.length
         ? { targetLedgerIds: [recommendedLedgers[0]!.id], confidence: 'high' }
         : { targetLedgerIds: [], confidence: 'low' },
@@ -7251,24 +7735,37 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
 
-    expect(saved).toHaveBeenCalledTimes(1)
+    expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledTimes(1)
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('backup-preflight-required')
-    // Preflight now blocks before any recommendation retry. This keeps a
-    // missing backup from causing unrelated local persistence during an
-    // attempted remote execution.
-    expect(saved).toHaveBeenCalledTimes(1)
-    expect(published).toHaveBeenCalledTimes(1)
+    expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledTimes(1)
   })
 
   it('creates a local logical ledger and applies its later classification to the round', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    let savedLedgers: FavoriteLedger[] = []
+    const applyFavoriteRecommendationRuleChanges = vi.fn(async (_accountMid: string, changes: {
+      upserts: FavoriteLedger[]
+      enabled: Array<{ ledgerId: string; enabled: boolean }>
+    }) => {
+      const before = savedLedgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] }))
+      const byId = new Map(savedLedgers.map((ledger) => [ledger.id, ledger]))
+      for (const ledger of changes.upserts) byId.set(ledger.id, { ...ledger, keywords: [...ledger.keywords] })
+      savedLedgers = [...byId.values()]
+      return { before, after: savedLedgers.map((ledger) => ({ ...ledger, keywords: [...ledger.keywords] })) }
+    })
+    const classifyCurrentItems = vi.fn((_items: Array<{ aid: number }>, _ledgers: FavoriteLedger[], _accountMid: string, options?: {
+      participatingSavedLedgerIds?: readonly string[]
+    }) => _items.map(() => ({
+      targetLedgerIds: options?.participatingSavedLedgerIds?.includes('local-music') ? ['local-music'] : ['music'],
+      confidence: 'high' as const
+    })))
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository,
       workspaceStore: new OldFavoriteWorkspaceStore({ root }),
-      classifyCurrentItem: (_item, ledgers = []) => ledgers.some((ledger) => ledger.id === 'local-music')
-        ? { targetLedgerIds: ['local-music'], confidence: 'high' }
-        : { targetLedgerIds: ['music'], confidence: 'high' },
+      listSavedFavoriteLedgers: async () => savedLedgers,
+      applyFavoriteRecommendationRuleChanges,
+      classifyCurrentItems,
       now: () => '2026-07-20T00:00:00.000Z'
     })
     await coordinator.beginScan('100', 'incremental')
@@ -7278,13 +7775,25 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await coordinator.createLocalLedgerAndReclassify('100', 'Music')
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
-      recommendations: { adoptedCandidateIds: ['local-music'] },
+    const selected = requireSnapshot(await coordinator.getSnapshot('100'))
+    expect(selected).toMatchObject({
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
       classifications: {
         '1': { targetLedgerIds: ['local-music'], source: 'system-high' },
         '2': { targetLedgerIds: ['local-music'], source: 'system-high' }
       }
     })
+    expect(savedLedgers).toEqual([expect.objectContaining({
+      id: 'local-music', displayName: 'bilimi·Music', keywords: ['Music'], ruleType: 'keyword',
+      enabled: true, ruleOrigin: 'saved-rule'
+    })])
+    expect(applyFavoriteRecommendationRuleChanges).toHaveBeenCalledWith('100', expect.objectContaining({
+      upserts: [expect.objectContaining({ id: 'local-music', ruleOrigin: 'saved-rule' })]
+    }))
+    expect(classifyCurrentItems).toHaveBeenLastCalledWith(
+      expect.any(Array), expect.any(Array), '100',
+      expect.objectContaining({ participatingSavedLedgerIds: ['local-music'] })
+    )
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       folders: [expect.objectContaining({ id: 'local:local-music', title: 'Music', kind: 'local', syncState: 'local-only' })]
     })
@@ -7343,10 +7852,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: {
-        candidates: [expect.objectContaining({
-          id: 'local-alpha', count: 1
-        })],
-        adoptedCandidateIds: ['local-alpha']
+        candidates: [],
+        adoptedCandidateIds: []
       },
       classifications: {
         '1': { targetLedgerIds: ['local-alpha'], source: 'system-high' },
@@ -7440,14 +7947,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(classifyCurrentItems).not.toHaveBeenCalled()
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: {
-        candidates: [expect.objectContaining({ id: 'local-alpha', count: 1 })],
+        candidates: [],
         adoptedCandidateIds: []
       },
       classifications: {}
     })
     await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
       recommendations: {
-        candidates: [expect.objectContaining({ id: 'local-alpha', count: 1 })],
+        candidates: [],
         adoptedCandidateIds: []
       },
       classifications: {}
@@ -7547,7 +8054,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const releasePublication = deferred<void>()
     const appendOverlay = workspaceStore.appendOverlay.bind(workspaceStore)
     vi.spyOn(workspaceStore, 'appendOverlay').mockImplementation(async (accountMid, workspaceId, overlay) => {
-      if (overlay.ruleAnalysisCheckpoint === null && overlay.recommendations?.candidates?.some((item) => item.id === 'local-publication')) {
+      if (overlay.ruleAnalysisCheckpoint === null && overlay.recommendations) {
         publicationStarted.resolve(undefined)
         await releasePublication.promise
       }
@@ -7567,7 +8074,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     expect(canceled).toBe(false)
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
-      recommendations: { adoptedCandidateIds: ['local-publication'] }
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      classifications: { '1': { targetLedgerIds: ['local-publication'], source: 'system-high' } }
     })
   })
 
@@ -7708,8 +8216,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: {
-        candidates: [expect.objectContaining({ id: 'local-topic', displayName: 'bilimi·Renamed Topic', count: 1 })],
-        adoptedCandidateIds: ['local-topic']
+        candidates: [],
+        adoptedCandidateIds: []
       },
       classifications: {
         '2': { targetLedgerIds: ['local-topic'], source: 'system-high' }
@@ -7720,7 +8228,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.saveCurrentSegmentToLocalLibrary('100')
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       folders: expect.arrayContaining([
-        expect.objectContaining({ id: 'bilimi-logical:local-topic', title: 'Renamed Topic', kind: 'bilimi-logical', logicalLedgerId: 'local-topic', syncState: 'local-only' })
+        expect.objectContaining({ id: 'bilimi-logical:local-topic', title: 'bilimi·Renamed Topic', kind: 'bilimi-logical', logicalLedgerId: 'local-topic', syncState: 'local-only' })
       ])
     })
   })
@@ -7754,8 +8262,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: {
-        candidates: [expect.objectContaining({ id: 'custom-jazz', displayName: 'bilimi·爵士现场', count: 1 })],
-        adoptedCandidateIds: ['custom-jazz']
+        candidates: [],
+        adoptedCandidateIds: []
       },
       classifications: {
         '1': { targetLedgerIds: ['custom-jazz'], source: 'system-high' }
@@ -7770,10 +8278,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })).resolves.toMatchObject({ status: 'previewing' })
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: {
-        candidates: expect.arrayContaining([
-          expect.objectContaining({ id: 'knowledge', displayName: 'bilimi·知识学习' })
-        ]),
-        adoptedCandidateIds: expect.arrayContaining(['knowledge'])
+        candidates: [],
+        adoptedCandidateIds: []
       }
     })
   })
@@ -7798,7 +8304,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const workspace = await coordinator.finishScan('100')
     const appendOverlay = workspaceStore.appendOverlay.bind(workspaceStore)
     vi.spyOn(workspaceStore, 'appendOverlay').mockImplementation(async (accountMid, workspaceId, overlay) => {
-      if (overlay.ruleAnalysisCheckpoint === null && overlay.recommendations?.candidates?.some((item) => item.id === 'local-failed-publication')) {
+      if (overlay.ruleAnalysisCheckpoint === null && overlay.recommendations) {
         throw new Error('final overlay failed')
       }
       return appendOverlay(accountMid, workspaceId, overlay)
@@ -7878,8 +8384,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', workspace.id)).resolves.toMatchObject({
       ruleAnalysisCheckpoint: undefined,
       recommendations: {
-        candidates: [expect.objectContaining({ id: 'local-checkpoint', matchedAidsBySegment: {} })],
-        adoptedCandidateIds: ['local-checkpoint']
+        candidates: [],
+        adoptedCandidateIds: []
       }
     })
   })
@@ -7991,10 +8497,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(classifyCurrentItems.mock.calls[0]?.[0].map((item) => item.aid)).toEqual([1, 2_001])
     await expect(workspaceStore.recover('100', workspace.id)).resolves.toMatchObject({
       recommendations: {
-        candidates: [expect.objectContaining({
-          id: 'local-sparse',
-          matchedAidsBySegment: { 'segment-1': [1], 'segment-2': [2_001] }
-        })]
+        candidates: []
       }
     })
   })
@@ -8226,6 +8729,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
   it('keeps one remote organization round coherent from scan through protected incremental follow-up', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const rules = createOrdinaryRuleDirectory()
     const append = vi.fn().mockResolvedValue({ observedAccountMid: '100' })
     const syncService = new FavoriteRepositorySyncService({
       repository,
@@ -8237,9 +8741,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       repository,
       workspaceStore: new OldFavoriteWorkspaceStore({ root }),
       syncService,
+      ...rules,
       classifyCurrentItem: (item, recommendedLedgers = []) => item.aid === 1 &&
-        recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha')
-        ? { targetLedgerIds: ['custom-author-up-alpha'], confidence: 'high' }
+        recommendedLedgers.length
+        ? { targetLedgerIds: [recommendedLedgers[0]!.id], confidence: 'high' }
         : { targetLedgerIds: ['music'], confidence: 'high' },
       now: () => '2026-07-20T00:00:00.000Z'
     })
@@ -8274,6 +8779,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
+    const linkedLedgerId = requireLinkedRecommendationLedgerId(
+      requireSnapshot(await coordinator.getSnapshot('100')),
+      'custom-author-up-alpha'
+    )
     const deepSeekInput = requireSnapshot(await coordinator.getSnapshot('100'))
     if (!deepSeekInput.currentSegment) throw new Error('workspace unexpectedly unavailable')
     await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 2, targetLedgerIds: ['knowledge'] }], {
@@ -8281,7 +8790,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       currentSegmentId: deepSeekInput.currentSegment.id,
       selectedSourceFolderIds: ['source'],
       classifications: {
-        '1': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-high' },
+        '1': { targetLedgerIds: [linkedLedgerId], source: 'system-high' },
         '2': { targetLedgerIds: ['music'], source: 'system-high' },
         '3': { targetLedgerIds: ['music'], source: 'system-high' }
       }
@@ -8296,7 +8805,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.prepareRecommendationPreview('100', ['custom-author-up-alpha'])
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       classifications: {
-        '1': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-high' },
+        '1': { targetLedgerIds: [linkedLedgerId], source: 'system-high' },
         '2': { targetLedgerIds: ['music'], source: 'system-high' },
         '3': { targetLedgerIds: ['manual'], source: 'manual' }
       }
@@ -8312,13 +8821,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         now: () => '2026-07-20T00:00:00.000Z',
         pacingMs: 0
       }),
+      ...rules,
       classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' }),
       now: () => '2026-07-20T00:00:00.000Z'
     })
     await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
       status: 'previewing',
       classifications: {
-        '1': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-high' },
+        '1': { targetLedgerIds: [linkedLedgerId], source: 'system-high' },
         '2': { targetLedgerIds: ['music'], source: 'system-high' },
         '3': { targetLedgerIds: ['manual'], source: 'manual' }
       },
@@ -8326,7 +8836,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     for (const [logicalLedgerId, remoteFolderId] of [
-      ['custom-author-up-alpha', 'remote-alpha'], ['music', 'remote-music'], ['manual', 'remote-manual']
+      [linkedLedgerId, 'remote-alpha'], ['music', 'remote-music'], ['manual', 'remote-manual']
     ]) {
       const remoteTitle = favoriteRepositoryManagedShardTitle(logicalLedgerId, 1, 'a1b2c3')
       await bindings.preparePhysicalShard('100', {
@@ -8345,6 +8855,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         now: () => '2026-07-20T00:00:00.000Z',
         pacingMs: 0
       }),
+      ...rules,
       classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' }),
       now: () => '2026-07-20T00:00:00.000Z'
     })
@@ -8831,14 +9342,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await resumed.getSnapshot('100')
 
     const adopted = requireSnapshot(await resumed.setRecommendedCandidates('100', ['custom-author-up-alpha']))
+    const linkedLedgerId = requireLinkedRecommendationLedgerId(requireSnapshot(await resumed.getSnapshot('100')), 'custom-author-up-alpha')
 
     expect(adopted.classifications).toMatchObject({
-      '1': { targetLedgerIds: ['custom-author-up-alpha'] },
-      '2': { targetLedgerIds: ['custom-author-up-alpha'] }
+      '1': { targetLedgerIds: [linkedLedgerId] },
+      '2': { targetLedgerIds: [linkedLedgerId] }
     })
   })
 
-  it('preserves an adopted legacy recommendation identity when rebuilding indexes by kind and complete source', async () => {
+  it('cancels a legacy adopted candidate when no ordinary rule can link it after restart', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
     const store = new OldFavoriteWorkspaceStore({ root })
@@ -8866,7 +9378,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     const restarted = createCoordinator(repository, store, { initializeOnOpen: false })
     await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
-      recommendations: { adoptedCandidateIds: ['custom-author-legacy-hash'] }
+      recommendations: { adoptedCandidateIds: [] }
     })
   })
 
@@ -12169,6 +12681,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
   it('keeps the original redo branch after rebuilding a restored rule-history projection', async () => {
     const root = await createRoot()
     const restoreFavoriteLedgerHistoryState = vi.fn().mockResolvedValue(undefined)
+    const rules = createOrdinaryRuleDirectory()
     const coordinator = createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-08-25T00:00:00.000Z' }),
       new OldFavoriteWorkspaceStore({ root }),
@@ -12177,7 +12690,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
           targetLedgerIds: [recommendedLedgers[0]?.id ?? 'game'], confidence: 'high' as const
         }),
         restoreFavoriteLedgerHistoryState,
-        loadFavoriteLedgerHistoryLedgers: async () => []
+        ...rules,
+        loadFavoriteLedgerHistoryLedgers: rules.loadFavoriteLedgerHistoryLedgers
       }
     )
     await coordinator.open('100')
@@ -12196,8 +12710,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.acceptCurrentTags('100')
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     const beforeRestore = requireSnapshot(await coordinator.getSnapshot('100'))
+    const linkedLedgerId = requireLinkedRecommendationLedgerId(beforeRestore, 'custom-author-up-alpha')
     const ruleEntry = beforeRestore.history.entries.find((entry) =>
-      entry.source === 'favorite-rules' && entry.targetLedgerIds.includes('custom-author-up-alpha')
+      entry.source === 'favorite-rules' && entry.targetLedgerIds.includes(linkedLedgerId)
     )
     expect(ruleEntry).toBeDefined()
     expect(ruleEntry).toMatchObject({ source: 'favorite-rules', changeCount: 2 })
@@ -12216,7 +12731,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const restarted = createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-08-25T00:00:00.000Z' }),
       new OldFavoriteWorkspaceStore({ root }),
-      { initializeOnOpen: false, restoreFavoriteLedgerHistoryState, loadFavoriteLedgerHistoryLedgers: async () => [] }
+      {
+        initializeOnOpen: false,
+        restoreFavoriteLedgerHistoryState,
+        ...rules,
+        loadFavoriteLedgerHistoryLedgers: rules.loadFavoriteLedgerHistoryLedgers
+      }
     )
     await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
       classifications: {
@@ -12228,24 +12748,22 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await restarted.moveHistoryCursor('100', ruleEntry!.cursor)
     expect(restoreFavoriteLedgerHistoryState).toHaveBeenLastCalledWith('100', expect.objectContaining({
-      adoptedCandidateIds: ['custom-author-up-alpha']
+      adoptedCandidateIds: ['custom-author-up-alpha'],
+      linkedLedgerIdsByCandidateId: { 'custom-author-up-alpha': linkedLedgerId }
     }))
     await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
       history: { cursor: ruleEntry!.cursor, length: originalLength }
     })
   })
 
-  it('persists a zero-movement recommended-folder adoption without a history transition', async () => {
+  it('persists a zero-movement recommendation adoption through the ordinary-rule transaction', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-25T00:00:00.000Z' })
-    let persistedLedgers: FavoriteLedger[] = []
+    const rules = createOrdinaryRuleDirectory()
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
       classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' }),
-      loadFavoriteLedgerHistoryLedgers: async () => persistedLedgers,
-      saveRecommendedLedgers: async (_accountMid, ledgers) => {
-        persistedLedgers = ledgers
-        return true
-      }
+      ...rules,
+      loadFavoriteLedgerHistoryLedgers: rules.loadFavoriteLedgerHistoryLedgers
     })
     await coordinator.open('100')
     await coordinator.beginScan('100', 'incremental')
@@ -12268,9 +12786,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] },
       history: { entries: [] }
     })
-    expect(persistedLedgers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'custom-author-up-alpha' })
-    ]))
+    expect(rules.applyFavoriteRecommendationRuleChanges).toHaveBeenCalledWith('100', expect.objectContaining({
+      upserts: [expect.objectContaining({ displayName: 'bilimi·UP Alpha', enabled: true })],
+      enabled: []
+    }))
+    expect(rules.current()).toEqual([expect.objectContaining({ enabled: true })])
   })
 
   it('backfills a missing automatic classification baseline when a ready draft is restored', async () => {

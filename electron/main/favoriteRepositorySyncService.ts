@@ -108,6 +108,7 @@ export type FavoriteRepositoryPageBridge = {
     folderIds: string[]
   }): Promise<PageBridgeResult & { members: Record<string, number[]> }>
   readFolderInventory(input: { accountMid: string; operationKey: string }): Promise<PageBridgeResult & { folders: FavoriteRepositoryRemoteFolder[] }>
+  readFolder?(input: { accountMid: string; operationKey: string; folderId: string }): Promise<PageBridgeResult & { folder: FavoriteRepositoryRemoteFolder }>
   createFolder(input: { accountMid: string; operationKey: string; title: string }): Promise<PageBridgeResult & { folder: FavoriteRepositoryRemoteFolder }>
   deleteFolder(input: { accountMid: string; operationKey: string; folderId: string }): Promise<PageBridgeDeleteResult>
   renameFolder(input: { accountMid: string; operationKey: string; folderId: string; title: string }): Promise<PageBridgeResult>
@@ -290,6 +291,8 @@ export class FavoriteRepositorySyncService {
     }) => Promise<unknown>
     onPhysicalShardProvisioned?: (accountMid: string) => Promise<unknown> | unknown
     onLibraryPlacementRunChanged?: (run: FavoriteLibraryPlacementSyncRun) => void
+    /** Runs once after one or more Bilibili folder deletions are confirmed. */
+    onConfirmedRemoteFolderMutation?: (accountMid: string) => Promise<unknown> | unknown
     reconciliationReadTimeoutMs?: number
     remoteWriteTimeoutMs?: number
     retryCooldownMs?: number
@@ -1400,6 +1403,9 @@ export class FavoriteRepositorySyncService {
               payload: { remoteFolderId }
             })
           }
+          if (remoteDeletion.succeededRemoteFolderIds.length) {
+            await this.options.onConfirmedRemoteFolderMutation?.(account)
+          }
           return remoteDeletion
         }
         const { candidates } = remoteDeletion
@@ -1436,6 +1442,9 @@ export class FavoriteRepositorySyncService {
               ...(confirmedRemoteFolderIds.size ? { confirmedRemoteFolderIds: [...confirmedRemoteFolderIds].sort() } : {})
             }
           })
+        }
+        if (remoteDeletion.succeededRemoteFolderIds.length) {
+          await this.options.onConfirmedRemoteFolderMutation?.(account)
         }
         return remoteDeletion
       } finally {
@@ -1488,6 +1497,9 @@ export class FavoriteRepositorySyncService {
             type: 'remove-physical-shard-binding',
             payload: { remoteFolderId }
           })
+        }
+        if (result.succeededRemoteFolderIds.length) {
+          await this.options.onConfirmedRemoteFolderMutation?.(account)
         }
         return result
       } finally {

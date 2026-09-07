@@ -13,7 +13,7 @@ export type FavoriteRepositoryRuntimePageBridgeInput = {
   folderId?: string
 }
 
-export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder' | 'rename-folder'
+export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'read-folder' | 'create-folder' | 'delete-folder' | 'rename-folder'
 
 function normalizedAccountMid(value: string) {
   const raw = value.trim()
@@ -109,14 +109,36 @@ export class FavoriteRepositoryRuntimePageBridgeManager {
         if (!result.folders) throw new Error('Favorite repository page bridge returned incomplete folder inventory.')
         return { observedAccountMid: result.observedAccountMid, folders: result.folders }
       },
+      async readFolder(input) {
+        const result = await execute('read-folder', input)
+        if (!result.folder) throw new Error('Favorite repository page bridge returned incomplete remote folder.')
+        return { observedAccountMid: result.observedAccountMid, folder: result.folder }
+      },
       async createFolder(input) {
         const result = await execute('create-folder', input)
         if (!result.folder) throw new Error('Favorite repository page bridge returned incomplete created folder.')
         return { observedAccountMid: result.observedAccountMid, folder: result.folder }
       },
       async deleteFolder(input) {
-        const result = await execute('delete-folder', input)
-        return { observedAccountMid: result.observedAccountMid }
+        if (!target) throw new Error('Favorite sync page target is unavailable.')
+        if (normalizedAccountMid(input.accountMid) !== account) throw new Error('Favorite sync page bridge account mismatch.')
+        const result = await request<FavoriteRepositoryPageOperationResult>({
+          type: 'favorite-repository-page-operation', accountMid: account, runId, target,
+          action: 'delete-folder', input
+        })
+        if (normalizedAccountMid(result.observedAccountMid) !== account) {
+          throw new Error('Favorite sync page bridge account changed during execution.')
+        }
+        if (result.status === 'ok') return { observedAccountMid: result.observedAccountMid }
+        return {
+          observedAccountMid: result.observedAccountMid,
+          status: result.status,
+          ...(result.reason ? { reason: result.reason } : {}),
+          ...(Number.isSafeInteger(result.httpStatus) ? { httpStatus: result.httpStatus } : {}),
+          ...(result.contentType ? { contentType: result.contentType } : {}),
+          ...(result.responseCategory ? { responseCategory: result.responseCategory } : {}),
+          ...(Number.isSafeInteger(result.bilibiliCode) ? { bilibiliCode: result.bilibiliCode } : {})
+        }
       },
       async renameFolder(input) {
         // Rename is the only mutation whose caller must distinguish a known

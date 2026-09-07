@@ -74,16 +74,10 @@ describe('favorite library managed folder projection', () => {
     })])
   })
 
-  it('retains a deleted rule\'s logical folder identity from its saved remote id', () => {
+  it('discovers a deleted rule\'s still-existing remote folder as a new observation instead of restoring the rule', () => {
     const base = snapshot([{ id: 'music-remote', title: 'bilimi·音乐', aids: [2] }])
     const result = planFavoriteLibraryManagedFolderProjection({
-      snapshot: {
-        ...base,
-        physicalShards: [{
-          logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1,
-          remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: 'music-remote', remoteMemberCount: 1
-        }]
-      },
+      snapshot: base,
       ledgers: [],
       deletedFavoriteLedgerRecords: [{
         logicalLedgerId: 'music', deletedAt: '2026-08-20T00:00:00.000Z',
@@ -93,38 +87,25 @@ describe('favorite library managed folder projection', () => {
     })
 
     expect(result).toEqual([expect.objectContaining({
-      logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1,
-      bindingState: 'bound', remoteFolderId: 'music-remote', memberAids: [2]
+      logicalLedgerId: createRemoteObservationFavoriteLedgerId('music-remote'), logicalTitle: 'bilimi·音乐', shardNumber: 1,
+      bindingState: 'pending-reconcile', knownRemoteFolderIds: ['music-remote'], memberAids: [2]
     })])
   })
 
-  it('does not restore a deleted recommendation rule or its exact remote observation, while preserving a same-title different remote id', () => {
-    const deletedRemoteFolderId = 'recommendation-deleted'
-    const retainedRemoteFolderId = 'same-title-different-id'
-    const base = snapshot([
-      { id: deletedRemoteFolderId, title: 'bilimi·专属 UP 追更', aids: [2] },
-      { id: retainedRemoteFolderId, title: 'bilimi·专属 UP 追更', aids: [3] }
-    ])
+  it('recognizes manually named circled-number folders as one local rule\'s shards', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
-      snapshot: {
-        ...base,
-        physicalShards: [{
-          logicalLedgerId: 'recommended-up', folderId: 'bilimi:recommended-up:001', shardNumber: 1,
-          remoteTitle: 'bilimi·专属 UP 追更', bindingState: 'bound', remoteFolderId: deletedRemoteFolderId, remoteMemberCount: 1
-        }]
-      },
-      ledgers: [],
-      deletedFavoriteLedgerRecords: [{
-        logicalLedgerId: 'recommended-up', deletedAt: '2026-09-05T00:00:00.000Z',
-        ledger: { ...ledger('recommended-up', 'bilimi·专属 UP 追更', deletedRemoteFolderId), ruleOrigin: 'recommendation-draft' }
-      }],
+      snapshot: snapshot([
+        { id: 'game-1', title: 'bilimi·游戏专区①', aids: [1] },
+        { id: 'game-2', title: 'bilimi·游戏专区②', aids: [2] }
+      ]),
+      ledgers: [ledger('game', 'bilimi·游戏专区')],
       dismissedRemoteFolderIds: []
     })
 
-    expect(result).toEqual([expect.objectContaining({
-      logicalLedgerId: createRemoteObservationFavoriteLedgerId(retainedRemoteFolderId),
-      bindingState: 'pending-reconcile', knownRemoteFolderIds: [retainedRemoteFolderId], memberAids: [3]
-    })])
+    expect(result).toEqual([
+      expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 1, knownRemoteFolderIds: ['game-1'] }),
+      expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 2, knownRemoteFolderIds: ['game-2'] })
+    ])
   })
 
   it('projects an unknown bilimi folder as a stable draft while leaving an ordinary folder untouched', () => {
@@ -243,52 +224,6 @@ describe('favorite library managed folder projection', () => {
     expect(current.physicalShards).toEqual([expect.objectContaining({
       logicalLedgerId: 'creative-aesthetic', bindingState: 'pending-reconcile', knownRemoteFolderIds: ['4050295454']
     })])
-  })
-
-  it('removes a legacy managed folder for a deleted recommendation through the existing local managed-folder command', async () => {
-    const remoteFolderId = 'recommendation-deleted'
-    const base = snapshot([{ id: remoteFolderId, title: 'bilimi·专属 UP 追更', aids: [2] }])
-    let current = {
-      ...base,
-      folders: [
-        ...base.folders,
-        { id: 'bilimi-logical:recommended-up', title: 'bilimi·专属 UP 追更', kind: 'bilimi-logical' as const, logicalLedgerId: 'recommended-up', syncState: 'bound' as const }
-      ],
-      memberships: {
-        ...base.memberships,
-        'bilimi:recommended-up:001': [2],
-        'bilimi-logical:recommended-up': [2]
-      },
-      physicalShards: [{
-        logicalLedgerId: 'recommended-up', folderId: 'bilimi:recommended-up:001', shardNumber: 1,
-        remoteTitle: 'bilimi·专属 UP 追更', bindingState: 'bound' as const, remoteFolderId, remoteMemberCount: 1
-      }]
-    }
-    const commit = vi.fn(async (_accountMid: string, command: import('../../src/shared/favoriteRepository').FavoriteRepositoryCommand) => {
-      if (command.type === 'delete-local-managed-folders') {
-        const removedLogicalLedgerIds = new Set(command.payload.logicalFolderIds.map((folderId) => folderId.replace('bilimi-logical:', '')))
-        current = {
-          ...current,
-          folders: current.folders.filter((folder) => !removedLogicalLedgerIds.has(folder.logicalLedgerId ?? '')),
-          physicalShards: current.physicalShards.filter((shard) => !removedLogicalLedgerIds.has(shard.logicalLedgerId))
-        }
-      }
-      return current as never
-    })
-
-    await restoreFavoriteLibraryManagedFolderProjection({
-      accountMid: '100', repository: { getSnapshot: async () => current, commit }, ledgers: [],
-      deletedFavoriteLedgerRecords: [{
-        logicalLedgerId: 'recommended-up', deletedAt: '2026-09-05T00:00:00.000Z',
-        ledger: { ...ledger('recommended-up', 'bilimi·专属 UP 追更', remoteFolderId), ruleOrigin: 'recommendation-draft' }
-      }],
-      now: () => '2026-09-05T00:00:00.000Z'
-    })
-
-    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
-      type: 'delete-local-managed-folders', payload: { logicalFolderIds: ['bilimi-logical:recommended-up'] }
-    }))
-    expect(commit).not.toHaveBeenCalledWith('100', expect.objectContaining({ type: 'upsert-physical-shard-binding' }))
   })
 
   it('keeps a newly bound shard while restoring an older same-title candidate', async () => {

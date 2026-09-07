@@ -351,7 +351,7 @@ export const FavoriteLibraryDrawer = forwardRef<FavoriteLibraryDrawerHandle, Fav
           <span aria-hidden="true">⚠</span>
           <span className="favorite-library-drawer__notice-message">{activeNotice.message}</span>
           {additionalNoticeCount ? <span className="favorite-library-drawer__notice-more">另有{additionalNoticeCount}条</span> : null}
-          <button type="button" onClick={activeNotice.onActivate}>查看</button>
+          <button type="button" onClick={activeNotice.onActivate}>{activeNotice.actionLabel ?? '查看'}</button>
         </div> : null}
         <div className="favorite-library-drawer__actions">
           <button type="button" aria-label="展开并拉到最高" title="展开并拉到最高" disabled={maximizing} onClick={expandAndMaximize}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h14M12 19V8m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg></button>

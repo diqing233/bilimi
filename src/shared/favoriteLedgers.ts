@@ -35,7 +35,15 @@ function stableNameSuffix(value: string) {
   return (hash >>> 0).toString(36).slice(0, 4).padStart(4, '0')
 }
 
-export type RecommendedFavoriteLedgerKind = 'author' | 'series' | 'tag'
+/** Only scan-derived recommendation kinds. User-created rules use FavoriteLedgerRuleType. */
+export type RecommendedFavoriteLedgerKind = 'author' | 'tag'
+
+export function createUserFavoriteLedgerId(title: string, now = Date.now()) {
+  const slug = title.toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/gi, '-')
+    .replace(/^-|-$/g, '') || 'ledger'
+  return `custom-${slug}-${now}`
+}
 
 function recommendationSourceIdentity(sourceName: string) {
   const normalizedSource = sourceName.trim().toLocaleLowerCase()
@@ -79,7 +87,7 @@ function createRecommendedNameFromBase(
     const suffix = attempt === 0
       ? ''
       : attempt === 1
-        ? kind === 'author' ? '（UP）' : kind === 'tag' ? '（标签）' : '（系列）'
+        ? kind === 'author' ? '（UP）' : '（标签）'
         : `·${stableNameSuffix(sourceName)}${attempt.toString(36)}`
     const shortenedBaseName = truncateUnicode(
       normalizedBaseName,
@@ -97,7 +105,9 @@ export function createRecommendedFavoriteLedgerNameForKind(
 ) {
   const normalizedSourceName = sourceName.trim()
   const baseName = kind === 'author'
-    ? normalizedSourceName.split('-', 1)[0]?.trim() || normalizedSourceName || '收藏夹'
+    ? (!normalizedSourceName.startsWith('-')
+        ? normalizedSourceName.split('-', 1)[0]?.trim()
+        : normalizedSourceName) || normalizedSourceName || '收藏夹'
     : normalizedSourceName || '收藏夹'
   return createRecommendedNameFromBase(kind, baseName, sourceName, existingDisplayNames)
 }
@@ -161,7 +171,7 @@ export function disambiguateRecommendedFavoriteLedgerNames<
   return candidates.map((candidate): T => {
     const group = byName.get(candidate.displayName.toLocaleLowerCase()) ?? []
     if (group.length < 2) return candidate
-    const label = candidate.kind === 'author' ? '（UP）' : candidate.kind === 'tag' ? '（标签）' : '（系列）'
+    const label = candidate.kind === 'author' ? '（UP）' : '（标签）'
     const displayName = `${truncateUnicode(
       candidate.displayName,
       BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH - favoriteLedgerNameLength(label)
@@ -170,7 +180,7 @@ export function disambiguateRecommendedFavoriteLedgerNames<
   })
 }
 
-const BILIMI_LEDGER_PREFIX_PATTERN = /^bilimi[·\s\-路]*/i
+const BILIMI_LEDGER_PREFIX_PATTERN = /^bilimi(?:[·:：]|\s+|-|路)?/i
 
 const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
   [
@@ -515,6 +525,24 @@ function cloneLedger(ledger: FavoriteLedger): FavoriteLedger {
     displayName: normalizedManagedDisplayName(ledger.displayName),
     keywords: [...ledger.keywords]
   }
+  // Recommendation candidates are scan projections.  Earlier releases wrote
+  // an adopted candidate as a second rule origin; retain its ordinary local
+  // rule, but normalize it on load so no runtime path can give it a special
+  // deletion, binding, or remote-folder lifecycle.
+  if (cloned.ruleOrigin === 'recommendation-draft') {
+    // A legacy recommendation that still has a local-draft marker was never
+    // explicitly saved and bound under the ordinary-rule flow. Its retained
+    // remote ID is discovery evidence only, so require the user to save and
+    // confirm the binding instead of rendering it as already backed up.
+    const hasRemoteFolder = Boolean(
+      cloned.bilibiliFolderId?.trim() ||
+      cloned.bilibiliFolderIds?.some((folderId) => folderId.trim())
+    )
+    if (cloned.syncState === 'local-draft' && hasRemoteFolder) {
+      return { ...cloned, ruleOrigin: 'saved-rule', bindingState: 'unbound' }
+    }
+    return { ...cloned, ruleOrigin: 'saved-rule' }
+  }
   // Old records did not persist how a local draft was created. When that
   // source is unknowable, protect the user's rule rather than treating a
   // checkbox click as permission to delete it.
@@ -598,6 +626,98 @@ export function isBilimiManagedLedgerName(name: string): boolean {
 
 export function stripBilimiLedgerPrefix(name: string): string {
   return name.replace(BILIMI_LEDGER_PREFIX_PATTERN, '').trim()
+}
+
+/**
+ * Returns the display-name identity used for Bilibili discovery and physical
+ * shard grouping. It deliberately does not add or remove a bilimi prefix:
+ * that prefix is user-authored local display data, not remote identity.
+ */
+export function normalizeFavoriteLedgerBindingName(name: string) {
+  return String(name ?? '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/gu, ' ')
+    .toLocaleLowerCase()
+}
+
+const CIRCLED_SHARD_NUMBERS = [
+  '',
+  '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩',
+  '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳',
+  '㉑', '㉒', '㉓', '㉔', '㉕', '㉖', '㉗', '㉘', '㉙', '㉚',
+  '㉛', '㉜', '㉝', '㉞', '㉟', '㊱', '㊲', '㊳', '㊴', '㊵',
+  '㊶', '㊷', '㊸', '㊹', '㊺', '㊻', '㊼', '㊽', '㊾', '㊿'
+] as const
+
+const CIRCLED_SHARD_NUMBER_BY_SUFFIX = new Map(
+  CIRCLED_SHARD_NUMBERS.map((suffix, shardNumber) => [suffix, shardNumber])
+)
+
+const CIRCLED_DIGIT_VALUES = new Map([
+  ['⓪', 0], ['①', 1], ['②', 2], ['③', 3], ['④', 4],
+  ['⑤', 5], ['⑥', 6], ['⑦', 7], ['⑧', 8], ['⑨', 9]
+])
+
+function circledShardSuffixAndNumber(value: string) {
+  const characters = Array.from(value)
+  const directSuffix = characters.at(-1) ?? ''
+  const tensCharacter = characters.at(-2) ?? ''
+  const tens = CIRCLED_DIGIT_VALUES.get(tensCharacter)
+  const units = CIRCLED_DIGIT_VALUES.get(directSuffix)
+  if (tens !== undefined && units !== undefined && tens >= 5) {
+    return { suffix: `${tensCharacter}${directSuffix}`, shardNumber: tens * 10 + units }
+  }
+  const directNumber = CIRCLED_SHARD_NUMBER_BY_SUFFIX.get(directSuffix)
+  if (directNumber) return { suffix: directSuffix, shardNumber: directNumber }
+  return undefined
+}
+
+function favoriteLedgerCapacityShardSuffix(shardNumber: number) {
+  if (shardNumber <= 1) return ''
+  if (Number.isSafeInteger(shardNumber) && CIRCLED_SHARD_NUMBERS[shardNumber]) {
+    return CIRCLED_SHARD_NUMBERS[shardNumber]
+  }
+  return String(shardNumber)
+    .split('')
+    .map((digit) => CIRCLED_SHARD_NUMBERS[Number(digit)] ?? digit)
+    .join('')
+}
+
+function favoriteLedgerDisplayBaseName(name: string) {
+  const source = String(name ?? '').trim()
+  const circledSuffix = circledShardSuffixAndNumber(source)
+  if (circledSuffix) return source.slice(0, -circledSuffix.suffix.length).trim()
+  const legacyMatch = source.match(/^(.*?)\s*·\s*([2-9]\d*)$/u)
+  return legacyMatch?.[1].trim() || source
+}
+
+/**
+ * A remote folder named `名称`, `名称①`, `名称②` … belongs to the same
+ * logical favorite ledger. The base folder is shard 1; bilimi-created
+ * capacity shards intentionally begin at `②`, while a user's `①` is still
+ * recognized as the first shard.
+ */
+export function favoriteLedgerBindingNameAndShard(name: string) {
+  // NFKC intentionally runs after the circled-number suffix is separated:
+  // NFKC converts `①` to `1`, which would otherwise erase the user's shard.
+  const source = String(name ?? '').trim()
+  const circledSuffix = circledShardSuffixAndNumber(source)
+  const normalized = normalizeFavoriteLedgerBindingName(circledSuffix ? source.slice(0, -circledSuffix.suffix.length) : source)
+  if (circledSuffix && normalized) {
+    return { baseName: normalized, shardNumber: circledSuffix.shardNumber }
+  }
+  // Existing `名称·2` folders remain readable during migration. New capacity
+  // shards are never named this way; see favoriteLedgerCapacityShardName().
+  const legacyMatch = normalized.match(/^(.*?)\s*·\s*([2-9]\d*)$/u)
+  if (legacyMatch?.[1].trim()) return { baseName: legacyMatch[1].trim(), shardNumber: Number(legacyMatch[2]) }
+  return { baseName: normalized, shardNumber: 1 }
+}
+
+export function favoriteLedgerCapacityShardName(name: string, shardNumber: number) {
+  const suffix = favoriteLedgerCapacityShardSuffix(shardNumber)
+  const availableBaseLength = Math.max(0, BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH - Array.from(suffix).length)
+  return `${Array.from(favoriteLedgerDisplayBaseName(name)).slice(0, availableBaseLength).join('')}${suffix}`
 }
 
 export function suggestFavoriteLedgerNames(topic: string): string[] {

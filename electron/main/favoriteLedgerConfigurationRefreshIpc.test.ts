@@ -48,7 +48,7 @@ describe('favorite ledger configuration refresh IPC', () => {
     const callback = mainSource.slice(callbackStart, callbackEnd)
     expect(mainSource).toContain('async function reconcileFavoriteLedgerBindingProjection(accountMid: string)')
     expect(mainSource).toContain('async function refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid: string)')
-    expect(mainSource).toContain('projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, physicalShards)')
+    expect(mainSource).toContain('projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, repositorySnapshot.physicalShards)')
     expect(callback).toContain('refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid)')
     expect(callback).not.toContain('reclassifyFavoriteWorkspaceIfPreviewing(accountMid)')
   })
@@ -58,6 +58,47 @@ describe('favorite ledger configuration refresh IPC', () => {
     const reconcileEnd = mainSource.indexOf('\n}\n\n/** Refreshes the account rule projection', reconcileStart)
     const reconcile = mainSource.slice(reconcileStart, reconcileEnd)
     expect(reconcile).not.toContain('managedFolderDeletedByUser: _deletedByUser')
+  })
+
+  it('routes each confirmed Bilibili folder mutation through the account-scoped projection and favorite-page refresh', () => {
+    expect(mainSource).toContain("import { refreshBilibiliFavoriteSpacePages, refreshBilibiliGuestPages } from './bilibiliSessionRefresh'")
+    expect(mainSource).toContain("import { BilibiliFavoriteSpaceRefreshCoordinator } from './bilibiliFavoriteSpaceRefreshCoordinator'")
+    expect(mainSource).toContain('async function refreshConfirmedBilibiliFavoriteFolderMutation(accountMid: string)')
+    const refreshStart = mainSource.indexOf('async function refreshConfirmedBilibiliFavoriteFolderMutation(accountMid: string)')
+    const refreshEnd = mainSource.indexOf('\n}', refreshStart)
+    const refresh = mainSource.slice(refreshStart, refreshEnd)
+    expect(refresh).toContain('bilibiliFavoriteSpaceRefreshCoordinator?.refresh(accountMid)')
+
+    const refreshCoordinatorStart = mainSource.indexOf('bilibiliFavoriteSpaceRefreshCoordinator = new BilibiliFavoriteSpaceRefreshCoordinator({')
+    const refreshCoordinatorEnd = mainSource.indexOf('\n  })', refreshCoordinatorStart)
+    const refreshCoordinator = mainSource.slice(refreshCoordinatorStart, refreshCoordinatorEnd)
+    expect(refreshCoordinator).toContain('getCurrentAccountMid: readCurrentBilibiliAccountMid')
+    expect(refreshCoordinator).toContain('refreshProjection: refreshFavoriteLedgerBindingProjectionAfterPhysicalShard')
+    expect(refreshCoordinator).toContain('refreshBilibiliFavoriteSpacePages({')
+    expect(refreshCoordinator).toContain('targetSession: session.fromPartition(BILIMI_SESSION_PARTITION)')
+    expect(refreshCoordinator).toContain('getAllWebContents: () => webContents.getAllWebContents()')
+
+    const bindingStart = mainSource.indexOf('favoriteRepositoryBindingService = new FavoriteRepositoryBindingService({')
+    const bindingEnd = mainSource.indexOf('\n  })', bindingStart)
+    const binding = mainSource.slice(bindingStart, bindingEnd)
+    expect(binding).toContain('onConfirmedRemoteFolderMutation: refreshConfirmedBilibiliFavoriteFolderMutation')
+
+    const syncStart = mainSource.indexOf('favoriteRepositorySyncService = new FavoriteRepositorySyncService({')
+    const syncEnd = mainSource.indexOf('\n  })', syncStart)
+    const sync = mainSource.slice(syncStart, syncEnd)
+    expect(sync).toContain('onConfirmedRemoteFolderMutation: refreshConfirmedBilibiliFavoriteFolderMutation')
+
+    const managedStart = mainSource.indexOf('favoriteRepositoryManagedFolderService = new FavoriteRepositoryManagedFolderService({')
+    const managedEnd = mainSource.indexOf('\n  })', managedStart)
+    const managed = mainSource.slice(managedStart, managedEnd)
+    expect(managed).toContain('deletions.some((deletion) => deletion.remoteDeleted)')
+    expect(managed).toContain('refreshConfirmedBilibiliFavoriteFolderMutation(accountMid)')
+
+    const coordinatorStart = mainSource.indexOf('oldFavoriteWorkspaceCoordinator = new OldFavoriteWorkspaceCoordinator({')
+    const coordinatorEnd = mainSource.indexOf('\n  })', coordinatorStart)
+    const coordinator = mainSource.slice(coordinatorStart, coordinatorEnd)
+    expect(coordinator).not.toContain('refreshConfirmedBilibiliFavoriteFolderMutation(accountMid)')
+
   })
 
   it('uses the same single-flight local projection after automatic capacity provisioning', () => {
@@ -87,12 +128,13 @@ describe('favorite ledger configuration refresh IPC', () => {
     expect(handler).toContain('refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid)')
   })
 
-  it('feeds deleted recommendation remote ids into every account-open recovery gate', () => {
-    expect(mainSource).toContain('function getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid: string)')
-    expect(mainSource).toContain("record.ledger.ruleOrigin === 'recommendation-draft'")
+  it('does not restore a recommendation-specific deletion blacklist at account open', () => {
+    expect(mainSource).not.toContain('function getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid: string)')
+    expect(mainSource).not.toContain("record.ledger.ruleOrigin === 'recommendation-draft'")
     const accountOpenStart = mainSource.indexOf('onAccountOpen: async (accountMid) => {')
     const accountOpenEnd = mainSource.indexOf('\n    },', accountOpenStart)
     const accountOpen = mainSource.slice(accountOpenStart, accountOpenEnd)
-    expect(accountOpen).toContain('getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid)')
+    expect(accountOpen).toContain('loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)')
+    expect(accountOpen).not.toContain('recommendation')
   })
 })

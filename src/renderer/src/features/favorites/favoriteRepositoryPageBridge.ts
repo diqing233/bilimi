@@ -6,6 +6,7 @@ export type FavoriteRepositoryPageBridgeInput = {
 }
 
 export type FavoriteRepositoryFolderInventoryInput = { accountMid: string; operationKey: string }
+export type FavoriteRepositoryFolderReadInput = { accountMid: string; operationKey: string; folderId: string }
 export type FavoriteRepositoryFolderCreateInput = { accountMid: string; operationKey: string; title: string }
 export type FavoriteRepositoryFolderDeleteInput = { accountMid: string; operationKey: string; folderId: string }
 export type FavoriteRepositoryFolderRenameInput = { accountMid: string; operationKey: string; folderId: string; title: string }
@@ -30,7 +31,7 @@ export type FavoriteRepositoryPageBridgeReadResult = FavoriteRepositoryPageBridg
 
 type ExecuteJavaScript = (script: string, userGesture?: boolean) => Promise<unknown>
 
-type PageBridgeAction = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'create-folder' | 'delete-folder' | 'rename-folder'
+type PageBridgeAction = 'append' | 'remove' | 'unfavorite' | 'read-members' | 'read-folder-inventory' | 'read-folder' | 'create-folder' | 'delete-folder' | 'rename-folder'
 
 export const FAVORITE_REPOSITORY_REQUEST_TIMEOUT_MS = 15_000
 
@@ -61,7 +62,7 @@ function isPageResult(value: unknown, action: PageBridgeAction): value is Favori
     ? new Set(['status', 'observedAccountMid', 'reason', 'members', ...diagnosticKeys])
     : action === 'read-folder-inventory'
       ? new Set(['status', 'observedAccountMid', 'reason', 'folders', ...diagnosticKeys])
-      : action === 'create-folder'
+      : action === 'read-folder' || action === 'create-folder'
         ? new Set(['status', 'observedAccountMid', 'reason', 'folder', ...diagnosticKeys])
         : new Set(['status', 'observedAccountMid', 'reason', ...diagnosticKeys])
   if (Object.keys(result).some((key) => !allowedKeys.has(key))) return false
@@ -74,11 +75,11 @@ function isPageResult(value: unknown, action: PageBridgeAction): value is Favori
   if (result.bilibiliCode !== undefined && !Number.isSafeInteger(result.bilibiliCode)) return false
   if (action === 'read-members' && result.status === 'ok' && !isMembers(result.members)) return false
   if (action === 'read-folder-inventory' && result.status === 'ok' && (!Array.isArray(result.folders) || !result.folders.every(isFolder))) return false
-  if (action === 'create-folder' && result.status === 'ok' && !isFolder(result.folder)) return false
+  if ((action === 'read-folder' || action === 'create-folder') && result.status === 'ok' && !isFolder(result.folder)) return false
   return true
 }
 
-function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput | FavoriteRepositoryFolderRenameInput): string {
+function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderReadInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput | FavoriteRepositoryFolderRenameInput): string {
   const payload = JSON.stringify(input)
   const mutationField = action === 'append' ? 'add_media_ids' : 'del_media_ids'
   const mutation = action === 'append' || action === 'remove'
@@ -96,6 +97,30 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
         if (!response.ok || json?.code !== 0 || !Array.isArray(json?.data?.list)) return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous' };
         const folders = json.data.list.map((folder) => ({ id: String(folder?.id ?? folder?.fid ?? ''), title: String(folder?.title ?? '').trim(), memberCount: Number(folder?.media_count ?? folder?.mediaCount ?? 0) })).filter((folder) => folder.id && folder.title && Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0);
         return normalizeMid(readCookie('DedeUserID')) === observedAccountMid ? { status: 'ok', observedAccountMid, folders } : { status: 'unknown', observedAccountMid: normalizeMid(readCookie('DedeUserID')), reason: 'account-mismatch' };
+      })()
+    `
+  }
+
+  if (action === 'read-folder') {
+    return `
+      (async () => {
+        const input = ${payload};
+        const readCookie = (name) => String(document.cookie || '').split(';').map((part) => part.trim()).find((part) => part.startsWith(name + '='))?.slice(name.length + 1) || '';
+        const normalizeMid = (value) => { const raw = String(value || '').trim(); return /^\\d+$/.test(raw) && raw !== '0' ? raw.replace(/^0+(?=\\d)/, '') : ''; };
+        const observedAccountMid = normalizeMid(readCookie('DedeUserID'));
+        const folderId = String(input.folderId || '').trim();
+        if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid) || !String(input.operationKey || '').trim() || !folderId) return { status: 'unknown', observedAccountMid, reason: 'account-mismatch' };
+        let response; try { response = await fetch('https://api.bilibili.com/x/v3/fav/folder/info?media_id=' + encodeURIComponent(String(input.folderId).trim()), { credentials: 'include', cache: 'no-store' }); } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
+        const httpStatus = Number(response?.status || 0);
+        const contentType = String(response?.headers?.get?.('content-type') || '').split(';', 1)[0].trim().slice(0, 100);
+        const responseCategory = !contentType ? 'unknown' : contentType.includes('json') ? 'json' : contentType.includes('html') ? 'html' : contentType.startsWith('text/') ? 'text' : 'unknown';
+        let json; try { json = await response.json(); } catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response', httpStatus, ...(contentType ? { contentType } : {}), responseCategory }; }
+        const data = json?.data;
+        const id = String(data?.id ?? data?.fid ?? '');
+        const title = String(data?.title ?? '').trim();
+        const memberCount = Number(data?.media_count ?? data?.mediaCount ?? 0);
+        if (response.ok && json?.code === 0 && id === folderId && title && Number.isSafeInteger(memberCount) && memberCount >= 0 && normalizeMid(readCookie('DedeUserID')) === observedAccountMid) return { status: 'ok', observedAccountMid, folder: { id, title, memberCount } };
+        return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous', httpStatus, ...(contentType ? { contentType } : {}), responseCategory, ...(Number.isSafeInteger(json?.code) ? { bilibiliCode: json.code } : {}) };
       })()
     `
   }
@@ -323,7 +348,7 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
 }
 
 export function createFavoriteRepositoryPageBridge(options: { executeJavaScript: ExecuteJavaScript; timeoutMs?: number }) {
-  const run = async (action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput | FavoriteRepositoryFolderRenameInput): Promise<FavoriteRepositoryPageBridgeReadResult> => {
+  const run = async (action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderReadInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput | FavoriteRepositoryFolderRenameInput): Promise<FavoriteRepositoryPageBridgeReadResult> => {
     try {
       const execution = options.executeJavaScript(pageScript(action, input), true)
       const result = await new Promise<unknown>((resolve, reject) => {
@@ -348,6 +373,7 @@ export function createFavoriteRepositoryPageBridge(options: { executeJavaScript:
     unfavorite: (input: FavoriteRepositoryUnfavoriteInput) => run('unfavorite', input),
     readMembers: (input: FavoriteRepositoryPageBridgeInput) => run('read-members', input),
     readFolderInventory: (input: FavoriteRepositoryFolderInventoryInput) => run('read-folder-inventory', input),
+    readFolder: (input: FavoriteRepositoryFolderReadInput) => run('read-folder', input),
     createFolder: (input: FavoriteRepositoryFolderCreateInput) => run('create-folder', input)
     ,deleteFolder: (input: FavoriteRepositoryFolderDeleteInput) => run('delete-folder', input)
     ,renameFolder: (input: FavoriteRepositoryFolderRenameInput) => run('rename-folder', input)

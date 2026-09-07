@@ -147,8 +147,47 @@ function sharedScriptHelpers(): string {
       .trim()
       .replace(/^bilimi\\s*[·:：\-]?\\s*/iu, '')
       .trim();
-    // Only the current numeric shard suffix denotes a capacity shard.
-    const normalizeLogicalFolderTitle = (title) => normalizeFolderTitle(title).replace(/\\s*·\\s*([2-9]\\d*)$/u, '').trim();
+    const circledShardNumbers = [
+      '',
+      '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩',
+      '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳',
+      '㉑', '㉒', '㉓', '㉔', '㉕', '㉖', '㉗', '㉘', '㉙', '㉚',
+      '㉛', '㉜', '㉝', '㉞', '㉟', '㊱', '㊲', '㊳', '㊴', '㊵',
+      '㊶', '㊷', '㊸', '㊹', '㊺', '㊻', '㊼', '㊽', '㊾', '㊿'
+    ];
+    const circledDigitValues = new Map([
+      ['⓪', 0], ['①', 1], ['②', 2], ['③', 3], ['④', 4],
+      ['⑤', 5], ['⑥', 6], ['⑦', 7], ['⑧', 8], ['⑨', 9]
+    ]);
+    const circledShardSuffix = (source) => {
+      const characters = Array.from(String(source || ''));
+      const last = characters.at(-1) || '';
+      const penultimate = characters.at(-2) || '';
+      const tens = circledDigitValues.get(penultimate);
+      const units = circledDigitValues.get(last);
+      if (tens !== undefined && units !== undefined && tens >= 5) {
+        return { suffix: penultimate + last, shardNumber: tens * 10 + units };
+      }
+      const shardNumber = circledShardNumbers.indexOf(last);
+      return shardNumber > 0 ? { suffix: last, shardNumber } : undefined;
+    };
+    const circledCapacityShardSuffix = (shardNumber) => {
+      if (shardNumber <= 1) return '';
+      if (circledShardNumbers[shardNumber]) return circledShardNumbers[shardNumber];
+      return String(shardNumber).split('').map((digit) => circledShardNumbers[Number(digit)] || digit).join('');
+    };
+    // A manual circled suffix must be stripped before NFKC turns it into a
+    // normal digit. Legacy dot-number shards remain readable only.
+    const normalizeLogicalFolderTitle = (title) => {
+      const normalizedTitle = normalizeFolderTitle(title);
+      const suffix = circledShardSuffix(normalizedTitle);
+      const withoutCircledShard = suffix ? normalizedTitle.slice(0, -suffix.suffix.length) : normalizedTitle;
+      return withoutCircledShard
+        .normalize('NFKC')
+        .replace(/\\s*·\\s*([2-9]\\d*)$/u, '')
+        .trim()
+        .toLocaleLowerCase();
+    };
     const isBilimiManagedFolder = (folder) => /^bilimi(?=$|[\\s·.：:-]|[\\u3400-\\u9fff])/iu.test(String(folder?.title || '').trim());
     const ledgerRemoteFolderIds = (ledger) => Array.from(new Set([
       ...(Array.isArray(ledger?.bilibiliFolderIds) ? ledger.bilibiliFolderIds : []),
@@ -313,10 +352,13 @@ function sharedScriptHelpers(): string {
         ledger.bindingState === 'unbound' &&
         folderIds.length === 1 &&
         ledger.ruleOrigin !== 'saved-rule' &&
-        ledger.ruleOrigin !== 'recommendation-draft' &&
         !ledger.enabled &&
         !keywords.some((keyword) => String(keyword || '').trim());
     };
+    const isSavedOrdinaryRule = (ledger) => ledger?.ruleOrigin === 'saved-rule' ||
+      ledger?.syncState !== 'local-draft' ||
+      ledger?.enabled === true ||
+      (Array.isArray(ledger?.keywords) && ledger.keywords.some((keyword) => String(keyword || '').trim()));
     const collectUnboundCandidates = (ledgers, folders) => ledgers
       .filter((ledger) => ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup && !isPureRemoteObservationDraft(ledger))
       .map((ledger) => ({ ledgerId: ledger.id, candidates: remoteFolderCandidates(ledger, folders) }));
@@ -325,8 +367,7 @@ function sharedScriptHelpers(): string {
       folders,
       dismissedRemoteFolderIds = [],
       remoteDraftKnownFolderIds = [],
-      remoteDraftBoundFolderIds = [],
-      deletedRecommendationRemoteFolderIds = []
+      remoteDraftBoundFolderIds = []
     ) => {
       const nextLedgers = [];
       const ledgerIndexById = new Map();
@@ -382,10 +423,6 @@ function sharedScriptHelpers(): string {
       const suppressedFolderIds = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : [])
         .map((folderId) => String(folderId || '').trim())
         .filter(Boolean));
-      for (const folderId of Array.isArray(deletedRecommendationRemoteFolderIds) ? deletedRecommendationRemoteFolderIds : []) {
-        const normalized = String(folderId || '').trim();
-        if (normalized) suppressedFolderIds.add(normalized);
-      }
       const deduplicatedLedgers = nextLedgers.filter((ledger) => {
         if (!isPureRemoteObservationDraft(ledger)) return true;
         const folderIds = ledgerRemoteFolderIds(ledger);
@@ -413,16 +450,13 @@ function sharedScriptHelpers(): string {
           .map((folderId) => String(folderId || '').trim())
           .filter(Boolean)
       ]);
-      // A configured non-prefixed rule is an explicit rebind candidate, not a
-      // second remote-only draft. An empty/disabled legacy placeholder is not
-      // enough evidence to claim a remote folder, so it remains visible as an
-      // independent observation. A pending remote draft is likewise limited
-      // to its exact persisted folder ID; another same-name ID must not be
-      // projected as a duplicate while the owner confirms the original.
+      // Every saved ordinary rule participates in name-based remote discovery,
+      // regardless of its enabled state or the bilimi prefix. A same-base
+      // remote folder is an explicit rebind candidate for that rule, never a
+      // second remote-only draft. Pure remote observations stay exact-ID
+      // scoped so saving one cannot claim another same-name folder.
       const localRebindTitles = new Set(deduplicatedLedgers
-        .filter((ledger) => ledger.bindingState === 'unbound' &&
-          (!isBilimiManagedFolder({ title: ledger.displayName }) || ledger.pendingRemoteBinding) &&
-          (ledger.enabled || (Array.isArray(ledger.keywords) && ledger.keywords.some((keyword) => String(keyword || '').trim()))))
+        .filter((ledger) => !isPureRemoteObservationDraft(ledger) && isSavedOrdinaryRule(ledger))
         .map((ledger) => normalizeLogicalFolderTitle(ledger.displayName)));
       let priority = deduplicatedLedgers.reduce((max, ledger) => Math.max(max, Number(ledger.priority) || 0), -1) + 1;
       for (const folder of folders) {
@@ -469,24 +503,18 @@ function sharedScriptHelpers(): string {
       folders,
       dismissedRemoteFolderIds = [],
       remoteDraftKnownFolderIds = [],
-      remoteDraftBoundFolderIds = [],
-      deletedRecommendationRemoteFolderIds = []
+      remoteDraftBoundFolderIds = []
     ) => {
       const projectedLedgers = appendRemoteOnlyDrafts(
         ledgers,
         folders,
         dismissedRemoteFolderIds,
         remoteDraftKnownFolderIds,
-        remoteDraftBoundFolderIds,
-        deletedRecommendationRemoteFolderIds
+        remoteDraftBoundFolderIds
       );
       const dismissedRemoteFolderIdSet = new Set((Array.isArray(dismissedRemoteFolderIds) ? dismissedRemoteFolderIds : [])
         .map((id) => String(id || '').trim())
         .filter(Boolean));
-      for (const folderId of Array.isArray(deletedRecommendationRemoteFolderIds) ? deletedRecommendationRemoteFolderIds : []) {
-        const normalized = String(folderId || '').trim();
-        if (normalized) dismissedRemoteFolderIdSet.add(normalized);
-      }
       return {
         ledgers: projectedLedgers,
         remoteOnlyDraftLedgerIds: projectedLedgers
@@ -503,14 +531,14 @@ export function buildFavoriteLedgerStatusScript(
   dismissedRemoteFolderIds: string[] = [],
   remoteDraftKnownFolderIds: string[] = [],
   remoteDraftBoundFolderIds: string[] = [],
-  deletedRecommendationRemoteFolderIds: string[] = []
+  includeRemoteOnlyDrafts = true
 ): string {
   const payload = scriptPayload({
     ledgers: normalizeLedgerPayload(ledgers),
     dismissedRemoteFolderIds,
     remoteDraftKnownFolderIds,
     remoteDraftBoundFolderIds,
-    deletedRecommendationRemoteFolderIds
+    includeRemoteOnlyDrafts
   })
 
   return `
@@ -525,14 +553,16 @@ export function buildFavoriteLedgerStatusScript(
       const response = await fetch(buildListUrl(mid), { credentials: 'include' });
       const json = await ensureApiOk(response, 'favorite folder list');
       const folders = readFavoriteFolderList(json);
-      const remoteDraftProjection = projectRemoteOnlyDrafts(
-        syncLedgerFolderIds(payload.ledgers, folders),
-        folders,
-        payload.dismissedRemoteFolderIds,
-        payload.remoteDraftKnownFolderIds,
-        payload.remoteDraftBoundFolderIds,
-        payload.deletedRecommendationRemoteFolderIds
-      );
+      const synchronizedLedgers = syncLedgerFolderIds(payload.ledgers, folders);
+      const remoteDraftProjection = payload.includeRemoteOnlyDrafts === false
+        ? { ledgers: synchronizedLedgers, remoteOnlyDraftLedgerIds: [] }
+        : projectRemoteOnlyDrafts(
+          synchronizedLedgers,
+          folders,
+          payload.dismissedRemoteFolderIds,
+          payload.remoteDraftKnownFolderIds,
+          payload.remoteDraftBoundFolderIds
+        );
       const nextLedgers = remoteDraftProjection.ledgers;
       const remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
       const unboundLedgerIds = nextLedgers
@@ -558,6 +588,64 @@ export function buildFavoriteLedgerStatusScript(
             ? '发现尚未备册的 bilimi 收藏夹，请在备册时完成确认。'
             : '册目查验已毕。'
       };
+    })();
+  `
+}
+
+/**
+ * Read-only preflight for an already formalized physical shard.  The caller
+ * provides the exact remote IDs from the repository snapshot; names merely
+ * describe the observed drift and never select or claim another folder.
+ */
+export function buildFormalBoundFavoriteRenamePreflightScript(
+  shards: Array<{
+    logicalLedgerId: string
+    shardNumber: number
+    remoteFolderId: string
+    targetTitle: string
+  }>
+): string {
+  const payload = scriptPayload({
+    shards: shards.map((shard) => ({
+      logicalLedgerId: String(shard.logicalLedgerId ?? '').trim(),
+      shardNumber: Number(shard.shardNumber),
+      remoteFolderId: String(shard.remoteFolderId ?? '').trim(),
+      targetTitle: String(shard.targetTitle ?? '').trim()
+    }))
+  })
+
+  return `
+    (async () => {
+      const payload = ${payload};
+      ${sharedScriptHelpers()}
+      const requestedShards = Array.isArray(payload.shards) ? payload.shards : [];
+      if (requestedShards.some((shard) => !shard.logicalLedgerId || !shard.remoteFolderId || !shard.targetTitle || !Number.isSafeInteger(shard.shardNumber) || shard.shardNumber < 1)) {
+        return { ok: false, verified: false, candidates: [], message: '已绑定收藏夹改名预检参数无效。' };
+      }
+      const { csrf, mid } = readCredentials();
+      if (!csrf || !mid) return { ok: false, verified: false, candidates: [], message: '未能读取登录凭据，无法核验已绑定收藏夹名称。' };
+      const response = await fetch(buildListUrl(mid), { credentials: 'include' });
+      const json = await ensureApiOk(response, 'favorite folder list');
+      const folders = readFavoriteFolderList(json);
+      const folderById = new Map(folders.map((folder) => [String(findFolderId(folder) || '').trim(), folder]));
+      const observedShards = [];
+      for (const shard of requestedShards) {
+        const folder = folderById.get(shard.remoteFolderId);
+        if (!folder) return { ok: false, verified: true, observedShards: [], message: '已绑定的 B 站收藏夹未出现在当前清单中，请刷新后重试。' };
+        const currentRemoteTitle = String(folder.title || '').trim();
+        const remoteMemberCount = Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0);
+        if (!currentRemoteTitle || !Number.isSafeInteger(remoteMemberCount)) {
+          return { ok: false, verified: false, observedShards: [], message: '已绑定的 B 站收藏夹数据异常，请刷新后重试。' };
+        }
+        observedShards.push({
+          logicalLedgerId: shard.logicalLedgerId,
+          shardNumber: shard.shardNumber,
+          remoteFolderId: shard.remoteFolderId,
+          currentRemoteTitle,
+          remoteMemberCount
+        });
+      }
+      return { ok: true, verified: true, observedShards };
     })();
   `
 }
@@ -634,17 +722,26 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
       if (available) {
         return { ok: true, steps: ['api:favorite:capacity-list'], existingFolder: { id: String(findFolderId(available)), title: String(available.title || ''), shardNumber: 1 }, message: '已有可用收藏夹分区。' };
       }
-      const suffixNumber = (value) => {
-        const match = String(value || '').trim().match(/·(?:0*(\d+))$/u);
-        return match ? Number(match[1]) : 1;
+      const parseShard = (value) => {
+        // Read a manual circled suffix before NFKC normalization, because
+        // NFKC converts a circled 1 into ASCII 1. Old dot-number shard names still reserve a
+        // shard number, but any newly created shard uses a circled suffix.
+        const source = String(value || '').trim();
+        const circled = circledShardSuffix(source);
+        const normalized = String(circled ? source.slice(0, -circled.suffix.length) : source)
+          .normalize('NFKC').trim().replace(/\\s+/g, ' ');
+        if (circled && normalized) return { baseTitle: normalized, shardNumber: circled.shardNumber };
+        const legacy = normalized.match(/^(.*?)\\s*·\\s*(?:0*([2-9]\\d*))$/u);
+        if (legacy && legacy[1].trim()) return { baseTitle: legacy[1].trim(), shardNumber: Number(legacy[2]) };
+        return { baseTitle: normalized, shardNumber: 1 };
       };
       // Count every matching remote shard, not just the IDs whose formal
       // binding is already persisted. A prior creation can be visible before
       // its binding reconciliation completes; it must still reserve its slot.
-      const normalizeShardBaseTitle = (value) => String(value || '').trim().replace(/\s*\u00b7\s*(?:0*(?:[2-9]\d*))$/u, '');
-      const matchingRemoteShards = folders.filter((folder) => normalizeShardBaseTitle(folder.title) === title);
-      const nextShardNumber = Math.max(...matchingRemoteShards.map((folder) => suffixNumber(folder.title)), 1) + 1;
-      const suffix = '·' + String(nextShardNumber);
+      const logicalTitle = parseShard(title).baseTitle;
+      const matchingRemoteShards = folders.filter((folder) => parseShard(folder.title).baseTitle === logicalTitle);
+      const nextShardNumber = Math.max(...matchingRemoteShards.map((folder) => parseShard(folder.title).shardNumber), 1) + 1;
+      const suffix = circledCapacityShardSuffix(nextShardNumber);
       const shardTitle = Array.from(title).slice(0, Math.max(1, 20 - Array.from(suffix).length)).join('') + suffix;
       const body = new URLSearchParams({ csrf, privacy: '0', title: shardTitle });
       const createResponse = await fetch('https://api.bilibili.com/x/v3/fav/folder/add', {
@@ -666,9 +763,8 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
 
 export function buildEnsureFavoriteLedgersScript(
   ledgers: FavoriteLedger[],
-  options: Pick<FavoriteLedgerSaveOptions, 'rebindRemoteFolderIds' | 'lightweightBackup' | 'confirmCreateAndBind' | 'dismissedRemoteFolderIds' | 'remoteDraftKnownFolderIds'> = {},
-  remoteDraftBoundFolderIds: string[] = [],
-  deletedRecommendationRemoteFolderIds: string[] = []
+  options: Pick<FavoriteLedgerSaveOptions, 'rebindRemoteFolderIds' | 'lightweightBackup' | 'confirmCreateAndBind' | 'dismissedRemoteFolderIds' | 'remoteDraftKnownFolderIds' | 'includeRemoteOnlyDrafts'> = {},
+  remoteDraftBoundFolderIds: string[] = []
 ): string {
   const { remoteDraftKnownFolderIds = [], ...remoteOptions } = options
   const payload = scriptPayload({
@@ -677,11 +773,11 @@ export function buildEnsureFavoriteLedgersScript(
       rebindRemoteFolderIds: remoteOptions.rebindRemoteFolderIds,
       lightweightBackup: remoteOptions.lightweightBackup,
       confirmCreateAndBind: remoteOptions.confirmCreateAndBind,
-      dismissedRemoteFolderIds: remoteOptions.dismissedRemoteFolderIds
+      dismissedRemoteFolderIds: remoteOptions.dismissedRemoteFolderIds,
+      includeRemoteOnlyDrafts: remoteOptions.includeRemoteOnlyDrafts
     },
     remoteDraftKnownFolderIds,
-    remoteDraftBoundFolderIds,
-    deletedRecommendationRemoteFolderIds
+    remoteDraftBoundFolderIds
   })
 
   return `
@@ -709,6 +805,23 @@ export function buildEnsureFavoriteLedgersScript(
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = readFavoriteFolderList(listJson);
+      const projectRemoteDrafts = (sourceLedgers, sourceFolders) => {
+        const synchronizedLedgers = syncLedgerFolderIds(
+          sourceLedgers,
+          sourceFolders,
+          payload.options?.rebindRemoteFolderIds,
+          payload.options?.confirmCreateAndBind === true
+        );
+        return payload.options?.includeRemoteOnlyDrafts === false
+          ? { ledgers: synchronizedLedgers, remoteOnlyDraftLedgerIds: [] }
+          : projectRemoteOnlyDrafts(
+            synchronizedLedgers,
+            sourceFolders,
+            payload.options?.dismissedRemoteFolderIds,
+            payload.remoteDraftKnownFolderIds,
+            payload.remoteDraftBoundFolderIds
+          );
+      };
       const currentRemoteFolderIds = new Set(folders.map((folder) => String(findFolderId(folder) || '').trim()).filter(Boolean));
       const formalRemoteFolderIds = new Set((Array.isArray(payload.remoteDraftBoundFolderIds) ? payload.remoteDraftBoundFolderIds : [])
         .map((folderId) => String(folderId || '').trim()).filter(Boolean));
@@ -729,14 +842,7 @@ export function buildEnsureFavoriteLedgersScript(
           message: '已绑定的 B 站收藏夹未出现在当前清单中，请刷新后重试。'
         };
       }
-      let remoteDraftProjection = projectRemoteOnlyDrafts(
-        syncLedgerFolderIds(payload.ledgers, folders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
-          folders,
-          payload.options?.dismissedRemoteFolderIds,
-          payload.remoteDraftKnownFolderIds,
-          payload.remoteDraftBoundFolderIds,
-          payload.deletedRecommendationRemoteFolderIds
-      );
+      let remoteDraftProjection = projectRemoteDrafts(payload.ledgers, folders);
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
       const createdLedgerBindings = new Map();
@@ -778,14 +884,7 @@ export function buildEnsureFavoriteLedgersScript(
         const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
         const recheckedFolders = readFavoriteFolderList(recheckJson);
         const recheckedCandidates = remoteFolderCandidates(ledger, recheckedFolders);
-        remoteDraftProjection = projectRemoteOnlyDrafts(
-          syncLedgerFolderIds(nextLedgers, recheckedFolders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
-          recheckedFolders,
-          payload.options?.dismissedRemoteFolderIds,
-          payload.remoteDraftKnownFolderIds,
-          payload.remoteDraftBoundFolderIds,
-          payload.deletedRecommendationRemoteFolderIds
-        );
+        remoteDraftProjection = projectRemoteDrafts(nextLedgers, recheckedFolders);
         nextLedgers = remoteDraftProjection.ledgers;
         remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
         nextLedgers = nextLedgers.map((candidate) => {
@@ -864,11 +963,10 @@ export function buildSaveFavoriteLedgersScript(
   nextLedgers: FavoriteLedger[],
   _previousLedgers: FavoriteLedger[],
   options: FavoriteLedgerSaveOptions = {},
-  remoteDraftBoundFolderIds: string[] = [],
-  deletedRecommendationRemoteFolderIds: string[] = []
+  remoteDraftBoundFolderIds: string[] = []
 ): string {
   const {
-    backupTargetLedgerIds: _backupTargetLedgerIds,
+    backupTargetLedgerIds,
     rediscoverDeletedRemoteDrafts: _rediscoverDeletedRemoteDrafts,
     recommendationOnly: _recommendationOnly,
     remoteDraftKnownFolderIds = [],
@@ -876,18 +974,26 @@ export function buildSaveFavoriteLedgersScript(
   } = options
   const payload = scriptPayload({
     nextLedgers: normalizeLedgerPayload(nextLedgers),
-    options: remoteSaveOptions,
+    options: {
+      ...remoteSaveOptions,
+      backupTargetLedgerIds: Array.isArray(backupTargetLedgerIds)
+        ? [...new Set(backupTargetLedgerIds.map((ledgerId) => String(ledgerId || '').trim()).filter(Boolean))]
+        : undefined
+    },
     remoteDraftKnownFolderIds,
-    remoteDraftBoundFolderIds,
-    deletedRecommendationRemoteFolderIds
+    remoteDraftBoundFolderIds
   })
 
   return `
     (async () => {
       const payload = ${payload};
       ${sharedScriptHelpers()}
+      const backupTargetLedgerIds = new Set(Array.isArray(payload.options?.backupTargetLedgerIds)
+        ? payload.options.backupTargetLedgerIds.map((ledgerId) => String(ledgerId || '').trim()).filter(Boolean)
+        : []);
+      const isBackupTarget = (ledger) => backupTargetLedgerIds.size === 0 || backupTargetLedgerIds.has(ledger.id);
       const invalidNameLedgers = payload.nextLedgers.filter(
-        (ledger) => ledger.enabled && Array.from(String(ledger.displayName || '')).length > 20
+        (ledger) => isBackupTarget(ledger) && ledger.enabled && Array.from(String(ledger.displayName || '')).length > 20
       );
       if (invalidNameLedgers.length > 0) {
         return {
@@ -917,7 +1023,7 @@ export function buildSaveFavoriteLedgersScript(
       const formalRemoteFolderIds = new Set((Array.isArray(payload.remoteDraftBoundFolderIds) ? payload.remoteDraftBoundFolderIds : [])
         .map((folderId) => String(folderId || '').trim()).filter(Boolean));
       const staleFormalBindingLedgerIds = payload.nextLedgers
-        .filter((ledger) => ledger.bindingState === 'bound' && ledgerRemoteFolderIds(ledger)
+        .filter((ledger) => isBackupTarget(ledger) && ledger.bindingState === 'bound' && ledgerRemoteFolderIds(ledger)
           .some((folderId) => formalRemoteFolderIds.has(folderId) && !currentRemoteFolderIds.has(folderId)))
         .map((ledger) => ledger.id);
       if (staleFormalBindingLedgerIds.length) {
@@ -933,22 +1039,32 @@ export function buildSaveFavoriteLedgersScript(
           message: '已绑定的 B 站收藏夹未出现在当前清单中，请刷新后重试。'
         };
       }
-      let remoteDraftProjection = projectRemoteOnlyDrafts(
-        syncLedgerFolderIds(payload.nextLedgers, folders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
-        folders,
-        payload.options?.dismissedRemoteFolderIds,
-        payload.remoteDraftKnownFolderIds,
-        payload.remoteDraftBoundFolderIds,
-        payload.deletedRecommendationRemoteFolderIds
-      );
+      const projectRemoteDrafts = (sourceLedgers, sourceFolders) => {
+        const synchronizedLedgers = syncLedgerFolderIds(
+          sourceLedgers,
+          sourceFolders,
+          payload.options?.rebindRemoteFolderIds,
+          payload.options?.confirmCreateAndBind === true
+        );
+        return payload.options?.includeRemoteOnlyDrafts === false
+          ? { ledgers: synchronizedLedgers, remoteOnlyDraftLedgerIds: [] }
+          : projectRemoteOnlyDrafts(
+            synchronizedLedgers,
+            sourceFolders,
+            payload.options?.dismissedRemoteFolderIds,
+            payload.remoteDraftKnownFolderIds,
+            payload.remoteDraftBoundFolderIds
+          );
+      };
+      let remoteDraftProjection = projectRemoteDrafts(payload.nextLedgers, folders);
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
       const createdLedgerBindings = new Map();
       const unboundLedgerIds = nextLedgers
-        .filter((ledger) => ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)
+        .filter((ledger) => isBackupTarget(ledger) && ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)
         .map((ledger) => ledger.id);
       const unbackedLedgerIds = nextLedgers
-        .filter((ledger) => ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState === 'unbacked')
+        .filter((ledger) => isBackupTarget(ledger) && ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState === 'unbacked')
         .map((ledger) => ledger.id);
       const requiresCreateConfirmation = payload.options?.lightweightBackup === true && payload.options?.confirmCreateAndBind !== true;
       if (unboundLedgerIds.length > 0 || (unbackedLedgerIds.length > 0 && requiresCreateConfirmation)) {
@@ -959,7 +1075,7 @@ export function buildSaveFavoriteLedgersScript(
           missingTargets: [...unboundLedgerIds, ...unbackedLedgerIds],
           unboundLedgerIds,
             unboundCandidates: [
-              ...collectUnboundCandidates(nextLedgers, folders),
+              ...collectUnboundCandidates(nextLedgers.filter(isBackupTarget), folders),
               ...unbackedLedgerIds.map((ledgerId) => ({ ledgerId, candidates: [] }))
             ],
             remoteOnlyDraftLedgerIds,
@@ -974,7 +1090,7 @@ export function buildSaveFavoriteLedgersScript(
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
-        if (!ledger.enabled || isPureRemoteObservationDraft(ledger) || ledger.bilibiliFolderId) {
+        if (!isBackupTarget(ledger) || !ledger.enabled || isPureRemoteObservationDraft(ledger) || ledger.bilibiliFolderId) {
           continue;
         }
 
@@ -982,14 +1098,7 @@ export function buildSaveFavoriteLedgersScript(
         const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
         const recheckedFolders = readFavoriteFolderList(recheckJson);
         const recheckedCandidates = remoteFolderCandidates(ledger, recheckedFolders);
-        remoteDraftProjection = projectRemoteOnlyDrafts(
-          syncLedgerFolderIds(nextLedgers, recheckedFolders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
-          recheckedFolders,
-          payload.options?.dismissedRemoteFolderIds,
-          payload.remoteDraftKnownFolderIds,
-          payload.remoteDraftBoundFolderIds,
-          payload.deletedRecommendationRemoteFolderIds
-        );
+        remoteDraftProjection = projectRemoteDrafts(nextLedgers, recheckedFolders);
         nextLedgers = remoteDraftProjection.ledgers;
         remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
         nextLedgers = nextLedgers.map((candidate) => {
@@ -1051,7 +1160,7 @@ export function buildSaveFavoriteLedgersScript(
       }
 
       const missingTargets = nextLedgers
-        .filter((ledger) => ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState !== 'bound')
+        .filter((ledger) => isBackupTarget(ledger) && ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState !== 'bound')
         .map((ledger) => ledger.id);
 
       return {
@@ -1669,11 +1778,18 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           throw error;
         }
         const folders = readFavoriteFolderList(listJson);
-        const normalizedLedgerName = (value) => String(value ?? '')
-          .trim()
-          .replace(/^bilimi[·\\s\\-路]*/i, '')
-          .replace(/·[2-9]\\d*$/, '')
-          .trim();
+        const normalizedLedgerName = (value) => {
+          // A circled suffix must be removed before NFKC, which otherwise
+          // turns it into an ordinary digit. Legacy dot-number suffixes are
+          // still accepted only for reading old physical shards.
+          const source = String(value ?? '').trim().replace(/^bilimi[·\\s\\-路]*/i, '').trim();
+          const circled = circledShardSuffix(source);
+          const withoutCircledShard = circled ? source.slice(0, -circled.suffix.length) : source;
+          return withoutCircledShard
+            .normalize('NFKC')
+            .replace(/·[2-9]\\d*$/, '')
+            .trim();
+        };
         const ledgerByFolderId = new Map(
           payload.ledgers
             .filter((ledger) => ledger.bilibiliFolderId)
@@ -2905,15 +3021,31 @@ export function buildExecuteFavoriteLedgerPlanScript(
           await ensureApiOk(response, 'favorite ledger staging removal');
         };
         const trimFolderTitle = (title, limit) => Array.from(String(title || '').trim()).slice(0, limit).join('');
-        const logicalFolderTitle = (title) => trimFolderTitle(String(title || '').trim().replace(/·[2-9]\d*$/, ''), 14);
-        const physicalShardNumber = (title) => {
-          const match = String(title || '').trim().match(/·([2-9]\d*)$/);
-          return match ? Number(match[1]) : 1;
+        const folderTitleShard = (title) => {
+          // NFKC turns ① into 1, so read a manual circled suffix before
+          // normalizing spaces/full-width characters. Existing ·2 folders
+          // remain readable, but newly created capacity folders never use it.
+          const source = String(title || '').trim();
+          const circled = circledShardSuffix(source);
+          const normalized = String(circled ? source.slice(0, -circled.suffix.length) : source)
+            .normalize('NFKC')
+            .trim()
+            .replace(/\s+/g, ' ');
+          if (circled && normalized) {
+            return { logicalTitle: trimFolderTitle(normalized, 14), shardNumber: circled.shardNumber };
+          }
+          const legacy = normalized.match(/^(.*?)\s*·\s*([2-9]\d*)$/);
+          if (legacy && legacy[1].trim()) {
+            return { logicalTitle: trimFolderTitle(legacy[1].trim(), 14), shardNumber: Number(legacy[2]) };
+          }
+          return { logicalTitle: trimFolderTitle(normalized, 14), shardNumber: 1 };
         };
+        const logicalFolderTitle = (title) => folderTitleShard(title).logicalTitle;
+        const physicalShardNumber = (title) => folderTitleShard(title).shardNumber;
         const physicalShardTitle = (logicalTitle, shardNumber) => {
-          const base = trimFolderTitle(logicalTitle, 14);
+          const base = trimFolderTitle(logicalFolderTitle(logicalTitle), 14);
           if (shardNumber <= 1) return base;
-          const suffix = '·' + shardNumber;
+          const suffix = circledCapacityShardSuffix(shardNumber);
           return trimFolderTitle(base, 20 - Array.from(suffix).length) + suffix;
         };
         let remoteFolderSnapshotPromise;

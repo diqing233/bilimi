@@ -167,8 +167,11 @@ export function OldFavoriteScanOverviewStep({
     (currentSegmentCanContinueTagEnrichment || Boolean(tagEnrichment?.pendingItemCount) || Boolean(tagEnrichment?.failedItemCount))
   const canAcceptCurrentTags = currentSegmentHasUnacceptedTagChanges ||
     (Boolean(tagEnrichment?.pendingItemCount) && tagEnrichment?.status !== 'accepted')
-  const scopedTagEnrichment = tagEnrichment?.scopes?.[viewScope === 'all' ? 'wholeRun' : 'currentSegment']
-  const scopedTagProgress = viewScope === 'all'
+  // A single batch has no scope switch, but it is still the current batch —
+  // never present its tag progress as the whole run.
+  const usesWholeRunScope = hasMultipleSegments && viewScope === 'all'
+  const scopedTagEnrichment = tagEnrichment?.scopes?.[usesWholeRunScope ? 'wholeRun' : 'currentSegment']
+  const scopedTagProgress = usesWholeRunScope
     ? tagEnrichment?.scopes?.wholeRun ?? (tagEnrichment ? {
       totalItemCount: tagEnrichment.totalItemCount,
       completedItemCount: tagEnrichment.completedItemCount
@@ -177,9 +180,9 @@ export function OldFavoriteScanOverviewStep({
       totalItemCount: currentSegmentSummary.itemCount,
       completedItemCount: currentSegmentSummary.completedTagItemCount
     } : undefined)
-  const scopedTagProgressLabel = viewScope === 'all' ? '本轮' : '当前批'
-  const scopedTagProgressAriaLabel = viewScope === 'all' ? '本轮标签进度' : '当前批次标签进度'
-  const scopedTagProgressStatus = viewScope === 'all'
+  const scopedTagProgressLabel = usesWholeRunScope ? '本轮' : '当前批'
+  const scopedTagProgressAriaLabel = usesWholeRunScope ? '本轮标签进度' : '当前批次标签进度'
+  const scopedTagProgressStatus = usesWholeRunScope
     ? tagEnrichment?.status === 'running' ? '补取中'
       : tagEnrichment?.status === 'paused' ? '已暂停'
       : tagEnrichment?.status === 'accepted' ? '已采用' : '已完成'
@@ -282,7 +285,7 @@ export function OldFavoriteScanOverviewStep({
         <span>已获取标签 {taggedItemCount} / {scannedItemCount} 条</span>
         <strong className="favorite-ledger-panel__scan-progress-status">已扫描 {scannedItemCount} 条视频，待获取标签</strong>
       </div> : null}
-      {hasMultipleSegments && scopedTagProgress ? <div>
+      {scopedTagProgress ? <div>
         <span>标签补取</span>
         <progress aria-label={scopedTagProgressAriaLabel} max={Math.max(scopedTagProgress.totalItemCount, 1)}
           value={scopedTagProgress.completedItemCount} />

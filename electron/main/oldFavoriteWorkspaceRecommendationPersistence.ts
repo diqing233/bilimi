@@ -1,67 +1,6 @@
 import type { FavoriteLedger } from '../../src/shared/types'
 import { createRemoteObservationFavoriteLedgerId } from '../../src/shared/favoriteLedgers'
 
-export function applyRecommendedLedgers(current: FavoriteLedger[], recommendations: FavoriteLedger[]) {
-  const recommendedById = new Map(recommendations.map((ledger) => [ledger.id, ledger]))
-  return [
-    ...current.filter((ledger) => !recommendedById.has(ledger.id)),
-    ...recommendedById.values()
-  ]
-}
-
-export function removeRecommendedLedgers(current: FavoriteLedger[], recommendationIds: string[]) {
-  const removedIds = new Set(recommendationIds)
-  return current.filter((ledger) => !removedIds.has(ledger.id))
-}
-
-function matchesGeneratedRecommendation(ledger: FavoriteLedger, recommendation: FavoriteLedger) {
-  const hasRemoteBinding = Boolean(ledger.bilibiliFolderId?.trim()) ||
-    (ledger.bilibiliFolderIds ?? []).some((folderId) => folderId.trim())
-  // A recommendation draft without a remote folder is safe to remove when
-  // its checkbox is cleared.  The persisted binding state can be `unbound`
-  // for locally generated drafts, so remote-folder presence (rather than
-  // bindingState alone) is the authoritative guard against deleting a
-  // remotely discovered folder.
-  return ledger.ruleOrigin === 'recommendation-draft' &&
-    !hasRemoteBinding &&
-    ledger.displayName === recommendation.displayName &&
-    (ledger.ruleType ?? 'keyword') === (recommendation.ruleType ?? 'keyword') &&
-    JSON.stringify(ledger.keywords) === JSON.stringify(recommendation.keywords) &&
-    ledger.enabled === recommendation.enabled &&
-    ledger.priority === recommendation.priority &&
-    ledger.isDefault === recommendation.isDefault
-}
-
-export function reconcileRecommendedLedgers(
-  current: FavoriteLedger[],
-  recommendations: FavoriteLedger[],
-  adoptedRecommendationIds: string[]
-) {
-  const matchedCurrentIds = new Set<string>()
-  const adoptedIds = new Set(adoptedRecommendationIds)
-  const resolvedRecommendations = recommendations.filter((recommendation) => adoptedIds.has(recommendation.id)).map((recommendation) => {
-    const exactId = current.find((ledger) => !matchedCurrentIds.has(ledger.id) && ledger.id === recommendation.id)
-    if (exactId) {
-      matchedCurrentIds.add(exactId.id)
-      return exactId
-    }
-    return recommendation
-  })
-  const recommendedById = new Map(recommendations.map((ledger) => [ledger.id, ledger]))
-  const retained = current.filter((ledger) => {
-    if (matchedCurrentIds.has(ledger.id)) return false
-    const recommendation = recommendedById.get(ledger.id)
-    return !recommendation || adoptedIds.has(ledger.id) || !matchesGeneratedRecommendation(ledger, recommendation)
-  })
-  const retainedIds = new Set(retained.map((ledger) => ledger.id))
-  return [
-    ...retained,
-    ...resolvedRecommendations
-      .filter((ledger) => !retainedIds.has(ledger.id))
-      .map((ledger) => ledger)
-  ]
-}
-
 function hasConfiguredRule(ledger: FavoriteLedger) {
   return ledger.ruleOrigin === 'saved-rule' || ledger.enabled ||
     (Array.isArray(ledger.keywords) && ledger.keywords.some((keyword) => keyword.trim()))
@@ -143,11 +82,4 @@ export function mergeRecoveredLedgerDrafts(current: FavoriteLedger[], recovered:
     emittedIds.add(ledger.id)
   }
   return retained
-}
-
-export function markRecommendedLedgersLocalDraft(current: FavoriteLedger[], recommendationIds: string[]) {
-  const recommendedIds = new Set(recommendationIds)
-  return current.map((ledger) => recommendedIds.has(ledger.id) && ledger.ruleOrigin === 'recommendation-draft' && !ledger.bilibiliFolderId
-    ? { ...ledger, syncState: 'local-draft' as const, ruleOrigin: 'recommendation-draft' as const }
-    : ledger)
 }

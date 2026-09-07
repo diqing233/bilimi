@@ -933,9 +933,21 @@ describe('old favorite workspace coordinator IPC', () => {
 
   it('accepts only candidate ids when changing main-process recommendation adoption', async () => {
     const ipcMain = new FakeIpcMain()
+    const authoritativeSnapshot = {
+      ...snapshot,
+      recommendations: {
+        candidates: [{
+          id: 'candidate-up', displayName: 'bilimi·UP', keywords: ['UP'], kind: 'author' as const,
+          count: 2, reason: 'UP appeared twice.'
+        }],
+        adoptedCandidateIds: ['candidate-up'],
+        linkedLedgerIdsByCandidateId: { 'candidate-up': 'custom-up' },
+        links: { 'candidate-up': { status: 'linked' as const, ledgerId: 'custom-up' } }
+      }
+    }
     const coordinator = {
       setRecommendedCandidates: vi.fn().mockResolvedValue({}),
-      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+      getSnapshot: vi.fn().mockResolvedValue(authoritativeSnapshot)
     }
     registerOldFavoriteWorkspaceCoordinatorIpc({
       ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
@@ -943,9 +955,9 @@ describe('old favorite workspace coordinator IPC', () => {
     })
 
     await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
-      type: 'set-recommended-candidates', candidateIds: ['custom-author-up-alpha']
-    })).resolves.toEqual(snapshot)
-    expect(coordinator.setRecommendedCandidates).toHaveBeenCalledWith('100', ['custom-author-up-alpha'])
+      type: 'set-recommended-candidates', candidateIds: ['candidate-up']
+    })).resolves.toEqual(authoritativeSnapshot)
+    expect(coordinator.setRecommendedCandidates).toHaveBeenCalledWith('100', ['candidate-up'])
     await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
       type: 'set-recommended-candidates', candidates: [{ id: 'custom-author-up-alpha', keywords: ['forged'] }]
     })).rejects.toThrow('command is invalid')

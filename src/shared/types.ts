@@ -103,6 +103,8 @@ export type FavoriteLedgerSaveOptions = {
   dismissedRemoteFolderIds?: string[]
   /** Complete account-level remote identities that must not be re-projected as remote-only drafts. */
   remoteDraftKnownFolderIds?: string[]
+  /** Whether this operation is an explicit stable directory discovery that may return remote-only observation drafts. */
+  includeRemoteOnlyDrafts?: boolean
   /** Restricts backup to create-or-confirm-bind for explicit library targets. */
   lightweightBackup?: boolean
   /** The user has explicitly approved creating the current library work folder after a read-only preflight found no reusable candidate. */
@@ -114,7 +116,12 @@ export type FavoriteLedgerSaveOptions = {
   /** The owner explicitly approved renaming already formal bound shards listed by the read-only preflight. */
   confirmBoundRename?: boolean
   /** Exact formal Bilibili shard tuples displayed by the bound-rename preflight; confirmation fails closed if they change. */
-  boundRenameShards?: Record<FavoriteLedgerId, Array<{ remoteFolderId: string; shardNumber: number }>>
+  boundRenameShards?: Record<FavoriteLedgerId, Array<{
+    remoteFolderId: string
+    shardNumber: number
+    currentRemoteTitle?: string
+    targetTitle?: string
+  }>>
 }
 
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'

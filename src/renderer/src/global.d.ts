@@ -145,6 +145,8 @@ type BilimiDesktopApi = {
   notifyHomeWebviewLoadSettled?: () => void
   notifyHomeWebviewLoadTimeout?: () => void
   retryBilibiliSessionDirect?: () => Promise<{ mode: 'auto' | 'direct'; effectiveMode: 'direct' | 'system'; temporaryDirect: boolean }>
+  getBilibiliFavoriteSpaceRefreshStatus?: (accountMid: string) => Promise<{ status: 'idle' | 'pending' }>
+  retryBilibiliFavoriteSpaceRefresh?: (accountMid: string) => Promise<{ status: 'idle' | 'pending' }>
   readBilibiliAccountMid?: () => Promise<string>
   readBilibiliAccount?: () => Promise<{ mid: string; nickname?: string }>
   openFavoriteLibraryVideo?: (accountMid: string, aid: number) => Promise<void>
@@ -154,11 +156,12 @@ type BilimiDesktopApi = {
   saveFavoriteLibraryArchiveMemo?: (accountMid: string, aid: number, memo: string, cid?: number) => Promise<void>
   onBilibiliAccountChanged?: (callback: () => void) => () => void
   onBilibiliSessionReloadRequested?: (callback: () => void) => () => void
+  onBilibiliFavoriteSpaceRefreshStatusChanged?: (callback: (status: { accountMid: string; status: 'idle' | 'pending' }) => void) => () => void
   onFavoriteLibraryTranscriptionChanged?: (callback: () => void) => () => void
   openFavoriteRepositoryAccount?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
   getFavoriteRepositorySnapshot?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
   adoptFavoriteRepositoryLedgerBinding?: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; remoteTitle: string; shardNumber?: number; allowRemoteRename?: boolean }) => Promise<unknown>
-  renameFavoriteRepositoryBoundLedgerShard?: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; shardNumber: number }) => Promise<unknown>
+  renameFavoriteRepositoryBoundLedgerShard?: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; shardNumber: number; currentRemoteTitle?: string; targetTitle?: string }) => Promise<unknown>
   previewFavoriteRepositoryLedgerBindingCandidates?: (accountMid: string, ledgers: Array<{ ledgerId: string; title: string }>) => Promise<Array<{
     ledgerId: string
     candidates: Array<{ id: string; title: string; memberCount: number }>

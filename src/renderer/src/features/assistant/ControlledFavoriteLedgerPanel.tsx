@@ -1,5 +1,5 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
-import type { OldFavoriteWorkspaceBilibiliSyncPreflight, OldFavoriteWorkspaceRecommendationCandidate, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceBilibiliSyncPreflight, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -105,111 +105,50 @@ type RecommendationProjection = {
   ledgerToCandidateId: Map<string, string>
 }
 
-function recommendationRuleType(candidate: OldFavoriteWorkspaceRecommendationCandidate) {
-  return candidate.kind === 'author' ? 'author' as const : candidate.kind === 'tag' ? 'tag' as const : 'keyword' as const
-}
-
-function isPureRecommendedLocalDraft(ledger: FavoriteLedger) {
-  const hasRemoteBinding = Boolean(ledger.bilibiliFolderId?.trim()) ||
-    (ledger.bilibiliFolderIds ?? []).some((folderId) => folderId.trim())
-  return ledger.ruleOrigin === 'recommendation-draft' &&
-    !hasRemoteBinding &&
-    ledger.bindingState !== 'unbacked' && ledger.bindingState !== 'bound'
-}
-
-function isSavedUpperLedger(ledger: FavoriteLedger, persistedLedgerIds?: ReadonlySet<string>) {
-  // Missing provenance is a legacy record. Treat it as saved so an ambiguous
-  // checkbox click can never silently delete the user's configured rule.
-  return persistedLedgerIds
-    ? persistedLedgerIds.has(ledger.id)
-    : ledger.ruleOrigin !== 'recommendation-draft' ||
-      (ledger.syncState === 'local-draft' && ledger.bindingState !== undefined)
-}
-
-// A legacy renderer-only recommendation bridge may temporarily share a title
-// with a formal local rule. Keep the bridge hidden as a display-only detail;
-// all data operations still use stable IDs and never merge by title.
-function isRecommendationShadowedByFormalTitle(ledger: FavoriteLedger, ledgers: readonly FavoriteLedger[]) {
-  if (ledger.ruleOrigin !== 'recommendation-draft') return false
-  const title = stripBilimiLedgerPrefix(ledger.displayName).trim()
-  return ledgers.some((candidate) => candidate.id !== ledger.id &&
-    candidate.ruleOrigin !== 'recommendation-draft' &&
-    ((candidate.ruleType ?? 'keyword') === (ledger.ruleType ?? 'keyword') || ledger.keywords.length === 0) &&
-    stripBilimiLedgerPrefix(candidate.displayName).trim() === title)
-}
-
 export function createRecommendationProjection(
-  ledgers: readonly FavoriteLedger[],
-  candidates: readonly OldFavoriteWorkspaceRecommendationCandidate[],
+  linksOrLedgers: OldFavoriteWorkspaceSnapshot['recommendations']['links'] | readonly FavoriteLedger[] | undefined,
+  candidates?: readonly { id: string }[],
   persistedLedgerIds?: ReadonlySet<string>
 ): RecommendationProjection {
   const candidateToLedgerId = new Map<string, string>()
   const ledgerToCandidateId = new Map<string, string>()
-  const savedLedgers = ledgers.filter((ledger) => isSavedUpperLedger(ledger, persistedLedgerIds))
-  for (const candidate of candidates) {
-    // A saved upper rule can remain locally unbacked while carrying the
-    // historical `local-draft` transport state. Its exact stable ID is the
-    // only identity allowed to link the two controls: titles, rule shapes, and
-    // keywords are descriptive data and must never reconnect separate rules.
-    const exact = savedLedgers.find((ledger) => ledger.id === candidate.id)
-    if (!exact) continue
-    candidateToLedgerId.set(candidate.id, exact.id)
-    ledgerToCandidateId.set(exact.id, candidate.id)
+  if (Array.isArray(linksOrLedgers)) {
+    const savedIds = persistedLedgerIds ?? new Set(linksOrLedgers.map((ledger) => ledger.id))
+    for (const candidate of candidates ?? []) {
+      if (!savedIds.has(candidate.id)) continue
+      candidateToLedgerId.set(candidate.id, candidate.id)
+      ledgerToCandidateId.set(candidate.id, candidate.id)
+    }
+    return { candidateToLedgerId, ledgerToCandidateId }
+  }
+  for (const [candidateId, link] of Object.entries(linksOrLedgers ?? {})) {
+    if (link.status !== 'linked') continue
+    candidateToLedgerId.set(candidateId, link.ledgerId)
+    ledgerToCandidateId.set(link.ledgerId, candidateId)
   }
   return { candidateToLedgerId, ledgerToCandidateId }
 }
 
 export function resolveRecommendationOpenLedgerId(
   openLedgerId: string | undefined,
-  ledgers: readonly FavoriteLedger[],
-  candidates: readonly OldFavoriteWorkspaceRecommendationCandidate[]
+  linksOrLedgers: OldFavoriteWorkspaceSnapshot['recommendations']['links'] | readonly FavoriteLedger[] | undefined,
+  candidates?: readonly { id: string }[]
 ) {
   if (!openLedgerId) return undefined
-  const projection = createRecommendationProjection(ledgers, candidates)
-  const candidateIds = new Set(candidates.map((candidate) => candidate.id))
-  return candidateIds.has(openLedgerId)
-    ? projection.candidateToLedgerId.get(openLedgerId)
-    : openLedgerId
+  const projection = createRecommendationProjection(linksOrLedgers, candidates)
+  return projection.candidateToLedgerId.get(openLedgerId) ?? (Array.isArray(linksOrLedgers) && candidates?.some((candidate) => candidate.id === openLedgerId) ? undefined : openLedgerId)
 }
 
-function hasFormalRemoteBinding(ledger: FavoriteLedger) {
-  return ledger.bindingState === 'bound' && Boolean(
-    ledger.bilibiliFolderId?.trim() || ledger.bilibiliFolderIds?.some((folderId) => folderId.trim())
-  )
-}
-
-export function mergePromotedRecommendationLedgers(
-  ledgers: readonly FavoriteLedger[],
-  promotedLedgers: readonly FavoriteLedger[]
-) {
-  const formalLedgersById = new Map(ledgers
-    .filter(hasFormalRemoteBinding)
-    .map((ledger) => [ledger.id, ledger]))
-  const promotedIds = new Set(promotedLedgers.map((ledger) => ledger.id))
-  const retainedLedgers = ledgers.filter((ledger) => !(
-    ledger.ruleOrigin === 'recommendation-draft' && promotedIds.has(ledger.id)
-  ))
-  const persistedIds = new Set(retainedLedgers.map((ledger) => ledger.id))
-  return [
-    ...retainedLedgers,
-    ...promotedLedgers
-      .map((ledger) => formalLedgersById.get(ledger.id) ?? ledger)
-      .filter((ledger) => !persistedIds.has(ledger.id))
-  ]
-}
-
-function savedRecommendationLedger(candidate: OldFavoriteWorkspaceRecommendationCandidate, index: number): FavoriteLedger {
-  return {
-    id: candidate.id,
-    displayName: candidate.displayName,
-    keywords: [...(candidate.keywords ?? [])],
-    ruleType: recommendationRuleType(candidate),
-    enabled: true,
-    priority: 10_000 + index,
-    ruleOrigin: 'recommendation-draft',
-    bindingState: 'unbacked',
-    isDefault: false
+/** @deprecated compatibility helper for tests; production no longer creates promoted ledgers. */
+export function mergePromotedRecommendationLedgers(ledgers: readonly FavoriteLedger[], promotedLedgers: readonly FavoriteLedger[]) {
+  const byId = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
+  for (const ledger of promotedLedgers) {
+    const existing = byId.get(ledger.id)
+    const hasRemoteBinding = Boolean(existing?.bilibiliFolderId?.trim()) ||
+      (existing?.bilibiliFolderIds ?? []).some((folderId) => folderId.trim())
+    byId.set(ledger.id, hasRemoteBinding ? existing! : ledger)
   }
+  return [...byId.values()]
 }
 
 function confirmationNeedsBackup(
@@ -386,7 +325,6 @@ export function ControlledFavoriteLedgerPanel({
       : onSaveLedgerEnabled?.(ledgerId, enabled)
   }, [onSaveLedgerEnabled])
   const pendingHistoryRestoreRef = useRef<{ workspaceId: string; cursor: number } | null>(null)
-  const skipNextPassiveRecommendationPromotionRef = useRef(false)
   const runHistoryRestore = useCallback(async (cursor: number, run: () => Promise<OldFavoriteWorkspaceSnapshot | null>) => {
     const snapshot = workspace.snapshot
     const activeSnapshot = isOrganizationSelectionSnapshot(snapshot)
@@ -400,12 +338,10 @@ export function ControlledFavoriteLedgerPanel({
       // preference render.  That render must not promote the selection being
       // undone while it still observes the previous workspace snapshot.
       pendingHistoryRestoreRef.current = target
-      skipNextPassiveRecommendationPromotionRef.current = true
     }
     const next = await run()
     if (!next && target && pendingHistoryRestoreRef.current === target) {
       pendingHistoryRestoreRef.current = null
-      skipNextPassiveRecommendationPromotionRef.current = false
     }
     return next
   }, [workspace.snapshot])
@@ -419,21 +355,8 @@ export function ControlledFavoriteLedgerPanel({
   }, [runHistoryRestore, workspace.redoClassification, workspace.snapshot])
   const moveOrganizationHistoryCursor = useCallback((cursor: number) =>
     runHistoryRestore(cursor, () => workspace.moveHistoryCursor(cursor)), [runHistoryRestore, workspace.moveHistoryCursor])
-  const [promotedRecommendationLedgers, setPromotedRecommendationLedgers] = useState<FavoriteLedger[]>([])
-  const promotedRecommendationLedgersRef = useRef<FavoriteLedger[]>([])
-  const promotedRecommendationHistoryCursorRef = useRef<string | null>(null)
-  const [dismissedGeneratedRecommendationLedgerIds, setDismissedGeneratedRecommendationLedgerIds] = useState<ReadonlySet<string>>(() => new Set())
-  const pendingRecommendationSavesRef = useRef(new Map<string, Promise<unknown>>())
-  // A successful local save can be acknowledged by the parent preference
-  // projection one render later. Keep the renderer bridge alive until that
-  // stable rule id appears in the authoritative props instead of letting a
-  // stale empty snapshot make the card disappear.
-  const awaitingPromotedRecommendationAcknowledgementRef = useRef(new Set<string>())
-  const pendingRecommendationCancellationLedgerIdsRef = useRef(new Set<string>())
-  const [recommendationPromotionSaving, setRecommendationPromotionSaving] = useState(false)
   const organizationRecommendationIdsRef = useRef<string[]>(workspace.recommendedCandidateIds)
   const organizationRecommendationIdsInitializedRef = useRef(false)
-  const [promotedRecommendationAccountKey, setPromotedRecommendationAccountKey] = useState(accountKey)
   const [ledgerEnabledById, setLedgerEnabledById] = useState<ReadonlyMap<string, boolean>>(() =>
     new Map(ledgers.map((ledger) => [ledger.id, ledger.enabled])))
   const ledgerEnabledByIdRef = useRef(ledgerEnabledById)
@@ -443,37 +366,10 @@ export function ControlledFavoriteLedgerPanel({
   const [organizationSavedLedgerParticipationById, setOrganizationSavedLedgerParticipationById] = useState<ReadonlyMap<string, boolean>>(() => new Map())
   const organizationSavedLedgerParticipationByIdRef = useRef(organizationSavedLedgerParticipationById)
   const pendingOrganizationSavedLedgerIdsRef = useRef<Set<string>>(new Set())
-  const visiblePromotedRecommendationLedgers = promotedRecommendationAccountKey === accountKey
-    ? promotedRecommendationLedgers
-    : []
-  const previewRecommendationSnapshot = isOrganizationSelectionSnapshot(workspace.snapshot)
-    ? workspace.snapshot
-    : null
   const persistedUpperLedgerIds = new Set(ledgers
-    .filter((ledger) => !remoteOnlyDraftLedgerIds.includes(ledger.id) &&
-      (ledger.ruleOrigin !== 'recommendation-draft' ||
-        ledger.bindingState === 'unbacked' || ledger.bindingState === 'bound' ||
-        (Boolean(previewRecommendationSnapshot) && ledger.syncState === 'local-draft' && ledger.bindingState === undefined)))
+    .filter((ledger) => !remoteOnlyDraftLedgerIds.includes(ledger.id))
     .map((ledger) => ledger.id))
-  const mergedEffectiveLedgers = mergePromotedRecommendationLedgers(ledgers, visiblePromotedRecommendationLedgers)
-  const effectiveLedgersBeforeDismissal = previewRecommendationSnapshot
-    ? (() => {
-        const projection = createRecommendationProjection(mergedEffectiveLedgers, previewRecommendationSnapshot.recommendations.candidates, persistedUpperLedgerIds)
-        const candidateIds = new Set(previewRecommendationSnapshot.recommendations.candidates.map((candidate) => candidate.id))
-        return mergedEffectiveLedgers.filter((ledger) => {
-          if (ledger.ruleOrigin !== 'recommendation-draft' || !candidateIds.has(ledger.id)) return true
-          if (isRecommendationShadowedByFormalTitle(ledger, ledgers)) return false
-          // A generated draft remains visible as its own upper projection only
-          // while no saved rule owns the same stable candidate. If a saved
-          // rule is already linked, showing both would create a duplicate card.
-          const linkedLedgerId = projection.candidateToLedgerId.get(ledger.id)
-          if (linkedLedgerId && linkedLedgerId !== ledger.id) return false
-          return persistedUpperLedgerIds.has(ledger.id) || !linkedLedgerId
-        })
-      })()
-    : mergedEffectiveLedgers
-  const effectiveLedgers = effectiveLedgersBeforeDismissal
-    .filter((ledger) => !dismissedGeneratedRecommendationLedgerIds.has(ledger.id))
+  const effectiveLedgers = ledgers
   const organizationUpperLedgerIds = new Set(effectiveLedgers
     .filter((ledger) => !remoteOnlyDraftLedgerIds.includes(ledger.id))
     .map((ledger) => ledger.id))
@@ -499,48 +395,10 @@ export function ControlledFavoriteLedgerPanel({
     setEnabledStateAccountKey(accountKey)
   }, [accountKey, effectiveLedgers, enabledStateAccountKey, updateLedgerEnabledById])
   useEffect(() => {
-    if (promotedRecommendationAccountKey === accountKey) return
-    promotedRecommendationLedgersRef.current = []
-    promotedRecommendationHistoryCursorRef.current = null
-    awaitingPromotedRecommendationAcknowledgementRef.current.clear()
-    setPromotedRecommendationLedgers([])
-    setDismissedGeneratedRecommendationLedgerIds(new Set())
     organizationRecommendationIdsRef.current = []
     organizationRecommendationIdsInitializedRef.current = false
     updateOrganizationSavedLedgerParticipationById(new Map())
-    setRecommendationPromotionSaving(false)
-    setPromotedRecommendationAccountKey(accountKey)
-  }, [accountKey, promotedRecommendationAccountKey, updateOrganizationSavedLedgerParticipationById])
-  useEffect(() => {
-    const snapshot = workspace.snapshot
-    if (!isOrganizationSelectionSnapshot(snapshot) ||
-      recommendationPromotionSaving || pendingRecommendationSavesRef.current.size || workspace.recommendationSaving) return
-    // Promoted recommendations only bridge the renderer while their durable
-    // rule or adopted candidate state catches up.  A history cursor may restore
-    // an older rule directory in which that bridge no longer exists; retaining
-    // it would reinsert a local rule the main process deliberately removed.
-    const historyCursorKey = `${snapshot.workspaceId}:${snapshot.history.cursor}`
-    const historyCursorChanged = promotedRecommendationHistoryCursorRef.current !== null &&
-      promotedRecommendationHistoryCursorRef.current !== historyCursorKey
-    promotedRecommendationHistoryCursorRef.current = historyCursorKey
-    const durableLedgerIds = new Set(ledgers.map((ledger) => ledger.id))
-    for (const ledgerId of awaitingPromotedRecommendationAcknowledgementRef.current) {
-      if (durableLedgerIds.has(ledgerId)) awaitingPromotedRecommendationAcknowledgementRef.current.delete(ledgerId)
-    }
-    const retainedCandidateIds = new Set(historyCursorChanged
-      ? snapshot.recommendations.adoptedCandidateIds
-      : [
-          ...workspace.recommendedCandidateIds,
-          ...organizationRecommendationIdsRef.current,
-          ...snapshot.recommendations.adoptedCandidateIds
-        ])
-    const nextPromoted = promotedRecommendationLedgersRef.current.filter((ledger) =>
-      durableLedgerIds.has(ledger.id) || retainedCandidateIds.has(ledger.id) ||
-      (!historyCursorChanged && awaitingPromotedRecommendationAcknowledgementRef.current.has(ledger.id)))
-    if (nextPromoted.length === promotedRecommendationLedgersRef.current.length || pendingRecommendationCancellationLedgerIdsRef.current.size) return
-    promotedRecommendationLedgersRef.current = nextPromoted
-    setPromotedRecommendationLedgers(nextPromoted)
-  }, [ledgers, recommendationPromotionSaving, workspace.recommendationSaving, workspace.recommendedCandidateIds, workspace.snapshot])
+  }, [accountKey, updateOrganizationSavedLedgerParticipationById])
   useEffect(() => {
     const pending = pendingHistoryRestoreRef.current
     const snapshot = workspace.snapshot
@@ -558,9 +416,6 @@ export function ControlledFavoriteLedgerPanel({
       .map((ledger) => [ledger.id, ledger.enabled && !(snapshot.excludedLedgerIds ?? []).includes(ledger.id)] as const))
     const nextEnabledById = new Map(ledgerEnabledByIdRef.current)
     for (const [ledgerId, enabled] of authoritativeParticipationById) {
-      const ledger = effectiveLedgers.find((candidate) => candidate.id === ledgerId)
-      if (ledger?.ruleOrigin === 'recommendation-draft' &&
-        !isVisibleOrganizationRecommendationEditing(snapshot, guideOpen)) continue
       if (!pendingLedgerIds.has(ledgerId)) nextEnabledById.set(ledgerId, enabled)
     }
     updateLedgerEnabledById(nextEnabledById)
@@ -570,97 +425,14 @@ export function ControlledFavoriteLedgerPanel({
     ))
   }, [effectiveLedgers, guideOpen, remoteOnlyDraftLedgerIds, updateLedgerEnabledById, updateOrganizationSavedLedgerParticipationById, workspace.snapshot])
   useEffect(() => {
-    // The workspace snapshot hydrates the adopted ids after the panel mounts.
-    // Keep the event-side selection ref aligned, but never overwrite a newer
-    // optimistic choice while a recommendation rule is still being saved.
     const snapshot = workspace.snapshot
-    if (!isOrganizationSelectionSnapshot(snapshot) ||
-      recommendationPromotionSaving || pendingRecommendationSavesRef.current.size) return
+    if (!isOrganizationSelectionSnapshot(snapshot)) return
     organizationRecommendationIdsRef.current = !organizationRecommendationIdsInitializedRef.current && !workspace.recommendedCandidateIds.length
       ? [...snapshot.recommendations.adoptedCandidateIds]
       : [...workspace.recommendedCandidateIds]
     organizationRecommendationIdsInitializedRef.current = true
-  }, [recommendationPromotionSaving, workspace.recommendedCandidateIds, workspace.snapshot])
-  const promoteSelectedRecommendationLedgers = useCallback(async (
-    candidateIds: readonly string[],
-    options: { persist?: boolean } = {}
-  ) => {
-    const snapshot = workspace.snapshot
-    if (!isOrganizationSelectionSnapshot(snapshot)) return true
-    const selectedIds = new Set(candidateIds)
-    const currentLedgers = mergePromotedRecommendationLedgers(ledgers, promotedRecommendationLedgersRef.current)
-    const projection = createRecommendationProjection(currentLedgers, snapshot.recommendations.candidates, persistedUpperLedgerIds)
-    const existingIds = new Set([
-      ...persistedUpperLedgerIds,
-      ...currentLedgers
-        .filter((ledger) => ledger.ruleOrigin === 'recommendation-draft')
-        .map((ledger) => ledger.id)
-    ])
-    const additions = snapshot.recommendations.candidates
-      .filter((candidate) => selectedIds.has(candidate.id) && !projection.candidateToLedgerId.has(candidate.id) && !existingIds.has(candidate.id))
-      .map((candidate, index) => savedRecommendationLedger(candidate, currentLedgers.length + index))
-    if (!additions.length) return true
-    const nextPromoted = [...promotedRecommendationLedgersRef.current, ...additions]
-    promotedRecommendationLedgersRef.current = nextPromoted
-    setPromotedRecommendationLedgers(nextPromoted)
-    if (options.persist === false) return true
-    setRecommendationPromotionSaving(true)
-    const nextLedgers = mergePromotedRecommendationLedgers(ledgers, nextPromoted)
-    const saveOperation = Promise.resolve().then(async () => {
-      const result = await saveLedgersAndRefreshWorkspace(nextLedgers, {
-        deleteDisabled: false,
-        recommendationOnly: true
-      })
-      if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
-        throw new Error('Recommendation ledger save failed.')
-      }
-      return result
-    })
-    for (const addition of additions) pendingRecommendationSavesRef.current.set(addition.id, saveOperation)
-    return saveOperation.then(async () => {
-      const cancelledAdditions = additions.filter((addition) =>
-        !organizationRecommendationIdsRef.current.includes(addition.id))
-      if (cancelledAdditions.length) {
-        // The first local rule save cannot be cancelled after it reaches the
-        // preference scheduler.  If the user has already removed the lower
-        // candidate, complete the newer intent with a narrow enabled=false
-        // write rather than letting the late save re-promote the rule.  This
-        // preserves the saved recommendation for a later round; explicit
-        // detail/delete-mode deletion remains the only removal transaction.
-        await Promise.all(cancelledAdditions.map(async (addition) => {
-          const result = await saveLedgerEnabledAndRefreshWorkspace(addition.id, false)
-          if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
-            throw new Error('Recommendation ledger cancellation save failed.')
-          }
-        }))
-        const cancelledIds = new Set(cancelledAdditions.map((addition) => addition.id))
-        const settledPromoted = promotedRecommendationLedgersRef.current.map((ledger) =>
-          cancelledIds.has(ledger.id) ? { ...ledger, enabled: false } : ledger)
-        promotedRecommendationLedgersRef.current = settledPromoted
-        setPromotedRecommendationLedgers(settledPromoted)
-      }
-      additions
-        .filter((addition) => !cancelledAdditions.includes(addition))
-        .forEach((addition) => awaitingPromotedRecommendationAcknowledgementRef.current.add(addition.id))
-      return true
-    }).catch(() => {
-      const failedIds = new Set(additions.map((ledger) => ledger.id))
-      additions.forEach((addition) => awaitingPromotedRecommendationAcknowledgementRef.current.delete(addition.id))
-      const restoredPromoted = promotedRecommendationLedgersRef.current.filter((ledger) => !failedIds.has(ledger.id))
-      promotedRecommendationLedgersRef.current = restoredPromoted
-      setPromotedRecommendationLedgers(restoredPromoted)
-      return false
-    }).finally(() => {
-      for (const addition of additions) {
-        if (pendingRecommendationSavesRef.current.get(addition.id) === saveOperation) pendingRecommendationSavesRef.current.delete(addition.id)
-      }
-      if (!pendingRecommendationSavesRef.current.size) setRecommendationPromotionSaving(false)
-    })
-  }, [ledgers, persistedUpperLedgerIds, saveLedgerEnabledAndRefreshWorkspace, saveLedgersAndRefreshWorkspace, workspace.snapshot])
-  const setOrganizationRecommendedCandidates = useCallback(async (
-    candidateIds: string[],
-    options: { retainLinkedSavedLedgerIds?: readonly string[] } = {}
-  ) => {
+  }, [workspace.recommendedCandidateIds, workspace.snapshot])
+  const setOrganizationRecommendedCandidates = useCallback(async (candidateIds: string[]) => {
     const snapshot = workspace.snapshot
     if (!isOrganizationSelectionSnapshot(snapshot)) {
       workspace.setRecommendedCandidates(candidateIds)
@@ -672,84 +444,30 @@ export function ControlledFavoriteLedgerPanel({
     const snapshotAdoptedCandidateIds = snapshot.recommendations.adoptedCandidateIds
     const needsSnapshotHydration = !organizationRecommendationIdsInitializedRef.current ||
       (!organizationRecommendationIdsRef.current.length && !workspace.recommendedCandidateIds.length && snapshotAdoptedCandidateIds.length > 0)
-    const currentCandidateIds = new Set(needsSnapshotHydration ? snapshotAdoptedCandidateIds : organizationRecommendationIdsRef.current)
-    const currentLedgers = mergePromotedRecommendationLedgers(ledgers, promotedRecommendationLedgersRef.current)
-    const projection = createRecommendationProjection(currentLedgers, candidates, persistedUpperLedgerIds)
-    const retainedLinkedSavedLedgerIds = new Set(options.retainLinkedSavedLedgerIds ?? [])
-    const removedGeneratedDraftLedgerIds = candidates.flatMap((candidate) => {
-      if (!currentCandidateIds.has(candidate.id) || nextCandidateIds.includes(candidate.id)) return []
-      const ledgerId = projection.candidateToLedgerId.get(candidate.id) ?? candidate.id
-      const ledger = currentLedgers.find((item) => item.id === ledgerId)
-      return ledger && !retainedLinkedSavedLedgerIds.has(ledgerId) &&
-        !persistedUpperLedgerIds.has(ledgerId) && isPureRecommendedLocalDraft(ledger)
-        ? [ledgerId]
-        : []
-    })
-    removedGeneratedDraftLedgerIds.forEach((ledgerId) => pendingRecommendationCancellationLedgerIdsRef.current.add(ledgerId))
-    setDismissedGeneratedRecommendationLedgerIds((current) => {
-      const next = new Set(current)
-      for (const candidateId of nextCandidateIds) {
-        next.delete(projection.candidateToLedgerId.get(candidateId) ?? candidateId)
-      }
-      return next
-    })
     const priorCandidateIds = [...(needsSnapshotHydration ? snapshotAdoptedCandidateIds : organizationRecommendationIdsRef.current)]
-    const hasNewCandidate = nextCandidateIds.some((candidateId) => !priorCandidateIds.includes(candidateId))
     organizationRecommendationIdsInitializedRef.current = true
     organizationRecommendationIdsRef.current = nextCandidateIds
     workspace.stageRecommendedCandidateSelection(nextCandidateIds)
-    // For a newly adopted candidate, the workspace command must capture its
-    // history baseline before the renderer preference mirror is written. A
-    // cancellation has no new rule to persist, so retain its established
-    // failure/rollback ordering.
-    if (hasNewCandidate) workspace.setRecommendedCandidates(nextCandidateIds)
-    const promotionReady = await promoteSelectedRecommendationLedgers(nextCandidateIds)
-    if (!promotionReady) {
-      removedGeneratedDraftLedgerIds.forEach((ledgerId) => pendingRecommendationCancellationLedgerIdsRef.current.delete(ledgerId))
-      if (JSON.stringify(organizationRecommendationIdsRef.current) === JSON.stringify(nextCandidateIds)) {
-        organizationRecommendationIdsRef.current = priorCandidateIds
-        workspace.stageRecommendedCandidateSelection(priorCandidateIds)
-        return priorCandidateIds
-      }
-      return organizationRecommendationIdsRef.current
-    }
-    // A later click may have replaced this selection while the rule save was
-    // in flight. Only the latest selection may reach the workspace command;
-    // otherwise an older save can re-adopt a draft after it was cancelled.
-    if (JSON.stringify(organizationRecommendationIdsRef.current) !== JSON.stringify(nextCandidateIds)) {
-      removedGeneratedDraftLedgerIds.forEach((ledgerId) => pendingRecommendationCancellationLedgerIdsRef.current.delete(ledgerId))
-      return organizationRecommendationIdsRef.current
-    }
-    if (!hasNewCandidate) workspace.setRecommendedCandidates(nextCandidateIds)
+    workspace.setRecommendedCandidates(nextCandidateIds)
     try {
       const committedCandidateIds = new Set(await workspace.waitForRecommendationQueue({ rejectOnError: true }))
       organizationRecommendationIdsRef.current = [...committedCandidateIds]
-      if (removedGeneratedDraftLedgerIds.length) {
-        setDismissedGeneratedRecommendationLedgerIds((current) => new Set([
-          ...current,
-          ...removedGeneratedDraftLedgerIds.filter((ledgerId) => !committedCandidateIds.has(projection.ledgerToCandidateId.get(ledgerId) ?? ledgerId))
-        ]))
-      }
       return [...committedCandidateIds]
     } catch (error) {
-      // A failed cancellation must leave the previously adopted recommendation
-      // visible and selected. The queue has already restored its authoritative
-      // ids; keep the renderer ref aligned so a retry follows the same path.
-      if (!hasNewCandidate && JSON.stringify(organizationRecommendationIdsRef.current) === JSON.stringify(nextCandidateIds)) {
+      if (JSON.stringify(organizationRecommendationIdsRef.current) === JSON.stringify(nextCandidateIds)) {
         organizationRecommendationIdsRef.current = priorCandidateIds
+        workspace.stageRecommendedCandidateSelection(priorCandidateIds)
       }
       throw error
-    } finally {
-      removedGeneratedDraftLedgerIds.forEach((ledgerId) => pendingRecommendationCancellationLedgerIdsRef.current.delete(ledgerId))
     }
-  }, [ledgers, promoteSelectedRecommendationLedgers, workspace.recommendedCandidateIds, workspace.setRecommendedCandidates, workspace.snapshot, workspace.stageRecommendedCandidateSelection, workspace.waitForRecommendationQueue])
+  }, [workspace.recommendedCandidateIds, workspace.setRecommendedCandidates, workspace.snapshot, workspace.stageRecommendedCandidateSelection, workspace.waitForRecommendationQueue])
   const handleEnabledStateChange = useCallback((next: ReadonlyMap<string, boolean>, source?: 'editor-unsaved' | 'organization-selection') => {
     const previousEnabledById = ledgerEnabledByIdRef.current
     updateLedgerEnabledById(next)
     if (source) return
     const recommendationCandidateIds = new Set(
       isOrganizationSelectionSnapshot(workspace.snapshot)
-        ? createRecommendationProjection(effectiveLedgers, workspace.snapshot.recommendations.candidates, persistedUpperLedgerIds).ledgerToCandidateId.keys()
+        ? createRecommendationProjection(workspace.snapshot.recommendations.links).ledgerToCandidateId.keys()
         : [])
     for (const ledger of effectiveLedgers) {
       const previousEnabled = previousEnabledById.get(ledger.id) ?? ledger.enabled
@@ -771,13 +489,8 @@ export function ControlledFavoriteLedgerPanel({
     if (!isOrganizationSelectionSnapshot(snapshot)) return false
     const savedLedger = effectiveLedgers.find((ledger) => ledger.id === ledgerId && organizationUpperLedgerIds.has(ledger.id))
     if (!savedLedger) return false
-    const projection = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates, persistedUpperLedgerIds)
-    // Recommendation drafts normally keep their lower cancellation semantics.
-    // The upper card is different: when it already owns the exact stable ID of
-    // a candidate, this user action changes round participation rather than
-    // deleting a draft.  Do not infer this from a title or rule shape.
-    const candidateId = projection.ledgerToCandidateId.get(ledgerId) ??
-      (snapshot.recommendations.candidates.some((candidate) => candidate.id === ledgerId) ? ledgerId : undefined)
+    const projection = createRecommendationProjection(snapshot.recommendations.links)
+    const candidateId = projection.ledgerToCandidateId.get(ledgerId)
     const priorCandidateIds = [...(organizationRecommendationIdsInitializedRef.current
       ? organizationRecommendationIdsRef.current
       : snapshot.recommendations.adoptedCandidateIds)]
@@ -802,15 +515,14 @@ export function ControlledFavoriteLedgerPanel({
       .filter((candidateLedgerId) => nextEnabledById.get(candidateLedgerId) ??
         effectiveLedgers.find((ledger) => ledger.id === candidateLedgerId)?.enabled)
       .sort()
-    const retainLinkedSavedLedgerIds = candidateId ? [ledgerId] : []
     pendingOrganizationSavedLedgerIdsRef.current.add(ledgerId)
     try {
       const committedCandidateIds = JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)
-        ? await setOrganizationRecommendedCandidates(nextCandidateIds, { retainLinkedSavedLedgerIds })
+        ? await setOrganizationRecommendedCandidates(nextCandidateIds)
         : priorCandidateIds
       const selectionChanged = JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)
       const next = await workspace.setRoundExcludedLedgerIds([...excludedLedgerIds], {
-        ...(enabled && savedLedger.ruleOrigin !== 'recommendation-draft' && participatingSavedLedgerIds.length
+        ...(enabled && participatingSavedLedgerIds.length
           ? { participatingSavedLedgerIds }
           : {}),
         ...(candidateId && selectionChanged ? { mergeFavoriteRuleHistory: true } : {})
@@ -825,7 +537,7 @@ export function ControlledFavoriteLedgerPanel({
       updateLedgerEnabledById(previousEnabledById)
       updateOrganizationSavedLedgerParticipationById(previousParticipationById)
       if (JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)) {
-        await setOrganizationRecommendedCandidates(priorCandidateIds, { retainLinkedSavedLedgerIds }).catch(() => undefined)
+        await setOrganizationRecommendedCandidates(priorCandidateIds).catch(() => undefined)
       }
       await saveLedgerEnabledAndRefreshWorkspace(ledgerId, previousEnabledById.get(ledgerId) ?? savedLedger.enabled).catch(() => undefined)
       await workspace.setRoundExcludedLedgerIds(snapshot.excludedLedgerIds ?? [], {
@@ -863,11 +575,7 @@ export function ControlledFavoriteLedgerPanel({
         ? removedCandidateIds[0]
         : undefined
     const linkedSavedLedgerId = isOrganizationSelectionSnapshot(snapshot) && changedCandidateId
-      ? createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates, persistedUpperLedgerIds)
-        .candidateToLedgerId.get(changedCandidateId) ??
-        ((snapshot.excludedLedgerIds ?? []).includes(changedCandidateId) && organizationUpperLedgerIds.has(changedCandidateId)
-          ? changedCandidateId
-          : undefined)
+      ? createRecommendationProjection(snapshot.recommendations.links).candidateToLedgerId.get(changedCandidateId)
       : undefined
     const linkedSavedLedger = linkedSavedLedgerId
       ? effectiveLedgers.find((ledger) => ledger.id === linkedSavedLedgerId && organizationUpperLedgerIds.has(ledger.id))
@@ -877,33 +585,14 @@ export function ControlledFavoriteLedgerPanel({
       return
     }
     void setOrganizationRecommendedCandidates(next)
-  }, [accountKey, effectiveLedgers, onRefreshOrganizationState, onTransientFeedback, organizationUpperLedgerIds, persistedUpperLedgerIds, preserveFavoritePanelScrollPosition, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.recommendedCandidateIds, workspace.refresh, workspace.setRecommendedCandidates, workspace.snapshot, workspace.stageRecommendedCandidateSelection, workspace.waitForRecommendationQueue])
+  }, [effectiveLedgers, organizationUpperLedgerIds, preserveFavoritePanelScrollPosition, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.recommendedCandidateIds, workspace.snapshot])
   const handleOrganizationRecommendationToggle = useCallback(async (ledgerId: string, enabled: boolean) => {
     const snapshot = workspace.snapshot
-    if (!isVisibleOrganizationRecommendationEditing(snapshot, guideOpen)) {
-      const ledger = effectiveLedgers.find((candidate) => candidate.id === ledgerId)
-      if (!ledger || ledger.ruleOrigin !== 'recommendation-draft') return false
-      if (!onSaveLedgerEnabled) return false
-      try {
-        const result = await onSaveLedgerEnabled(ledgerId, enabled) as { ok?: boolean } | undefined
-        if (result?.ok === false) return false
-        // Local account-rule persistence is the success boundary. A later
-        // relationship/status refresh may be unavailable and is retried by
-        // the next authoritative snapshot without rolling back the click.
-        await Promise.resolve(onRefreshOrganizationState?.()).catch(() => undefined)
-        return true
-      } catch {
-        return false
-      }
-    }
-    const projection = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates, persistedUpperLedgerIds)
-    const candidateId = projection.ledgerToCandidateId.get(ledgerId) ??
-      (snapshot.recommendations.candidates.some((candidate) => candidate.id === ledgerId) ? ledgerId : undefined)
+    if (!isVisibleOrganizationRecommendationEditing(snapshot, guideOpen)) return false
+    const projection = createRecommendationProjection(snapshot.recommendations.links)
+    const candidateId = projection.ledgerToCandidateId.get(ledgerId)
     if (!candidateId) return false
-    const linkedSavedLedgerId = projection.candidateToLedgerId.get(candidateId) ??
-      ((snapshot.excludedLedgerIds ?? []).includes(candidateId) && organizationUpperLedgerIds.has(candidateId)
-        ? candidateId
-        : undefined)
+    const linkedSavedLedgerId = projection.candidateToLedgerId.get(candidateId)
     const linkedSavedLedger = linkedSavedLedgerId
       ? effectiveLedgers.find((ledger) => ledger.id === linkedSavedLedgerId && organizationUpperLedgerIds.has(ledger.id))
       : undefined
@@ -914,13 +603,13 @@ export function ControlledFavoriteLedgerPanel({
       ? [...organizationRecommendationIdsRef.current, candidateId]
       : organizationRecommendationIdsRef.current.filter((currentCandidateId) => currentCandidateId !== candidateId))
     return enabled ? committedIds.includes(candidateId) : !committedIds.includes(candidateId)
-  }, [effectiveLedgers, guideOpen, onRefreshOrganizationState, onSaveLedgerEnabled, organizationUpperLedgerIds, persistedUpperLedgerIds, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.snapshot])
+  }, [effectiveLedgers, guideOpen, organizationUpperLedgerIds, setOrganizationRecommendedCandidates, setOrganizationSavedLedgerParticipation, workspace.snapshot])
   const handleOrganizationSavedLedgerToggle = useCallback(async (ledgerId: string, enabled: boolean) => {
     const ledger = effectiveLedgers.find((candidate) => candidate.id === ledgerId)
     const snapshot = workspace.snapshot
     const linkedRecommendation = isOrganizationSelectionSnapshot(snapshot) &&
       snapshot.recommendations.candidates.some((candidate) => candidate.id === ledgerId)
-    if ((ledger?.ruleOrigin === 'recommendation-draft' || linkedRecommendation) &&
+    if (linkedRecommendation &&
       !isVisibleOrganizationRecommendationEditing(snapshot, guideOpen)) {
       if (!onSaveLedgerEnabled) return false
       try {
@@ -937,7 +626,7 @@ export function ControlledFavoriteLedgerPanel({
   const handleOrganizationSavedLedgerSelectionChange = useCallback(async (selectedLedgerIds: string[]) => {
     const snapshot = workspace.snapshot
     if (!isOrganizationSelectionSnapshot(snapshot)) return false
-    const projection = createRecommendationProjection(effectiveLedgers, snapshot.recommendations.candidates, persistedUpperLedgerIds)
+    const projection = createRecommendationProjection(snapshot.recommendations.links)
     const selectableLedgerIds = new Set(effectiveLedgers
       .filter((ledger) => persistedUpperLedgerIds.has(ledger.id))
       .map((ledger) => ledger.id))
@@ -965,12 +654,11 @@ export function ControlledFavoriteLedgerPanel({
       return previousEnabled === enabled ? [] : [[ledgerId, enabled] as const]
     })
     const nextExcludedLedgerIds = [...selectableLedgerIds].filter((ledgerId) => !selectedIds.has(ledgerId))
-    const retainLinkedSavedLedgerIds = [...selectableLedgerIds]
     for (const [ledgerId] of changedEnabledByLedgerId) pendingOrganizationSavedLedgerIdsRef.current.add(ledgerId)
     try {
       const selectionChanged = JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)
       if (selectionChanged) {
-        await setOrganizationRecommendedCandidates(nextCandidateIds, { retainLinkedSavedLedgerIds })
+        await setOrganizationRecommendedCandidates(nextCandidateIds)
       }
       const next = await workspace.setRoundExcludedLedgerIds(nextExcludedLedgerIds, {
         ...(changedEnabledByLedgerId.some(([, enabled]) => enabled)
@@ -986,7 +674,7 @@ export function ControlledFavoriteLedgerPanel({
     } catch {
       updateLedgerEnabledById(previousEnabledById)
       if (JSON.stringify(nextCandidateIds) !== JSON.stringify(priorCandidateIds)) {
-        await setOrganizationRecommendedCandidates(priorCandidateIds, { retainLinkedSavedLedgerIds }).catch(() => undefined)
+        await setOrganizationRecommendedCandidates(priorCandidateIds).catch(() => undefined)
       }
       for (const [ledgerId] of changedEnabledByLedgerId) {
         await saveLedgerEnabledAndRefreshWorkspace(
@@ -1005,24 +693,6 @@ export function ControlledFavoriteLedgerPanel({
       for (const [ledgerId] of changedEnabledByLedgerId) pendingOrganizationSavedLedgerIdsRef.current.delete(ledgerId)
     }
   }, [effectiveLedgers, saveLedgerEnabledAndRefreshWorkspace, setOrganizationRecommendedCandidates, updateLedgerEnabledById, workspace.setRoundExcludedLedgerIds, workspace.snapshot])
-  useEffect(() => {
-    const snapshot = workspace.snapshot
-    if (!isOrganizationSelectionSnapshot(snapshot) || pendingHistoryRestoreRef.current) return
-    if (skipNextPassiveRecommendationPromotionRef.current) {
-      skipNextPassiveRecommendationPromotionRef.current = false
-      return
-    }
-    // This passive bridge only restores a selection already confirmed by the
-    // current durable history cursor.  A cursor restore can render once with
-    // the former checkbox state before the workspace hook rehydrates it; that
-    // old state must never be promoted into a new rule-history branch.
-    const adoptedCandidateIds = snapshot.recommendations.adoptedCandidateIds
-    if (!sameRecommendationCandidateIds(workspace.recommendedCandidateIds, adoptedCandidateIds)) return
-    void promoteSelectedRecommendationLedgers(adoptedCandidateIds)
-  }, [promoteSelectedRecommendationLedgers, workspace.recommendedCandidateIds, workspace.snapshot])
-  // FavoriteLedgerOverview owns its narrow deletion IPC. Once that command
-  // succeeds, replace the renderer's prior selection with the main-process
-  // transaction snapshot before any recommendation promotion effect can run.
   const handleDeleteLedger = useCallback(async () => {
     await workspace.refresh().catch(() => undefined)
     try {
@@ -1032,9 +702,6 @@ export function ControlledFavoriteLedgerPanel({
     }
     return true
   }, [onRefreshOrganizationState, workspace.refresh])
-  const waitForRecommendationLedgerSave = useCallback(async (ledgerId: string) => {
-    await pendingRecommendationSavesRef.current.get(ledgerId)
-  }, [])
   const applyManualClassification = useCallback((aid: number, targetLedgerIds: string[]) => {
     void workspace.applyManualClassifications([{ aid, targetLedgerIds }])
   }, [workspace.applyManualClassifications])
@@ -1087,7 +754,7 @@ export function ControlledFavoriteLedgerPanel({
   const activeSnapshot = snapshot && !('recovery' in snapshot) ? snapshot : null
   const snapshotStatus = activeSnapshot?.status
   const resolvedOpenLedgerId = activeSnapshot?.status === 'previewing'
-    ? resolveRecommendationOpenLedgerId(openLedgerId, effectiveLedgers, activeSnapshot.recommendations.candidates)
+    ? resolveRecommendationOpenLedgerId(openLedgerId, activeSnapshot.recommendations.links)
     : openLedgerId
   useEffect(() => {
     if (previousAccountMidRef.current === currentAccountMid) return
@@ -1688,7 +1355,7 @@ export function ControlledFavoriteLedgerPanel({
   const visibleOrganizationRecommendationEditing = isVisibleOrganizationRecommendationEditing(activeSnapshot, guideOpen)
   const activeOrganizationSelectionSnapshot = isOrganizationSelectionSnapshot(activeSnapshot)
   const recommendationProjection = activeOrganizationSelectionSnapshot
-    ? createRecommendationProjection(displayedLedgers, activeSnapshot.recommendations.candidates, persistedUpperLedgerIds)
+    ? createRecommendationProjection(activeSnapshot.recommendations.links)
     : undefined
   const authoritativeRecommendationAdoptionByLedgerId = activeOrganizationSelectionSnapshot
     ? new Map(activeSnapshot.recommendations.adoptedCandidateIds.length > 0
@@ -1700,31 +1367,9 @@ export function ControlledFavoriteLedgerPanel({
       })
       : [])
     : undefined
-  const authoritativePureRecommendationAdoptionByLedgerId = activeOrganizationSelectionSnapshot
-    ? new Map(activeSnapshot.recommendations.candidates.flatMap((candidate) => {
-      const ledgerId = recommendationProjection!.candidateToLedgerId.get(candidate.id) ?? candidate.id
-      const ledger = displayedLedgers.find((item) => item.id === ledgerId)
-      return ledger && isPureRecommendedLocalDraft(ledger) && !persistedUpperLedgerIds.has(ledgerId)
-        ? [[ledgerId, activeSnapshot.recommendations.adoptedCandidateIds.includes(candidate.id)] as const]
-        : []
-    }))
-    : undefined
-  const organizationRecommendationEnabledById = visibleOrganizationRecommendationEditing
-    ? new Map(activeSnapshot.recommendations.candidates.flatMap((candidate) => {
-      const ledgerId = recommendationProjection!.candidateToLedgerId.get(candidate.id) ?? candidate.id
-      const ledger = displayedLedgers.find((item) => item.id === ledgerId)
-      return ledger && isPureRecommendedLocalDraft(ledger) && !persistedUpperLedgerIds.has(ledgerId)
-        ? [[ledgerId, workspace.recommendedCandidateIds.includes(candidate.id)] as const]
-        : []
-    }))
-    : undefined
   const organizationSavedLedgerEnabledById = activeOrganizationSelectionSnapshot
     ? new Map(displayedLedgers
-      // Every card rendered in the upper ledger list owns the participation
-      // toggle. This includes a promoted recommendation draft; the lower
-      // recommendation list has its own cancellation-only path.
-      .filter((ledger) => persistedUpperLedgerIds.has(ledger.id) &&
-        (visibleOrganizationRecommendationEditing || ledger.ruleOrigin !== 'recommendation-draft'))
+      .filter((ledger) => persistedUpperLedgerIds.has(ledger.id))
       .map((ledger) => [ledger.id,
         authoritativeRecommendationAdoptionByLedgerId?.get(ledger.id) ??
         organizationSavedLedgerParticipationById.get(ledger.id) ??
@@ -1734,7 +1379,7 @@ export function ControlledFavoriteLedgerPanel({
     .filter((ledger) => ledger.enabled)
     .map((ledger) => ledger.id))
   const hasBackupEligibleLedger = displayedLedgersWithLiveEnabled.some((ledger) =>
-    ledger.enabled && (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule' || ledger.ruleOrigin === 'recommendation-draft') &&
+    ledger.enabled && (ledger.syncState !== 'local-draft' || ledger.ruleOrigin === 'saved-rule') &&
     (defaultFavoriteSystemEnabled !== false || !ledger.isDefault || ledger.id === 'inbox'))
   const ensureLedgersAndOpenFavoritePage = async () => {
     if (ensuringLedgersRef.current) return
@@ -1802,8 +1447,6 @@ export function ControlledFavoriteLedgerPanel({
         onOrganizationSavedLedgerToggle={handleOrganizationSavedLedgerToggle}
         onOrganizationSavedLedgerSelectionChange={handleOrganizationSavedLedgerSelectionChange}
         organizationSavedLedgerEnabledById={organizationSavedLedgerEnabledById}
-        onBeforeDeleteLedger={waitForRecommendationLedgerSave}
-        organizationRecommendationEnabledById={organizationRecommendationEnabledById}
         onDeleteLedger={handleDeleteLedger}
         onSyncLedgers={onSyncLedgers}
         onBackupConfirmationFinished={(result) => {
@@ -1927,7 +1570,7 @@ export function ControlledFavoriteLedgerPanel({
         onRecommendationPointerDown={() => preserveFavoritePanelScrollPosition({ ignoreInitialScroll: true, capturedBeforeFocus: true })}
         onRecommendationSelectionChange={completeFavoritePanelPointerSelection}
         recommendedCandidateIds={workspace.recommendedCandidateIds}
-      recommendationSaving={workspace.recommendationSaving || recommendationPromotionSaving}
+        recommendationSaving={workspace.recommendationSaving}
         recommendationError={workspace.recommendationError}
         previewPreparationRunning={workspace.previewPreparationRunning}
         previewPreparationProgress={workspace.previewPreparationProgress}

@@ -47,9 +47,15 @@ import {
   createDefaultFavoriteLedgers,
   createRecommendedFavoriteLedgerId,
   createRecommendedFavoriteLedgerNamesForKind,
+  createUserFavoriteLedgerId,
   disambiguateRecommendedFavoriteLedgerNames,
-  createRemoteObservationFavoriteLedgerId
+  createRemoteObservationFavoriteLedgerId,
+  favoriteLedgerBindingNameAndShard
 } from '../../src/shared/favoriteLedgers'
+import {
+  buildFavoriteRecommendationLinks,
+  type FavoriteRecommendationLink
+} from '../../src/shared/favoriteRecommendationProjection'
 import { parseFavoriteLedgerRules } from '../../src/shared/favoriteLedgerConstraints'
 import type { FavoriteLedger, FavoriteLedgerRuleType } from '../../src/shared/types'
 import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
@@ -93,6 +99,8 @@ function favoriteRuleHistoryStatesMatch(
   const normalizeForComparison = (state: OldFavoriteWorkspaceFavoriteRuleHistoryState) => ({
     ledgers: [...state.ledgers].sort((first, second) => first.id.localeCompare(second.id)),
     adoptedCandidateIds: [...state.adoptedCandidateIds].sort(),
+    linkedLedgerIdsByCandidateId: Object.fromEntries(Object.entries(state.linkedLedgerIdsByCandidateId ?? {})
+      .sort(([left], [right]) => left.localeCompare(right))),
     excludedLedgerIds: [...state.excludedLedgerIds].sort()
   })
   return stableSerialize(normalizeForComparison(left)) === stableSerialize(normalizeForComparison(right))
@@ -365,14 +373,20 @@ type RecommendedLedger = Pick<FavoriteLedger, 'id' | 'displayName' | 'keywords' 
 type StoredRecommendation = {
   id: string
   displayName: string
-  kind: 'author' | 'series' | 'tag'
+  kind: 'author' | 'tag'
   sourceName: string
   keywords: string[]
   count: number
   matchedAidsBySegment?: Record<string, number[]>
   reason: string
 }
-type RecommendationState = { initialized: boolean; candidates: StoredRecommendation[]; adoptedCandidateIds: string[] }
+type RecommendationState = {
+  initialized: boolean
+  candidates: StoredRecommendation[]
+  adoptedCandidateIds: string[]
+  linkedLedgerIdsByCandidateId?: Record<string, string>
+  links?: Record<string, FavoriteRecommendationLink>
+}
 type DeletedFavoriteLedgerRule = Pick<FavoriteLedger, 'id' | 'keywords' | 'ruleType'>
 type RecommendationIndex = {
   workspaceId: string
@@ -864,7 +878,7 @@ function allocateRecommendationNames(
 ): StoredRecommendation[] {
   const reservedNames = Array.from(existingDisplayNames)
   const displayNameByCandidate = new Map<string, string>()
-  for (const kind of ['author', 'series', 'tag'] as const) {
+  for (const kind of ['author', 'tag'] as const) {
     const namesBySource = createRecommendedFavoriteLedgerNamesForKind(
       kind,
       candidates.filter((candidate) => candidate.kind === kind).map((candidate) => candidate.sourceName),
@@ -897,31 +911,14 @@ export function mergeGeneratedRecommendations(
   adoptedCandidateIds: string[] = [],
   priorCandidates: StoredRecommendation[] = []
 ): RecommendationState {
-  const adoptedPriorCandidates = priorCandidates
-    .filter((candidate) => adoptedCandidateIds.includes(candidate.id))
-  const priorIdCounts = adoptedPriorCandidates.reduce((counts, candidate) =>
-    counts.set(candidate.id, (counts.get(candidate.id) ?? 0) + 1), new Map<string, number>())
-  const uniqueAdoptedPriorByLogicalKey = new Map(adoptedPriorCandidates
-    .filter((candidate) => priorIdCounts.get(candidate.id) === 1)
-    .map((candidate) => [`${candidate.kind}:${candidate.sourceName}`, candidate] as const))
-  const candidates = generatedCandidates.map((candidate) => {
-    const prior = uniqueAdoptedPriorByLogicalKey.get(`${candidate.kind}:${candidate.sourceName}`)
-    return prior ? { ...candidate, id: prior.id } : candidate
-  })
-  const generatedLogicalKeys = new Set(candidates.map((candidate) => `${candidate.kind}:${candidate.sourceName}`))
+  /* Scan candidates are ephemeral; prior adopted candidates must not survive
+   * when the current scan no longer generates them. */
+  const candidates = generatedCandidates
   const candidateIds = new Set(candidates.map((candidate) => candidate.id))
-  for (const candidate of adoptedPriorCandidates) {
-    if (generatedLogicalKeys.has(`${candidate.kind}:${candidate.sourceName}`) || candidateIds.has(candidate.id)) continue
-    candidates.push(candidate)
-    candidateIds.add(candidate.id)
-  }
   return {
     candidates,
     initialized: true,
-    adoptedCandidateIds: candidates
-      .filter((candidate) => adoptedCandidateIds.includes(candidate.id) ||
-        uniqueAdoptedPriorByLogicalKey.has(`${candidate.kind}:${candidate.sourceName}`))
-      .map((candidate) => candidate.id)
+    adoptedCandidateIds: adoptedCandidateIds.filter((id) => candidateIds.has(id))
   }
 }
 
@@ -986,39 +983,14 @@ function updateRecommendationIndexTags(index: RecommendationIndex, aid: number, 
   return changedTags
 }
 
-function asLocalRecommendedLedger(candidate: StoredRecommendation, priority: number): FavoriteLedger {
+function asLinkedRecommendationLedger(candidate: StoredRecommendation, ledger: FavoriteLedger): FavoriteLedger {
   return {
-    id: candidate.id,
+    ...ledger,
+    id: ledger.id,
     displayName: candidate.displayName,
     keywords: [...candidate.keywords],
-    ruleType: candidate.kind === 'author' ? 'author' : candidate.kind === 'tag' ? 'tag' : 'keyword',
+    ruleType: candidate.kind,
     enabled: true,
-    priority,
-    syncState: 'local-draft',
-    ruleOrigin: 'recommendation-draft',
-    bindingState: 'unbacked',
-    isDefault: false
-  }
-}
-
-/**
- * Recommendation drafts have no remote lifecycle rights, but an adopted
- * candidate must still be eligible for the local classifier before its
- * `local-draft` persistence write finishes. This object is only passed to
- * classification; it is never persisted or used by provisioning, binding,
- * deletion, opening, or video-write paths.
- */
-function asRecommendedClassificationLedger(candidate: StoredRecommendation, priority: number): FavoriteLedger {
-  return {
-    id: candidate.id,
-    displayName: candidate.displayName,
-    keywords: [...candidate.keywords],
-    ruleType: candidate.kind === 'author' ? 'author' : candidate.kind === 'tag' ? 'tag' : 'keyword',
-    enabled: true,
-    priority,
-    // `mergeOldFavoriteWorkspaceLedgers` may inherit the persisted
-    // `local-draft` transport state by stable ID. Keep this classifier-only
-    // provenance so that inheritance never suppresses local classification.
     ruleOrigin: 'saved-rule',
     isDefault: false
   }
@@ -1050,7 +1022,7 @@ function isStagingBilimiFolder(title: string) {
 }
 
 function recommendationLogicalTitle(candidate: StoredRecommendation) {
-  return candidate.kind === 'series' ? candidate.sourceName : candidate.displayName
+  return candidate.displayName
 }
 
 type RecoverableManagedFolder = {
@@ -1073,15 +1045,9 @@ function normalizedRecoveredCustomTitle(title: string) {
 }
 
 function recoveredManagedShardNumber(title: string, baseTitle: string): number | undefined {
-  if (title === baseTitle) return 1
-  const match = title.match(new RegExp(`^${escapeRegExp(baseTitle)}·([2-9]\\d*)$`))
-  if (!match) return undefined
-  const shardNumber = Number(match[1])
-  return Number.isSafeInteger(shardNumber) && shardNumber >= 2 ? shardNumber : undefined
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const titleShard = favoriteLedgerBindingNameAndShard(title)
+  const baseShard = favoriteLedgerBindingNameAndShard(baseTitle)
+  return titleShard.baseName === baseShard.baseName ? titleShard.shardNumber : undefined
 }
 
 /**
@@ -1110,8 +1076,9 @@ function recoverableManagedFolders(
     let recovered = false
     for (const ledger of defaults) {
       const baseTitle = ledger.displayName.trim()
-      // A title is discovery text, never a physical shard identity. Only the
-      // current `·2`, `·3` ... suffixes are recognized as physical shards.
+      // A title is discovery text, never a physical shard identity. The
+      // shared name parser recognizes bilimi's circled capacity suffixes and
+      // legacy dot-number suffixes as the same logical rule.
       const shardNumber = recoveredManagedShardNumber(title, baseTitle)
       if (shardNumber === undefined) continue
       candidates.push({
@@ -1242,12 +1209,16 @@ export class OldFavoriteWorkspaceCoordinator {
         participatingSavedLedgerIds?: readonly string[]
       }
     ) => AutomaticClassification[] | Promise<AutomaticClassification[]>
-    saveRecommendedLedgers?: (
+    /** Ordinary account rules used for asynchronous candidate-to-rule links. */
+    listSavedFavoriteLedgers?: (accountMid: string) => Promise<FavoriteLedger[]>
+    applyFavoriteRecommendationRuleChanges?: (
       accountMid: string,
-      ledgers: FavoriteLedger[],
-      adoptedLedgerIds?: string[]
-    ) => Promise<boolean | void>
-    notifyRecommendedLedgersChanged?: (accountMid: string) => void
+      changes: {
+        upserts: FavoriteLedger[]
+        enabled: Array<{ ledgerId: string; enabled: boolean }>
+      }
+    ) => Promise<{ before: FavoriteLedger[]; after: FavoriteLedger[] }>
+    restoreFavoriteRuleDirectory?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     /** Replays a durable local-only rule snapshot selected from the change history. */
     restoreFavoriteLedgerHistoryState?: (
       accountMid: string,
@@ -1577,6 +1548,10 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.openUnsafe(accountMid)
       if (!workspace || isRecoveryRequired(workspace)) return workspace
+      // Rule edits arrive through a separate preferences path. Reproject the
+      // in-memory recommendation links before every snapshot so a rename,
+      // type change, or keyword change is visible immediately.
+      if (this.recommendations.has(workspace.accountMid)) await this.ensureRecommendations(workspace)
       return this.createSnapshotWithExecutionProgress(workspace)
     })
   }
@@ -2376,17 +2351,24 @@ export class OldFavoriteWorkspaceCoordinator {
       if (!adoptedCandidateIds.every((id) => knownIds.has(id))) {
         throw new Error('Old favorite workspace recommendation selection is invalid.')
       }
-      const next = { initialized: true, candidates: state.candidates.map(clone), adoptedCandidateIds }
-      const updated = await this.applyRecommendedLedgerDeltaUnsafe(
-        workspace,
-        state.adoptedCandidateIds,
-        adoptedCandidateIds,
-        next
-      )
-      await this.persistRecommendedLedgersUnsafe(workspace, next)
+      const ruleChange = await this.applyRecommendationRuleChangesUnsafe(workspace, state, adoptedCandidateIds)
+      let updated: OldFavoriteWorkspace
+      try {
+        updated = await this.applyRecommendedLedgerDeltaUnsafe(
+          workspace,
+          state.adoptedCandidateIds,
+          adoptedCandidateIds,
+          ruleChange.state,
+          ruleChange.rules
+        )
+      } catch (error) {
+        if (ruleChange.before) await this.options.restoreFavoriteRuleDirectory?.(workspace.accountMid, ruleChange.before)
+        this.recommendations.set(workspace.accountMid, clone(state))
+        throw error
+      }
       const afterHistoryState = await this.captureFavoriteLedgerHistoryStateUnsafe(
         updated,
-        next,
+        ruleChange.state,
         this.roundExcludedLedgerIdsByAccount.get(updated.accountMid) ?? []
       )
       return beforeHistoryState && afterHistoryState
@@ -2491,9 +2473,11 @@ export class OldFavoriteWorkspaceCoordinator {
         items,
         (aid) => segmentIdForAid.get(aid) ?? currentSegmentId
       )
-      const recommendations = await this.hydrateRecommendationsFromSavedEnabledLedgers(
+      const recommendations = await this.withRecommendationLinks(
         completed,
-        recommendationsFromIndex(recommendationIndex)
+        recommendationsFromIndex(recommendationIndex),
+        undefined,
+        { adoptLinkedEnabled: true }
       )
       const pendingTagAids = items
         .filter((item) => !item.tags?.length && item.tagEvidence !== 'confirmed')
@@ -2665,8 +2649,9 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       await assertSavedRuleCurrent()
       const state = await this.ensureRecommendations(workspace)
-      const existingCandidate = state.candidates.find((candidate) => candidate.id === id)
-      if (!input.ledgerId && state.candidates.some((candidate) => candidate.id === id)) {
+      const currentRules = await this.options.listSavedFavoriteLedgers?.(workspace.accountMid) ?? []
+      const existingRule = currentRules.find((ledger) => ledger.id === id)
+      if (!input.ledgerId && existingRule) {
         throw new Error('Old favorite workspace local ledger already exists.')
       }
 
@@ -2752,29 +2737,34 @@ export class OldFavoriteWorkspaceCoordinator {
         await assertSavedRuleCurrent()
         if (shouldCancel()) throw new Error('Old favorite ledger rule analysis canceled.')
       }
-      const candidate: StoredRecommendation = {
-        id,
-        displayName: `${BILIMI_LEDGER_PREFIX}${title}`,
-        kind: input.ruleType === 'author' ? 'author' : input.ruleType === 'tag' ? 'tag' : 'series',
-        sourceName: title,
-        keywords,
-        count: new Set(Object.values(matchedAidsBySegment).flat()).size,
-        matchedAidsBySegment,
-        reason: 'Created locally for this organization round.'
-      }
-      const candidates = existingCandidate
-        ? state.candidates.map((item) => item.id === id ? candidate : item)
-        : [...state.candidates, candidate]
       const shouldAdopt = input.adopt !== false
-      const next: RecommendationState = {
-        initialized: true,
-        candidates,
-        adoptedCandidateIds: shouldAdopt
-          ? [...new Set([...state.adoptedCandidateIds, id])].sort()
-          : state.adoptedCandidateIds.filter((candidateId) => candidateId !== id)
+      if (!this.options.applyFavoriteRecommendationRuleChanges) {
+        throw new Error('Old favorite workspace ordinary rule directory is unavailable.')
       }
+      const ruleChange = await this.options.applyFavoriteRecommendationRuleChanges(workspace.accountMid, {
+        upserts: [{
+          ...existingRule,
+          id,
+          displayName: `${BILIMI_LEDGER_PREFIX}${title}`,
+          keywords: [...keywords],
+          ruleType: input.ruleType,
+          enabled: shouldAdopt,
+          priority: existingRule?.priority ?? Math.max(0, ...currentRules.map((ledger) => ledger.priority)) + 1,
+          syncState: existingRule?.syncState ?? 'local-draft',
+          ruleOrigin: 'saved-rule',
+          bindingState: existingRule?.bindingState ?? 'unbacked',
+          isDefault: existingRule?.isDefault ?? false
+        }],
+        enabled: []
+      })
+      const savedRule = ruleChange.after.find((ledger) => ledger.id === id)
+      if (!savedRule) {
+        await this.options.restoreFavoriteRuleDirectory?.(workspace.accountMid, ruleChange.before)
+        throw new Error('Old favorite workspace ordinary rule save is invalid.')
+      }
+      const next = await this.withRecommendationLinks(workspace, state, ruleChange.after)
       await assertSavedRuleCurrent()
-      if (!shouldAdopt && !state.adoptedCandidateIds.includes(id)) {
+      if (!shouldAdopt) {
         this.draftLedgerRuleAnalysisIds.delete(normalizedAccount)
         await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
           currentSegmentId: this.currentSegment(workspace),
@@ -2792,11 +2782,9 @@ export class OldFavoriteWorkspaceCoordinator {
         return clone(visibleUpdated)
       }
       const affectedAids = new Set([
-        ...Object.values(existingCandidate?.matchedAidsBySegment ?? {}).flat(),
         ...Object.values(matchedAidsBySegment).flat()
       ])
       const affectedSegmentIds = new Set([
-        ...Object.keys(existingCandidate?.matchedAidsBySegment ?? {}),
         ...Object.keys(matchedAidsBySegment)
       ])
       const itemsByAid = new Map<number, CurrentSegmentItem>()
@@ -2826,12 +2814,26 @@ export class OldFavoriteWorkspaceCoordinator {
       const classificationCandidates = [...affectedAids]
         .map((aid) => itemsByAid.get(aid))
         .filter((item): item is CurrentSegmentItem => Boolean(item))
-      const recommendedLedgers = next.candidates
-        .filter((item) => next.adoptedCandidateIds.includes(item.id))
-        .map((item, index) => asLocalRecommendedLedger(item, index))
+      const savedRulesById = new Map(ruleChange.after.map((ledger) => [ledger.id, ledger]))
+      const linkedLedger = (candidate: StoredRecommendation) => {
+        const link = next.links?.[candidate.id]
+        return link?.status === 'linked' ? savedRulesById.get(link.ledgerId) : undefined
+      }
+      const recommendedLedgers = [
+        { ...savedRule, keywords: [...savedRule.keywords], enabled: shouldAdopt, ruleOrigin: 'saved-rule' as const },
+        ...next.candidates
+          .filter((candidate) => next.adoptedCandidateIds.includes(candidate.id))
+          .flatMap((candidate) => {
+            const ledger = linkedLedger(candidate)
+            return ledger ? [asLinkedRecommendationLedger(candidate, ledger)] : []
+          })
+      ]
       const excludedRecommendedLedgers = next.candidates
-        .filter((item) => !next.adoptedCandidateIds.includes(item.id))
-        .map((item, index) => asLocalRecommendedLedger(item, index))
+        .filter((candidate) => !next.adoptedCandidateIds.includes(candidate.id))
+        .flatMap((candidate) => {
+          const ledger = linkedLedger(candidate)
+          return ledger ? [{ ...asLinkedRecommendationLedger(candidate, ledger), enabled: false }] : []
+        })
       if (classificationCandidates.length && !this.options.classifyCurrentItems && !this.options.classifyCurrentItem) {
         throw new Error('Old favorite workspace automatic classification is unavailable.')
       }
@@ -2961,29 +2963,42 @@ export class OldFavoriteWorkspaceCoordinator {
         })
       }
       const state = await this.ensureRecommendations(workspace)
-      const candidate: StoredRecommendation = {
-        id,
-        displayName: `${BILIMI_LEDGER_PREFIX}${normalizedTitle}`,
-        kind: 'series',
-        sourceName: normalizedTitle,
-        keywords: [normalizedTitle],
-        count: 0,
-        reason: 'Created locally for this organization round.'
+      const currentRules = await this.options.listSavedFavoriteLedgers?.(workspace.accountMid) ?? []
+      const existingRule = currentRules.find((ledger) => ledger.id === id)
+      if (!this.options.applyFavoriteRecommendationRuleChanges) {
+        throw new Error('Old favorite workspace ordinary rule directory is unavailable.')
       }
-      const candidates = state.candidates.some((item) => item.id === id)
-        ? state.candidates.map((item) => item.id === id ? candidate : item)
-        : [...state.candidates, candidate]
-      const next: RecommendationState = {
-        initialized: true,
-        candidates,
-        adoptedCandidateIds: [...new Set([...state.adoptedCandidateIds, id])].sort()
-      }
-      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
-        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
+      const ruleChange = await this.options.applyFavoriteRecommendationRuleChanges(workspace.accountMid, {
+        upserts: [{
+          ...existingRule,
+          id,
+          displayName: `${BILIMI_LEDGER_PREFIX}${normalizedTitle}`,
+          keywords: [normalizedTitle],
+          ruleType: 'keyword',
+          enabled: true,
+          priority: existingRule?.priority ?? Math.max(0, ...currentRules.map((ledger) => ledger.priority)) + 1,
+          syncState: existingRule?.syncState ?? 'local-draft',
+          ruleOrigin: 'saved-rule',
+          bindingState: existingRule?.bindingState ?? 'unbacked',
+          isDefault: existingRule?.isDefault ?? false
+        }],
+        enabled: []
       })
-      this.recommendations.set(workspace.accountMid, next)
+      const savedRule = ruleChange.after.find((ledger) => ledger.id === id)
+      if (!savedRule) {
+        await this.options.restoreFavoriteRuleDirectory?.(workspace.accountMid, ruleChange.before)
+        throw new Error('Old favorite workspace ordinary rule save is invalid.')
+      }
+      const next = await this.withRecommendationLinks(workspace, state, ruleChange.after)
+      this.recommendations.set(workspace.accountMid, clone(next))
+      if (!this.options.classifyCurrentItem && !this.options.classifyCurrentItems) {
+        await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+          currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
+        })
+        return clone(workspace)
+      }
       return this.options.classifyCurrentItem || this.options.classifyCurrentItems
-        ? this.autoClassifyAllSegmentsUnsafe(workspace, true, true, true)
+        ? this.autoClassifyAllSegmentsUnsafe(workspace, true, true, true, next, false, [savedRule.id])
         : clone(workspace)
     })
   }
@@ -3163,9 +3178,9 @@ export class OldFavoriteWorkspaceCoordinator {
           bindingState: 'unbound',
           syncState: 'local-draft',
           isDefault: false
-        }))
+      }))
       if (recoveredCustomDrafts.length) {
-        await this.options.saveRecommendedLedgers?.(workspace.accountMid, recoveredCustomDrafts)
+        await this.options.saveRecoveredLedgerDrafts?.(workspace.accountMid, recoveredCustomDrafts)
       }
       // A scan records remote facts only. Local placement remains the user's intent
       // until an explicit adopt/sync command changes it.
@@ -3313,9 +3328,11 @@ export class OldFavoriteWorkspaceCoordinator {
         organizableItemsByAid.values(),
         (aid) => segmentIdForAid.get(aid) ?? currentSegmentId
       )
-      const recommendations = await this.hydrateRecommendationsFromSavedEnabledLedgers(
+      const recommendations = await this.withRecommendationLinks(
         completed,
-        recommendationsFromIndex(recommendationIndex)
+        recommendationsFromIndex(recommendationIndex),
+        undefined,
+        { adoptLinkedEnabled: true }
       )
       const readiness = this.calculatePlanReadinessFromItems(completed, organizableItemsByAid.values(), sourceFolders)
       const roundStart = await this.captureRoundStartFavoriteRuleStateUnsafe(completed, recommendations)
@@ -4024,19 +4041,29 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'previewing') return clone(workspace)
-      const prior = await this.ensureRecommendations(workspace)
+      // Capture the pre-deletion projection while the ordinary rule still
+      // exists. The caller removes it from preferences before invoking this
+      // reconciliation command, so recomputing links first would erase the
+      // candidate-to-rule identity needed to withdraw only that adoption.
+      const remembered = this.recommendations.get(workspace.accountMid)
+      const prior = remembered ? clone(remembered) : await this.ensureRecommendations(workspace)
       const candidateIds = new Set(prior.candidates.map((candidate) => candidate.id.trim()).filter(Boolean))
-      const exactDeletedIds = new Set(deletedRules
-        .map((rule) => rule.id.trim())
-        .filter((id) => id && candidateIds.has(id)))
+      const deletedIds = new Set(deletedRules.map((rule) => rule.id.trim()).filter(Boolean))
+      const linkedLedgerIdsByCandidateId = new Map(Object.entries(prior.links ?? {})
+        .flatMap(([candidateId, link]) => link.status === 'linked' ? [[candidateId, link.ledgerId] as const] : []))
+      for (const [candidateId, ledgerId] of Object.entries(prior.linkedLedgerIdsByCandidateId ?? {})) {
+        if (!linkedLedgerIdsByCandidateId.has(candidateId) && ledgerId.trim()) linkedLedgerIdsByCandidateId.set(candidateId, ledgerId.trim())
+      }
+      const exactDeletedIds = new Set([...candidateIds].filter((candidateId) =>
+        deletedIds.has(candidateId) || deletedIds.has(linkedLedgerIdsByCandidateId.get(candidateId) ?? '')))
       // Preserve the legacy semantic fallback for ordinary saved rules whose
-      // persisted id predates the recommendation candidate id. Once a deleted
-      // id is itself a current candidate id, however, its stable identity is
-      // authoritative and the rule must not withdraw a different candidate
-      // that merely shares the same rule shape.
+      // persisted id predates the recommendation candidate id. Do not apply it
+      // to a rule id that was linked to a different candidate: exact identity
+      // must win when multiple candidates share rule semantics.
+      const linkedLedgerIds = new Set(linkedLedgerIdsByCandidateId.values())
       const semanticFallbackRules = deletedRules.filter((rule) => {
         const id = rule.id.trim()
-        return Boolean(id) && !exactDeletedIds.has(id)
+        return Boolean(id) && !candidateIds.has(id) && !linkedLedgerIds.has(id)
       })
       const adoptedCandidateIds = prior.adoptedCandidateIds.filter((candidateId) => {
         if (exactDeletedIds.has(candidateId)) return false
@@ -4045,20 +4072,14 @@ export class OldFavoriteWorkspaceCoordinator {
           recommendationMatchesDeletedFavoriteRule(candidate, rule)
         )
       })
-      const next: RecommendationState = {
+      const next = await this.withRecommendationLinks(workspace, {
         initialized: true,
         candidates: prior.candidates.map(clone),
         adoptedCandidateIds
-      }
-      const recommendationsChanged = JSON.stringify(next.adoptedCandidateIds) !== JSON.stringify(prior.adoptedCandidateIds)
-      let persistedRecommendations = false
+      })
       try {
-        if (recommendationsChanged) {
-          persistedRecommendations = await this.persistRecommendedLedgersUnsafe(workspace, next, false)
-        }
         const reclassified = await this.autoClassifyAllSegmentsUnsafe(workspace, true, true, true, next)
         await this.advanceRecoveryBaselineForAcceptedFavoriteConfiguration(workspace)
-        if (persistedRecommendations) this.options.notifyRecommendedLedgersChanged?.(workspace.accountMid)
         return reclassified
       } catch (error) {
         this.recommendations.set(workspace.accountMid, clone(prior))
@@ -4166,7 +4187,8 @@ export class OldFavoriteWorkspaceCoordinator {
     workspace: OldFavoriteWorkspace,
     beforeIds: string[],
     afterIds: string[],
-    nextState: RecommendationState
+    nextState: RecommendationState,
+    rules: FavoriteLedger[]
   ) {
     let changedIds = new Set([
       ...beforeIds.filter((id) => !afterIds.includes(id)),
@@ -4182,10 +4204,15 @@ export class OldFavoriteWorkspaceCoordinator {
       if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
       const journalState = replayClassificationJournal(recovered.overlayHistory)
       const adopted = new Set(nextState.adoptedCandidateIds)
+      const linkedLedgerIdByCandidateId = new Map(Object.entries(nextState.links ?? {})
+        .flatMap(([candidateId, link]) => link.status === 'linked' ? [[candidateId, link.ledgerId] as const] : []))
       changedIds = new Set(nextState.candidates
         .filter((candidate) => adopted.has(candidate.id))
         .filter((candidate) => Object.values(candidate.matchedAidsBySegment ?? {}).some((aids) =>
-          aids.some((aid) => !journalState.classifications.get(aid)?.targetLedgerIds.includes(candidate.id))))
+          aids.some((aid) => {
+            const ledgerId = linkedLedgerIdByCandidateId.get(candidate.id)
+            return !ledgerId || !journalState.classifications.get(aid)?.targetLedgerIds.includes(ledgerId)
+          })))
         .map((candidate) => candidate.id))
     }
     if (!changedIds.size) return clone(workspace)
@@ -4241,10 +4268,23 @@ export class OldFavoriteWorkspaceCoordinator {
         .filter((item) => !hasSelectableSources || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))))
     }
     const adopted = new Set(nextState.adoptedCandidateIds)
-    const recommendedLedgers = nextState.candidates.filter((candidate) => adopted.has(candidate.id))
-      .map((candidate, index) => asRecommendedClassificationLedger(candidate, index))
-    const excludedRecommendedLedgers = nextState.candidates.filter((candidate) => !adopted.has(candidate.id))
-      .map((candidate, index) => asLocalRecommendedLedger(candidate, index))
+    const rulesById = new Map(rules.map((ledger) => [ledger.id, ledger]))
+    const linkedLedger = (candidate: StoredRecommendation) => {
+      const link = nextState.links?.[candidate.id]
+      return link?.status === 'linked' ? rulesById.get(link.ledgerId) : undefined
+    }
+    const recommendedLedgers = nextState.candidates
+      .filter((candidate) => adopted.has(candidate.id))
+      .flatMap((candidate) => {
+        const ledger = linkedLedger(candidate)
+        return ledger ? [asLinkedRecommendationLedger(candidate, ledger)] : []
+      })
+    const excludedRecommendedLedgers = nextState.candidates
+      .filter((candidate) => !adopted.has(candidate.id))
+      .flatMap((candidate) => {
+        const ledger = linkedLedger(candidate)
+        return ledger ? [{ ...asLinkedRecommendationLedger(candidate, ledger), enabled: false }] : []
+      })
     const classifications = this.options.classifyCurrentItems
       ? await this.options.classifyCurrentItems(candidates.map(clone), clone(recommendedLedgers), workspace.accountMid, {
           excludedRecommendedLedgers: clone(excludedRecommendedLedgers)
@@ -4390,12 +4430,25 @@ export class OldFavoriteWorkspaceCoordinator {
     const classify = this.options.classifyCurrentItem
     const classifyMany = this.options.classifyCurrentItems
     if (!classify && !classifyMany) throw new Error('Old favorite workspace automatic classification is unavailable.')
-    const state = recommendationState ?? await this.ensureRecommendations(workspace)
+    const state = await this.withRecommendationLinks(
+      workspace,
+      recommendationState ?? await this.ensureRecommendations(workspace)
+    )
     const adopted = new Set(state.adoptedCandidateIds)
-    const recommendedLedgers = state.candidates.filter((candidate) => adopted.has(candidate.id))
-      .map((candidate, index) => asRecommendedClassificationLedger(candidate, index))
-    const excludedRecommendedLedgers = state.candidates.filter((candidate) => !adopted.has(candidate.id))
-      .map((candidate, index) => asLocalRecommendedLedger(candidate, index))
+    const savedLedgers = await this.options.listSavedFavoriteLedgers?.(workspace.accountMid) ?? []
+    const savedLedgersById = new Map(savedLedgers.map((ledger) => [ledger.id, ledger]))
+    const linkedLedger = (candidate: StoredRecommendation) => {
+      const link = state.links?.[candidate.id]
+      return link?.status === 'linked' ? savedLedgersById.get(link.ledgerId) : undefined
+    }
+    const recommendedLedgers = state.candidates.filter((candidate) => adopted.has(candidate.id)).flatMap((candidate) => {
+      const ledger = linkedLedger(candidate)
+      return ledger ? [asLinkedRecommendationLedger(candidate, ledger)] : []
+    })
+    const excludedRecommendedLedgers = state.candidates.filter((candidate) => !adopted.has(candidate.id)).flatMap((candidate) => {
+      const ledger = linkedLedger(candidate)
+      return ledger ? [{ ...asLinkedRecommendationLedger(candidate, ledger), enabled: false }] : []
+    })
     const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
     const tagUpdates = new Map(recovered.tagUpdates.map((update) => [update.aid, update.tags]))
@@ -4757,7 +4810,6 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       await this.appendEvents(updated, currentSegmentId, [{ type: 'freeze', segmentId: currentSegmentId }])
       await this.persistMarker(updated)
-      await this.persistRecommendedLedgersUnsafe(workspace, recommendations)
       const frozenIds = new Set(this.frozenSegments.get(workspace.accountMid) ?? [])
       frozenIds.add(currentSegmentId)
       this.remember(updated, currentSegmentId, this.segmentDescriptors.get(workspace.accountMid) ?? [], frozenIds)
@@ -4893,10 +4945,10 @@ export class OldFavoriteWorkspaceCoordinator {
       const logicalTitles = new Map(await Promise.all(logicalLedgerIds.map(async (logicalLedgerId) => [
         logicalLedgerId, await titleFor(logicalLedgerId)
       ] as const)))
-      const comparableShardTitle = (title: string) => title.trim()
-        .replace(/\s+/g, ' ')
-        .replace(/\s*·\s*/gu, '·')
-        .replace(/·0*(\d+)$/u, '·$1')
+      const comparableShardTitle = (title: string) => {
+        const { baseName, shardNumber } = favoriteLedgerBindingNameAndShard(title)
+        return `${baseName}\u0000${shardNumber}`
+      }
       const bindingCandidatesFor = async (logicalLedgerId: string, expectedRemoteTitle: string, shardNumber?: number) => {
         const preview = await this.options.bindingService?.previewLedgerBindingCandidates?.(workspace.accountMid, [{
           ledgerId: logicalLedgerId,
@@ -5057,7 +5109,6 @@ export class OldFavoriteWorkspaceCoordinator {
     await this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       this.assertWholeRunTagCutoffAccepted(workspace)
-      await this.persistRecommendedLedgersUnsafe(workspace, await this.ensureRecommendations(workspace))
     })
     // Establish the local archive boundary before provisioning or inspecting
     // any remote target.  The commit is idempotent, so callers that already
@@ -5666,10 +5717,10 @@ export class OldFavoriteWorkspaceCoordinator {
       if (favoriteRuleState) {
         await this.options.restoreFavoriteLedgerHistoryState?.(updated.accountMid, clone(favoriteRuleState))
         const currentRecommendations = await this.ensureRecommendations(updated)
-        const restoredRecommendations: RecommendationState = {
+        const restoredRecommendations = await this.withRecommendationLinks(updated, {
           ...currentRecommendations,
           adoptedCandidateIds: [...favoriteRuleState.adoptedCandidateIds]
-        }
+        }, favoriteRuleState.ledgers)
         this.recommendations.set(updated.accountMid, restoredRecommendations)
         this.roundExcludedLedgerIdsByAccount.set(updated.accountMid, [...favoriteRuleState.excludedLedgerIds])
         this.participatingSavedLedgerIdsByAccount.set(updated.accountMid,
@@ -5719,28 +5770,14 @@ export class OldFavoriteWorkspaceCoordinator {
       ledgerIds.add(id)
       return [{ ...clone(ledger), id }]
     })
+    const linkedLedgerIdsByCandidateId = Object.fromEntries(Object.entries(state.linkedLedgerIdsByCandidateId ?? {})
+      .filter(([candidateId, ledgerId]) => candidateId.trim() && ledgerIds.has(ledgerId.trim()))
+      .sort(([left], [right]) => left.localeCompare(right)))
     return {
       ledgers,
       adoptedCandidateIds: [...new Set(state.adoptedCandidateIds.map((id) => id.trim()).filter(Boolean))].sort(),
+      ...(Object.keys(linkedLedgerIdsByCandidateId).length ? { linkedLedgerIdsByCandidateId } : {}),
       excludedLedgerIds: [...new Set(state.excludedLedgerIds.map((id) => id.trim()).filter(Boolean))].sort()
-    }
-  }
-
-  private async hydrateRecommendationsFromSavedEnabledLedgers(
-    workspace: Pick<OldFavoriteWorkspace, 'accountMid'>,
-    recommendations: RecommendationState
-  ): Promise<RecommendationState> {
-    const savedEnabledLedgers = await this.options.listSavedEnabledLedgers?.(workspace.accountMid) ?? []
-    const savedEnabledIds = new Set(savedEnabledLedgers
-      .map((ledger) => ledger.id.trim())
-      .filter(Boolean))
-    const adoptedCandidateIds = recommendations.candidates
-      .map((candidate) => candidate.id)
-      .filter((candidateId) => savedEnabledIds.has(candidateId))
-    if (!adoptedCandidateIds.length) return recommendations
-    return {
-      ...recommendations,
-      adoptedCandidateIds: [...new Set([...recommendations.adoptedCandidateIds, ...adoptedCandidateIds])]
     }
   }
 
@@ -5753,6 +5790,7 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.normalizeFavoriteRuleHistoryState({
       ledgers: await this.options.loadFavoriteLedgerHistoryLedgers(workspace.accountMid),
       adoptedCandidateIds: recommendations.adoptedCandidateIds,
+      linkedLedgerIdsByCandidateId: clone(recommendations.linkedLedgerIdsByCandidateId ?? {}),
       excludedLedgerIds: [...excludedLedgerIds]
     })
   }
@@ -6534,9 +6572,6 @@ export class OldFavoriteWorkspaceCoordinator {
       unavailableAids
     )
     this.recommendations.set(marker.accountMid, clone(recommendations))
-    if (recommendations.adoptedCandidateIds.length > 0 || marker.status === 'completed' || marker.status === 'frozen' || frozenIds.size > 0) {
-      await this.persistRecommendedLedgersUnsafe(workspace, recommendations)
-    }
     const repairedReadiness = this.calculatePlanReadinessFromClassifications(
       workspace,
       recovered.classifications,
@@ -7120,7 +7155,7 @@ export class OldFavoriteWorkspaceCoordinator {
           currentSegmentId, classifications: [], history: [], recommendations: sanitizedState
         })
       }
-      return sanitizedState
+      return this.withRecommendationLinks({ accountMid }, sanitizedState)
     }
 
     const updatedTags = new Map(tagUpdates.map((update) => [update.aid, update.tags]))
@@ -7152,7 +7187,7 @@ export class OldFavoriteWorkspaceCoordinator {
           currentSegmentId, classifications: [], history: [], recommendations: sanitizedState
         })
       }
-      return sanitizedState
+      return this.withRecommendationLinks({ accountMid }, sanitizedState)
     }
     const rebuilt = recommendationsFromIndex(
       index,
@@ -7164,7 +7199,7 @@ export class OldFavoriteWorkspaceCoordinator {
         currentSegmentId, classifications: [], history: [], recommendations: rebuilt
       })
     }
-    return rebuilt
+    return this.withRecommendationLinks({ accountMid }, rebuilt)
   }
 
   private async ensureRecommendationIndex(workspace: OldFavoriteWorkspace) {
@@ -7197,7 +7232,10 @@ export class OldFavoriteWorkspaceCoordinator {
     if (!index || index.workspaceId !== workspace.id) {
       throw new Error('Old favorite workspace recommendation index is unavailable.')
     }
-    const next = this.recommendations.get(workspace.accountMid) ?? recommendationsFromIndex(index)
+    const next = await this.withRecommendationLinks(
+      workspace,
+      this.recommendations.get(workspace.accountMid) ?? recommendationsFromIndex(index)
+    )
     await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
       currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
     })
@@ -7220,22 +7258,139 @@ export class OldFavoriteWorkspaceCoordinator {
       throw new Error('Old favorite workspace recommendation index is unavailable.')
     }
     const prior = this.recommendations.get(workspace.accountMid)
-    this.recommendations.set(workspace.accountMid, recommendationsFromIndex(
+    const next = await this.withRecommendationLinks(workspace, recommendationsFromIndex(
       index,
       prior?.adoptedCandidateIds ?? [],
       prior?.candidates ?? []
+    ), undefined, { adoptLinkedEnabled: true })
+    this.recommendations.set(workspace.accountMid, next)
+  }
+
+  private async applyRecommendationRuleChangesUnsafe(
+    workspace: OldFavoriteWorkspace,
+    state: RecommendationState,
+    adoptedCandidateIds: string[]
+  ): Promise<{ state: RecommendationState; rules: FavoriteLedger[]; before?: FavoriteLedger[] }> {
+    const addedIds = adoptedCandidateIds.filter((id) => !state.adoptedCandidateIds.includes(id))
+    const removedIds = state.adoptedCandidateIds.filter((id) => !adoptedCandidateIds.includes(id))
+    const currentRules = await this.options.listSavedFavoriteLedgers?.(workspace.accountMid) ?? []
+    if (!addedIds.length && !removedIds.length) {
+      return {
+        state: await this.withRecommendationLinks(workspace, {
+          ...state,
+          adoptedCandidateIds: [...adoptedCandidateIds]
+        }, currentRules),
+        rules: currentRules
+      }
+    }
+    if (!this.options.applyFavoriteRecommendationRuleChanges) {
+      throw new Error('Old favorite workspace ordinary rule directory is unavailable.')
+    }
+
+    const upserts: FavoriteLedger[] = []
+    const enabled: Array<{ ledgerId: string; enabled: boolean }> = []
+    const usedLedgerIds = new Set(currentRules.map((ledger) => ledger.id))
+    let nextPriority = Math.max(0, ...currentRules.map((ledger) => ledger.priority)) + 1
+    for (const candidateId of addedIds) {
+      const candidate = state.candidates.find((item) => item.id === candidateId)
+      if (!candidate) throw new Error('Old favorite workspace recommendation selection is invalid.')
+      const link = state.links?.[candidateId]
+      if (link?.status === 'ambiguous') throw new Error('存在重复收藏夹，请先处理重复项。')
+      if (link?.status === 'linked') {
+        enabled.push({ ledgerId: link.ledgerId, enabled: true })
+        continue
+      }
+      let ledgerId = createUserFavoriteLedgerId(candidate.displayName)
+      while (usedLedgerIds.has(ledgerId)) ledgerId = createUserFavoriteLedgerId(`${candidate.displayName}-${nextPriority}`)
+      usedLedgerIds.add(ledgerId)
+      upserts.push({
+        id: ledgerId,
+        displayName: candidate.displayName,
+        keywords: [...candidate.keywords],
+        ruleType: candidate.kind,
+        enabled: true,
+        priority: nextPriority++,
+        ruleOrigin: 'saved-rule',
+        bindingState: 'unbacked',
+        isDefault: false
+      })
+    }
+    for (const candidateId of removedIds) {
+      const link = state.links?.[candidateId]
+      if (link?.status === 'linked') enabled.push({ ledgerId: link.ledgerId, enabled: false })
+    }
+    const changed = await this.options.applyFavoriteRecommendationRuleChanges(workspace.accountMid, { upserts, enabled })
+    const next = await this.withRecommendationLinks(workspace, {
+      ...state,
+      adoptedCandidateIds: [...adoptedCandidateIds]
+    }, changed.after)
+    for (const candidateId of adoptedCandidateIds) {
+      if (next.links?.[candidateId]?.status !== 'linked') {
+        await this.options.restoreFavoriteRuleDirectory?.(workspace.accountMid, changed.before)
+        throw new Error('Old favorite workspace recommendation rule save is invalid.')
+      }
+    }
+    return { state: next, rules: changed.after, before: changed.before }
+  }
+
+  private async withRecommendationLinks(
+    workspace: Pick<OldFavoriteWorkspace, 'accountMid'>,
+    state: RecommendationState,
+    rules?: FavoriteLedger[],
+    options: { adoptLinkedEnabled?: boolean } = {}
+  ): Promise<RecommendationState> {
+    const savedRules = rules ?? (this.options.listSavedFavoriteLedgers
+      ? await this.options.listSavedFavoriteLedgers(workspace.accountMid)
+      : [])
+    const links = buildFavoriteRecommendationLinks(state.candidates, savedRules)
+    const linkedLedgerIdsByCandidateId = Object.fromEntries(Object.entries(links).flatMap(([candidateId, link]) =>
+      link.status === 'linked' ? [[candidateId, link.ledgerId]] : []
     ))
+    const savedRuleById = new Map(savedRules.map((ledger) => [ledger.id, ledger]))
+    // New scan candidates never create an intermediate recommendation rule.
+    // Their first projection follows the linked ordinary rule's current
+    // checkbox. Later link rebuilds preserve the durable round selection so
+    // history restore and an explicit cancellation cannot be overwritten.
+    const candidateIds = new Set(state.candidates.map((candidate) => candidate.id))
+    const linkedAdoptedCandidateIds = state.adoptedCandidateIds
+      // A current scan candidate must lose its selection as soon as the
+      // ordinary rule is renamed or its semantics no longer match. Historical
+      // selection records can predate the current candidate set, however, and
+      // remain necessary for cursor restoration until that scan is rebuilt.
+      .filter((candidateId) => !candidateIds.has(candidateId) || links[candidateId]?.status === 'linked')
+    const adoptedCandidateIds = options.adoptLinkedEnabled
+      ? [...new Set([
+          ...linkedAdoptedCandidateIds,
+          ...state.candidates.flatMap((candidate) => {
+            const link = links[candidate.id]
+            return link?.status === 'linked' && savedRuleById.get(link.ledgerId)?.enabled === true
+              ? [candidate.id]
+              : []
+          })
+        ])].sort()
+      : linkedAdoptedCandidateIds
+    return {
+      ...state,
+      adoptedCandidateIds,
+      linkedLedgerIdsByCandidateId,
+      links
+    }
   }
 
   private async ensureRecommendations(workspace: OldFavoriteWorkspace): Promise<RecommendationState> {
     const remembered = this.recommendations.get(workspace.accountMid)
-    if (remembered) return clone(remembered)
+    if (remembered) {
+      const linked = await this.withRecommendationLinks(workspace, remembered)
+      this.recommendations.set(workspace.accountMid, clone(linked))
+      return clone(linked)
+    }
 
     const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
     if (recovered.recommendations.initialized) {
-      this.recommendations.set(workspace.accountMid, clone(recovered.recommendations))
-      return clone(recovered.recommendations)
+      const linked = await this.withRecommendationLinks(workspace, clone(recovered.recommendations))
+      this.recommendations.set(workspace.accountMid, clone(linked))
+      return linked
     }
 
     const items: CurrentSegmentItem[] = []
@@ -7243,7 +7398,10 @@ export class OldFavoriteWorkspaceCoordinator {
       items.push(...page.items.filter((item) => !isUnavailableScanItem(item)))
     })
     const segmentIdForAid = new Map(workspace.segments.flatMap((segment) => segment.aids.map((aid) => [aid, segment.id] as const)))
-    const state = buildAuthorRecommendations(items, (aid) => segmentIdForAid.get(aid) ?? this.currentSegment(workspace))
+    const state = await this.withRecommendationLinks(
+      workspace,
+      buildAuthorRecommendations(items, (aid) => segmentIdForAid.get(aid) ?? this.currentSegment(workspace))
+    )
     await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
       currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: state
     })
@@ -7256,7 +7414,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
     if (!recovered.recommendations.initialized) return this.ensureRecommendations(workspace)
-    const state = clone(recovered.recommendations)
+    const state = await this.withRecommendationLinks(workspace, clone(recovered.recommendations))
     // Older overlays can retain the visible candidate count but not the
     // private per-segment match index.  Selecting such a candidate previously
     // persisted its adopted state yet gave the narrow delta no AIDs to
@@ -7283,17 +7441,6 @@ export class OldFavoriteWorkspaceCoordinator {
     }
     this.recommendations.set(workspace.accountMid, clone(state))
     return state
-  }
-
-  private async persistRecommendedLedgersUnsafe(workspace: OldFavoriteWorkspace, state: RecommendationState, notify = true) {
-    if (!this.options.saveRecommendedLedgers || !state.candidates.length) return false
-    const saved = await this.options.saveRecommendedLedgers(
-      workspace.accountMid,
-      state.candidates.map((candidate, index) => asLocalRecommendedLedger(candidate, 10_000 + index)),
-      state.adoptedCandidateIds
-    )
-    if (saved !== false && notify) this.options.notifyRecommendedLedgersChanged?.(workspace.accountMid)
-    return saved !== false
   }
 
   private initializeOverviewRuntime(
@@ -7852,6 +7999,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const originalTargetLedgerIdsByAid = Object.fromEntries([...originalTargetLedgerIds]
       .filter(([aid, targets]) => JSON.stringify(workspace.classifications[String(aid)]?.targetLedgerIds ?? []) !== JSON.stringify(targets))
       .map(([aid, targets]) => [String(aid), targets]))
+    const recommendationState = this.recommendations.get(workspace.accountMid)
     return {
       version: 1,
       accountMid: workspace.accountMid,
@@ -8022,14 +8170,16 @@ export class OldFavoriteWorkspaceCoordinator {
       originalTargetLedgerIdsByAid,
       ...(this.staleDeepSeekAids.get(workspace.accountMid)?.length ? { staleDeepSeekAids: [...this.staleDeepSeekAids.get(workspace.accountMid)!] } : {}),
       recommendations: {
-        candidates: (this.recommendations.get(workspace.accountMid)?.candidates ?? []).map((candidate) => {
+        candidates: (recommendationState?.candidates ?? []).map((candidate) => {
           const currentSegmentCount = currentSegment
             ? new Set(candidate.matchedAidsBySegment?.[currentSegment.id] ?? []).size
             : 0
           const { sourceName: _sourceName, matchedAidsBySegment: _matchedAidsBySegment, ...publicCandidate } = candidate
           return clone({ ...publicCandidate, currentSegmentCount })
         }),
-        adoptedCandidateIds: [...(this.recommendations.get(workspace.accountMid)?.adoptedCandidateIds ?? [])]
+        adoptedCandidateIds: [...(recommendationState?.adoptedCandidateIds ?? [])],
+        linkedLedgerIdsByCandidateId: clone(recommendationState?.linkedLedgerIdsByCandidateId ?? {}),
+        links: clone(recommendationState?.links ?? {})
       },
       ...(this.roundExcludedLedgerIdsByAccount.get(workspace.accountMid)?.length
         ? { excludedLedgerIds: [...this.roundExcludedLedgerIdsByAccount.get(workspace.accountMid)!] }

@@ -5,6 +5,7 @@ import type { FavoriteLedger } from '@shared/types'
 import * as favoriteLedgerApiModule from './favoriteLedgerApi'
 import {
   buildEnsureFavoriteLedgersScript,
+  buildCreateFavoriteLedgerPhysicalShardScript,
   buildExecuteFavoriteLedgerPlanScript,
   buildFavoriteLedgerStatusScript,
   buildSaveFavoriteLedgersScript,
@@ -561,6 +562,34 @@ describe('favorite ledger API scripts', () => {
     expect(result.ledgers[0]).not.toHaveProperty('bilibiliFolderId')
   })
 
+  it('groups manual circled-name folders as one explicit rebind candidate set', async () => {
+    installCookies()
+    const ledgers: FavoriteLedger[] = [{
+      id: 'custom-game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], enabled: true,
+      priority: 90, isDefault: false
+    }]
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 41, title: 'bilimi·游戏专区①', media_count: 2 },
+          { id: 42, title: 'bilimi·游戏专区②', media_count: 3 }
+        ] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript(ledgers))
+
+    expect(result.unboundLedgerIds).toEqual(['custom-game'])
+    expect(result.unboundCandidates).toEqual([{
+      ledgerId: 'custom-game',
+      candidates: [
+        { id: '41', title: 'bilimi·游戏专区①', memberCount: 2 },
+        { id: '42', title: 'bilimi·游戏专区②', memberCount: 3 }
+      ]
+    }])
+  })
+
   it('does not restore a user-deleted binding from a stale remote folder id', async () => {
     installCookies()
     const ledger: FavoriteLedger = {
@@ -799,6 +828,33 @@ describe('favorite ledger API scripts', () => {
     expect(result.remoteOnlyDraftLedgerIds).toEqual([expect.any(String)])
   })
 
+  it('does not project an unknown remote folder during a status-only read', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·远端夹', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const buildStatusWithoutDiscovery = buildFavoriteLedgerStatusScript as unknown as (
+      ledgers: FavoriteLedger[],
+      dismissedRemoteFolderIds?: string[],
+      remoteDraftKnownFolderIds?: string[],
+      remoteDraftBoundFolderIds?: string[],
+      includeRemoteOnlyDrafts?: boolean
+    ) => string
+    const result = await window.eval(buildStatusWithoutDiscovery([], [], [], [], false)) as {
+      ledgers: FavoriteLedger[]
+      remoteOnlyDraftLedgerIds: string[]
+    }
+
+    expect(result.ledgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: createRemoteObservationFavoriteLedgerId('88') })
+    ]))
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+  })
+
   it('reuses a recovered remote draft instead of appending a second copy after its folder id was lost', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -1004,7 +1060,98 @@ describe('favorite ledger API scripts', () => {
     ]))
   })
 
-  it('keeps a same-name local draft separate from the remote folder until the user rebinds it', async () => {
+  it('does not return unrelated remote-only drafts from an explicit single-ledger backup', async () => {
+    installCookies()
+    const meilin: FavoriteLedger = {
+      id: 'meilin', displayName: 'bilimi·梅林FIT', keywords: ['梅林'], enabled: true, priority: 1,
+      ruleOrigin: 'saved-rule', isDefault: false, bindingState: 'unbacked'
+    }
+    const createTitles: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 'xiaomi', title: 'bilimi·小咪的收藏夹', media_count: 3 }] } })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        createTitles.push(new URLSearchParams(String(init?.body ?? '')).get('title') ?? '')
+        return Response.json({ code: 0, data: { id: 'created-meilin' } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([meilin], {
+      confirmCreateAndBind: true,
+      includeRemoteOnlyDrafts: false
+    } as never))
+
+    expect(createTitles).toEqual(['bilimi·梅林FIT'])
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+    expect(result.ledgers).toEqual([
+      expect.objectContaining({ id: 'meilin', bilibiliFolderId: 'created-meilin', bindingState: 'bound' })
+    ])
+  })
+
+  it('creates only the explicit backup target while still using every saved rule for discovery', async () => {
+    installCookies()
+    const createTitles: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [] } })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        createTitles.push(new URLSearchParams(String(init?.body ?? '')).get('title') ?? '')
+        return Response.json({ code: 0, data: { id: 'created-meilin' } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const meilin: FavoriteLedger = {
+      id: 'meilin', displayName: 'bilimi·梅林FIT', keywords: ['梅林'], enabled: true, priority: 1,
+      ruleOrigin: 'saved-rule', isDefault: false, bindingState: 'unbacked'
+    }
+    const xiaomi: FavoriteLedger = {
+      id: 'xiaomi', displayName: 'bilimi·小咪的收藏夹', keywords: ['小咪'], enabled: true, priority: 2,
+      ruleOrigin: 'saved-rule', isDefault: false, bindingState: 'unbacked'
+    }
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([meilin, xiaomi], [meilin, xiaomi], {
+      backupTargetLedgerIds: ['meilin'], confirmCreateAndBind: true
+    })) as { missingTargets: string[] }
+
+    expect(createTitles).toEqual(['bilimi·梅林FIT'])
+    expect(result.missingTargets).toEqual([])
+  })
+
+  it('does not reject an unrelated overlong saved rule during a single-target backup', async () => {
+    installCookies()
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [] } })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        expect(new URLSearchParams(String(init?.body ?? '')).get('title')).toBe('bilimi·梅林FIT')
+        return Response.json({ code: 0, data: { id: 'created-meilin' } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    const meilin: FavoriteLedger = {
+      id: 'meilin', displayName: 'bilimi·梅林FIT', keywords: ['梅林'], enabled: true, priority: 1,
+      ruleOrigin: 'saved-rule', isDefault: false, bindingState: 'unbacked'
+    }
+    const unrelatedOverlong: FavoriteLedger = {
+      id: 'unrelated-overlong', displayName: 'bilimi·测试测试测试测试测试测试测试', keywords: [], enabled: true, priority: 2,
+      ruleOrigin: 'saved-rule', isDefault: false, bindingState: 'unbacked'
+    }
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([meilin, unrelatedOverlong], [meilin, unrelatedOverlong], {
+      backupTargetLedgerIds: ['meilin'], confirmCreateAndBind: true
+    })) as { ok: boolean; missingTargets: string[] }
+
+    expect(result).toEqual(expect.objectContaining({ ok: true, missingTargets: [] }))
+    expect(fetchSpy).toHaveBeenCalled()
+  })
+
+  it('keeps a same-name saved rule as an explicit rebind candidate without projecting a remote-only draft', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -1019,12 +1166,14 @@ describe('favorite ledger API scripts', () => {
     }]))
 
     expect(result.ledgers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'local-same-name', bindingState: 'unbound' }),
-      expect.objectContaining({ bilibiliFolderId: '88', syncState: 'local-draft', bindingState: 'unbound' })
+      expect.objectContaining({ id: 'local-same-name', bindingState: 'unbound' })
+    ]))
+    expect(result.ledgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ bilibiliFolderId: '88', syncState: 'local-draft' })
     ]))
   })
 
-  it('does not suppress a different remote folder when a non-prefixed local rule has the same title', async () => {
+  it('uses every saved same-base rule to suppress a remote-only draft', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -1038,10 +1187,26 @@ describe('favorite ledger API scripts', () => {
       bindingState: 'unbound'
     }])) as { ledgers: FavoriteLedger[] }
 
-    expect(result.ledgers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'legacy-local', displayName: '同名' }),
-      expect.objectContaining({ bilibiliFolderId: '90', syncState: 'local-draft' })
-    ]))
+    expect(result.ledgers).toEqual([expect.objectContaining({ id: 'legacy-local', displayName: '同名' })])
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+  })
+
+  it('does not project a circled remote shard as a draft when a saved bilimi rule has the same base name', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 90, title: 'bilimi·发发发②', media_count: 1 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([{
+      id: 'saved-fafa', displayName: 'bilimi·发发发', keywords: ['发发发'], enabled: false, priority: 1,
+      ruleOrigin: 'saved-rule', isDefault: false, bindingState: 'unbound'
+    }])) as { ledgers: FavoriteLedger[]; remoteOnlyDraftLedgerIds: string[] }
+
+    expect(result.ledgers).toEqual([expect.objectContaining({ id: 'saved-fafa', bindingState: 'unbound' })])
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
   })
 
   it('reports missing credentials as unverified instead of a successful status shape', async () => {
@@ -1110,6 +1275,40 @@ describe('favorite ledger API scripts', () => {
     expect(result.unboundCandidates).toEqual([{
       ledgerId: 'local-bound', candidates: [{ id: '88', title: '用户改过的名称', memberCount: 6 }]
     }])
+  })
+
+  it('returns the exact formal shard title drift for a backup rename confirmation', async () => {
+    installCookies()
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      requests.push(url)
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 4065561111, title: '手动改过的收藏夹', media_count: 7 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(favoriteLedgerApiModule.buildFormalBoundFavoriteRenamePreflightScript([{
+      logicalLedgerId: 'custom-music',
+      shardNumber: 1,
+      remoteFolderId: '4065561111',
+      targetTitle: 'bilimi·音乐舞台'
+    }]))
+
+    expect(result).toEqual({
+      ok: true,
+      verified: true,
+      observedShards: [{
+        logicalLedgerId: 'custom-music',
+        shardNumber: 1,
+        remoteFolderId: '4065561111',
+        currentRemoteTitle: '手动改过的收藏夹',
+        remoteMemberCount: 7
+      }]
+    })
+    expect(requests.some((url) => url.includes('/x/v3/fav/folder/edit'))).toBe(false)
+    expect(requests.some((url) => url.includes('/x/v3/fav/folder/add'))).toBe(false)
+    expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
 
   it('does not recreate a dismissed remote-only draft reminder for the same remote folder', async () => {
@@ -1493,7 +1692,7 @@ describe('favorite ledger API scripts', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/v3/fav/folder/add'))).toBe(false)
   })
 
-  it('keeps a deleted recommendation remote id suppressed across status, ensure, and save projections', async () => {
+  it('does not treat a legacy deleted-recommendation remote id as a remote-draft blacklist', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -1505,19 +1704,101 @@ describe('favorite ledger API scripts', () => {
     const buildStatus = buildFavoriteLedgerStatusScript as unknown as (...args: unknown[]) => string
     const buildEnsure = buildEnsureFavoriteLedgersScript as unknown as (...args: unknown[]) => string
     const buildSave = buildSaveFavoriteLedgersScript as unknown as (...args: unknown[]) => string
-    const deletedRecommendationIds = ['77']
+    // Legacy callers may still pass a former recommendation-deletion list as
+    // an extra argument. It must not hide a live B站 folder from the ordinary
+    // remote-observation projection.
+    const legacyDeletedRecommendationIds = ['77']
 
-    const status = await window.eval(buildStatus([], [], [], [], deletedRecommendationIds))
-    expect(status.remoteOnlyDraftLedgerIds).toEqual([])
-    expect(status.ledgers).toEqual([])
+    const status = await window.eval(buildStatus([], [], [], [], legacyDeletedRecommendationIds))
+    expect(status.remoteOnlyDraftLedgerIds).toEqual(['custom-remote-77'])
+    expect(status.ledgers).toEqual([expect.objectContaining({ id: 'custom-remote-77', bilibiliFolderId: '77' })])
 
-    const ensure = await window.eval(buildEnsure([], { confirmCreateAndBind: true }, [], deletedRecommendationIds))
-    expect(ensure.remoteOnlyDraftLedgerIds).toEqual([])
-    expect(ensure.ledgers).toEqual([])
+    const ensure = await window.eval(buildEnsure([], { confirmCreateAndBind: true }, [], legacyDeletedRecommendationIds))
+    expect(ensure.remoteOnlyDraftLedgerIds).toEqual(['custom-remote-77'])
+    expect(ensure.ledgers).toEqual([expect.objectContaining({ id: 'custom-remote-77', bilibiliFolderId: '77' })])
 
-    const save = await window.eval(buildSave([], [], { confirmCreateAndBind: true }, [], deletedRecommendationIds))
-    expect(save.remoteOnlyDraftLedgerIds).toEqual([])
-    expect(save.ledgers).toEqual([])
+    const save = await window.eval(buildSave([], [], { confirmCreateAndBind: true }, [], legacyDeletedRecommendationIds))
+    expect(save.remoteOnlyDraftLedgerIds).toEqual(['custom-remote-77'])
+    expect(save.ledgers).toEqual([expect.objectContaining({ id: 'custom-remote-77', bilibiliFolderId: '77' })])
+  })
+
+  it('groups manual circled shards for one binding and creates the next capacity shard as ②', async () => {
+    installCookies()
+    const createdTitles: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 101, title: 'bilimi·游戏专区①', media_count: 1000 },
+          { id: 102, title: 'bilimi·游戏专区②', media_count: 1000 }
+        ] } })
+      }
+      if (url.includes('/x/v3/fav/resource/ids')) {
+        const folderId = new URL(url).searchParams.get('media_id')
+        const firstAid = folderId === '101' ? 1 : 1001
+        return Response.json({ code: 0, data: Array.from({ length: 1000 }, (_, index) => ({ id: firstAid + index, type: 2 })) })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        createdTitles.push(String(new URLSearchParams(String(init?.body)).get('title')))
+        return Response.json({ code: 0, data: { id: 103 } })
+      }
+      if (url.includes('/x/v3/fav/resource/deal')) return Response.json({ code: 0, data: {} })
+      throw new Error(`Unexpected URL: ${url}`)
+    }))
+
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([
+      { aid: 2001, title: '游戏视频', sourceFolderTitle: '来源', targetLedgerId: 'game', targetFolderId: '101', targetDisplayName: 'bilimi·游戏专区', selected: true, reviewRequired: false, alreadyInTarget: false }
+    ]))
+
+    expect(result.ok).toBe(true)
+    expect(createdTitles).toEqual(['bilimi·游戏专区③'])
+  })
+
+  it('uses a non-repeating circled capacity suffix after fifty manual shards', async () => {
+    installCookies()
+    const createdTitles: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 101, title: 'bilimi·游戏专区㊿', media_count: 1000 }
+        ] } })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        createdTitles.push(String(new URLSearchParams(String(init?.body)).get('title')))
+        return Response.json({ code: 0, data: { id: 102 } })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    }))
+
+    const result = await window.eval(buildCreateFavoriteLedgerPhysicalShardScript({
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], enabled: true,
+      priority: 1, isDefault: false, bindingState: 'bound', bilibiliFolderId: '101', bilibiliFolderIds: ['101']
+    }))
+
+    expect(result).toMatchObject({ ok: true, folder: { id: '102', title: 'bilimi·游戏专区⑤①', shardNumber: 51 } })
+    expect(createdTitles).toEqual(['bilimi·游戏专区⑤①'])
+  })
+
+  it('creates the first capacity shard as ② after an unnumbered full folder', async () => {
+    installCookies()
+    const createdTitles: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: 'bilimi·游戏专区', media_count: 1000 }] } })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        createdTitles.push(String(new URLSearchParams(String(init?.body)).get('title')))
+        return Response.json({ code: 0, data: { id: 102 } })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    }))
+
+    const result = await window.eval(buildCreateFavoriteLedgerPhysicalShardScript({
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: ['游戏'], enabled: true,
+      priority: 1, isDefault: false, bindingState: 'bound', bilibiliFolderId: '101', bilibiliFolderIds: ['101']
+    }))
+
+    expect(result).toMatchObject({ ok: true, folder: { id: '102', title: 'bilimi·游戏专区②', shardNumber: 2 } })
+    expect(createdTitles).toEqual(['bilimi·游戏专区②'])
   })
 
   it('keeps every newly created default folder bound while later batch rechecks observe it', async () => {
@@ -2602,7 +2883,7 @@ describe('favorite ledger API scripts', () => {
     }]))
 
     expect(result).toMatchObject({ ok: true, completedItems: [expect.objectContaining({ targetFolderId: '9003' })] })
-    expect(requests.find(({ url }) => url.includes('/folder/add'))?.body?.get('title')).toBe('bilimi·原神·3')
+    expect(requests.find(({ url }) => url.includes('/folder/add'))?.body?.get('title')).toBe('bilimi·原神③')
     expect(requests.find(({ url }) => url.includes('/resource/deal'))?.body?.get('add_media_ids')).toBe('9003')
   })
 
@@ -3565,6 +3846,35 @@ describe('favorite ledger API scripts', () => {
         return Response.json({ code: 0, data: { list: [
           { id: 9001, title: ledger.displayName, media_count: 1 },
           { id: 9002, title: `${ledger.displayName}·2`, media_count: 1 }
+        ] } })
+      }
+      if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9001')) {
+        return Response.json({ code: 0, data: [{ id: 1, type: 2 }] })
+      }
+      if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9002')) {
+        return Response.json({ code: 0, data: [{ id: 2, type: 2 }] })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript([ledger]))
+
+    expect(result.managedFolders).toEqual([
+      expect.objectContaining({ id: '9001', ledgerId: ledger.id }),
+      expect.objectContaining({ id: '9002', ledgerId: ledger.id })
+    ])
+    expect(result.targetMembership).toEqual({ '9001': [1], '9002': [2] })
+  })
+
+  it('recognizes manual circled-number folders as one stable logical managed folder', async () => {
+    installCookies()
+    localStorage.clear()
+    const ledger = { ...createDefaultFavoriteLedgers()[0], bilibiliFolderId: '9001' }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 9001, title: ledger.displayName, media_count: 1 },
+          { id: 9002, title: `${ledger.displayName}②`, media_count: 1 }
         ] } })
       }
       if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9001')) {
