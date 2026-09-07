@@ -180,7 +180,7 @@ export function disambiguateRecommendedFavoriteLedgerNames<
   })
 }
 
-const BILIMI_LEDGER_PREFIX_PATTERN = /^bilimi[·\s\-路]*/i
+const BILIMI_LEDGER_PREFIX_PATTERN = /^bilimi(?:[·:：]|\s+|-|路)?/i
 
 const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
   [

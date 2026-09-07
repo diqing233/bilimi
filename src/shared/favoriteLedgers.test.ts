@@ -19,6 +19,7 @@ import {
   favoriteLedgerBindingNameAndShard,
   favoriteLedgerCapacityShardName,
   normalizeFavoriteLedgerBindingName,
+  stripBilimiLedgerPrefix,
   suggestFavoriteLedgerNames
 } from './favoriteLedgers'
 
@@ -356,6 +357,22 @@ describe('favorite ledger model', () => {
 
   it('preserves leading and trailing author symbols in recommendation names', () => {
     expect(createRecommendedFavoriteLedgerName('-恒某人-', [])).toBe('bilimi·-恒某人-')
+  })
+
+  it('preserves author symbols after normalizing a managed recommendation rule', () => {
+    const ledgers = normalizeFavoriteLedgers([{
+      id: 'custom-author-恒某人',
+      displayName: 'bilimi·-恒某人-',
+      keywords: ['恒某人'],
+      enabled: true,
+      priority: 90,
+      ruleType: 'author',
+      ruleOrigin: 'saved-rule',
+      isDefault: false
+    }])
+
+    expect(stripBilimiLedgerPrefix('bilimi·-恒某人-')).toBe('-恒某人-')
+    expect(ledgers.find((ledger) => ledger.id === 'custom-author-恒某人')?.displayName).toBe('bilimi·-恒某人-')
   })
 
   it('normalizes only equivalent binding names and recognizes manual circled-number shards', () => {

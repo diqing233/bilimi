@@ -2227,20 +2227,15 @@ export default function App() {
         const occupiedShardNumbers = new Set(knownShardNumbers.values())
         for (const folder of folders) {
           const remoteTitle = folder.title.trim()
-          const remoteBaseName = favoriteLedgerBindingNameAndShard(remoteTitle).baseName
-          const ledgerBaseName = favoriteLedgerBindingNameAndShard(ledger.displayName).baseName
-          // An explicit folder ID is only the Bilibili API handle after its
-          // title has proved it belongs to this local rule. Do not use a
-          // stale/cross-rule result to rename or bind another ledger.
-          if (!remoteBaseName || remoteBaseName !== ledgerBaseName) {
+          if (!remoteTitle) {
             failures.push({
               ledgerId: ledger.id,
               candidates: [{
                 id: folder.id.trim(),
                 title: remoteTitle,
                 memberCount: Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0 ? folder.memberCount : 0,
-                bindingFailureReason: '远端收藏夹名称与当前规则不一致，未登记绑定。请刷新后重新确认。',
-                bindingFailureDetail: `Favorite repository remote title base mismatch: expected ${ledgerBaseName}, received ${remoteBaseName || 'empty'}.`
+                bindingFailureReason: '远端收藏夹名称无效，未登记绑定。请刷新后重新确认。',
+                bindingFailureDetail: 'Favorite repository remote title is empty.'
               }]
             })
             continue

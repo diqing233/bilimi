@@ -2827,7 +2827,7 @@ describe('App runtime integration', () => {
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
   })
 
-  it('refuses to register a confirmed remote folder whose base title belongs to another ledger', async () => {
+  it('forwards an explicitly confirmed differently named candidate to the exact-id binding path', async () => {
     const accountMid = '100'
     const meilin = {
       id: 'meilin', displayName: 'bilimi·梅林FIT', keywords: ['梅林'], enabled: true, priority: 1,
@@ -2856,7 +2856,7 @@ describe('App runtime integration', () => {
     })
 
     await expect(requestRuntime({
-      id: 'reject-wrong-base-title-rebind', type: 'save-ledgers', ledgers: [meilin],
+      id: 'confirm-differently-named-rebind', type: 'save-ledgers', ledgers: [meilin],
       options: {
         backupTargetLedgerIds: ['meilin'],
         rebindRemoteFolderIds: { meilin: 'xiaomi-id' },
@@ -2864,9 +2864,15 @@ describe('App runtime integration', () => {
           meilin: [{ id: 'xiaomi-id', title: 'bilimi·小咪的收藏夹', memberCount: 1 }]
         }
       }
-    })).resolves.toMatchObject({ ok: false, unboundLedgerIds: ['meilin'] })
+    })).resolves.toMatchObject({ ok: true })
 
-    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
+      logicalLedgerId: 'meilin',
+      logicalTitle: 'bilimi·梅林FIT',
+      remoteFolderId: 'xiaomi-id',
+      remoteTitle: 'bilimi·小咪的收藏夹',
+      allowRemoteRename: true
+    }))
   })
 
   it('refuses to register a remote folder whose title is missing', async () => {
@@ -3318,7 +3324,7 @@ describe('App runtime integration', () => {
     }))
   })
 
-  it('rejects an explicitly selected remote folder when its title differs from the local ledger name', async () => {
+  it('forwards an explicitly selected differently named remote folder for exact-id rename and binding', async () => {
     const accountMid = '100'
     const game = {
       ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
@@ -3353,11 +3359,12 @@ describe('App runtime integration', () => {
         rebindRemoteFolders: { game: [{ id: '88', title: 'bilimi·旧游戏专区', memberCount: 0 }] }
       }
     })).resolves.toMatchObject({
-      ok: false,
-      unboundLedgerIds: ['game']
+      ok: true
     })
 
-    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+    expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenCalledWith(accountMid, expect.objectContaining({
+      logicalLedgerId: 'game', remoteFolderId: '88', remoteTitle: 'bilimi·旧游戏专区', allowRemoteRename: true
+    }))
   })
 
   it('directly renames an already formal bound shard during explicit backup without reopening rebind confirmation', async () => {

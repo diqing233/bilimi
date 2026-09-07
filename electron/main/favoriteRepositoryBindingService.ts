@@ -10,7 +10,7 @@ import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositoryPageBridgeManager } from './favoriteRepositorySyncService'
 import type { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
-const EXPLICIT_RENAME_CONFIRMATION_RETRY_DELAYS = [0, 250, 750, 1500] as const
+const EXPLICIT_RENAME_CONFIRMATION_RETRY_DELAYS = [0, 250, 750, 1500, 2500] as const
 
 export type FavoriteRepositoryRemoteFolderInventory = {
   id: string
@@ -396,9 +396,10 @@ export class FavoriteRepositoryBindingService {
       // remote folder ID in the rebind confirmation. A title drift must not
       // turn that ID-confirmed repair into a name-based rejection: the
       // explicit rename is what restores the managed title.
-      if (!remoteTitleMatches && !normalized.allowRemoteRename) {
-        throw new Error('Favorite repository remote shard title is invalid.')
-      }
+      // The confirmation dialog supplies both the exact remote ID and the
+      // title observed for that ID. A user may explicitly authorize renaming
+      // that candidate into a different local rule, but the candidate must
+      // not have changed between confirmation and this remote operation.
       if (!Number.isSafeInteger(remote.memberCount) || remote.memberCount < 0 ||
         remote.memberCount > REMOTE_FAVORITE_SHARD_CAPACITY) {
         throw new Error('Favorite repository remote shard inventory is invalid.')
@@ -415,16 +416,16 @@ export class FavoriteRepositoryBindingService {
       const exactExisting = snapshot.physicalShards.find((shard) =>
         shard.logicalLedgerId === normalized.logicalLedgerId && shard.shardNumber === input.shardNumber &&
         shard.remoteFolderId === normalized.remoteFolderId && shard.bindingState === 'bound')
-      // Adoption is exclusively the candidate-confirmation path. Even a
-      // locally recorded ID must still prove the current remote title belongs
-      // to this rule; formal same-ID renames use renameBoundPhysicalShard().
-      if (normalized.allowRemoteRename &&
-        favoriteLedgerBindingNameAndShard(remote.title).baseName !== favoriteLedgerBindingNameAndShard(normalized.logicalTitle).baseName) {
-        throw new Error('Favorite repository remote shard title does not match the logical ledger.')
-      }
       const expectedManagedTitle = favoriteRepositoryManagedShardTitleForDisplay(
         normalized.logicalLedgerId, input.shardNumber, 'explicit-adoption', normalized.logicalTitle
       )
+      if (!remoteTitleMatches && (!exactExisting || !normalized.allowRemoteRename)) {
+        throw new Error('Favorite repository remote shard title is invalid.')
+      }
+      if (exactExisting && normalized.allowRemoteRename &&
+        comparableManagedShardTitle(remote.title) !== comparableManagedShardTitle(expectedManagedTitle)) {
+        throw new Error('Favorite repository formal binding must use the bound rename operation.')
+      }
       const requiresRename = normalized.allowRemoteRename &&
         comparableManagedShardTitle(remote.title) !== comparableManagedShardTitle(expectedManagedTitle)
       if (requiresRename) {
