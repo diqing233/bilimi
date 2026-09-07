@@ -115,6 +115,10 @@ async function readExactRemoteFolderForRename(
   return bridge.readFolderInventory({ accountMid: account, operationKey })
 }
 
+function temporarilyLoadingBoundPage(error: unknown) {
+  return error instanceof Error && error.message.trim() === 'target-loading'
+}
+
 export function favoriteRepositoryManagedShardTitle(logicalLedgerId: string, shardNumber: number, bindingToken: string) {
   return favoriteRepositoryManagedShardTitleForDisplay(logicalLedgerId, shardNumber, bindingToken)
 }
@@ -327,6 +331,9 @@ export class FavoriteRepositoryBindingService {
               normalized.remoteFolderId
             )
           } catch (error) {
+            if (temporarilyLoadingBoundPage(error) && attempt < EXPLICIT_RENAME_CONFIRMATION_RETRY_DELAYS.length - 1) {
+              continue
+            }
             if (renameResultUnknown) throw remoteRenameFailure(renameResult)
             throw error
           }
