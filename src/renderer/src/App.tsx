@@ -808,9 +808,12 @@ export default function App() {
     ledgerSignature: string
     repositoryRevision?: number
     checkedAt: number
+    includesRemoteOnlyDrafts: boolean
     status: FavoriteLedgerStatus
   } | null>(null)
   const favoriteLedgerStatusRefreshPromisesRef = useRef(new Map<string, Promise<FavoriteLedgerStatus | undefined>>())
+  const favoriteLedgerRemoteDiscoveryPromisesRef = useRef(new Map<string, Promise<FavoriteLedgerStatus>>())
+  const favoriteLedgerStartupRemoteDiscoveryAccountMidsRef = useRef(new Set<string>())
   // A status read can outlive a main-process preference broadcast (for example,
   // deleting an unbound remote draft while its Bilibili inventory request is in
   // flight). Only the generation that started the read may publish its result.
@@ -1271,7 +1274,16 @@ export default function App() {
     mutation: { accountMid: string; kind: 'create' | 'rename' | 'delete' }
   ) => {
     void mutation.kind
-    void window.bilimiDesktop?.retryBilibiliFavoriteSpaceRefresh?.(mutation.accountMid).catch(() => undefined)
+    void (async () => {
+      let refresh: { status: 'idle' | 'pending' } | undefined
+      try {
+        refresh = await window.bilimiDesktop?.retryBilibiliFavoriteSpaceRefresh?.(mutation.accountMid)
+      } catch {
+        return
+      }
+      if (refresh?.status !== 'idle') return
+      await readRemoteFavoriteDiscovery(mutation.accountMid).catch(() => undefined)
+    })()
   }, [])
 
   function getCurrentActiveWebview() {
@@ -1564,6 +1576,7 @@ export default function App() {
   function clearObservedBilibiliAccount() {
     setObservedBilibiliAccount('')
     favoriteLedgerStatusRefreshPromisesRef.current.clear()
+    favoriteLedgerRemoteDiscoveryPromisesRef.current.clear()
   }
 
   async function readBilibiliAccountMid(): Promise<string> {
@@ -2472,7 +2485,11 @@ export default function App() {
 
   async function readFavoriteLedgerStatus(
     accountMid = assistantSnapshotCacheRef.current.accountMid,
-    options: { force?: boolean; preserveBoundLedgerIds?: readonly string[] } = {}
+    options: {
+      force?: boolean
+      preserveBoundLedgerIds?: readonly string[]
+      includeRemoteOnlyDrafts?: boolean
+    } = {}
   ): Promise<FavoriteLedgerStatus> {
     const statusGeneration = favoriteLedgerStatusGenerationRef.current
     const favoriteLedgers = favoriteLedgersForActiveAccount(accountMid)
@@ -2485,7 +2502,9 @@ export default function App() {
       bilibiliFolderId: ledger.bilibiliFolderId
     })))
     const cached = favoriteLedgerStatusCacheRef.current
-    if (!options.force && cached?.accountMid === accountMid && Date.now() - cached.checkedAt < 30_000) {
+    if (!options.force && cached?.accountMid === accountMid &&
+      (options.includeRemoteOnlyDrafts !== true || cached.includesRemoteOnlyDrafts) &&
+      Date.now() - cached.checkedAt < 30_000) {
       if (window.bilimiDesktop?.getFavoriteRepositorySnapshot && cached.repositoryRevision !== undefined) {
         const currentSummary = await window.bilimiDesktop.getFavoriteRepositorySnapshot(accountMid).catch(() => null)
         const currentRevision = typeof currentSummary?.revision === 'number' ? currentSummary.revision : undefined
@@ -2542,7 +2561,8 @@ export default function App() {
           ledgersWithRepositoryCandidates,
           suppressedRemoteDraftFolderIds,
           remoteDraftKnownFolderIds,
-          remoteDraftBoundFolderIds
+          remoteDraftBoundFolderIds,
+          options.includeRemoteOnlyDrafts === true
         )
       ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
     } catch {
@@ -2642,6 +2662,7 @@ export default function App() {
         }))),
         repositoryRevision,
         checkedAt: Date.now(),
+        includesRemoteOnlyDrafts: options.includeRemoteOnlyDrafts === true,
         status: recoveredStatus
       }
 
@@ -2661,9 +2682,30 @@ export default function App() {
       ledgerSignature,
       repositoryRevision,
       checkedAt: Date.now(),
+      includesRemoteOnlyDrafts: options.includeRemoteOnlyDrafts === true,
       status: fallbackStatus
     }
     return fallbackStatus
+  }
+
+  async function readRemoteFavoriteDiscovery(
+    accountMid: string,
+    options: { preserveBoundLedgerIds?: readonly string[] } = {}
+  ): Promise<FavoriteLedgerStatus> {
+    const existing = favoriteLedgerRemoteDiscoveryPromisesRef.current.get(accountMid)
+    if (existing) return existing
+
+    const pending = readFavoriteLedgerStatus(accountMid, {
+      force: true,
+      preserveBoundLedgerIds: options.preserveBoundLedgerIds,
+      includeRemoteOnlyDrafts: true
+    }).finally(() => {
+      if (favoriteLedgerRemoteDiscoveryPromisesRef.current.get(accountMid) === pending) {
+        favoriteLedgerRemoteDiscoveryPromisesRef.current.delete(accountMid)
+      }
+    })
+    favoriteLedgerRemoteDiscoveryPromisesRef.current.set(accountMid, pending)
+    return pending
   }
 
   async function preflightFavoriteLedgerStatus(accountMid: string): Promise<FavoriteLedgerStatus> {
@@ -2720,7 +2762,11 @@ export default function App() {
         ledgersWithFormalBindings,
         {
           dismissedRemoteFolderIds: suppressedRemoteDraftFolderIds,
-          remoteDraftKnownFolderIds
+          remoteDraftKnownFolderIds,
+          // The ensure script is an operational intermediate result. A
+          // complete discovery read below is the only place this explicit
+          // backup may publish an unfamiliar remote folder.
+          includeRemoteOnlyDrafts: false
         },
         remoteDraftBoundFolderIds
       )
@@ -2729,15 +2775,29 @@ export default function App() {
     await refreshFavoriteSpaceAfterConfirmedPageCreate(accountMid, result)
 
     if (Array.isArray(result.ledgers)) {
+      // A legacy/incomplete page bridge must not reintroduce an intermediate
+      // remote observation despite the explicit false flag above. In
+      // particular, it must never reach binding registration or preferences.
+      const operationalLedgers = result.ledgers.filter((ledger) =>
+        ledger.ruleOrigin === 'saved-rule' ||
+        ledger.syncState !== 'local-draft' ||
+        ledger.enabled === true ||
+        (Array.isArray(ledger.keywords) && ledger.keywords.some((keyword) => keyword.trim()))
+      )
+      const operationalResult = {
+        ...result,
+        ledgers: operationalLedgers,
+        remoteOnlyDraftLedgerIds: []
+      }
       const bindingResult = await registerNewFavoriteLedgerBindings(
         accountMid,
         ledgersWithFormalBindings,
-        result.ledgers,
+        operationalLedgers,
         undefined,
         undefined,
         trustedRemoteShardNumbers
       )
-      const persistedLedgers = ledgersAfterBindingRegistration(result.ledgers, bindingResult, ledgersWithFormalBindings)
+      const persistedLedgers = ledgersAfterBindingRegistration(operationalLedgers, bindingResult, ledgersWithFormalBindings)
       const persistedLedgersWithHistory = persistedLedgers.map((ledger) => {
         const historicalSource = ledgersWithFormalBindings.find((candidate) => candidate.id === ledger.id)
         const hasRemoteId = Boolean(ledger.bilibiliFolderId?.trim() || ledger.bilibiliFolderIds?.some((id) => id.trim()))
@@ -2763,10 +2823,16 @@ export default function App() {
           preferencesRef.current = savedPreferences
           setPreferences(savedPreferences)
         }
+        favoriteLedgerStatusCacheRef.current = null
+        const finalDiscoveryStatus = await readRemoteFavoriteDiscovery(accountMid).catch(() => undefined)
+        window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
         return {
-          ...result,
+          ...operationalResult,
           ok: false,
-          ledgers: persistedLedgersWithHistory,
+          ledgers: finalDiscoveryStatus?.verified === true ? finalDiscoveryStatus.ledgers : persistedLedgersWithHistory,
+          remoteOnlyDraftLedgerIds: finalDiscoveryStatus?.verified === true
+            ? finalDiscoveryStatus.remoteOnlyDraftLedgerIds ?? []
+            : [],
           unboundLedgerIds: bindingResult.failures.map((failure) => failure.ledgerId),
           unboundCandidates: bindingResult.failures,
           message: '收藏夹已在 B 站创建，但正式绑定未完成，请在备册时重新确认对应收藏夹。'
@@ -2786,22 +2852,11 @@ export default function App() {
         setPreferences(savedPreferences)
       }
 
-      const favoriteLedgerStatus: FavoriteLedgerStatus = {
-        ok: result.ok,
-        ledgers: persistedLedgersWithHistory,
-        missingLedgerIds: Array.isArray(result.missingTargets) ? result.missingTargets : [],
-        backupConflictLedgerIds: Array.isArray(result.backupConflictLedgerIds)
-          ? result.backupConflictLedgerIds
-          : [],
-        unboundLedgerIds: Array.isArray(result.unboundLedgerIds) ? result.unboundLedgerIds : [],
-        unboundCandidates: Array.isArray(result.unboundCandidates) ? result.unboundCandidates : [],
-        remoteOnlyDraftLedgerIds: Array.isArray(result.remoteOnlyDraftLedgerIds) ? result.remoteOnlyDraftLedgerIds : [],
-        message: result.message
-      }
-      assistantSnapshotCacheRef.current.favoriteLedgerStatus = favoriteLedgerStatus
+      // Do not publish the operational inventory.  The forced discovery
+      // below is the atomically published state for this explicit backup.
       favoriteLedgerStatusCacheRef.current = {
         accountMid,
-        ledgerSignature: JSON.stringify(result.ledgers.map((ledger) => ({
+        ledgerSignature: JSON.stringify(operationalLedgers.map((ledger) => ({
           id: ledger.id,
           displayName: ledger.displayName,
           enabled: ledger.enabled,
@@ -2811,9 +2866,29 @@ export default function App() {
         }))),
         repositoryRevision,
         checkedAt: Date.now(),
-        status: favoriteLedgerStatus
+        includesRemoteOnlyDrafts: false,
+        status: {
+          ok: operationalResult.ok,
+          ledgers: persistedLedgersWithHistory,
+          missingLedgerIds: Array.isArray(operationalResult.missingTargets) ? operationalResult.missingTargets : [],
+          backupConflictLedgerIds: Array.isArray(operationalResult.backupConflictLedgerIds)
+            ? operationalResult.backupConflictLedgerIds
+            : [],
+          unboundLedgerIds: Array.isArray(operationalResult.unboundLedgerIds) ? operationalResult.unboundLedgerIds : [],
+          unboundCandidates: Array.isArray(operationalResult.unboundCandidates) ? operationalResult.unboundCandidates : [],
+          remoteOnlyDraftLedgerIds: [],
+          message: operationalResult.message
+        }
       }
+      const finalDiscoveryStatus = await readRemoteFavoriteDiscovery(accountMid).catch(() => undefined)
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+      return finalDiscoveryStatus?.verified === true
+        ? {
+            ...operationalResult,
+            ledgers: finalDiscoveryStatus.ledgers,
+            remoteOnlyDraftLedgerIds: finalDiscoveryStatus.remoteOnlyDraftLedgerIds ?? []
+          }
+        : operationalResult
     }
 
     return result
@@ -3184,7 +3259,8 @@ export default function App() {
       buildSaveFavoriteLedgersScript(ledgersForRemoteDiscovery, previousLedgers, {
         ...options,
         dismissedRemoteFolderIds,
-        remoteDraftKnownFolderIds
+        remoteDraftKnownFolderIds,
+        includeRemoteOnlyDrafts: false
       }, remoteDraftBoundFolderIds)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
     await refreshFavoriteSpaceAfterConfirmedPageCreate(accountMid, result)
@@ -3198,7 +3274,7 @@ export default function App() {
         await existing
         return
       }
-      const pending = readFavoriteLedgerStatus(accountMid, { force: true, preserveBoundLedgerIds })
+      const pending = readRemoteFavoriteDiscovery(accountMid, { preserveBoundLedgerIds })
         .then((status) => {
           // The save operation itself remains successful even when a legacy
           // bridge returns an incomplete post-save inventory. The sync panel
@@ -3275,9 +3351,18 @@ export default function App() {
           })
           .map((ledger) => ledger.id)
       ])]
+      // This script is only an operational intermediate result. Remote-only
+      // observations are published by the following complete discovery read,
+      // never persisted from an incomplete backup inventory.
+      const backupLedgersWithoutRemoteObservations = backupLedgers.filter((ledger) =>
+        ledger.ruleOrigin === 'saved-rule' ||
+        ledger.syncState !== 'local-draft' ||
+        ledger.enabled === true ||
+        (Array.isArray(ledger.keywords) && ledger.keywords.some((keyword) => keyword.trim()))
+      )
       const persistedLedgers = options?.rediscoverDeletedRemoteDrafts || backupTargetLedgerIdSet.size
-        ? mergeBackupResultIntoLocalLedgers(previousLedgers, backupLedgers)
-        : backupLedgers
+        ? mergeBackupResultIntoLocalLedgers(previousLedgers, backupLedgersWithoutRemoteObservations)
+        : backupLedgersWithoutRemoteObservations
       const persistedLedgersWithHistory = persistedLedgers.map((ledger) => {
         const historicalSource = ledgersWithFormalBindings.find((candidate) => candidate.id === ledger.id)
         const hasRemoteId = Boolean(ledger.bilibiliFolderId?.trim() || ledger.bilibiliFolderIds?.some((id) => id.trim()))
@@ -3340,7 +3425,16 @@ export default function App() {
       await releaseObservedRemoteDraftRediscovery()
       await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
-      return { ...visibleMergedResult, ledgers: persistedLedgersWithHistory }
+      const finalDiscoveryStatus = assistantSnapshotCacheRef.current.accountMid === accountMid
+        ? assistantSnapshotCacheRef.current.favoriteLedgerStatus
+        : null
+      return finalDiscoveryStatus?.verified === true
+        ? {
+            ...visibleMergedResult,
+            ledgers: finalDiscoveryStatus.ledgers,
+            remoteOnlyDraftLedgerIds: finalDiscoveryStatus.remoteOnlyDraftLedgerIds ?? []
+          }
+        : { ...visibleMergedResult, ledgers: persistedLedgersWithHistory, remoteOnlyDraftLedgerIds: [] }
     }
 
     return Array.isArray(visibleMergedResult.ledgers) && options?.rebindRemoteFolders
@@ -4550,11 +4644,20 @@ export default function App() {
               await readVideoContentContext()
             }
           }
-          return createAssistantSnapshot(
-            assistantSnapshotCacheRef.current.accountMid
-              ? await readFavoriteLedgerStatus(assistantSnapshotCacheRef.current.accountMid).catch(() => null)
+          {
+            const accountMid = assistantSnapshotCacheRef.current.accountMid
+            const shouldDiscover = Boolean(accountMid && !favoriteLedgerStartupRemoteDiscoveryAccountMidsRef.current.has(accountMid))
+            const favoriteLedgerStatus = accountMid
+              ? await (shouldDiscover
+                ? readRemoteFavoriteDiscovery(accountMid)
+                : readFavoriteLedgerStatus(accountMid)
+              ).catch(() => null)
               : null
-          )
+            if (shouldDiscover && favoriteLedgerStatus?.verified === true) {
+              favoriteLedgerStartupRemoteDiscoveryAccountMidsRef.current.add(accountMid)
+            }
+            return createAssistantSnapshot(favoriteLedgerStatus)
+          }
         case 'run-action':
           return runAssistantRuntimeAction(request.action, request.options)
         case 'generate-video-note':

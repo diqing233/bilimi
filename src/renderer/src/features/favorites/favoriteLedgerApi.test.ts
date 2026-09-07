@@ -828,6 +828,33 @@ describe('favorite ledger API scripts', () => {
     expect(result.remoteOnlyDraftLedgerIds).toEqual([expect.any(String)])
   })
 
+  it('does not project an unknown remote folder during a status-only read', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 88, title: 'bilimi·远端夹', media_count: 6 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const buildStatusWithoutDiscovery = buildFavoriteLedgerStatusScript as unknown as (
+      ledgers: FavoriteLedger[],
+      dismissedRemoteFolderIds?: string[],
+      remoteDraftKnownFolderIds?: string[],
+      remoteDraftBoundFolderIds?: string[],
+      includeRemoteOnlyDrafts?: boolean
+    ) => string
+    const result = await window.eval(buildStatusWithoutDiscovery([], [], [], [], false)) as {
+      ledgers: FavoriteLedger[]
+      remoteOnlyDraftLedgerIds: string[]
+    }
+
+    expect(result.ledgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: createRemoteObservationFavoriteLedgerId('88') })
+    ]))
+    expect(result.remoteOnlyDraftLedgerIds).toEqual([])
+  })
+
   it('reuses a recovered remote draft instead of appending a second copy after its folder id was lost', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

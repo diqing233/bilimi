@@ -2018,6 +2018,70 @@ describe('App runtime integration', () => {
     }))
   })
 
+  it('publishes only the final remote-discovery projection after full ensure backup', async () => {
+    const accountMid = '100'
+    const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
+    const remoteDraft = {
+      id: 'custom-remote-880',
+      displayName: 'bilimi·临时远端夹',
+      keywords: [],
+      enabled: false,
+      priority: 99,
+      bilibiliFolderId: '880',
+      bilibiliFolderIds: ['880'],
+      bindingState: 'unbound' as const,
+      syncState: 'local-draft' as const,
+      isDefault: false
+    }
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const backedUpLedgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === music.id ? { ...ledger, bilibiliFolderId: '9001' } : ledger
+    )
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(LEDGER_SAVE_SCRIPT_MARKER)) {
+          return {
+            ok: true,
+            verified: true,
+            ledgers: [...backedUpLedgers, remoteDraft],
+            remoteOnlyDraftLedgerIds: [remoteDraft.id],
+            steps: ['api:ledger:list', 'api:ledger:create:music'],
+            missingTargets: [],
+            message: '册目已备齐。'
+          }
+        }
+        if (script.includes(LEDGER_STATUS_SCRIPT_MARKER)) {
+          return {
+            ...emptyLedgerStatus(),
+            ledgers: backedUpLedgers,
+            remoteOnlyDraftLedgerIds: []
+          }
+        }
+        if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    const result = await requestRuntime({ id: 'full-ensure-final-discovery', type: 'ensure-ledgers' })
+
+    expect(result).toMatchObject({ ok: true, remoteOnlyDraftLedgerIds: [] })
+    expect(result?.ledgers).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: remoteDraft.id })]))
+    expect(savePreferences).toHaveBeenCalled()
+    const savedLedgers = savePreferences.mock.calls.at(-1)?.[0].favoriteAccountPreferences?.[accountMid]?.favoriteLedgers ?? []
+    expect(savedLedgers).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: remoteDraft.id })]))
+    expect(webview.executeJavaScript.mock.calls.some(([script]) =>
+      String(script).includes('"includeRemoteOnlyDrafts":true')
+    )).toBe(true)
+  })
+
   it('keeps a newly bound ledger backed while the post-backup Bilibili inventory is briefly stale', async () => {
     const accountMid = '100'
     const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
@@ -3098,14 +3162,33 @@ describe('App runtime integration', () => {
     expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith(accountMid)
   })
 
-  it('refreshes the current favorite space after a user-confirmed create or rename signal', async () => {
+  it('reconciles remote discovery after a confirmed favorite-space mutation', async () => {
     const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const remoteDraft = {
+      id: 'custom-remote-78', displayName: 'bilimi·远端草稿', keywords: [], enabled: false, priority: 99,
+      bilibiliFolderId: '78', bilibiliFolderIds: ['78'], bindingState: 'unbound' as const,
+      syncState: 'local-draft' as const, isDefault: false
+    }
     const { desktopApi } = renderAppWithRuntimeBridge({
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      retryBilibiliFavoriteSpaceRefresh
+      retryBilibiliFavoriteSpaceRefresh,
+      savePreferences
     })
     await waitFor(() => expect(desktopApi.loadPreferences).toHaveBeenCalled())
-    const webview = document.getElementById('bilimi-webview') as HTMLElement
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (!isLedgerStatusScript(script)) throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+        return {
+          ...emptyLedgerStatus(),
+          ledgers: [...createDefaultFavoriteLedgers(), remoteDraft],
+          remoteOnlyDraftLedgerIds: [remoteDraft.id]
+        }
+      })
+    })
     act(() => {
       webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
         detail: { url: 'https://space.bilibili.com/100/favlist' }
@@ -3118,6 +3201,76 @@ describe('App runtime integration', () => {
     })
     await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith('100'))
     expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(webview.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('"includeRemoteOnlyDrafts":true')
+    ))
+    await waitFor(() => expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        100: expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([expect.objectContaining({ id: remoteDraft.id })])
+        })
+      })
+    })))
+  })
+
+  it('does not discover remote drafts until a confirmed favorite-space refresh is idle', async () => {
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'pending' as const })
+    const { desktopApi } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      retryBilibiliFavoriteSpaceRefresh
+    })
+    await waitFor(() => expect(desktopApi.loadPreferences).toHaveBeenCalled())
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (!isLedgerStatusScript(script)) throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      return emptyLedgerStatus()
+    })
+    Object.assign(webview, { executeJavaScript })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://space.bilibili.com/100/favlist' }
+      }))
+      webview.dispatchEvent(new CustomEvent('page-title-updated', {
+        detail: {
+          title: `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid: '100', kind: 'rename', nonce: 2 }))}`
+        }
+      }))
+    })
+
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith('100'))
+    expect(executeJavaScript.mock.calls.some(([script]) => isLedgerStatusScript(String(script)))).toBe(false)
+  })
+
+  it('does not discover remote drafts when a confirmed favorite-space refresh fails', async () => {
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockRejectedValue(new Error('favorite page reload failed'))
+    const { desktopApi } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      retryBilibiliFavoriteSpaceRefresh
+    })
+    await waitFor(() => expect(desktopApi.loadPreferences).toHaveBeenCalled())
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (!isLedgerStatusScript(script)) throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      return emptyLedgerStatus()
+    })
+    Object.assign(webview, { executeJavaScript })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://space.bilibili.com/100/favlist' }
+      }))
+      webview.dispatchEvent(new CustomEvent('page-title-updated', {
+        detail: {
+          title: `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid: '100', kind: 'delete', nonce: 3 }))}`
+        }
+      }))
+    })
+
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith('100'))
+    expect(executeJavaScript.mock.calls.some(([script]) => isLedgerStatusScript(String(script)))).toBe(false)
   })
 
   it('does not refresh the Bilibili favorite space when backup reports no created folder', async () => {
@@ -3154,7 +3307,7 @@ describe('App runtime integration', () => {
     expect(retryBilibiliFavoriteSpaceRefresh).not.toHaveBeenCalled()
   })
 
-  it('persists remote-only drafts returned alongside an all-batch binding candidate', async () => {
+  it('does not persist an intermediate remote-only draft alongside an all-batch binding candidate', async () => {
     const accountMid = '100'
     const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
     const remoteDraft = {
@@ -3195,7 +3348,7 @@ describe('App runtime integration', () => {
     })
 
     expect(executeJavaScript).toHaveBeenCalled()
-    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+    expect(savePreferences).not.toHaveBeenCalledWith(expect.objectContaining({
       favoriteAccountPreferences: expect.objectContaining({
         [accountMid]: expect.objectContaining({
           favoriteLedgers: expect.arrayContaining([expect.objectContaining({ id: remoteDraft.id, syncState: 'local-draft' })])
@@ -3204,7 +3357,7 @@ describe('App runtime integration', () => {
     }))
   })
 
-  it('persists same-round remote-only drafts after a direct batch creation succeeds', async () => {
+  it('publishes only the final remote-discovery projection after backup', async () => {
     const accountMid = '100'
     const music = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!
     const remoteDraft = {
@@ -3221,9 +3374,11 @@ describe('App runtime integration', () => {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
     Object.assign(webview, {
-      executeJavaScript: vi.fn(async (_script: string, userGesture?: boolean) => userGesture
-        ? { hasUserId: true, hasCsrf: true }
-        : {
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        if (script.includes(LEDGER_SAVE_SCRIPT_MARKER)) {
+          expect(script).toContain('"includeRemoteOnlyDrafts":false')
+          return {
             ok: true,
             verified: true,
             ledgers: [{ ...music, bilibiliFolderId: '9001', bindingState: 'bound' as const }, remoteDraft],
@@ -3231,7 +3386,18 @@ describe('App runtime integration', () => {
             missingTargets: [],
             remoteOnlyDraftLedgerIds: [remoteDraft.id],
             message: '收藏夹已备册。'
-          })
+          }
+        }
+        if (isLedgerStatusScript(script)) {
+          expect(script).toContain('"includeRemoteOnlyDrafts":true')
+          return {
+            ...emptyLedgerStatus(),
+            ledgers: [{ ...music, bilibiliFolderId: '9001', bindingState: 'bound' as const }],
+            remoteOnlyDraftLedgerIds: []
+          }
+        }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
     })
 
     await expect(requestRuntime({
@@ -3240,17 +3406,14 @@ describe('App runtime integration', () => {
     })).resolves.toMatchObject({
       ok: true,
       verified: true,
-      remoteOnlyDraftLedgerIds: [remoteDraft.id],
-      ledgers: expect.arrayContaining([expect.objectContaining({ id: remoteDraft.id, syncState: 'local-draft' })])
+      remoteOnlyDraftLedgerIds: [],
+      ledgers: expect.not.arrayContaining([expect.objectContaining({ id: remoteDraft.id })])
     })
 
-    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+    expect(savePreferences).not.toHaveBeenCalledWith(expect.objectContaining({
       favoriteAccountPreferences: expect.objectContaining({
         [accountMid]: expect.objectContaining({
-          favoriteLedgers: expect.arrayContaining([
-            expect.objectContaining({ id: music.id, bilibiliFolderId: '9001', bindingState: 'bound' }),
-            expect.objectContaining({ id: remoteDraft.id, syncState: 'local-draft' })
-          ])
+          favoriteLedgers: expect.arrayContaining([expect.objectContaining({ id: remoteDraft.id })])
         })
       })
     }))
@@ -4614,7 +4777,7 @@ describe('App runtime integration', () => {
     await expect(requestRuntime({
       id: 'failed-backup-rediscovers-remote-draft', type: 'save-ledgers', ledgers: [game],
       options: { rediscoverDeletedRemoteDrafts: true }
-    })).resolves.toMatchObject({ ok: false, remoteOnlyDraftLedgerIds: ['custom-remote-88'] })
+    })).resolves.toMatchObject({ ok: false, remoteOnlyDraftLedgerIds: [] })
 
     expect(consumeFavoriteLedgerRemoteDraftRediscoveryPending).toHaveBeenCalledWith(accountMid)
     expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && isLedgerStatusScript(script))).toHaveLength(1)
@@ -5619,6 +5782,7 @@ describe('App runtime integration', () => {
       if (isLedgerStatusScript(script)) {
         return {
           ok: true,
+          verified: true,
           ledgers,
           missingLedgerIds: [],
           backupConflictLedgerIds: [],

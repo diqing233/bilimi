@@ -530,13 +530,15 @@ export function buildFavoriteLedgerStatusScript(
   ledgers: FavoriteLedger[],
   dismissedRemoteFolderIds: string[] = [],
   remoteDraftKnownFolderIds: string[] = [],
-  remoteDraftBoundFolderIds: string[] = []
+  remoteDraftBoundFolderIds: string[] = [],
+  includeRemoteOnlyDrafts = true
 ): string {
   const payload = scriptPayload({
     ledgers: normalizeLedgerPayload(ledgers),
     dismissedRemoteFolderIds,
     remoteDraftKnownFolderIds,
-    remoteDraftBoundFolderIds
+    remoteDraftBoundFolderIds,
+    includeRemoteOnlyDrafts
   })
 
   return `
@@ -551,13 +553,16 @@ export function buildFavoriteLedgerStatusScript(
       const response = await fetch(buildListUrl(mid), { credentials: 'include' });
       const json = await ensureApiOk(response, 'favorite folder list');
       const folders = readFavoriteFolderList(json);
-      const remoteDraftProjection = projectRemoteOnlyDrafts(
-        syncLedgerFolderIds(payload.ledgers, folders),
-        folders,
-        payload.dismissedRemoteFolderIds,
-        payload.remoteDraftKnownFolderIds,
-        payload.remoteDraftBoundFolderIds
-      );
+      const synchronizedLedgers = syncLedgerFolderIds(payload.ledgers, folders);
+      const remoteDraftProjection = payload.includeRemoteOnlyDrafts === false
+        ? { ledgers: synchronizedLedgers, remoteOnlyDraftLedgerIds: [] }
+        : projectRemoteOnlyDrafts(
+          synchronizedLedgers,
+          folders,
+          payload.dismissedRemoteFolderIds,
+          payload.remoteDraftKnownFolderIds,
+          payload.remoteDraftBoundFolderIds
+        );
       const nextLedgers = remoteDraftProjection.ledgers;
       const remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
       const unboundLedgerIds = nextLedgers
@@ -1034,13 +1039,24 @@ export function buildSaveFavoriteLedgersScript(
           message: '已绑定的 B 站收藏夹未出现在当前清单中，请刷新后重试。'
         };
       }
-      let remoteDraftProjection = projectRemoteOnlyDrafts(
-        syncLedgerFolderIds(payload.nextLedgers, folders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
-        folders,
-        payload.options?.dismissedRemoteFolderIds,
-        payload.remoteDraftKnownFolderIds,
-        payload.remoteDraftBoundFolderIds
-      );
+      const projectRemoteDrafts = (sourceLedgers, sourceFolders) => {
+        const synchronizedLedgers = syncLedgerFolderIds(
+          sourceLedgers,
+          sourceFolders,
+          payload.options?.rebindRemoteFolderIds,
+          payload.options?.confirmCreateAndBind === true
+        );
+        return payload.options?.includeRemoteOnlyDrafts === false
+          ? { ledgers: synchronizedLedgers, remoteOnlyDraftLedgerIds: [] }
+          : projectRemoteOnlyDrafts(
+            synchronizedLedgers,
+            sourceFolders,
+            payload.options?.dismissedRemoteFolderIds,
+            payload.remoteDraftKnownFolderIds,
+            payload.remoteDraftBoundFolderIds
+          );
+      };
+      let remoteDraftProjection = projectRemoteDrafts(payload.nextLedgers, folders);
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
       const createdLedgerBindings = new Map();
@@ -1082,13 +1098,7 @@ export function buildSaveFavoriteLedgersScript(
         const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
         const recheckedFolders = readFavoriteFolderList(recheckJson);
         const recheckedCandidates = remoteFolderCandidates(ledger, recheckedFolders);
-        remoteDraftProjection = projectRemoteOnlyDrafts(
-          syncLedgerFolderIds(nextLedgers, recheckedFolders, payload.options?.rebindRemoteFolderIds, payload.options?.confirmCreateAndBind === true),
-          recheckedFolders,
-          payload.options?.dismissedRemoteFolderIds,
-          payload.remoteDraftKnownFolderIds,
-          payload.remoteDraftBoundFolderIds
-        );
+        remoteDraftProjection = projectRemoteDrafts(nextLedgers, recheckedFolders);
         nextLedgers = remoteDraftProjection.ledgers;
         remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
         nextLedgers = nextLedgers.map((candidate) => {
