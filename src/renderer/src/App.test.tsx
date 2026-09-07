@@ -2049,6 +2049,16 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
         if (userGesture) return { hasUserId: true, hasCsrf: true }
+        if (script.includes('已绑定收藏夹改名预检')) {
+          return {
+            ok: true,
+            verified: true,
+            observedShards: [{
+              logicalLedgerId: music.id, shardNumber: 1, remoteFolderId: 'new-music',
+              currentRemoteTitle: music.displayName, remoteMemberCount: 0
+            }]
+          }
+        }
         if (isLedgerStatusScript(script)) {
           return {
             ok: false,
@@ -3406,12 +3416,24 @@ describe('App runtime integration', () => {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
     Object.assign(webview, {
-      executeJavaScript: vi.fn(async () => ({
-        ok: true,
-        verified: true,
-        ledgers: [{ ...game, bilibiliFolderTitle: 'bilimi·游戏专区哈哈' }],
-        steps: ['api:ledger:list'], missingTargets: [], message: '已备册'
-      }))
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes('已绑定收藏夹改名预检')) {
+          return {
+            ok: true,
+            verified: true,
+            observedShards: [{
+              logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+              currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0
+            }]
+          }
+        }
+        return {
+          ok: true,
+          verified: true,
+          ledgers: [{ ...game, bilibiliFolderTitle: 'bilimi·游戏专区哈哈' }],
+          steps: ['api:ledger:list'], missingTargets: [], message: '已备册'
+        }
+      })
     })
 
     await expect(requestRuntime({
@@ -3475,7 +3497,16 @@ describe('App runtime integration', () => {
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
-    const executeJavaScript = vi.fn(async () => ({ ok: true, verified: true, ledgers: [game], steps: ['api:ledger:add'], missingTargets: [], message: '已备册' }))
+    const executeJavaScript = vi.fn(async (script: string) => script.includes('已绑定收藏夹改名预检')
+      ? {
+          ok: true,
+          verified: true,
+          observedShards: [{
+            logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+            currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0
+          }]
+        }
+      : { ok: true, verified: true, ledgers: [game], steps: ['api:ledger:add'], missingTargets: [], message: '已备册' })
     Object.assign(webview, { executeJavaScript })
 
     await expect(requestRuntime({
@@ -3492,7 +3523,210 @@ describe('App runtime integration', () => {
 
     expect(renameFavoriteRepositoryBoundLedgerShard).not.toHaveBeenCalled()
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
-    expect(executeJavaScript.mock.calls.every(([, userGesture]) => userGesture === true)).toBe(true)
+    expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/folder/edit'))).toBe(false)
+    expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/folder/add'))).toBe(false)
+    expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/resource/deal'))).toBe(false)
+  })
+
+  it('does not rename an unchanged circled capacity shard when continuing a confirmed backup', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      displayName: 'bilimi·游戏专区',
+      bilibiliFolderId: '4106106611',
+      bilibiliFolderIds: ['4106106611', '4106106612'],
+      bilibiliFolderTitle: 'bilimi·游戏专区',
+      bindingState: 'bound' as const
+    }
+    const renameFavoriteRepositoryBoundLedgerShard = vi.fn()
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      renameFavoriteRepositoryBoundLedgerShard,
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-07T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 2,
+        physicalShards: [
+          { logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1, remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0, bindingState: 'bound' },
+          { logicalLedgerId: 'game', folderId: 'bilimi:game:002', shardNumber: 2, remoteFolderId: '4106106612', remoteTitle: 'bilimi·游戏专区②', remoteMemberCount: 0, bindingState: 'bound' }
+        ],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
+        if (userGesture) return { hasUserId: true, hasCsrf: true }
+        if (script.includes('已绑定收藏夹改名预检')) {
+          return {
+            ok: true,
+            verified: true,
+            observedShards: [
+              { logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611', currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0 },
+              { logicalLedgerId: 'game', shardNumber: 2, remoteFolderId: '4106106612', currentRemoteTitle: 'bilimi·游戏专区②', remoteMemberCount: 0 }
+            ]
+          }
+        }
+        return { ok: true, verified: true, ledgers: [game], steps: ['api:ledger:list'], missingTargets: [], message: '已备册' }
+      })
+    })
+
+    await expect(requestRuntime({
+      id: 'unchanged-circled-shard', type: 'save-ledgers', ledgers: [game],
+      options: { backupTargetLedgerIds: ['game'], rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({ ok: true })
+
+    expect(renameFavoriteRepositoryBoundLedgerShard).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when the exact bound-shard rename preflight cannot be verified', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      displayName: 'bilimi·游戏专区哈哈',
+      bilibiliFolderId: '4106106611',
+      bilibiliFolderIds: ['4106106611'],
+      bilibiliFolderTitle: 'bilimi·游戏专区',
+      bindingState: 'bound' as const
+    }
+    const renameFavoriteRepositoryBoundLedgerShard = vi.fn()
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn()
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      renameFavoriteRepositoryBoundLedgerShard,
+      adoptFavoriteRepositoryLedgerBinding,
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-07T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 1,
+        physicalShards: [{
+          logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+          remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0, bindingState: 'bound'
+        }],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (script.includes('已绑定收藏夹改名预检')) return { ok: false, verified: false }
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({
+      id: 'bound-rename-preflight-fails-closed', type: 'save-ledgers', ledgers: [game],
+      options: { backupTargetLedgerIds: ['game'], rediscoverDeletedRemoteDrafts: true }
+    })).resolves.toMatchObject({
+      ok: false,
+      steps: ['favorite:bound-shard-rename-preflight'],
+      missingTargets: ['game'],
+      message: '已绑定收藏夹名称核验失败，本次不执行 B 站收藏写入。'
+    })
+
+    expect(renameFavoriteRepositoryBoundLedgerShard).not.toHaveBeenCalled()
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+    expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/folder/edit'))).toBe(false)
+    expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/folder/add'))).toBe(false)
+    expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/resource/deal'))).toBe(false)
+  })
+
+  it('preflights a Bilibili-renamed formal shard for one confirmed backup rename', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      displayName: 'bilimi·游戏专区',
+      bilibiliFolderId: '4106106611',
+      bilibiliFolderIds: ['4106106611'],
+      bilibiliFolderTitle: 'bilimi·游戏专区',
+      bindingState: 'bound' as const
+    }
+    const renameFavoriteRepositoryBoundLedgerShard = vi.fn().mockResolvedValue({
+      shards: [{
+        logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+        remoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0, bindingState: 'bound'
+      }]
+    })
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn()
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [game] }
+        }
+      })),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      renameFavoriteRepositoryBoundLedgerShard,
+      adoptFavoriteRepositoryLedgerBinding,
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-07T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 1,
+        physicalShards: [{
+          logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+          remoteFolderId: '4106106611', remoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0, bindingState: 'bound'
+        }],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (script.includes('已绑定收藏夹改名预检')) {
+        return {
+          ok: true,
+          verified: true,
+          observedShards: [{
+            logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+            currentRemoteTitle: '用户改过的名称', remoteMemberCount: 0
+          }]
+        }
+      }
+      if (script.includes('/x/v3/fav/folder/add')) {
+        return { ok: true, verified: true, ledgers: [game], steps: ['api:ledger:list'], missingTargets: [], message: '已备册' }
+      }
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({
+      id: 'manual-bilibili-rename-first-backup', type: 'ensure-ledger', logicalFolderId: 'game',
+      options: { lightweightBackup: true }
+    })).resolves.toMatchObject({
+      ok: false,
+      steps: ['favorite:bound-shard-rename-preflight'],
+      boundRenameCandidates: [{
+        ledgerId: 'game',
+        shards: [{
+          remoteFolderId: '4106106611', shardNumber: 1,
+          currentRemoteTitle: '用户改过的名称', targetTitle: 'bilimi·游戏专区'
+        }]
+      }]
+    })
+
+    expect(renameFavoriteRepositoryBoundLedgerShard).not.toHaveBeenCalled()
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+    expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/folder/add'))).toBe(false)
+
+    await expect(requestRuntime({
+      id: 'manual-bilibili-rename-confirmed-backup', type: 'ensure-ledger', logicalFolderId: 'game',
+      options: {
+        lightweightBackup: true,
+        confirmBoundRename: true,
+        boundRenameShards: { game: [{ remoteFolderId: '4106106611', shardNumber: 1 }] }
+      }
+    })).resolves.toMatchObject({ ok: true })
+
+    expect(renameFavoriteRepositoryBoundLedgerShard).toHaveBeenCalledTimes(1)
+    expect(renameFavoriteRepositoryBoundLedgerShard).toHaveBeenCalledWith(accountMid, {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteFolderId: '4106106611', shardNumber: 1
+    })
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
   })
 
   it('requires the same exact formal shard tuple that the bound-rename preflight displayed', async () => {
@@ -3525,7 +3759,16 @@ describe('App runtime integration', () => {
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
-    const executeJavaScript = vi.fn(async () => ({ ok: true, verified: true, ledgers: [game], steps: ['api:ledger:add'], missingTargets: [], message: '已备册' }))
+    const executeJavaScript = vi.fn(async (script: string) => script.includes('已绑定收藏夹改名预检')
+      ? {
+          ok: true,
+          verified: true,
+          observedShards: [{
+            logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+            currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0
+          }]
+        }
+      : { ok: true, verified: true, ledgers: [game], steps: ['api:ledger:add'], missingTargets: [], message: '已备册' })
     Object.assign(webview, { executeJavaScript })
 
     await expect(requestRuntime({
@@ -3547,7 +3790,9 @@ describe('App runtime integration', () => {
 
     expect(renameFavoriteRepositoryBoundLedgerShard).not.toHaveBeenCalled()
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
-    expect(executeJavaScript.mock.calls.every(([, userGesture]) => userGesture === true)).toBe(true)
+    expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/folder/edit'))).toBe(false)
+    expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/folder/add'))).toBe(false)
+    expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
 
   it('stops an explicit bound backup before scripts, adoption, or creation when its formal shard is absent', async () => {
@@ -3571,9 +3816,18 @@ describe('App runtime integration', () => {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
     Object.assign(webview, {
-      executeJavaScript: vi.fn(async (_script: string, userGesture?: boolean) => userGesture === true
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => userGesture === true
         ? { hasUserId: true, hasCsrf: true }
-        : { ok: true, verified: true, ledgers: [game], steps: ['api:ledger:add'], missingTargets: [], message: '已备册' })
+        : script.includes('已绑定收藏夹改名预检')
+          ? {
+              ok: true,
+              verified: true,
+              observedShards: [{
+                logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+                currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0
+              }]
+            }
+          : { ok: true, verified: true, ledgers: [game], steps: ['api:ledger:add'], missingTargets: [], message: '已备册' })
     })
 
     await expect(requestRuntime({
@@ -3588,6 +3842,7 @@ describe('App runtime integration', () => {
     expect(renameFavoriteRepositoryBoundLedgerShard).not.toHaveBeenCalled()
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
     expect(webview.executeJavaScript).toHaveBeenCalledTimes(1)
+    expect(webview.executeJavaScript).toHaveBeenLastCalledWith(expect.any(String), true)
   })
 
   it('fails closed instead of falling back when the direct bound-rename bridge is unavailable', async () => {
@@ -3620,9 +3875,18 @@ describe('App runtime integration', () => {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
     Object.assign(webview, {
-      executeJavaScript: vi.fn(async (_script: string, userGesture?: boolean) => userGesture === true
+      executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => userGesture === true
         ? { hasUserId: true, hasCsrf: true }
-        : { ok: true, verified: true, ledgers: [game], steps: ['api:ledger:add'], missingTargets: [], message: '已备册' })
+        : script.includes('已绑定收藏夹改名预检')
+          ? {
+              ok: true,
+              verified: true,
+              observedShards: [{
+                logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+                currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0
+              }]
+            }
+          : { ok: true, verified: true, ledgers: [game], steps: ['api:ledger:add'], missingTargets: [], message: '已备册' })
     })
 
     await expect(requestRuntime({
@@ -3635,7 +3899,7 @@ describe('App runtime integration', () => {
     })
 
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
-    expect(webview.executeJavaScript).toHaveBeenCalledTimes(1)
+    expect(webview.executeJavaScript).toHaveBeenCalledTimes(2)
   })
 
   it('keeps an unrelated post-rename script failure failed instead of reporting the rename as full success', async () => {
@@ -3673,11 +3937,20 @@ describe('App runtime integration', () => {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
     Object.assign(webview, {
-      executeJavaScript: vi.fn(async () => ({
-        ok: false, verified: false, steps: ['api:ledger:list'],
-        missingTargets: [], unboundLedgerIds: [], unboundCandidates: [],
-        message: 'B 站目录读取失败。'
-      }))
+      executeJavaScript: vi.fn(async (script: string) => script.includes('已绑定收藏夹改名预检')
+        ? {
+            ok: true,
+            verified: true,
+            observedShards: [{
+              logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+              currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0
+            }]
+          }
+        : {
+            ok: false, verified: false, steps: ['api:ledger:list'],
+            missingTargets: [], unboundLedgerIds: [], unboundCandidates: [],
+            message: 'B 站目录读取失败。'
+          })
     })
 
     await expect(requestRuntime({
@@ -3723,12 +3996,21 @@ describe('App runtime integration', () => {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
     Object.assign(webview, {
-      executeJavaScript: vi.fn(async () => ({
-        ok: false, verified: true, ledgers: [{ ...game, bindingState: 'unbound' as const }],
-        steps: ['api:ledger:list'], missingTargets: [], unboundLedgerIds: ['game'],
-        unboundCandidates: [{ ledgerId: 'game', candidates: [] }],
-        message: '发现 1 个未绑定收藏夹。'
-      }))
+      executeJavaScript: vi.fn(async (script: string) => script.includes('已绑定收藏夹改名预检')
+        ? {
+            ok: true,
+            verified: true,
+            observedShards: [{
+              logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+              currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0
+            }]
+          }
+        : {
+            ok: false, verified: true, ledgers: [{ ...game, bindingState: 'unbound' as const }],
+            steps: ['api:ledger:list'], missingTargets: [], unboundLedgerIds: ['game'],
+            unboundCandidates: [{ ledgerId: 'game', candidates: [] }],
+            message: '发现 1 个未绑定收藏夹。'
+          })
     })
 
     await expect(requestRuntime({
@@ -3816,9 +4098,16 @@ describe('App runtime integration', () => {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
     Object.assign(webview, {
-      executeJavaScript: vi.fn(async () => ({
-        ok: true, verified: true, ledgers: [game], steps: ['api:ledger:list'], missingTargets: [], message: '已备册'
-      }))
+      executeJavaScript: vi.fn(async (script: string) => script.includes('已绑定收藏夹改名预检')
+        ? {
+            ok: true,
+            verified: true,
+            observedShards: [{
+              logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+              currentRemoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0
+            }]
+          }
+        : { ok: true, verified: true, ledgers: [game], steps: ['api:ledger:list'], missingTargets: [], message: '已备册' })
     })
 
     await expect(requestRuntime({
@@ -4421,6 +4710,16 @@ describe('App runtime integration', () => {
     Object.assign(webview, {
       executeJavaScript: vi.fn(async (script: string, userGesture?: boolean) => {
         if (userGesture) return { hasUserId: true, hasCsrf: true }
+        if (script.includes('已绑定收藏夹改名预检')) {
+          return {
+            ok: true,
+            verified: true,
+            observedShards: [{
+              logicalLedgerId: 'life', shardNumber: 1, remoteFolderId: 'life-1',
+              currentRemoteTitle: life.displayName, remoteMemberCount: 0
+            }]
+          }
+        }
         if (script.includes(LEDGER_SAVE_SCRIPT_MARKER)) {
           const payloadMatch = script.match(/const payload = (.*?);/s)
           expect(payloadMatch).not.toBeNull()

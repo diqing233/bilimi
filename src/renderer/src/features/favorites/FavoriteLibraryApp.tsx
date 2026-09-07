@@ -269,9 +269,35 @@ type LightweightBackupBindingCandidate = {
   candidates: Array<{ id: string; title: string; memberCount: number; shardNumber?: number; bindingFailureReason?: string }>
 }
 
+type LightweightBackupBoundRenameCandidate = {
+  folderId: string
+  logicalLedgerId: string
+  logicalTitle: string
+  logicalVideoCount: number
+  shards: Array<{
+    remoteFolderId: string
+    shardNumber: number
+    currentRemoteTitle: string
+    remoteMemberCount: number
+    targetTitle: string
+  }>
+}
+
 type LightweightBackupResult = {
   ok?: boolean
   message?: string
+  boundRenameCandidates?: Array<{
+    ledgerId: string
+    logicalTitle: string
+    logicalVideoCount: number
+    shards: Array<{
+      remoteFolderId: string
+      shardNumber: number
+      currentRemoteTitle: string
+      remoteMemberCount: number
+      targetTitle: string
+    }>
+  }>
   unboundCandidates?: Array<{
     ledgerId: string
     candidates: Array<{ id: string; title: string; memberCount: number; shardNumber?: number; bindingFailureReason?: string }>
@@ -703,6 +729,7 @@ export function FavoriteLibraryApp({
   const batchSyncStopRef = useRef(false)
   const [workspaceBindingCandidates, setWorkspaceBindingCandidates] = useState<LightweightBackupBindingCandidate[]>()
   const [workspaceBindingSelections, setWorkspaceBindingSelections] = useState<Record<string, string[]>>({})
+  const [workspaceBoundRenameCandidates, setWorkspaceBoundRenameCandidates] = useState<LightweightBackupBoundRenameCandidate[]>()
   const [batchRemoteUnfavoritePreview, setBatchRemoteUnfavoritePreview] = useState<{
     aids: number[]
     executionToken: string
@@ -1858,9 +1885,21 @@ export function FavoriteLibraryApp({
       let succeeded = 0
       let failed = 0
       const bindingCandidates: LightweightBackupBindingCandidate[] = []
+      const boundRenameCandidates: LightweightBackupBoundRenameCandidate[] = []
       for (const folder of backupFolders.filter((folder) => workspaceSyncSelection.includes(folder.id))) {
         try {
           const result = await api.ensureFavoriteLedger(folder.id, { lightweightBackup: true }) as LightweightBackupResult
+          const boundRename = result.boundRenameCandidates?.find((entry) => entry.ledgerId === folder.logicalLedgerId)
+          if (boundRename?.shards.length && folder.logicalLedgerId) {
+            boundRenameCandidates.push({
+              folderId: folder.id,
+              logicalLedgerId: boundRename.ledgerId,
+              logicalTitle: boundRename.logicalTitle,
+              logicalVideoCount: boundRename.logicalVideoCount,
+              shards: boundRename.shards
+            })
+            continue
+          }
           const unbound = result.unboundCandidates?.find((entry) => entry.ledgerId === folder.logicalLedgerId)
           if (unbound?.candidates.length && folder.logicalLedgerId) {
             bindingCandidates.push({
@@ -1882,10 +1921,62 @@ export function FavoriteLibraryApp({
           orderBindingCandidates(entry.candidates).map((candidate) => candidate.id)
         ])))
       }
-      setWorkspaceSyncResult(bindingCandidates.length
-        ? `备册完成 ${succeeded} 个，失败 ${failed} 个；另有 ${bindingCandidates.length} 个工作夹需要确认绑定。`
+      if (boundRenameCandidates.length) setWorkspaceBoundRenameCandidates(boundRenameCandidates)
+      const pendingMessages = [
+        boundRenameCandidates.length ? `另有 ${boundRenameCandidates.length} 个工作夹需要确认改名` : '',
+        bindingCandidates.length ? `另有 ${bindingCandidates.length} 个工作夹需要确认绑定` : ''
+      ].filter(Boolean)
+      setWorkspaceSyncResult(pendingMessages.length
+        ? `备册完成 ${succeeded} 个，失败 ${failed} 个；${pendingMessages.join('；')}。`
         : `备册完成 ${succeeded} 个，失败 ${failed} 个`)
       setWorkspaceSyncConfirmationOpen(false)
+      await refresh(accountMid)
+    } finally {
+      setWorkspaceSyncExecuting(false)
+    }
+  }
+  const confirmWorkspaceBoundRenames = async () => {
+    const api = window.bilimiDesktop
+    if (!accountMid || !api?.ensureFavoriteLedger || !workspaceBoundRenameCandidates?.length) throw new Error(text.unavailable)
+    setWorkspaceSyncExecuting(true)
+    try {
+      let succeeded = 0
+      let failed = 0
+      const refreshedCandidates: LightweightBackupBoundRenameCandidate[] = []
+      for (const entry of workspaceBoundRenameCandidates) {
+        try {
+          const result = await api.ensureFavoriteLedger(entry.folderId, {
+            lightweightBackup: true,
+            confirmBoundRename: true,
+            boundRenameShards: {
+              [entry.logicalLedgerId]: entry.shards.map((shard) => ({
+                remoteFolderId: shard.remoteFolderId,
+                shardNumber: shard.shardNumber
+              }))
+            }
+          }) as LightweightBackupResult
+          const refreshed = result.boundRenameCandidates?.find((candidate) => candidate.ledgerId === entry.logicalLedgerId)
+          if (refreshed?.shards.length) {
+            refreshedCandidates.push({
+              folderId: entry.folderId,
+              logicalLedgerId: refreshed.ledgerId,
+              logicalTitle: refreshed.logicalTitle,
+              logicalVideoCount: refreshed.logicalVideoCount,
+              shards: refreshed.shards
+            })
+          } else if (result.ok === false) {
+            failed++
+          } else {
+            succeeded++
+          }
+        } catch {
+          failed++
+        }
+      }
+      setWorkspaceBoundRenameCandidates(refreshedCandidates.length ? refreshedCandidates : undefined)
+      setWorkspaceSyncResult(refreshedCandidates.length
+        ? `确认改名后备册完成 ${succeeded} 个，失败 ${failed} 个；B 站收藏夹状态已变化，请确认最新名称后继续。`
+        : `确认改名并继续备册完成 ${succeeded} 个，失败 ${failed} 个`)
       await refresh(accountMid)
     } finally {
       setWorkspaceSyncExecuting(false)
@@ -1949,6 +2040,17 @@ export function FavoriteLibraryApp({
       return
     }
     const result = await api.ensureFavoriteLedger(folderId, { lightweightBackup: true }) as LightweightBackupResult
+    const boundRename = result.boundRenameCandidates?.find((entry) => entry.ledgerId === logicalLedgerId)
+    if (boundRename?.shards.length) {
+      setWorkspaceBoundRenameCandidates([{
+        folderId,
+        logicalLedgerId: boundRename.ledgerId,
+        logicalTitle: boundRename.logicalTitle,
+        logicalVideoCount: boundRename.logicalVideoCount,
+        shards: boundRename.shards
+      }])
+      return
+    }
     const unbound = result.unboundCandidates?.find((entry) => entry.ledgerId === logicalLedgerId)
     if (unbound?.candidates.length) {
       setWorkspaceBindingCandidates([{ folderId, logicalLedgerId, title, candidates: unbound.candidates }])
@@ -2427,7 +2529,16 @@ export function FavoriteLibraryApp({
         <ul className="favorite-library__managed-folder-preview">{backupFolders.map((folder) => <li key={folder.id}><label><input type="checkbox" aria-label={`选择 ${folder.title}`} checked={workspaceSyncSelection.includes(folder.id)} disabled={workspaceSyncExecuting} onChange={(event) => setWorkspaceSyncSelection((current) => event.currentTarget.checked ? [...new Set([...current, folder.id])] : current.filter((id) => id !== folder.id))} /><span>{folder.title}</span></label></li>)}</ul>
         <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceSyncConfirmationOpen(false)}>取消</button><button type="button" disabled={workspaceSyncExecuting || !workspaceSyncSelection.length} onClick={() => void runAction(confirmWorkspaceSync)}>开始备册</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
-      {workspaceBindingCandidates ? <FavoriteLibraryConfirmationDialog label="确认绑定 bilimi 收藏夹" busy={workspaceSyncExecuting} onClose={() => {
+      {workspaceBoundRenameCandidates ? <FavoriteLibraryConfirmationDialog label="确认修改 B 站收藏夹名称" busy={workspaceSyncExecuting} onClose={() => {
+        if (!workspaceSyncExecuting) setWorkspaceBoundRenameCandidates(undefined)
+      }}>
+        <p>本次仅修改已绑定收藏夹的 B 站名称，并继续本次备册；不重新绑定、不创建收藏夹、不处理视频同步。</p>
+        <ul className="favorite-library__managed-folder-preview">{workspaceBoundRenameCandidates.flatMap((entry) => entry.shards.map((shard) => <li key={`${entry.logicalLedgerId}:${shard.shardNumber}:${shard.remoteFolderId}`}>
+          {entry.logicalTitle}：分册 {shard.shardNumber}：{shard.currentRemoteTitle}（{shard.remoteMemberCount} 个视频，确认后 B 站收藏夹名字会更改为 {shard.targetTitle}）
+        </li>))}</ul>
+        <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceBoundRenameCandidates(undefined)}>取消</button><button type="button" disabled={workspaceSyncExecuting} onClick={() => void runAction(confirmWorkspaceBoundRenames)}>确认改名并继续备册</button></div>
+      </FavoriteLibraryConfirmationDialog> : null}
+      {workspaceBindingCandidates && !workspaceBoundRenameCandidates ? <FavoriteLibraryConfirmationDialog label="确认绑定 bilimi 收藏夹" busy={workspaceSyncExecuting} onClose={() => {
         if (!workspaceSyncExecuting) {
           setWorkspaceBindingCandidates(undefined)
           setWorkspaceBindingSelections({})

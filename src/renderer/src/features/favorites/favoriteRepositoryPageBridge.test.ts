@@ -142,6 +142,8 @@ describe('favorite repository page bridge', () => {
     document.cookie = 'DedeUserID=100'
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
+      status: 200,
+      headers: { get: vi.fn().mockReturnValue('application/json; charset=utf-8') },
       json: vi.fn().mockResolvedValue({
         code: 0,
         data: { id: 12, title: 'bilimi·游戏专区你好', media_count: 2 }
@@ -154,7 +156,33 @@ describe('favorite repository page bridge', () => {
     const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
 
     await expect(bridge.readFolder({ accountMid: '100', operationKey: 'bind:verify-rename:11', folderId: '11' })).resolves.toEqual({
-      status: 'unknown', observedAccountMid: '100', reason: 'remote-ambiguous'
+      status: 'unknown', observedAccountMid: '100', reason: 'remote-ambiguous', httpStatus: 200,
+      contentType: 'application/json', responseCategory: 'json', bilibiliCode: 0
+    })
+  })
+
+  it('keeps Bilibili response diagnostics when an exact folder read cannot confirm the target', async () => {
+    document.cookie = 'DedeUserID=100'
+    const fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 412,
+      headers: { get: vi.fn().mockReturnValue('text/html; charset=utf-8') },
+      json: vi.fn().mockResolvedValue({ code: -352 })
+    })
+    const executeJavaScript = vi.fn((script: string) => {
+      const evaluate = new Function('fetch', 'document', `return (${script})`)
+      return evaluate(fetch, document)
+    })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+
+    await expect(bridge.readFolder({ accountMid: '100', operationKey: 'bind:verify-rename:11', folderId: '11' })).resolves.toEqual({
+      status: 'unknown',
+      observedAccountMid: '100',
+      reason: 'remote-ambiguous',
+      httpStatus: 412,
+      contentType: 'text/html',
+      responseCategory: 'html',
+      bilibiliCode: -352
     })
   })
 

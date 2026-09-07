@@ -2458,6 +2458,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(dialog).toHaveTextContent('游戏专区哈哈（共 0 个视频）')
     expect(dialog).toHaveTextContent('分册 1：bilimi·游戏专区（0 个视频，确认后 B站收藏夹名字会更改为 bilimi·游戏专区哈哈）')
     expect(dialog).not.toHaveTextContent('ID：')
+    expect(within(dialog).getByRole('button', { name: '确认改名并继续备册' })).toBeInTheDocument()
     expect(sync).toHaveBeenCalledTimes(1)
 
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
@@ -2480,7 +2481,7 @@ describe('FavoriteLedgerOverview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     const dialog = await screen.findByRole('dialog', { name: '确认修改 B 站收藏夹名称' })
-    fireEvent.click(within(dialog).getByRole('button', { name: '确认改名' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认改名并继续备册' }))
 
     await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), {
       backupTargetLedgerIds: ['game'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, confirmBoundRename: true,
@@ -2504,7 +2505,7 @@ describe('FavoriteLedgerOverview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     const dialog = await screen.findByRole('dialog', { name: '确认修改 B 站收藏夹名称' })
-    fireEvent.click(within(dialog).getByRole('button', { name: '确认改名' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认改名并继续备册' }))
 
     await waitFor(() => expect(dialog).toHaveTextContent('B 站改名被拒绝。'))
     expect(screen.getByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).toBeInTheDocument()

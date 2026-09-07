@@ -41,7 +41,7 @@ import {
   withFavoriteLedgersForAccount
 } from './features/state/assistantState'
 import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
-import { favoriteLedgerBindingNameAndShard } from '@shared/favoriteLedgers'
+import { favoriteLedgerBindingNameAndShard, favoriteLedgerCapacityShardName } from '@shared/favoriteLedgers'
 import {
   buildVideoNoteExtractionScript,
   normalizeExtractedVideoNoteResult
@@ -58,6 +58,7 @@ import {
 import {
   buildCreateFavoriteLedgerPhysicalShardScript,
   buildEnsureFavoriteLedgersScript,
+  buildFormalBoundFavoriteRenamePreflightScript,
   buildFavoriteLedgerStatusScript,
   buildFavoriteLedgerWriteCapacityScript,
   buildSaveFavoriteLedgersScript,
@@ -1639,34 +1640,6 @@ export default function App() {
     detail: string
   }
 
-  function boundRenameCandidatesForTargets(
-    ledgers: readonly FavoriteLedger[],
-    formalShards: readonly FormalBoundFavoriteShard[],
-    targetLedgerIds: ReadonlySet<string>
-  ): AssistantAutomationResult['boundRenameCandidates'] {
-    return ledgers.flatMap((ledger) => {
-      if (!targetLedgerIds.has(ledger.id)) return []
-      const targetTitle = ledger.displayName.trim()
-      const shards = formalShards
-        .filter((shard) => shard.logicalLedgerId === ledger.id)
-        .filter((shard) => shard.remoteTitle.trim() !== targetTitle)
-        .map((shard) => ({
-          remoteFolderId: shard.remoteFolderId,
-          shardNumber: shard.shardNumber,
-          currentRemoteTitle: shard.remoteTitle,
-          remoteMemberCount: shard.remoteMemberCount ?? 0,
-          targetTitle
-        }))
-      if (!shards.length) return []
-      return [{
-        ledgerId: ledger.id,
-        logicalTitle: ledger.displayName,
-        logicalVideoCount: ledger.bilibiliFolderVideoCount ?? 0,
-        shards
-      }]
-    })
-  }
-
   function boundRenamePreflightResult(candidates: NonNullable<AssistantAutomationResult['boundRenameCandidates']>): AssistantAutomationResult {
     return {
       ok: false,
@@ -1839,7 +1812,8 @@ export default function App() {
         })
         continue
       }
-      const shards = formalLedgerShards.filter((shard) => shard.remoteTitle.trim() !== ledger.displayName.trim())
+      const shards = formalLedgerShards.filter((shard) =>
+        shard.remoteTitle.trim() !== favoriteLedgerCapacityShardName(ledger.displayName, shard.shardNumber))
       if (!shards.length) continue
       if (!api) {
         failures.push({
@@ -1921,6 +1895,81 @@ export default function App() {
         ? '已按掌库当前名称完成已绑定收藏夹改名。'
         : result.message
     }
+  }
+
+  async function readBoundRenameCandidatesForTargets(
+    ledgers: readonly FavoriteLedger[],
+    formalShards: readonly FormalBoundFavoriteShard[],
+    targetLedgerIds: ReadonlySet<string>
+  ): Promise<{ formalShards: FormalBoundFavoriteShard[] } | undefined> {
+    const ledgersById = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
+    const targets = formalShards.flatMap((shard) => {
+      if (!targetLedgerIds.has(shard.logicalLedgerId)) return []
+      const ledger = ledgersById.get(shard.logicalLedgerId)
+      if (!ledger) return []
+      return [{
+        logicalLedgerId: shard.logicalLedgerId,
+        shardNumber: shard.shardNumber,
+        remoteFolderId: shard.remoteFolderId,
+        targetTitle: favoriteLedgerCapacityShardName(ledger.displayName, shard.shardNumber)
+      }]
+    })
+    if (!targets.length) return { formalShards: [...formalShards] }
+    let result: { ok?: unknown; verified?: unknown; observedShards?: unknown }
+    try {
+      result = await runScript(buildFormalBoundFavoriteRenamePreflightScript(targets)) as typeof result
+    } catch {
+      return undefined
+    }
+    if (result?.ok !== true || result.verified !== true || !Array.isArray(result.observedShards)) {
+      return undefined
+    }
+    const observedTitleByTuple = new Map(result.observedShards.flatMap((candidate) => {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return []
+      const value = candidate as Record<string, unknown>
+      const logicalLedgerId = typeof value.logicalLedgerId === 'string' ? value.logicalLedgerId.trim() : ''
+      const shardNumber = Number(value.shardNumber)
+      const remoteFolderId = typeof value.remoteFolderId === 'string' ? value.remoteFolderId.trim() : ''
+      const currentRemoteTitle = typeof value.currentRemoteTitle === 'string' ? value.currentRemoteTitle.trim() : ''
+      const remoteMemberCount = Number(value.remoteMemberCount)
+      if (!logicalLedgerId || !remoteFolderId || !currentRemoteTitle || !Number.isSafeInteger(shardNumber) || shardNumber < 1 ||
+        !Number.isSafeInteger(remoteMemberCount) || remoteMemberCount < 0) return []
+      return [[`${logicalLedgerId}:${shardNumber}:${remoteFolderId}`, { currentRemoteTitle, remoteMemberCount }] as const]
+    }))
+    if (observedTitleByTuple.size !== targets.length) return undefined
+    return {
+      formalShards: formalShards.map((shard) => {
+        const observed = observedTitleByTuple.get(`${shard.logicalLedgerId}:${shard.shardNumber}:${shard.remoteFolderId}`)
+        return observed ? { ...shard, remoteTitle: observed.currentRemoteTitle, remoteMemberCount: observed.remoteMemberCount } : shard
+      })
+    }
+  }
+
+  function boundRenameCandidatesForTargets(
+    ledgers: readonly FavoriteLedger[],
+    formalShards: readonly FormalBoundFavoriteShard[],
+    targetLedgerIds: ReadonlySet<string>
+  ): AssistantAutomationResult['boundRenameCandidates'] {
+    return ledgers.flatMap((ledger) => {
+      if (!targetLedgerIds.has(ledger.id)) return []
+      const shards = formalShards
+        .filter((shard) => shard.logicalLedgerId === ledger.id)
+        .filter((shard) => shard.remoteTitle.trim() !== favoriteLedgerCapacityShardName(ledger.displayName, shard.shardNumber))
+        .map((shard) => ({
+          remoteFolderId: shard.remoteFolderId,
+          shardNumber: shard.shardNumber,
+          currentRemoteTitle: shard.remoteTitle,
+          remoteMemberCount: shard.remoteMemberCount ?? 0,
+          targetTitle: favoriteLedgerCapacityShardName(ledger.displayName, shard.shardNumber)
+        }))
+      if (!shards.length) return []
+      return [{
+        ledgerId: ledger.id,
+        logicalTitle: ledger.displayName,
+        logicalVideoCount: ledger.bilibiliFolderVideoCount ?? 0,
+        shards
+      }]
+    })
   }
 
   /**
@@ -2840,9 +2889,23 @@ export default function App() {
       currentLedgers,
       [targetLedger]
     )
-    const boundRenameCandidates = boundRenameCandidatesForTargets(
+    const observedFormalBindings = await readBoundRenameCandidatesForTargets(
       ledgersWithFormalBindings,
       formalBoundShards,
+      explicitBackupTargetIds
+    )
+    if (!observedFormalBindings) {
+      return {
+        ok: false,
+        steps: ['favorite:bound-shard-rename-preflight'],
+        missingTargets: [...explicitBackupTargetIds],
+        message: '已绑定收藏夹名称核验失败，本次不执行 B 站收藏写入。'
+      }
+    }
+    const observedFormalShards = observedFormalBindings.formalShards
+    const boundRenameCandidates = boundRenameCandidatesForTargets(
+      ledgersWithFormalBindings,
+      observedFormalShards,
       explicitBackupTargetIds
     )
     if (boundRenameCandidates.length && (
@@ -2852,7 +2915,7 @@ export default function App() {
     const directRename = await renameExplicitlyBoundFavoriteLedgers(
       accountMid,
       ledgersWithFormalBindings,
-      formalBoundShards,
+      observedFormalShards,
       explicitBackupTargetIds,
       declaredBoundRemoteFolderIds
     )
@@ -3069,9 +3132,23 @@ export default function App() {
       previousLedgers,
       requestedLedgers
     )
-    const boundRenameCandidates = boundRenameCandidatesForTargets(
+    const observedFormalBindings = await readBoundRenameCandidatesForTargets(
       ledgersWithFormalBindings,
       formalBoundShards,
+      backupTargetLedgerIdSet
+    )
+    if (!observedFormalBindings) {
+      return {
+        ok: false,
+        steps: ['favorite:bound-shard-rename-preflight'],
+        missingTargets: [...backupTargetLedgerIdSet],
+        message: '已绑定收藏夹名称核验失败，本次不执行 B 站收藏写入。'
+      }
+    }
+    const observedFormalShards = observedFormalBindings.formalShards
+    const boundRenameCandidates = boundRenameCandidatesForTargets(
+      ledgersWithFormalBindings,
+      observedFormalShards,
       backupTargetLedgerIdSet
     )
     if (boundRenameCandidates.length && (
@@ -3081,7 +3158,7 @@ export default function App() {
     const directRename = await renameExplicitlyBoundFavoriteLedgers(
       accountMid,
       ledgersWithFormalBindings,
-      formalBoundShards,
+      observedFormalShards,
       backupTargetLedgerIdSet,
       declaredBoundRemoteFolderIds
     )

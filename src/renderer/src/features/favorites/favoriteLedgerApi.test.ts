@@ -1250,6 +1250,40 @@ describe('favorite ledger API scripts', () => {
     }])
   })
 
+  it('returns the exact formal shard title drift for a backup rename confirmation', async () => {
+    installCookies()
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      requests.push(url)
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 4065561111, title: '手动改过的收藏夹', media_count: 7 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(favoriteLedgerApiModule.buildFormalBoundFavoriteRenamePreflightScript([{
+      logicalLedgerId: 'custom-music',
+      shardNumber: 1,
+      remoteFolderId: '4065561111',
+      targetTitle: 'bilimi·音乐舞台'
+    }]))
+
+    expect(result).toEqual({
+      ok: true,
+      verified: true,
+      observedShards: [{
+        logicalLedgerId: 'custom-music',
+        shardNumber: 1,
+        remoteFolderId: '4065561111',
+        currentRemoteTitle: '手动改过的收藏夹',
+        remoteMemberCount: 7
+      }]
+    })
+    expect(requests.some((url) => url.includes('/x/v3/fav/folder/edit'))).toBe(false)
+    expect(requests.some((url) => url.includes('/x/v3/fav/folder/add'))).toBe(false)
+    expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
+  })
+
   it('does not recreate a dismissed remote-only draft reminder for the same remote folder', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

@@ -326,9 +326,9 @@ export class FavoriteRepositoryBindingService {
               `${runId}:verify-rename:${normalized.remoteFolderId}${attempt ? `-recheck-${attempt}` : ''}`,
               normalized.remoteFolderId
             )
-          } catch {
+          } catch (error) {
             if (renameResultUnknown) throw remoteRenameFailure(renameResult)
-            throw new Error('Favorite repository remote shard rename is not confirmed.')
+            throw error
           }
           if (normalizedAccountMid(verifiedInventory.observedAccountMid) !== account) {
             throw new Error('Favorite repository remote account mismatch.')

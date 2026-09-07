@@ -475,6 +475,53 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.getByRole('button', { name: '刷新信息' })).toBeInTheDocument()
   })
 
+  it('confirms a bound remote rename before continuing the current work-folder backup', async () => {
+    const ensureFavoriteLedger = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        boundRenameCandidates: [{
+          ledgerId: 'music', logicalTitle: 'bilimi·音乐', logicalVideoCount: 3,
+          shards: [{
+            remoteFolderId: '81', shardNumber: 1, currentRemoteTitle: '用户改过的音乐夹',
+            remoteMemberCount: 3, targetTitle: 'bilimi·音乐'
+          }]
+        }]
+      })
+      .mockResolvedValueOnce({ ok: true })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-09-07T00:00:00.000Z', videoCount: 3, folderCount: 1,
+        folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }],
+        physicalShardCount: 1,
+        physicalShards: [{
+          logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1,
+          remoteFolderId: '81', remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteMemberCount: 3
+        }],
+        syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      ensureFavoriteLedger,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册当前收藏夹' }))
+
+    const rename = await screen.findByRole('alertdialog', { name: '确认修改 B 站收藏夹名称' })
+    expect(rename).toHaveTextContent('分册 1：用户改过的音乐夹（3 个视频，确认后 B 站收藏夹名字会更改为 bilimi·音乐）')
+    expect(rename).not.toHaveTextContent('81')
+    expect(screen.queryByRole('alertdialog', { name: '确认绑定 bilimi 收藏夹' })).not.toBeInTheDocument()
+    fireEvent.click(within(rename).getByRole('button', { name: '确认改名并继续备册' }))
+
+    await waitFor(() => expect(ensureFavoriteLedger).toHaveBeenLastCalledWith('bilimi-logical:music', {
+      lightweightBackup: true,
+      confirmBoundRename: true,
+      boundRenameShards: { music: [{ remoteFolderId: '81', shardNumber: 1 }] }
+    }))
+  })
+
   it('preflights an unbound current work folder and requires confirmation before creating it', async () => {
     const ensureFavoriteLedger = vi.fn().mockResolvedValue({ ok: true, message: '已备册' })
     const previewFavoriteRepositoryLedgerBindingCandidates = vi.fn().mockResolvedValue([
@@ -1163,6 +1210,60 @@ describe('FavoriteLibraryApp', () => {
           { id: '81', title: 'bilimi·音乐', memberCount: 12 }
         ]
       }
+    }))
+  })
+
+  it('uses the bound-rename confirmation instead of the binding dialog during batch work-folder backup', async () => {
+    const ensureFavoriteLedger = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        boundRenameCandidates: [{
+          ledgerId: 'music', logicalTitle: 'bilimi·音乐', logicalVideoCount: 0,
+          shards: [{
+            remoteFolderId: '81', shardNumber: 1, currentRemoteTitle: '用户改过的音乐夹',
+            remoteMemberCount: 0, targetTitle: 'bilimi·音乐'
+          }]
+        }]
+      })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-09-07T00:00:00.000Z', videoCount: 0, folderCount: 2,
+        folders: [
+          { id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' },
+          { id: 'bilimi-logical:games', title: '游戏', kind: 'bilimi-logical', logicalLedgerId: 'games', syncState: 'bound' }
+        ],
+        physicalShardCount: 2,
+        physicalShards: [
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '81', remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteMemberCount: 0 },
+          { logicalLedgerId: 'games', folderId: 'bilimi:games:001', shardNumber: 1, remoteFolderId: '82', remoteTitle: 'bilimi·游戏', bindingState: 'bound', remoteMemberCount: 0 }
+        ],
+        syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      ensureFavoriteLedger,
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: 'bilimi 工作夹管理菜单' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '备册工作夹' }))
+    const backup = await screen.findByRole('alertdialog', { name: '备册 bilimi 工作夹' })
+    fireEvent.click(within(backup).getByRole('button', { name: '全选' }))
+    fireEvent.click(within(backup).getByRole('button', { name: '开始备册' }))
+
+    const rename = await screen.findByRole('alertdialog', { name: '确认修改 B 站收藏夹名称' })
+    expect(rename).toHaveTextContent('分册 1：用户改过的音乐夹（0 个视频，确认后 B 站收藏夹名字会更改为 bilimi·音乐）')
+    expect(rename).not.toHaveTextContent('81')
+    expect(screen.queryByRole('alertdialog', { name: '确认绑定 bilimi 收藏夹' })).not.toBeInTheDocument()
+    fireEvent.click(within(rename).getByRole('button', { name: '确认改名并继续备册' }))
+
+    await waitFor(() => expect(ensureFavoriteLedger).toHaveBeenLastCalledWith('bilimi-logical:music', {
+      lightweightBackup: true,
+      confirmBoundRename: true,
+      boundRenameShards: { music: [{ remoteFolderId: '81', shardNumber: 1 }] }
     }))
   })
 

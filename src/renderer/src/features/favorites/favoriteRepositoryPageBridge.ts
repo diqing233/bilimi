@@ -111,13 +111,16 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
         const folderId = String(input.folderId || '').trim();
         if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid) || !String(input.operationKey || '').trim() || !folderId) return { status: 'unknown', observedAccountMid, reason: 'account-mismatch' };
         let response; try { response = await fetch('https://api.bilibili.com/x/v3/fav/folder/info?media_id=' + encodeURIComponent(String(input.folderId).trim()), { credentials: 'include', cache: 'no-store' }); } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
-        let json; try { json = await response.json(); } catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response' }; }
+        const httpStatus = Number(response?.status || 0);
+        const contentType = String(response?.headers?.get?.('content-type') || '').split(';', 1)[0].trim().slice(0, 100);
+        const responseCategory = !contentType ? 'unknown' : contentType.includes('json') ? 'json' : contentType.includes('html') ? 'html' : contentType.startsWith('text/') ? 'text' : 'unknown';
+        let json; try { json = await response.json(); } catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response', httpStatus, ...(contentType ? { contentType } : {}), responseCategory }; }
         const data = json?.data;
         const id = String(data?.id ?? data?.fid ?? '');
         const title = String(data?.title ?? '').trim();
         const memberCount = Number(data?.media_count ?? data?.mediaCount ?? 0);
         if (response.ok && json?.code === 0 && id === folderId && title && Number.isSafeInteger(memberCount) && memberCount >= 0 && normalizeMid(readCookie('DedeUserID')) === observedAccountMid) return { status: 'ok', observedAccountMid, folder: { id, title, memberCount } };
-        return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous' };
+        return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous', httpStatus, ...(contentType ? { contentType } : {}), responseCategory, ...(Number.isSafeInteger(json?.code) ? { bilibiliCode: json.code } : {}) };
       })()
     `
   }

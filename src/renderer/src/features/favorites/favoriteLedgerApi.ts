@@ -587,6 +587,64 @@ export function buildFavoriteLedgerStatusScript(
   `
 }
 
+/**
+ * Read-only preflight for an already formalized physical shard.  The caller
+ * provides the exact remote IDs from the repository snapshot; names merely
+ * describe the observed drift and never select or claim another folder.
+ */
+export function buildFormalBoundFavoriteRenamePreflightScript(
+  shards: Array<{
+    logicalLedgerId: string
+    shardNumber: number
+    remoteFolderId: string
+    targetTitle: string
+  }>
+): string {
+  const payload = scriptPayload({
+    shards: shards.map((shard) => ({
+      logicalLedgerId: String(shard.logicalLedgerId ?? '').trim(),
+      shardNumber: Number(shard.shardNumber),
+      remoteFolderId: String(shard.remoteFolderId ?? '').trim(),
+      targetTitle: String(shard.targetTitle ?? '').trim()
+    }))
+  })
+
+  return `
+    (async () => {
+      const payload = ${payload};
+      ${sharedScriptHelpers()}
+      const requestedShards = Array.isArray(payload.shards) ? payload.shards : [];
+      if (requestedShards.some((shard) => !shard.logicalLedgerId || !shard.remoteFolderId || !shard.targetTitle || !Number.isSafeInteger(shard.shardNumber) || shard.shardNumber < 1)) {
+        return { ok: false, verified: false, candidates: [], message: '已绑定收藏夹改名预检参数无效。' };
+      }
+      const { csrf, mid } = readCredentials();
+      if (!csrf || !mid) return { ok: false, verified: false, candidates: [], message: '未能读取登录凭据，无法核验已绑定收藏夹名称。' };
+      const response = await fetch(buildListUrl(mid), { credentials: 'include' });
+      const json = await ensureApiOk(response, 'favorite folder list');
+      const folders = readFavoriteFolderList(json);
+      const folderById = new Map(folders.map((folder) => [String(findFolderId(folder) || '').trim(), folder]));
+      const observedShards = [];
+      for (const shard of requestedShards) {
+        const folder = folderById.get(shard.remoteFolderId);
+        if (!folder) return { ok: false, verified: true, observedShards: [], message: '已绑定的 B 站收藏夹未出现在当前清单中，请刷新后重试。' };
+        const currentRemoteTitle = String(folder.title || '').trim();
+        const remoteMemberCount = Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0);
+        if (!currentRemoteTitle || !Number.isSafeInteger(remoteMemberCount)) {
+          return { ok: false, verified: false, observedShards: [], message: '已绑定的 B 站收藏夹数据异常，请刷新后重试。' };
+        }
+        observedShards.push({
+          logicalLedgerId: shard.logicalLedgerId,
+          shardNumber: shard.shardNumber,
+          remoteFolderId: shard.remoteFolderId,
+          currentRemoteTitle,
+          remoteMemberCount
+        });
+      }
+      return { ok: true, verified: true, observedShards };
+    })();
+  `
+}
+
 export function buildFavoriteLedgerWriteCapacityScript(
   ledgers: FavoriteLedger[],
   targetLedgerIds: string[]

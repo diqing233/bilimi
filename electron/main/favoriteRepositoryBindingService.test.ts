@@ -1353,6 +1353,44 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(waitForInventoryRetry).not.toHaveBeenCalled()
   })
 
+  it('preserves exact-folder read diagnostics when a bound rename cannot be confirmed', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'bound-game-shard', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z',
+      type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: 'game-diagnostics', remoteMemberCount: 0
+      }
+    })
+    const commit = vi.spyOn(repository, 'commit')
+    const readFolder = vi.fn().mockRejectedValue(new Error(
+      'remote-ambiguous; http-status=412; content-type=text/html; response-category=html; bilibili-code=-352'
+    ))
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      waitForInventoryRetry: vi.fn().mockResolvedValue(undefined),
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100', folders: [{ id: 'game-diagnostics', title: 'bilimi·游戏专区', memberCount: 0 }]
+          }),
+          readFolder,
+          renameFolder: vi.fn().mockResolvedValue({ status: 'ok', observedAccountMid: '100' }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.renameBoundPhysicalShard('100', {
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区你好', remoteFolderId: 'game-diagnostics', shardNumber: 1
+    })).rejects.toThrow('http-status=412')
+
+    expect(readFolder).toHaveBeenCalled()
+    expect(commit).not.toHaveBeenCalled()
+  })
+
   it('repairs an exact formally bound shard title when the remote id is already renamed', async () => {
     const repository = await createRepository()
     await repository.commit('100', {
