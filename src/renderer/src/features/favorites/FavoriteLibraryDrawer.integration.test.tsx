@@ -354,7 +354,7 @@ describe('FavoriteLibraryDrawer integration', () => {
     await screen.findByText('1个视频同步失败')
     const header = screen.getByRole('banner', { name: '小咪收藏库' })
     expect(header).toHaveTextContent('1个视频同步失败')
-    expect(header).not.toHaveTextContent('另有1条')
+    expect(header).toHaveTextContent('另有1条')
     expect(screen.queryByText('远程操作待处理')).not.toBeInTheDocument()
     expect(screen.getByTestId('favorite-library-drawer').querySelectorAll('.favorite-library__layout > *')).toHaveLength(4)
     expect(screen.getByRole('complementary', { name: '视频详情' })).toHaveTextContent('选择一个视频查看详情')

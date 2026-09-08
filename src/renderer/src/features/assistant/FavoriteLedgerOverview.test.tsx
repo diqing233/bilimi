@@ -16,7 +16,7 @@ function deferred<T>() {
 
 describe('FavoriteLedgerOverview', () => {
 
-  it('shows remote detection summary in the existing notice and reveals only read-only details on request', () => {
+  it('keeps combined remote detection in one notice and opens the suspected-favorite dialog only on request', () => {
     const save = vi.fn()
     const sync = vi.fn()
     render(<FavoriteLedgerOverview
@@ -24,7 +24,7 @@ describe('FavoriteLedgerOverview', () => {
         id: 'game', displayName: 'bilimi·游戏', keywords: [], enabled: true, priority: 10, isDefault: false,
         bilibiliFolderId: '4106106611', bindingState: 'bound'
       }]}
-      missingLedgerIds={[]}
+      missingLedgerIds={['game']}
       observedRemoteObservations={[{ folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }]}
       observedBoundRenameCandidates={[{
         ledgerId: 'game', logicalTitle: 'bilimi·游戏', logicalVideoCount: 2,
@@ -41,6 +41,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(summary).toBeInTheDocument()
     expect(summary.closest('.favorite-ledger-panel__notice')?.nextElementSibling)
       .toHaveClass('favorite-ledger-panel__list-toggle')
+    expect(screen.queryByText('部分 Bilimi 收藏夹尚未备册。')).not.toBeInTheDocument()
     const details = screen.getByRole('button', { name: '查看详情' })
     expect(details).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('bilimi·远端观察')).not.toBeInTheDocument()
@@ -48,9 +49,48 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(details)
 
     expect(details).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('疑似 bilimi 收藏夹：bilimi·远端观察（2 个视频）。')).toBeInTheDocument()
-    expect(screen.getByText('已绑定收藏夹名称已从“bilimi·旧游戏”变更为“bilimi·游戏”。')).toBeInTheDocument()
-    expect(screen.getByText('下次保存或备册时处理。')).toBeInTheDocument()
+    const suspectedFavorite = screen.getByRole('button', { name: '疑似 bilimi 收藏夹：bilimi·远端观察（2 个视频）。' })
+    expect(screen.getByRole('button', { name: '已绑定收藏夹名称已从“bilimi·旧游戏”变更为“bilimi·游戏”。' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '发现疑似 bilimi 收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
+    expect(sync).not.toHaveBeenCalled()
+
+    fireEvent.click(suspectedFavorite)
+
+    expect(screen.getByRole('dialog', { name: '发现疑似 bilimi 收藏夹' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
+    expect(sync).not.toHaveBeenCalled()
+  })
+
+  it('opens the bound-rename dialog only after clicking its detection detail', () => {
+    const save = vi.fn()
+    const sync = vi.fn()
+    render(<FavoriteLedgerOverview
+      ledgers={[{
+        id: 'game', displayName: 'bilimi·游戏', keywords: [], enabled: true, priority: 10, isDefault: false,
+        bilibiliFolderId: '4106106611', bindingState: 'bound'
+      }]}
+      missingLedgerIds={[]}
+      observedBoundRenameCandidates={[{
+        ledgerId: 'game', logicalTitle: 'bilimi·游戏', logicalVideoCount: 2,
+        shards: [{
+          remoteFolderId: '4106106611', shardNumber: 1, currentRemoteTitle: 'bilimi·旧游戏',
+          remoteMemberCount: 2, targetTitle: 'bilimi·游戏'
+        }]
+      }]}
+      onSaveLedgers={save}
+      onSyncLedgers={sync}
+    />)
+
+    expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }))
+    fireEvent.click(screen.getByRole('button', { name: '已绑定收藏夹名称已从“bilimi·旧游戏”变更为“bilimi·游戏”。' }))
+
+    const dialog = screen.getByRole('dialog', { name: '确认修改 B 站收藏夹名称' })
+    expect(dialog).toHaveTextContent('游戏（共 2 个视频）')
+    expect(dialog).toHaveTextContent('分册 1：bilimi·旧游戏（2 个视频，确认后 B站收藏夹名字会更改为 bilimi·游戏）')
     expect(save).not.toHaveBeenCalled()
     expect(sync).not.toHaveBeenCalled()
   })
@@ -280,7 +320,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByText(/\u81ea\u5b9a\u4e49\u6536\u85cf\u5939\uff1a/)).toHaveClass('favorite-ledger-panel__help-tooltip-title')
   })
 
-  it('keeps the missing-backup warning visible when a paused workspace exists but the guide is closed', () => {
+  it('does not render the duplicate missing-backup warning when a paused workspace exists but the guide is closed', () => {
     const props = {
       ledgers: [{ id: 'music', displayName: 'bilimi\u00b7\u97f3\u4e50', keywords: [], enabled: true, priority: 10, isDefault: false }],
       missingLedgerIds: ['music'],
@@ -288,13 +328,13 @@ describe('FavoriteLedgerOverview', () => {
     }
     const view = render(<FavoriteLedgerOverview {...props} organizationActive />)
 
-    expect(screen.getByText('部分 Bilimi 收藏夹尚未备册。')).toBeInTheDocument()
+    expect(screen.queryByText('部分 Bilimi 收藏夹尚未备册。')).not.toBeInTheDocument()
 
     view.rerender(<FavoriteLedgerOverview {...props} organizationActive={false} />)
-    expect(screen.getByText('部分 Bilimi 收藏夹尚未备册。')).toBeInTheDocument()
+    expect(screen.queryByText('部分 Bilimi 收藏夹尚未备册。')).not.toBeInTheDocument()
   })
 
-  it('hides the missing-backup warning while the organize guide is open', () => {
+  it('does not render the duplicate missing-backup warning while the organize guide is open', () => {
     render(<FavoriteLedgerOverview
       ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], priority: 10, enabled: true, isDefault: false }]}
       missingLedgerIds={['music']}

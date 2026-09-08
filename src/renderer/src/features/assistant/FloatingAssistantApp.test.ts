@@ -363,7 +363,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     const ordinarySuccessPath = saveFunction.slice(saveFunction.lastIndexOf('await releaseObservedRemoteDraftRediscovery()'))
 
     expect(refreshHelper).toContain('favoriteLedgerStatusCacheRef.current = null')
-    expect(refreshHelper).toContain('readFavoriteLedgerStatus(accountMid, { force: true, preserveBoundLedgerIds })')
+    expect(refreshHelper).toContain('readRemoteFavoriteDiscovery(accountMid, { preserveBoundLedgerIds })')
     expect(ordinarySuccessPath).toContain('await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)')
   })
 
@@ -392,7 +392,7 @@ describe('resolveFavoriteOrganizationLamp', () => {
     )
 
     expect(refreshHelper).toContain('favoriteLedgerStatusRefreshPromisesRef')
-    expect(refreshHelper).toContain('readFavoriteLedgerStatus(accountMid, { force: true, preserveBoundLedgerIds })')
+    expect(refreshHelper).toContain('readRemoteFavoriteDiscovery(accountMid, { preserveBoundLedgerIds })')
     expect(refreshHelper).toContain('verified')
     expect(refreshHelper).not.toContain('return readFavoriteLedgerStatus(accountMid, { force: true })')
     expect(refreshHelper).not.toContain('.catch(() => undefined)')

@@ -10322,7 +10322,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('projects a persisted participating zero-match saved ledger into a single-batch archive preview without creating a folder', async () => {
+  it('keeps a persisted participating zero-match saved ledger out of recommendations while projecting it into a single-batch archive preview without creating a folder', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-27T00:00:00.000Z' })
     const savedGenshinRule = {
@@ -10344,8 +10344,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: {
-        candidates: [expect.objectContaining({ id: 'genshin', displayName: 'bilimi·原神', count: 0 })],
-        adoptedCandidateIds: ['genshin']
+        candidates: [],
+        adoptedCandidateIds: []
       },
       overview: {
         archiveTargets: expect.arrayContaining([

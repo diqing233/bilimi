@@ -4897,6 +4897,34 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__notice {
   margin: 8px 0;
 }
+.favorite-ledger-panel__remote-detection-details {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.favorite-ledger-panel button.favorite-ledger-panel__remote-detection-detail {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--porcelain-text);
+  font: inherit;
+  line-height: 1.5;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.favorite-ledger-panel button.favorite-ledger-panel__remote-detection-detail:hover:not(:disabled),
+.favorite-ledger-panel button.favorite-ledger-panel__remote-detection-detail:focus-visible:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--porcelain-primary);
+  box-shadow: none;
+  transform: none;
+}
 .favorite-ledger-panel__notice--draft {
   padding: 0;
   border: 0;

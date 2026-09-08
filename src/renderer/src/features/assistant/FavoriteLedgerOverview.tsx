@@ -1860,17 +1860,15 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         {hasRemoteDetectionNotice ? <div className="favorite-ledger-panel__notice">
           <span>检测到 {observedRemoteObservations.length} 个疑似 bilimi 收藏夹、{observedBoundRenameCandidates.length} 个已绑定收藏夹名称变更。</span>
           <button type="button" aria-expanded={remoteDetectionDetailsVisible} onClick={() => setRemoteDetectionDetailsVisible((visible) => !visible)}>{remoteDetectionDetailsVisible ? '收起' : '查看详情'}</button>
-          {remoteDetectionDetailsVisible ? <div>
-            {observedRemoteObservations.map((observation) => <p key={observation.folderId}>疑似 bilimi 收藏夹：{observation.title}（{observation.memberCount} 个视频）。</p>)}
-            {observedBoundRenameCandidates.flatMap((candidate) => candidate.shards.map((shard) => <p key={`${candidate.ledgerId}:${shard.shardNumber}`}>已绑定收藏夹名称已从“{shard.currentRemoteTitle}”变更为“{shard.targetTitle}”。</p>))}
-            <p>下次保存或备册时处理。</p>
+          {remoteDetectionDetailsVisible ? <div className="favorite-ledger-panel__remote-detection-details">
+            {observedRemoteObservations.map((observation) => <button key={observation.folderId} type="button" className="favorite-ledger-panel__remote-detection-detail" onClick={() => showRemoteObservationDialog('save', [observation], [])}>疑似 bilimi 收藏夹：{observation.title}（{observation.memberCount} 个视频）。</button>)}
+            {observedBoundRenameCandidates.flatMap((candidate) => candidate.shards.map((shard) => <button key={`${candidate.ledgerId}:${shard.shardNumber}`} type="button" className="favorite-ledger-panel__remote-detection-detail" onClick={() => { setBoundRenameCandidates([candidate]); setBoundRenameError(null) }}>已绑定收藏夹名称已从“{shard.currentRemoteTitle}”变更为“{shard.targetTitle}”。</button>))}
           </div> : null}
         </div> : null}
         {recoveredRemoteLedgers.length ? <p className="favorite-ledger-panel__notice">检测到 B 站中有 {recoveredRemoteLedgers.reduce((count, ledger) => count + new Set([...(ledger.bilibiliFolderIds ?? []), ledger.bilibiliFolderId].filter(Boolean)).size, 0)} 个疑似 bilimi 工作夹：{recoveredRemoteStatusSummary}。请先编辑保存好收藏夹规则，再点击“备册”确认绑定；尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。</p> : null}
         <div className="favorite-ledger-panel__list-toggle"><button type="button" disabled={isLocalToggleOnly} onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={fullLedgerListVisible} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{fullLedgerListVisible ? '折叠' : '展开'}</button> : null}</div>
       </section>
       {backupSkipNotice ? <p className="favorite-ledger-panel__notice" role="alert">{backupSkipNotice}</p> : null}
-      {missingLedgerIds.length && !hideRemoteLifecycleStatus ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
         {active ? <section ref={editorRef} className="favorite-ledger-panel__editor" aria-label="当前收藏夹" data-ledger-id={active.id}><div className="favorite-ledger-panel__editor-title"><strong>{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={isLocalToggleOnly || !valid} onClick={() => void save()}>保存</button><button type="button" onClick={close}>收起</button>{!active.isDefault ? <button type="button" disabled={isLocalToggleOnly} onClick={() => requestSingleLedgerDeletion(active)}>删除</button> : null}</div></div>
          {remoteOnlyDraftLedgerIds.includes(active.id) && active.bilibiliFolderId ? <p className="favorite-ledger-panel__remote-draft-notice">
            发现 B 站疑似 bilimi 收藏夹，本地尚未建立绑定，可编辑保存好之后备册；更换电脑时建议先迁移数据。

@@ -3186,7 +3186,9 @@ describe('FavoriteLibraryApp', () => {
     } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
-    fireEvent.click((await screen.findAllByRole('button', { name: '音乐 菜单' }))[0])
+    const menuTrigger = (await screen.findAllByRole('button', { name: '音乐 菜单' }))[0]
+    fireEvent.click(menuTrigger)
+    await waitFor(() => expect(menuTrigger).toHaveAttribute('aria-expanded', 'true'))
     fireEvent.click(await screen.findByRole('menuitem', { name: '编辑信息' }))
 
     expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'ledger', ledgerId: 'music-a', sidebar: true })
@@ -3204,7 +3206,9 @@ describe('FavoriteLibraryApp', () => {
     } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
-    fireEvent.click(await screen.findByRole('button', { name: '音乐 菜单' }))
+    const menuTrigger = await screen.findByRole('button', { name: '音乐 菜单' })
+    fireEvent.click(menuTrigger)
+    await waitFor(() => expect(menuTrigger).toHaveAttribute('aria-expanded', 'true'))
     fireEvent.click(await screen.findByRole('menuitem', { name: '编辑信息' }))
 
     expect(openFloatingAssistantWorkspace).not.toHaveBeenCalled()
