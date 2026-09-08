@@ -50,7 +50,9 @@ describe('FavoriteLedgerOverview', () => {
 
     expect(details).toHaveAttribute('aria-expanded', 'true')
     const suspectedFavorite = screen.getByRole('button', { name: '疑似 bilimi 收藏夹：bilimi·远端观察（2 个视频）。' })
-    expect(screen.getByRole('button', { name: '已绑定收藏夹名称已从“bilimi·旧游戏”变更为“bilimi·游戏”。' })).toBeInTheDocument()
+    const renameText = screen.getByText('将b站收藏夹“bilimi·旧游戏”变更为“bilimi·游戏”')
+    expect(renameText.closest('button')).toBeNull()
+    expect(screen.getByRole('button', { name: '变更' })).toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: '发现疑似 bilimi 收藏夹' })).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument()
     expect(save).not.toHaveBeenCalled()
@@ -86,7 +88,7 @@ describe('FavoriteLedgerOverview', () => {
 
     expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '查看详情' }))
-    fireEvent.click(screen.getByRole('button', { name: '已绑定收藏夹名称已从“bilimi·旧游戏”变更为“bilimi·游戏”。' }))
+    fireEvent.click(screen.getByRole('button', { name: '变更' }))
 
     const dialog = screen.getByRole('dialog', { name: '确认修改 B 站收藏夹名称' })
     expect(dialog).toHaveTextContent('游戏（共 2 个视频）')

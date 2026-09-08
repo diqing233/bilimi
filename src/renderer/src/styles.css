@@ -4925,6 +4925,22 @@ body[data-floating-window="true"],
   box-shadow: none;
   transform: none;
 }
+.favorite-ledger-panel__remote-rename-detail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  line-height: 1.5;
+}
+.favorite-ledger-panel__remote-rename-detail > span {
+  min-width: 0;
+}
+.favorite-ledger-panel__remote-rename-detail > button {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
 .favorite-ledger-panel__notice--draft {
   padding: 0;
   border: 0;
