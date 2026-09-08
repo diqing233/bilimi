@@ -535,6 +535,24 @@ describe('favorite ledger API scripts', () => {
     }))
   })
 
+  it('reads the remote folder directory without HTTP caching before observing candidates', async () => {
+    installCookies()
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await window.eval(buildFavoriteLedgerStatusScript([]))
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining('/x/v3/fav/folder/created/list-all'),
+      { credentials: 'include', cache: 'no-store' }
+    )
+  })
+
   it('reports an existing bilimi-prefixed folder as an explicit rebind candidate instead of binding by name', async () => {
     installCookies()
     const ledgers: FavoriteLedger[] = [{

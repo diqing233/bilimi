@@ -141,6 +141,13 @@ function sharedScriptHelpers(): string {
       url.searchParams.set('type', '2');
       return url.toString();
     };
+    // The folder directory is the authority for remote observations and
+    // binding preflights. Never let a previously deleted folder re-enter the
+    // flow through Chromium's HTTP cache.
+    const fetchFreshFavoriteFolderList = (mid) => fetch(buildListUrl(mid), {
+      credentials: 'include',
+      cache: 'no-store'
+    });
     const findFolderId = (folder) => folder?.id ?? folder?.fid;
     const readFavoriteFolderList = (json) => {
       if (!Array.isArray(json?.data?.list)) {
@@ -490,7 +497,7 @@ export function buildFavoriteLedgerStatusScript(
         return { ok: false, verified: false, ledgers: payload.ledgers, missingLedgerIds: [], unboundLedgerIds: [], message: '未能读取登录凭据，无法查验册目。' };
       }
 
-      const response = await fetch(buildListUrl(mid), { credentials: 'include' });
+      const response = await fetchFreshFavoriteFolderList(mid);
       const json = await ensureApiOk(response, 'favorite folder list');
       const folders = readFavoriteFolderList(json);
       const synchronizedLedgers = syncLedgerFolderIds(payload.ledgers, folders);
@@ -569,7 +576,7 @@ export function buildFormalBoundFavoriteRenamePreflightScript(
       }
       const { csrf, mid } = readCredentials();
       if (!csrf || !mid) return { ok: false, verified: false, candidates: [], message: '未能读取登录凭据，无法核验已绑定收藏夹名称。' };
-      const response = await fetch(buildListUrl(mid), { credentials: 'include' });
+      const response = await fetchFreshFavoriteFolderList(mid);
       const json = await ensureApiOk(response, 'favorite folder list');
       const folders = readFavoriteFolderList(json);
       const folderById = new Map(folders.map((folder) => [String(findFolderId(folder) || '').trim(), folder]));
@@ -607,7 +614,7 @@ export function buildFavoriteLedgerWriteCapacityScript(
       ${sharedScriptHelpers()}
       const { csrf, mid } = readCredentials();
       if (!csrf || !mid) return { ok: false, missingTargets: ['favorite-api-user'], message: 'B 站登录凭证不可用，无法检查收藏夹分区。' };
-      const response = await fetch(buildListUrl(mid), { credentials: 'include' });
+      const response = await fetchFreshFavoriteFolderList(mid);
       const json = await ensureApiOk(response, 'favorite folder list');
       const folders = readFavoriteFolderList(json);
       const folderById = new Map(folders.map((folder) => [String(findFolderId(folder) || ''), folder]));
@@ -649,7 +656,7 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
       ${sharedScriptHelpers()}
       const { csrf, mid } = readCredentials();
       if (!csrf || !mid) return { ok: false, missingTargets: ['favorite-api-user'], message: 'B 站登录凭证不可用，无法备册新分区。' };
-      const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
+      const listResponse = await fetchFreshFavoriteFolderList(mid);
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = readFavoriteFolderList(listJson);
       if (folders.length >= 99) {
@@ -745,7 +752,7 @@ export function buildEnsureFavoriteLedgersScript(
       }
 
       const steps = ['api:ledger:list'];
-      const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
+      const listResponse = await fetchFreshFavoriteFolderList(mid);
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = readFavoriteFolderList(listJson);
       const projectRemoteDrafts = (sourceLedgers, sourceFolders) => {
@@ -829,7 +836,7 @@ export function buildEnsureFavoriteLedgersScript(
           continue;
         }
 
-        const recheckResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
+        const recheckResponse = await fetchFreshFavoriteFolderList(mid);
         const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
         const recheckedFolders = readFavoriteFolderList(recheckJson);
         const recheckedCandidates = remoteFolderCandidates(ledger, recheckedFolders);
@@ -969,7 +976,7 @@ export function buildSaveFavoriteLedgersScript(
       }
 
       const steps = ['api:ledger:list'];
-      const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
+      const listResponse = await fetchFreshFavoriteFolderList(mid);
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = readFavoriteFolderList(listJson);
       const currentRemoteFolderIds = new Set(folders.map((folder) => String(findFolderId(folder) || '').trim()).filter(Boolean));
@@ -1053,7 +1060,7 @@ export function buildSaveFavoriteLedgersScript(
           continue;
         }
 
-        const recheckResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
+        const recheckResponse = await fetchFreshFavoriteFolderList(mid);
         const recheckJson = await ensureApiOk(recheckResponse, 'favorite folder list');
         const recheckedFolders = readFavoriteFolderList(recheckJson);
         const recheckedCandidates = remoteFolderCandidates(ledger, recheckedFolders);
@@ -1682,14 +1689,14 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           return Boolean(scanControl?.cancelled) || window.__bilimiOldFavoriteScanControl !== scanControl;
         };
 
-        const fetchJsonWithTimeout = async (url, label, timeoutMs = 10000, shouldCancel = () => false) => {
+        const fetchJsonWithTimeout = async (url, label, timeoutMs = 10000, shouldCancel = () => false, requestInit = {}) => {
           const controller = new AbortController();
           let timeoutId;
           let cancelIntervalId;
           try {
             return await Promise.race([
               (async () => {
-                const response = await fetch(url, { credentials: 'include', signal: controller.signal });
+                const response = await fetch(url, { credentials: 'include', signal: controller.signal, ...requestInit });
                 return ensureApiOk(response, label);
               })(),
               new Promise((_, reject) => {
@@ -1713,7 +1720,13 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         };
         let listJson;
         try {
-          listJson = await fetchJsonWithTimeout(buildListUrl(mid), 'favorite folder list', 10000, scanControlWasCancelled);
+          listJson = await fetchJsonWithTimeout(
+            buildListUrl(mid),
+            'favorite folder list',
+            10000,
+            scanControlWasCancelled,
+            { cache: 'no-store' }
+          );
         } catch (error) {
           if (error?.kind === 'cancelled' || scanControlWasCancelled()) {
             return {
@@ -3013,7 +3026,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
               assertExpectedAccount();
               const { mid } = readCredentials();
               if (!mid) throw createApiError('favorite folder list requires an account', { kind: 'credentials' });
-              const response = await fetch(buildListUrl(mid), { credentials: 'include' });
+              const response = await fetchFreshFavoriteFolderList(mid);
               const json = await ensureApiOk(response, 'favorite folder list');
               const folders = readFavoriteFolderList(json);
               return folders.map((folder) => ({
@@ -3145,7 +3158,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
             return '';
           }
 
-          const response = await fetch(buildListUrl(mid), { credentials: 'include' });
+          const response = await fetchFreshFavoriteFolderList(mid);
           const json = await ensureApiOk(response, 'favorite folder list');
           const folders = readFavoriteFolderList(json);
           const folder = folders.find((candidate) => candidate?.title === targetDisplayName);
