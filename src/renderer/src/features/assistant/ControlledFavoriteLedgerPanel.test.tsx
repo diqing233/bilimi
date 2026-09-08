@@ -1184,7 +1184,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.any(Array), {
       backupTargetLedgerIds: ['music'],
       deleteDisabled: false,
-      rediscoverDeletedRemoteDrafts: true
+      rediscoverDeletedRemoteDrafts: true,
+      remoteObservationPreflight: true
     }))
 
     fireEvent.click(screen.getByRole('button', { name: '重置' }))
@@ -1204,7 +1205,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
         'inbox'
       ],
       deleteDisabled: false,
-      rediscoverDeletedRemoteDrafts: true
+      rediscoverDeletedRemoteDrafts: true,
+      remoteObservationPreflight: true
     })
   })
 

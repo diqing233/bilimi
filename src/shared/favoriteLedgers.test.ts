@@ -380,6 +380,7 @@ describe('favorite ledger model', () => {
     expect(favoriteLedgerBindingNameAndShard('bilimi·游戏专区')).toEqual({ baseName: 'bilimi·游戏专区', shardNumber: 1 })
     expect(favoriteLedgerBindingNameAndShard('bilimi·游戏专区①')).toEqual({ baseName: 'bilimi·游戏专区', shardNumber: 1 })
     expect(favoriteLedgerBindingNameAndShard('bilimi·游戏专区②')).toEqual({ baseName: 'bilimi·游戏专区', shardNumber: 2 })
+    expect(favoriteLedgerBindingNameAndShard('bilimi·游戏专区·2')).toEqual({ baseName: 'bilimi·游戏专区·2', shardNumber: 1 })
     expect(favoriteLedgerCapacityShardName('bilimi·游戏专区', 1)).toBe('bilimi·游戏专区')
     expect(favoriteLedgerCapacityShardName('bilimi·游戏专区', 2)).toBe('bilimi·游戏专区②')
     expect(favoriteLedgerCapacityShardName('bilimi·游戏专区', 51)).toBe('bilimi·游戏专区⑤①')

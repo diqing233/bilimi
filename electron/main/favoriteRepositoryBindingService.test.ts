@@ -392,7 +392,7 @@ describe('FavoriteRepositoryBindingService', () => {
     ])
   })
 
-  it('does not return a formally bound main shard as a rebinding candidate, but keeps an unbound numeric shard', async () => {
+  it('does not return a formally bound main shard as a rebinding candidate, but keeps an unbound circled shard', async () => {
     const repository = await createRepository()
     await repository.commit('100', {
       id: 'bound-game-main', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z',
@@ -410,7 +410,7 @@ describe('FavoriteRepositoryBindingService', () => {
           readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
             { id: 'ordinary', title: 'bilimi·游戏专区', memberCount: 2 },
             { id: 'bound-main', title: 'bilimi·游戏专区', memberCount: 1000 },
-            { id: 'unbound-2', title: 'bilimi·游戏专区·2', memberCount: 4 },
+            { id: 'unbound-2', title: 'bilimi·游戏专区②', memberCount: 4 },
             { id: 'unbound-circle-1', title: 'bilimi·游戏专区①', memberCount: 3 },
             { id: 'unbound-circle-2', title: 'bilimi·游戏专区②', memberCount: 5 }
           ]}), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder: vi.fn()
@@ -421,7 +421,7 @@ describe('FavoriteRepositoryBindingService', () => {
     await expect(service.previewLedgerBindingCandidates('100', [{ ledgerId: 'game', title: 'bilimi·游戏专区' }])).resolves.toEqual([
       { ledgerId: 'game', candidates: [
         { id: 'ordinary', title: 'bilimi·游戏专区', memberCount: 2 },
-        { id: 'unbound-2', title: 'bilimi·游戏专区·2', memberCount: 4 },
+        { id: 'unbound-2', title: 'bilimi·游戏专区②', memberCount: 4 },
         { id: 'unbound-circle-1', title: 'bilimi·游戏专区①', memberCount: 3 },
         { id: 'unbound-circle-2', title: 'bilimi·游戏专区②', memberCount: 5 }
       ] }
@@ -459,7 +459,7 @@ describe('FavoriteRepositoryBindingService', () => {
     const repository = await createRepository()
     const inventory = [
       { id: 'game-1', title: 'bilimi·游戏专区', memberCount: 1000, memberAids: [] },
-      { id: 'game-2', title: 'bilimi·游戏专区·2', memberCount: 6, memberAids: [] }
+      { id: 'game-2', title: 'bilimi·游戏专区②', memberCount: 6, memberAids: [] }
     ]
     const service = new FavoriteRepositoryBindingService({
       repository,
@@ -477,8 +477,8 @@ describe('FavoriteRepositoryBindingService', () => {
       expectedRemoteTitle: 'bilimi·游戏专区', remoteFolderId: 'game-1', shardNumber: 1, memberAids: []
     })
     await service.adoptExistingPhysicalShard('100', {
-      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteDisplayTitle: 'bilimi·游戏专区·2',
-      expectedRemoteTitle: 'bilimi·游戏专区·2', remoteFolderId: 'game-2', shardNumber: 2, memberAids: []
+      logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteDisplayTitle: 'bilimi·游戏专区②',
+      expectedRemoteTitle: 'bilimi·游戏专区②', remoteFolderId: 'game-2', shardNumber: 2, memberAids: []
     })
 
     expect((await service.getBindings('100')).shards).toEqual([
@@ -487,7 +487,7 @@ describe('FavoriteRepositoryBindingService', () => {
     ])
   })
 
-  it('accepts legacy zero-padded shard titles when the exact remote id is confirmed', async () => {
+  it('accepts a circled shard title when the exact remote id is confirmed', async () => {
     const repository = await createRepository()
     const service = new FavoriteRepositoryBindingService({
       repository,
@@ -495,7 +495,7 @@ describe('FavoriteRepositoryBindingService', () => {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
         pageBridge: vi.fn(() => ({
           readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [
-            { id: 'game-2', title: 'bilimi·游戏专区·2', memberCount: 0 }
+            { id: 'game-2', title: 'bilimi·游戏专区②', memberCount: 0 }
           ]}),
           createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
@@ -503,8 +503,8 @@ describe('FavoriteRepositoryBindingService', () => {
     })
 
     await expect(service.adoptExistingPhysicalShard('100', {
-      logicalLedgerId: 'game', logicalTitle: '游戏专区', remoteDisplayTitle: 'bilimi·游戏专区·2',
-      expectedRemoteTitle: 'bilimi·游戏专区·2', remoteFolderId: 'game-2', shardNumber: 2, memberAids: []
+      logicalLedgerId: 'game', logicalTitle: '游戏专区', remoteDisplayTitle: 'bilimi·游戏专区②',
+      expectedRemoteTitle: 'bilimi·游戏专区②', remoteFolderId: 'game-2', shardNumber: 2, memberAids: []
     })).resolves.toMatchObject({
       shards: [expect.objectContaining({ remoteFolderId: 'game-2', bindingState: 'bound' })]
     })
@@ -1612,7 +1612,7 @@ describe('FavoriteRepositoryBindingService', () => {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
         pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({
-            observedAccountMid: '100', folders: [{ id: '4070414411', title: 'Staging', memberCount: 7 }]
+            observedAccountMid: '100', folders: [{ id: '4070414411', title: 'Inbox', memberCount: 7 }]
           }),
           createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
@@ -1631,7 +1631,7 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(await service.getBindings('100')).toEqual(before)
   })
 
-  it('does not replace a logical shard bound to another remote id during adoption', async () => {
+  it('replaces an explicitly confirmed stale shard id while retaining the same logical shard', async () => {
     const repository = await createRepository()
     const service = new FavoriteRepositoryBindingService({
       repository, newBindingToken: () => 'a1b2c3',
@@ -1639,7 +1639,7 @@ describe('FavoriteRepositoryBindingService', () => {
         bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
         pageBridge: vi.fn((_accountMid, _runId) => ({
           readFolderInventory: vi.fn().mockResolvedValue({
-            observedAccountMid: '100', folders: [{ id: '4070414411', title: 'Staging', memberCount: 7 }]
+            observedAccountMid: '100', folders: [{ id: '4070414411', title: 'Inbox', memberCount: 7 }]
           }),
           createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
         }))
@@ -1649,12 +1649,21 @@ describe('FavoriteRepositoryBindingService', () => {
       logicalLedgerId: 'inbox', logicalTitle: 'Inbox', shardNumber: 1, memberAids: [], remoteFolderId: 'old-inbox',
       observedAccountMid: '100', inventory: [{ id: 'old-inbox', title: 'B-inbox-001-a1b2c3', memberCount: 0, memberAids: [] }]
     })
-    const before = await service.getBindings('100')
-
     await expect(service.adoptExistingPhysicalShard('100', {
-      logicalLedgerId: 'inbox', logicalTitle: 'Inbox', remoteDisplayTitle: 'Staging', expectedRemoteTitle: 'Staging',
-      remoteFolderId: '4070414411', shardNumber: 1, memberAids: []
-    })).rejects.toThrow('conflicts')
-    expect(await service.getBindings('100')).toEqual(before)
+      logicalLedgerId: 'inbox', logicalTitle: 'Inbox', remoteDisplayTitle: 'Inbox', expectedRemoteTitle: 'Inbox',
+      remoteFolderId: '4070414411', shardNumber: 1, memberAids: [], replaceExistingRemoteBinding: true
+    })).resolves.toMatchObject({
+      shards: [expect.objectContaining({
+        logicalLedgerId: 'inbox', shardNumber: 1, remoteFolderId: '4070414411', remoteTitle: 'Inbox'
+      })]
+    })
+    expect(await service.getBindings('100')).toMatchObject({
+      shards: [expect.objectContaining({
+        logicalLedgerId: 'inbox', shardNumber: 1, remoteFolderId: '4070414411', remoteTitle: 'Inbox'
+      })]
+    })
+    expect((await service.getBindings('100')).shards).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ remoteFolderId: 'old-inbox' })
+    ]))
   })
 })

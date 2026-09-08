@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useState } from 'react'
 import { createDefaultFavoriteLedgers } from '../../../../shared/favoriteLedgers'
+import { createRemoteObservationFavoriteLedgerId } from '@shared/favoriteLedgers'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 
 function deferred<T>() {
@@ -14,6 +15,63 @@ function deferred<T>() {
 }
 
 describe('FavoriteLedgerOverview', () => {
+
+  it('shows remote detection summary in the existing notice and reveals only read-only details on request', () => {
+    const save = vi.fn()
+    const sync = vi.fn()
+    render(<FavoriteLedgerOverview
+      ledgers={[{
+        id: 'game', displayName: 'bilimi·游戏', keywords: [], enabled: true, priority: 10, isDefault: false,
+        bilibiliFolderId: '4106106611', bindingState: 'bound'
+      }]}
+      missingLedgerIds={[]}
+      observedRemoteObservations={[{ folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }]}
+      observedBoundRenameCandidates={[{
+        ledgerId: 'game', logicalTitle: 'bilimi·游戏', logicalVideoCount: 2,
+        shards: [{
+          remoteFolderId: '4106106611', shardNumber: 1, currentRemoteTitle: 'bilimi·旧游戏',
+          remoteMemberCount: 2, targetTitle: 'bilimi·游戏'
+        }]
+      }]}
+      onSaveLedgers={save}
+      onSyncLedgers={sync}
+    />)
+
+    const summary = screen.getByText('检测到 1 个疑似 bilimi 收藏夹、1 个已绑定收藏夹名称变更。')
+    expect(summary).toBeInTheDocument()
+    expect(summary.closest('.favorite-ledger-panel__notice')?.nextElementSibling)
+      .toHaveClass('favorite-ledger-panel__list-toggle')
+    const details = screen.getByRole('button', { name: '查看详情' })
+    expect(details).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('bilimi·远端观察')).not.toBeInTheDocument()
+
+    fireEvent.click(details)
+
+    expect(details).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('疑似 bilimi 收藏夹：bilimi·远端观察（2 个视频）。')).toBeInTheDocument()
+    expect(screen.getByText('已绑定收藏夹名称已从“bilimi·旧游戏”变更为“bilimi·游戏”。')).toBeInTheDocument()
+    expect(screen.getByText('下次保存或备册时处理。')).toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
+    expect(sync).not.toHaveBeenCalled()
+  })
+
+  it('shows an ordinary backup preflight failure instead of silently doing nothing', async () => {
+    const sync = vi.fn().mockResolvedValue({
+      ok: false,
+      message: '收藏夹状态核验失败，请刷新 B 站收藏夹后重试。'
+    })
+    render(<FavoriteLedgerOverview
+      ledgers={[{ id: 'game', displayName: 'bilimi·游戏', keywords: [], enabled: true, priority: 10, isDefault: false }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+      onSyncLedgers={sync}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('收藏夹状态核验失败，请刷新 B 站收藏夹后重试。'))
+    expect(sync).toHaveBeenCalledTimes(1)
+  })
 
   it('keeps a signed-out local toggle limited to a saved unbacked custom ledger', () => {
     render(<FavoriteLedgerOverview
@@ -2100,7 +2158,7 @@ describe('FavoriteLedgerOverview', () => {
     ])
   })
 
-  it('saves a renamed local rule without preflighting the Bilibili folder', async () => {
+  it('preflights a renamed local rule after its local save', async () => {
     const save = vi.fn().mockResolvedValue({ ok: true })
     const sync = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[{
@@ -2115,11 +2173,13 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith([expect.objectContaining({
       id: 'game', displayName: 'bilimi·新游戏专区'
     })], { deleteDisabled: false }))
-    expect(sync).not.toHaveBeenCalled()
+    expect(sync).toHaveBeenCalledWith([expect.objectContaining({
+      id: 'game', displayName: 'bilimi·新游戏专区'
+    })], { backupTargetLedgerIds: ['game'], deleteDisabled: false, remoteObservationPreflight: true })
     expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument()
   })
 
-  it('keeps a locally saved rename successful without attempting a remote name check', async () => {
+  it('keeps a locally saved rename successful when advisory remote discovery fails', async () => {
     const save = vi.fn().mockResolvedValue({ ok: true })
     const sync = vi.fn().mockRejectedValue(new Error('remote name check unavailable'))
     render(<FavoriteLedgerOverview ledgers={[{
@@ -2134,7 +2194,9 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith([expect.objectContaining({
       id: 'game', displayName: 'bilimi·新游戏专区'
     })], { deleteDisabled: false }))
-    expect(sync).not.toHaveBeenCalled()
+    expect(sync).toHaveBeenCalledWith([expect.objectContaining({ id: 'game' })], {
+      backupTargetLedgerIds: ['game'], deleteDisabled: false, remoteObservationPreflight: true
+    })
     expect(screen.queryByText('收藏夹规则未能持久化，请稍后重试。')).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
   })
@@ -2293,7 +2355,7 @@ describe('FavoriteLedgerOverview', () => {
 
     expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'music', enabled: true, bindingState: 'unbound' })
-    ], { backupTargetLedgerIds: ['music'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
+    ], { backupTargetLedgerIds: ['music'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true })
   })
 
   it('labels a backup-created exact id as awaiting formal confirmation instead of an ordinary unbound candidate', () => {
@@ -2352,7 +2414,7 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'saved-custom', enabled: true })
-    ], { backupTargetLedgerIds: ['saved-custom'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
+    ], { backupTargetLedgerIds: ['saved-custom'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true }))
     expect(screen.getByRole('alert')).toHaveTextContent('音乐尚未保存，已跳过本次备册，请先保存后再备册。')
   })
 
@@ -2457,7 +2519,7 @@ describe('FavoriteLedgerOverview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
-    expect(sync.mock.calls[0]?.[1]).toEqual({ backupTargetLedgerIds: ['knowledge', 'game'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true })
+    expect(sync.mock.calls[0]?.[1]).toEqual({ backupTargetLedgerIds: ['knowledge', 'game'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true })
     await screen.findByText('确认绑定 bilimi 收藏夹')
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     expect(screen.getByText('知识学习（共 310 个视频）')).toBeInTheDocument()
@@ -2568,19 +2630,21 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(sync).toHaveBeenCalledWith(expect.any(Array), {
       backupTargetLedgerIds: ['music', 'film'],
       deleteDisabled: false,
-      rediscoverDeletedRemoteDrafts: true
+      rediscoverDeletedRemoteDrafts: true,
+      remoteObservationPreflight: true
     }))
     expect(screen.queryByRole('dialog', { name: /确认.*绑定 bilimi 收藏夹/ })).not.toBeInTheDocument()
     expect(sync).toHaveBeenCalledTimes(2)
   })
 
-  it('does not interrupt a one-click backup for a remote-only observation', async () => {
+  it('asks before continuing a backup when it observes a remote-only bilimi folder', async () => {
     const observation = { folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }
     const sync = vi.fn().mockResolvedValue({ ok: true, remoteObservations: [observation] })
+    const save = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
       bindingState: 'unbacked', isDefault: true
-    }]} missingLedgerIds={['music']} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+    }]} missingLedgerIds={['music']} onSaveLedgers={save} onSyncLedgers={sync} />)
 
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
 
@@ -2588,10 +2652,136 @@ describe('FavoriteLedgerOverview', () => {
     expect(sync).toHaveBeenCalledWith(expect.any(Array), {
       backupTargetLedgerIds: ['music'],
       deleteDisabled: false,
-      rediscoverDeletedRemoteDrafts: true
+      rediscoverDeletedRemoteDrafts: true,
+      remoteObservationPreflight: true
     })
-    expect(screen.queryByRole('dialog', { name: '继续备册 bilimi 收藏夹' })).not.toBeInTheDocument()
-    expect(screen.queryByText('另发现 1 个未保存的 B 站 bilimi 收藏夹')).not.toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: '发现疑似 bilimi 收藏夹' })).toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('saves a selected remote observation locally before continuing only the original backup targets', async () => {
+    const observation = { folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }
+    const sync = vi.fn()
+      .mockResolvedValueOnce({ ok: true, remoteObservations: [observation] })
+      .mockResolvedValueOnce({ ok: true })
+    const save = vi.fn().mockResolvedValue({ ok: true })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bindingState: 'unbacked', isDefault: true
+    }]} missingLedgerIds={['music']} onSaveLedgers={save} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const dialog = await screen.findByRole('dialog', { name: '发现疑似 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'bilimi·远端观察（2 个视频）' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '继续备册' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({
+        id: createRemoteObservationFavoriteLedgerId('88'),
+        bindingState: 'unbound',
+        syncState: 'local-draft',
+        pendingRemoteBinding: true,
+        pendingRemoteFolderId: '88'
+      })
+    ]), { deleteDisabled: false }))
+    await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), {
+      backupTargetLedgerIds: ['music'],
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true
+    }))
+    expect(sync).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows remote observations after saving a rule without starting a backup', async () => {
+    const observation = { folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }
+    const save = vi.fn().mockResolvedValue({ ok: true })
+    const sync = vi.fn().mockResolvedValue({ ok: true, remoteObservations: [observation] })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bindingState: 'unbacked', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={save} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    expect(await screen.findByRole('dialog', { name: '发现疑似 bilimi 收藏夹' })).toBeInTheDocument()
+    expect(sync).toHaveBeenCalledWith([expect.objectContaining({ id: 'music' })], {
+      backupTargetLedgerIds: ['music'],
+      deleteDisabled: false,
+      remoteObservationPreflight: true
+    })
+    expect(sync).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not start a backup when confirming a remote observation shown after saving', async () => {
+    const observation = { folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }
+    const save = vi.fn().mockResolvedValue({ ok: true })
+    const sync = vi.fn().mockResolvedValue({ ok: true, remoteObservations: [observation] })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bindingState: 'unbacked', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={save} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    const dialog = await screen.findByRole('dialog', { name: '发现疑似 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'bilimi·远端观察（2 个视频）' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认' }))
+
+    await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.arrayContaining([
+      expect.objectContaining({ id: createRemoteObservationFavoriteLedgerId('88'), pendingRemoteBinding: true })
+    ]), { deleteDisabled: false }))
+    expect(sync).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the formal bound-rename confirmation after confirming a remote observation', async () => {
+    const observation = { folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }
+    const renameCandidates = [{
+      ledgerId: 'music', logicalTitle: 'bilimi·音乐', logicalVideoCount: 0,
+      shards: [{ shardNumber: 1, remoteFolderId: '9', currentRemoteTitle: 'bilimi·旧音乐', remoteMemberCount: 0, targetTitle: 'bilimi·音乐' }]
+    }]
+    const save = vi.fn().mockResolvedValue({ ok: true })
+    const sync = vi.fn().mockResolvedValue({ ok: true, remoteObservations: [observation], boundRenameCandidates: renameCandidates })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bindingState: 'bound', bilibiliFolderId: '9', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={save} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    const observationDialog = await screen.findByRole('dialog', { name: '发现疑似 bilimi 收藏夹' })
+    fireEvent.click(within(observationDialog).getByRole('button', { name: '确认' }))
+
+    expect(await screen.findByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).toBeInTheDocument()
+  })
+
+  it('returns to the original backup targets before showing a bound rename after an observation', async () => {
+    const observation = { folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }
+    const renameCandidates = [{
+      ledgerId: 'music', logicalTitle: 'bilimi·音乐', logicalVideoCount: 0,
+      shards: [{ shardNumber: 1, remoteFolderId: '9', currentRemoteTitle: 'bilimi·旧音乐', remoteMemberCount: 0, targetTitle: 'bilimi·音乐' }]
+    }]
+    const sync = vi.fn()
+      .mockResolvedValueOnce({ ok: true, remoteObservations: [observation], boundRenameCandidates: renameCandidates })
+      .mockResolvedValueOnce({ ok: false, boundRenameCandidates: renameCandidates })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bindingState: 'bound', bilibiliFolderId: '9', isDefault: false
+    }, {
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 20,
+      bindingState: 'unbacked', isDefault: false
+    }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const observationDialog = await screen.findByRole('dialog', { name: '发现疑似 bilimi 收藏夹' })
+    fireEvent.click(within(observationDialog).getByRole('button', { name: '继续备册' }))
+
+    await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), {
+      backupTargetLedgerIds: ['music', 'game'],
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true
+    }))
+    expect(await screen.findByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).toBeInTheDocument()
   })
 
   it('saves a recovered remote draft as pending binding instead of an authoritative binding', () => {
@@ -2742,7 +2932,7 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'music', enabled: true })
-    ], { backupTargetLedgerIds: ['music'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
+    ], { backupTargetLedgerIds: ['music'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true }))
     expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
     expect(screen.queryByText('本次同步有 1 个 bilimi 管理的收藏夹需要删除。')).not.toBeInTheDocument()
   })
@@ -3114,7 +3304,7 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'enabled', enabled: true })
-    ], { backupTargetLedgerIds: ['enabled'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true }))
+    ], { backupTargetLedgerIds: ['enabled'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true }))
   })
 
   it('keeps a selected default card while deleting its actual Bilibili folder', async () => {

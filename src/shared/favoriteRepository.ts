@@ -825,6 +825,8 @@ export type FavoriteRepositoryCommand =
         remoteFolderId?: string
         knownRemoteFolderIds?: string[]
         remoteMemberCount?: number
+        /** Explicit user-confirmed recovery may replace only this logical shard's stale remote ID. */
+        replaceExistingRemoteBinding?: boolean
       }
     }
   | {
@@ -1473,6 +1475,7 @@ function isPhysicalShardBindingPayload(payload: Record<string, unknown>) {
     (payload.knownRemoteFolderIds === undefined || (Array.isArray(payload.knownRemoteFolderIds) &&
       payload.knownRemoteFolderIds.every((id) => typeof id === 'string' && !!id.trim()))) &&
     (payload.remoteMemberCount === undefined || (Number.isSafeInteger(payload.remoteMemberCount) && Number(payload.remoteMemberCount) >= 0)) &&
+    (payload.replaceExistingRemoteBinding === undefined || typeof payload.replaceExistingRemoteBinding === 'boolean') &&
     (payload.bindingState !== 'bound' || (typeof payload.remoteFolderId === 'string' && !!payload.remoteFolderId.trim()))
 }
 
@@ -1911,7 +1914,8 @@ export function applyFavoriteRepositoryCommand(
     const folderId = `bilimi:${logicalLedgerId}:${String(shardNumber).padStart(3, '0')}`
     affectedFolderIds.push(folderId)
     affectedAids.push(...uniquePositiveAids(payload.memberAids))
-    if (existingShard?.remoteFolderId && remoteFolderId && existingShard.remoteFolderId !== remoteFolderId) {
+    if (existingShard?.remoteFolderId && remoteFolderId && existingShard.remoteFolderId !== remoteFolderId &&
+      payload.replaceExistingRemoteBinding !== true) {
       throw new Error('Favorite repository physical shard binding is immutable.')
     }
     physicalShards = [

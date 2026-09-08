@@ -534,12 +534,13 @@ export function registerFavoriteRepositoryIpc(options: {
     const remoteFolderId = typeof input.remoteFolderId === 'string' ? input.remoteFolderId.trim() : ''
     const remoteTitle = typeof input.remoteTitle === 'string' ? input.remoteTitle.trim() : ''
     const shardNumber = input.shardNumber === undefined ? 1 : Number(input.shardNumber)
+    const replaceExistingRemoteBinding = input.replaceExistingRemoteBinding === true
     if (!logicalLedgerId || !logicalTitle || !remoteFolderId || !remoteTitle || !Number.isSafeInteger(shardNumber) || shardNumber < 1) {
       throw new Error('Favorite repository binding input is invalid.')
     }
     const result = await options.bindingService.adoptExistingPhysicalShard(accountMid, {
       logicalLedgerId, logicalTitle, remoteDisplayTitle: remoteTitle, expectedRemoteTitle: remoteTitle,
-      remoteFolderId, shardNumber, memberAids: []
+      remoteFolderId, shardNumber, memberAids: [], ...(replaceExistingRemoteBinding ? { replaceExistingRemoteBinding: true } : {})
     })
     try {
       await options.onLedgerBindingAdopted?.(accountMid, logicalLedgerId)

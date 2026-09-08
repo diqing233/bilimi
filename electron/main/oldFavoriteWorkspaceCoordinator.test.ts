@@ -5366,7 +5366,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.beginScan('100', 'incremental')
     await coordinator.recordScanInventory('100', {
       sourceFolders: [
-        { id: 'remote-b', title: 'bilimi·游戏专区·2', itemCount: 1, isBilimiWorkFolder: true },
+        { id: 'remote-b', title: 'bilimi·游戏专区②', itemCount: 1, isBilimiWorkFolder: true },
         { id: 'remote-a', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: true }
       ]
     })
@@ -10687,7 +10687,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const ensurePhysicalShard = vi.fn()
     const previewLedgerBindingCandidates = vi.fn().mockResolvedValue([{
       ledgerId: 'game', candidates: [
-        { id: 'game-2', title: 'bilimi·游戏专区·2', memberCount: 8 },
+        { id: 'game-2', title: 'bilimi·游戏专区②', memberCount: 8 },
         { id: 'other-game', title: 'bilimi·游戏专区', memberCount: 8 }
       ]
     }])
@@ -10713,7 +10713,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getBilibiliExecutionPreflight('100')).resolves.toMatchObject({
       requiredPhysicalShards: [{
         logicalLedgerId: 'game', shardNumber: 2,
-        bindingCandidates: [{ remoteFolderId: 'game-2', remoteTitle: 'bilimi·游戏专区·2', memberCount: 8 }]
+        bindingCandidates: [{ remoteFolderId: 'game-2', remoteTitle: 'bilimi·游戏专区②', memberCount: 8 }]
       }]
     })
     await expect(coordinator.provisionBilibiliExecutionPreflightShards('100')).rejects.toThrow('candidate-confirmation-required')

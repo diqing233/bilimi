@@ -1,4 +1,9 @@
-import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
+import type {
+  FavoriteLedger,
+  FavoriteLedgerBoundRenameCandidate,
+  FavoriteLedgerSaveOptions,
+  RemoteFavoriteLedgerObservation
+} from '@shared/types'
 import type { OldFavoriteWorkspaceBilibiliSyncPreflight, OldFavoriteWorkspaceRecoverySummary, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
@@ -22,6 +27,8 @@ type ControlledFavoriteLedgerPanelProps = {
   missingLedgerIds: string[]
   unboundLedgerIds?: string[]
   remoteOnlyDraftLedgerIds?: string[]
+  observedRemoteObservations?: readonly RemoteFavoriteLedgerObservation[]
+  observedBoundRenameCandidates?: readonly FavoriteLedgerBoundRenameCandidate[]
   onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderId: string) => Promise<void> | void
   defaultFavoriteSystemEnabled?: boolean
   onEnsureLedgers: () => Promise<unknown>
@@ -196,6 +203,8 @@ export function ControlledFavoriteLedgerPanel({
   missingLedgerIds,
   unboundLedgerIds,
   remoteOnlyDraftLedgerIds = [],
+  observedRemoteObservations,
+  observedBoundRenameCandidates,
   onDismissRemoteDraftReminder,
   defaultFavoriteSystemEnabled,
   onEnsureLedgers,
@@ -1432,6 +1441,8 @@ export function ControlledFavoriteLedgerPanel({
         missingLedgerIds={missingLedgerIds}
         unboundLedgerIds={unboundLedgerIds}
         remoteOnlyDraftLedgerIds={remoteOnlyDraftLedgerIds}
+        observedRemoteObservations={observedRemoteObservations}
+        observedBoundRenameCandidates={observedBoundRenameCandidates}
         onDismissRemoteDraftReminder={onDismissRemoteDraftReminder}
         organizationActive={Boolean(activeSnapshot && !['frozen', 'executing', 'reconciling'].includes(activeSnapshot.status))}
         hasExpandedOrganizationGuide={guideOpen}

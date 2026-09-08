@@ -38,6 +38,8 @@ export type AdoptExistingPhysicalShardInput = {
   remoteFolderId: string
   shardNumber: number
   memberAids: number[]
+  /** The renderer sends this only after an explicit same-name rebind confirmation. */
+  replaceExistingRemoteBinding?: boolean
 }
 
 export type RenameBoundPhysicalShardInput = {
@@ -371,7 +373,9 @@ export class FavoriteRepositoryBindingService {
       const targetConflict = snapshot.physicalShards.find((shard) =>
         shard.logicalLedgerId === normalized.logicalLedgerId && shard.shardNumber === input.shardNumber &&
         shard.remoteFolderId && shard.remoteFolderId !== normalized.remoteFolderId)
-      if (targetConflict) throw new Error('Favorite repository logical shard conflicts with another remote id.')
+      if (targetConflict && input.replaceExistingRemoteBinding !== true) {
+        throw new Error('Favorite repository logical shard conflicts with another remote id.')
+      }
       const exactExisting = snapshot.physicalShards.find((shard) =>
         shard.logicalLedgerId === normalized.logicalLedgerId && shard.shardNumber === input.shardNumber &&
         shard.remoteFolderId === normalized.remoteFolderId && shard.bindingState === 'bound')
@@ -403,7 +407,8 @@ export class FavoriteRepositoryBindingService {
           remoteTitle: remote.title,
           bindingState: 'bound',
           remoteFolderId: normalized.remoteFolderId,
-          remoteMemberCount: remote.memberCount
+          remoteMemberCount: remote.memberCount,
+          ...(targetConflict ? { replaceExistingRemoteBinding: true } : {})
         }
       })
       return this.getBindings(account)

@@ -183,14 +183,13 @@ function sharedScriptHelpers(): string {
       return String(shardNumber).split('').map((digit) => circledShardNumbers[Number(digit)] || digit).join('');
     };
     // A manual circled suffix must be stripped before NFKC turns it into a
-    // normal digit. Legacy dot-number shards remain readable only.
+    // normal digit. Dot-number suffixes are ordinary names, never shards.
     const normalizeLogicalFolderTitle = (title) => {
       const normalizedTitle = normalizeFolderTitle(title);
       const suffix = circledShardSuffix(normalizedTitle);
       const withoutCircledShard = suffix ? normalizedTitle.slice(0, -suffix.suffix.length) : normalizedTitle;
       return withoutCircledShard
         .normalize('NFKC')
-        .replace(/\\s*·\\s*([2-9]\\d*)$/u, '')
         .trim()
         .toLocaleLowerCase();
     };
@@ -670,15 +669,13 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
       }
       const parseShard = (value) => {
         // Read a manual circled suffix before NFKC normalization, because
-        // NFKC converts a circled 1 into ASCII 1. Old dot-number shard names still reserve a
-        // shard number, but any newly created shard uses a circled suffix.
+        // NFKC converts a circled 1 into ASCII 1. Dot-number suffixes are
+        // ordinary names; capacity shards use circled suffixes only.
         const source = String(value || '').trim();
         const circled = circledShardSuffix(source);
         const normalized = String(circled ? source.slice(0, -circled.suffix.length) : source)
           .normalize('NFKC').trim().replace(/\\s+/g, ' ');
         if (circled && normalized) return { baseTitle: normalized, shardNumber: circled.shardNumber };
-        const legacy = normalized.match(/^(.*?)\\s*·\\s*(?:0*([2-9]\\d*))$/u);
-        if (legacy && legacy[1].trim()) return { baseTitle: legacy[1].trim(), shardNumber: Number(legacy[2]) };
         return { baseTitle: normalized, shardNumber: 1 };
       };
       // Count every matching remote shard, not just the IDs whose formal
@@ -1746,14 +1743,13 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         const folders = readFavoriteFolderList(listJson);
         const normalizedLedgerName = (value) => {
           // A circled suffix must be removed before NFKC, which otherwise
-          // turns it into an ordinary digit. Legacy dot-number suffixes are
-          // still accepted only for reading old physical shards.
+          // turns it into an ordinary digit. Dot-number suffixes are literal
+          // names, not physical shards.
           const source = String(value ?? '').trim().replace(/^bilimi[·\\s\\-路]*/i, '').trim();
           const circled = circledShardSuffix(source);
           const withoutCircledShard = circled ? source.slice(0, -circled.suffix.length) : source;
           return withoutCircledShard
             .normalize('NFKC')
-            .replace(/·[2-9]\\d*$/, '')
             .trim();
         };
         const ledgerByFolderId = new Map(
@@ -2989,8 +2985,8 @@ export function buildExecuteFavoriteLedgerPlanScript(
         const trimFolderTitle = (title, limit) => Array.from(String(title || '').trim()).slice(0, limit).join('');
         const folderTitleShard = (title) => {
           // NFKC turns ① into 1, so read a manual circled suffix before
-          // normalizing spaces/full-width characters. Existing ·2 folders
-          // remain readable, but newly created capacity folders never use it.
+          // normalizing spaces/full-width characters. Dot-number suffixes
+          // are literal names; physical shards use circled suffixes only.
           const source = String(title || '').trim();
           const circled = circledShardSuffix(source);
           const normalized = String(circled ? source.slice(0, -circled.suffix.length) : source)
@@ -2999,10 +2995,6 @@ export function buildExecuteFavoriteLedgerPlanScript(
             .replace(/\s+/g, ' ');
           if (circled && normalized) {
             return { logicalTitle: trimFolderTitle(normalized, 14), shardNumber: circled.shardNumber };
-          }
-          const legacy = normalized.match(/^(.*?)\s*·\s*([2-9]\d*)$/);
-          if (legacy && legacy[1].trim()) {
-            return { logicalTitle: trimFolderTitle(legacy[1].trim(), 14), shardNumber: Number(legacy[2]) };
           }
           return { logicalTitle: trimFolderTitle(normalized, 14), shardNumber: 1 };
         };

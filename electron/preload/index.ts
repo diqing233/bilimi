@@ -247,7 +247,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-repository:open-account', accountMid) as Promise<FavoriteRepositorySnapshotSummary>,
   getFavoriteRepositorySnapshot: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:get-snapshot', accountMid) as Promise<FavoriteRepositorySnapshotSummary>,
-  adoptFavoriteRepositoryLedgerBinding: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; remoteTitle: string; shardNumber?: number }) =>
+  adoptFavoriteRepositoryLedgerBinding: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; remoteTitle: string; shardNumber?: number; replaceExistingRemoteBinding?: boolean }) =>
     ipcRenderer.invoke('favorite-repository:adopt-ledger-binding', accountMid, input) as Promise<unknown>,
   renameFavoriteRepositoryBoundLedgerShard: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; shardNumber: number; currentRemoteTitle?: string; targetTitle?: string }) =>
     ipcRenderer.invoke('favorite-repository:rename-bound-ledger-shard', accountMid, input) as Promise<unknown>,

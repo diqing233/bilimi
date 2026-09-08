@@ -939,7 +939,7 @@ describe('favorite ledger API scripts', () => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
         return Response.json({ code: 0, data: { list: [
           { id: 88, title: 'bilimi·游戏专区', media_count: 1000 },
-          { id: 89, title: 'bilimi·游戏专区·2', media_count: 6 }
+          { id: 89, title: 'bilimi·游戏专区②', media_count: 6 }
         ] } })
       }
       throw new Error(`Unexpected request: ${url}`)
@@ -1945,10 +1945,10 @@ describe('favorite ledger API scripts', () => {
     expect(fetchSpy.mock.calls.filter(([url]) => String(url).includes('/folder/add'))).toHaveLength(1)
   })
 
-  it('stops backup on exact duplicate titles without treating a ·2 volume as a duplicate', async () => {
+  it('stops backup on exact duplicate titles without treating a circled shard as a duplicate', async () => {
     installCookies()
     const ledger = createDefaultFavoriteLedgers()[0]
-    const secondVolume = { id: 3, title: `${ledger.displayName}·2` }
+    const secondVolume = { id: 3, title: `${ledger.displayName}②` }
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
         return Response.json({ code: 0, data: { list: [{ id: 1, title: ledger.displayName }, { id: 2, title: ledger.displayName }, secondVolume] } })
@@ -2822,7 +2822,7 @@ describe('favorite ledger API scripts', () => {
       if (parsed.pathname.endsWith('/folder/created/list-all')) {
         return Response.json({ code: 0, data: { list: [
           { id: 9001, title: 'bilimi·原神', media_count: 1000 },
-          { id: 9002, title: 'bilimi·原神·2', media_count: 999 }
+          { id: 9002, title: 'bilimi·原神②', media_count: 999 }
         ] } })
       }
       if (parsed.pathname.endsWith('/resource/ids')) {
@@ -2861,7 +2861,7 @@ describe('favorite ledger API scripts', () => {
       if (parsed.pathname.endsWith('/folder/created/list-all')) {
         return Response.json({ code: 0, data: { list: [
           { id: 9001, title: 'bilimi·原神', media_count: 1000 },
-          { id: 9002, title: 'bilimi·原神·2', media_count: 1000 }
+          { id: 9002, title: 'bilimi·原神②', media_count: 1000 }
         ] } })
       }
       if (parsed.pathname.endsWith('/resource/ids')) {
@@ -2930,7 +2930,7 @@ describe('favorite ledger API scripts', () => {
       if (parsed.pathname.endsWith('/folder/created/list-all')) {
         return Response.json({ code: 0, data: { list: [
           { id: 9001, title: 'bilimi·知识', media_count: 1 },
-          { id: 9002, title: 'bilimi·知识·2', media_count: 1 }
+          { id: 9002, title: 'bilimi·知识②', media_count: 1 }
         ] } })
       }
       if (parsed.pathname.endsWith('/resource/ids') && parsed.searchParams.get('media_id') === '9001') {
@@ -2965,7 +2965,7 @@ describe('favorite ledger API scripts', () => {
         return Response.json({ code: 0, data: { list: [
           { id: 9001, title: 'bilimi·知识' },
           { id: 9008, title: 'bilimi·暂存' },
-          { id: 9009, title: 'bilimi·暂存·2' }
+          { id: 9009, title: 'bilimi·暂存②' }
         ] } })
       }
       if (parsed.pathname.endsWith('/resource/ids')) {
@@ -3014,7 +3014,7 @@ describe('favorite ledger API scripts', () => {
         return Response.json({ code: 0, data: { list: [
           { id: 9001, title: 'bilimi·知识' },
           { id: 9008, title: 'bilimi·暂存' },
-          { id: 9009, title: 'bilimi·暂存·2' }
+          { id: 9009, title: 'bilimi·暂存②' }
         ] } })
       }
       if (parsed.pathname.endsWith('/resource/ids') && parsed.searchParams.get('media_id') === '9008') {
@@ -3057,7 +3057,7 @@ describe('favorite ledger API scripts', () => {
       if (parsed.pathname.endsWith('/folder/created/list-all')) {
         return Response.json({ code: 0, data: { list: [
           { id: 9001, title: 'bilimi·超级长的游戏攻略收藏分', media_count: 1000 },
-          { id: 9002, title: 'bilimi·超级长的游戏攻略收藏分·2', media_count: 999 }
+          { id: 9002, title: 'bilimi·超级长的游戏攻略收藏分②', media_count: 999 }
         ] } })
       }
       if (parsed.pathname.endsWith('/resource/ids')) {
@@ -3839,7 +3839,7 @@ describe('favorite ledger API scripts', () => {
     expect(dealAids).toEqual(['123', '123'])
   })
 
-  it('recognizes physical shard suffixes as one stable logical managed folder', async () => {
+  it('does not recognize an old dot-number suffix as a logical managed folder shard', async () => {
     installCookies()
     localStorage.clear()
     const ledger = { ...createDefaultFavoriteLedgers()[0], bilibiliFolderId: '9001' }
@@ -3863,7 +3863,7 @@ describe('favorite ledger API scripts', () => {
 
     expect(result.managedFolders).toEqual([
       expect.objectContaining({ id: '9001', ledgerId: ledger.id }),
-      expect.objectContaining({ id: '9002', ledgerId: ledger.id })
+      expect.objectContaining({ id: '9002', ledgerId: undefined })
     ])
     expect(result.targetMembership).toEqual({ '9001': [1], '9002': [2] })
   })
@@ -4187,7 +4187,7 @@ describe('favorite ledger API scripts', () => {
           return Response.json({ code: 0, data: { list: [
             { id: 9001, title: 'bilimi·旧分类' },
             { id: 9002, title: 'bilimi·知识学习', media_count: 1000 },
-            { id: 9012, title: 'bilimi·知识学习·2', media_count: 999 }
+            { id: 9012, title: 'bilimi·知识学习②', media_count: 999 }
           ] } })
         }
         if (url.includes('/x/v3/fav/resource/ids')) {

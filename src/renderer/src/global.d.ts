@@ -160,7 +160,7 @@ type BilimiDesktopApi = {
   onFavoriteLibraryTranscriptionChanged?: (callback: () => void) => () => void
   openFavoriteRepositoryAccount?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
   getFavoriteRepositorySnapshot?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
-  adoptFavoriteRepositoryLedgerBinding?: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; remoteTitle: string; shardNumber?: number }) => Promise<unknown>
+  adoptFavoriteRepositoryLedgerBinding?: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; remoteTitle: string; shardNumber?: number; replaceExistingRemoteBinding?: boolean }) => Promise<unknown>
   renameFavoriteRepositoryBoundLedgerShard?: (accountMid: string, input: { logicalLedgerId: string; logicalTitle: string; remoteFolderId: string; shardNumber: number; currentRemoteTitle?: string; targetTitle?: string }) => Promise<unknown>
   previewFavoriteRepositoryLedgerBindingCandidates?: (accountMid: string, ledgers: Array<{ ledgerId: string; title: string }>) => Promise<Array<{
     ledgerId: string

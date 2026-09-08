@@ -701,6 +701,8 @@ type LedgerWorkspacePanelProps = {
   openOrganizationSelectionAids?: number[]
   openOrganizationSelection?: FavoriteLibraryWorkspaceSelection
   remoteOnlyDraftLedgerIds?: string[]
+  observedRemoteObservations?: FavoriteLedgerStatus['remoteObservations']
+  observedBoundRenameCandidates?: FavoriteLedgerStatus['boundRenameCandidates']
   onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderIds: string[]) => Promise<void> | void
 }
 
@@ -5582,6 +5584,8 @@ export function FloatingAssistantApp({
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
             unboundLedgerIds={favoriteLedgerStatus?.unboundLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
             remoteOnlyDraftLedgerIds={editorRemoteOnlyDraftLedgerIds}
+            observedRemoteObservations={favoriteLedgerStatus?.remoteObservations}
+            observedBoundRenameCandidates={favoriteLedgerStatus?.boundRenameCandidates}
             onDismissRemoteDraftReminder={dismissRemoteDraftReminder}
             defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
             onEnsureLedgers={ensureFavoriteLedgersForPanel}

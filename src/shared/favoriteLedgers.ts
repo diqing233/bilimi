@@ -690,8 +690,7 @@ function favoriteLedgerDisplayBaseName(name: string) {
   const source = String(name ?? '').trim()
   const circledSuffix = circledShardSuffixAndNumber(source)
   if (circledSuffix) return source.slice(0, -circledSuffix.suffix.length).trim()
-  const legacyMatch = source.match(/^(.*?)\s*·\s*([2-9]\d*)$/u)
-  return legacyMatch?.[1].trim() || source
+  return source
 }
 
 /**
@@ -709,10 +708,6 @@ export function favoriteLedgerBindingNameAndShard(name: string) {
   if (circledSuffix && normalized) {
     return { baseName: normalized, shardNumber: circledSuffix.shardNumber }
   }
-  // Existing `名称·2` folders remain readable during migration. New capacity
-  // shards are never named this way; see favoriteLedgerCapacityShardName().
-  const legacyMatch = normalized.match(/^(.*?)\s*·\s*([2-9]\d*)$/u)
-  if (legacyMatch?.[1].trim()) return { baseName: legacyMatch[1].trim(), shardNumber: Number(legacyMatch[2]) }
   return { baseName: normalized, shardNumber: 1 }
 }
 

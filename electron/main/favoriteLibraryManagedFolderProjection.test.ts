@@ -36,7 +36,7 @@ describe('favorite library managed folder projection', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: snapshot([
         { id: 'game-1', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', aids: [1] },
-        { id: 'game-2', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u00b72', aids: [2] }
+        { id: 'game-2', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u2461', aids: [2] }
       ]),
       ledgers: [ledger('game', 'bilimi\u00b7\u6e38\u620f\u4e13\u533a')],
       dismissedRemoteFolderIds: []
@@ -55,13 +55,13 @@ describe('favorite library managed folder projection', () => {
   })
 
   it('preserves the stored shard number when a formally bound remote folder keeps a numbered title', () => {
-    const base = snapshot([{ id: 'game-2', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u00b72', aids: [2] }])
+    const base = snapshot([{ id: 'game-2', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u2461', aids: [2] }])
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: {
         ...base,
         physicalShards: [{
           logicalLedgerId: 'game', folderId: 'bilimi:game:002', shardNumber: 2,
-          remoteTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u00b72', bindingState: 'bound', remoteFolderId: 'game-2', remoteMemberCount: 1
+          remoteTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u2461', bindingState: 'bound', remoteFolderId: 'game-2', remoteMemberCount: 1
         }]
       },
       ledgers: [ledger('game', 'bilimi\u00b7\u6e38\u620f\u4e13\u533a')],

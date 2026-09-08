@@ -1745,7 +1745,7 @@ export class FavoriteRepositorySyncService {
       // A historical ID is accepted only when the renderer explicitly carries
       // it into this deletion flow.  It is checked by exact ID against the
       // fresh inventory; title matching is deliberately bypassed so a stale
-      // `·2` title can never make a different folder deletable.
+      // A stale historical title can never make a different folder deletable.
       const historicalForLedger = historicalBindingTargets.filter((target) => target.logicalLedgerId === logicalLedgerId)
       if (historicalForLedger.length) {
         for (const target of historicalForLedger) {

@@ -307,6 +307,8 @@ export type FavoriteLedgerStatus = {
   remoteOnlyDraftLedgerIds?: FavoriteLedgerId[]
   /** Read-only Bilibili-only folders from an explicit discovery or backup preflight. */
   remoteObservations?: RemoteFavoriteLedgerObservation[]
+  /** Read-only exact-ID rename observations from an explicit discovery or a manual Bilibili mutation. */
+  boundRenameCandidates?: FavoriteLedgerBoundRenameCandidate[]
   unboundCandidates?: Array<{
     ledgerId: FavoriteLedgerId
     candidates: Array<{
