@@ -118,7 +118,6 @@ import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepository
 import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
 import { FavoriteRepositoryBatchOperationService } from './favoriteRepositoryBatchOperationService'
 import { FavoriteRepositoryManagedFolderService } from './favoriteRepositoryManagedFolderService'
-import { restoreFavoriteLibraryManagedFolderProjection } from './favoriteLibraryManagedFolderProjection'
 import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperationsIpc'
 import { persistConfirmedManagedFolderDeletion } from './managedFavoriteLedgerDeletionPersistence'
 import { resolveFavoriteLibraryOperationSource } from './favoriteLibraryOperationSource'
@@ -3210,34 +3209,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getArchiveSummary: (accountMid, aid) => createFavoriteLibraryArchiveSummary(accountMid, aid, loadVideoNoteArchives(getDesktopStore())),
     getTranscriptionSummary: (accountMid, aid) =>
       createFavoriteLibraryTranscriptionSummary(accountMid, aid, getVideoTranscriptionQueue().getSnapshot().items),
-    // Project durable physical shards before returning the first drawer summary.
-    // Remote inventory reconciliation remains in onAccountOpen's deferred path.
+    // Project durable formal physical shards before returning the first drawer
+    // summary. Remote inventory is read only by an explicit backup workflow;
+    // account opening must never turn an observation into a library shard.
     onAccountOpenLocal: async (accountMid) => {
       await reconcileFavoriteLedgerBindingProjection(accountMid)
-    },
-    onAccountOpen: async (accountMid) => {
-      const suppressedRemoteFolderIds = [...new Set([
-        ...loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)
-      ])]
-      // Validate pending/migrated bindings against the current remote inventory
-      // before any persisted scan projection is allowed to restore them.
-      await favoriteRepositoryBindingService!.reconcilePendingBindingsFromRemote(accountMid, { suppressedRemoteFolderIds }).catch(() => undefined)
-      // A previous complete scan can still restore local same-device bindings;
-      // imported bindings are pending until the live inventory check above has
-      // proved a unique matching remote folder.
-      await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid, {
-        suppressedRemoteFolderIds
-      }).catch(() => undefined)
-      await reconcileFavoriteLedgerBindingProjection(accountMid)
-      const store = getDesktopStore()
-      const favoriteAccountPreferences = loadFavoriteAccountPreferences(store, accountMid)
-      await restoreFavoriteLibraryManagedFolderProjection({
-        accountMid,
-        repository: favoriteRepositoryService!,
-        ledgers: favoriteAccountPreferences.favoriteLedgers,
-        deletedFavoriteLedgerRecords: favoriteAccountPreferences.deletedFavoriteLedgerRecords,
-        suppressedRemoteFolderIds
-      })
     },
     // A user-local deletion is not the same as choosing “不再提醒”. The
     // former must not hide a still-existing remote bilimi folder from the

@@ -112,15 +112,9 @@ describe('favorite ledger configuration refresh IPC', () => {
     expect(coordinator).toContain('onPhysicalShardProvisioned: refreshFavoriteLedgerBindingProjectionAfterPhysicalShard')
   })
 
-  it('keeps local binding projection running when remote account-open recovery fails', () => {
-    const accountOpenStart = mainSource.indexOf('onAccountOpen: async (accountMid) => {')
-    const accountOpenEnd = mainSource.indexOf('\n    },', accountOpenStart)
-    const accountOpen = mainSource.slice(accountOpenStart, accountOpenEnd)
-    expect(accountOpen).toContain('await oldFavoriteWorkspaceCoordinator!.recoverPersistedManagedBindings(accountMid, {')
-    expect(accountOpen).toContain('const suppressedRemoteFolderIds = [...new Set([')
-    expect(accountOpen).toContain('}).catch(() => undefined)')
-    expect(accountOpen).toContain('await reconcileFavoriteLedgerBindingProjection(accountMid)')
-    expect(accountOpen).toMatch(/recoverPersistedManagedBindings\(accountMid,\s*\{[\s\S]*suppressedRemoteFolderIds[\s\S]*\}\)\.catch\(\(\) => undefined\)/)
+  it('does not start a remote inventory or managed-folder restoration when the library account opens', () => {
+    expect(mainSource).not.toContain("import { restoreFavoriteLibraryManagedFolderProjection } from './favoriteLibraryManagedFolderProjection'")
+    expect(mainSource).not.toContain('onAccountOpen: async (accountMid) => {')
   })
 
   it('reprojects account bindings after releasing default physical shards', () => {
@@ -128,13 +122,9 @@ describe('favorite ledger configuration refresh IPC', () => {
     expect(handler).toContain('refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid)')
   })
 
-  it('does not restore a recommendation-specific deletion blacklist at account open', () => {
+  it('does not restore a recommendation-specific deletion blacklist', () => {
     expect(mainSource).not.toContain('function getFavoriteLedgerDeletedRecommendationRemoteFolderIds(accountMid: string)')
     expect(mainSource).not.toContain("record.ledger.ruleOrigin === 'recommendation-draft'")
-    const accountOpenStart = mainSource.indexOf('onAccountOpen: async (accountMid) => {')
-    const accountOpenEnd = mainSource.indexOf('\n    },', accountOpenStart)
-    const accountOpen = mainSource.slice(accountOpenStart, accountOpenEnd)
-    expect(accountOpen).toContain('loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid)')
-    expect(accountOpen).not.toContain('recommendation')
+    expect(mainSource).not.toContain('getFavoriteLedgerDeletedRecommendationRemoteFolderIds')
   })
 })
