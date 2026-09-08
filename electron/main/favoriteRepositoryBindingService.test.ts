@@ -782,11 +782,11 @@ describe('FavoriteRepositoryBindingService', () => {
     })
 
     await expect(service.adoptExistingPhysicalShard('100', {
-      logicalLedgerId: 'inbox', logicalTitle: 'bilimi\u00b7\u5de5\u4f5c\u5939',
+      logicalLedgerId: 'inbox', logicalTitle: 'bilimi\u00b7\u6682\u5b58',
       remoteDisplayTitle: 'bilimi\u00b7\u6682\u5b58', expectedRemoteTitle: 'bilimi\u00b7\u6682\u5b58',
       remoteFolderId: '4070414411', shardNumber: 1, memberAids: [9, 3, 9]
     })).resolves.toEqual({
-      logicalLedgers: [{ id: 'inbox', title: 'bilimi\u00b7\u5de5\u4f5c\u5939', syncState: 'bound' }],
+      logicalLedgers: [{ id: 'inbox', title: 'bilimi\u00b7\u6682\u5b58', syncState: 'bound' }],
       shards: [{
         logicalLedgerId: 'inbox', folderId: 'bilimi:inbox:001', shardNumber: 1,
         remoteFolderId: '4070414411', remoteTitle: 'bilimi\u00b7\u6682\u5b58',
@@ -870,7 +870,7 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
   })
 
-  it('renames only the explicitly confirmed remote shard before binding its chosen shard number', async () => {
+  it('adopts an explicitly confirmed same-name shard without renaming it', async () => {
     const repository = await createRepository()
     let remoteTitle = 'bilimi·游戏专区'
     const renameFolder = vi.fn(async (input: { accountMid: string; operationKey: string; folderId: string; title: string }) => {
@@ -901,18 +901,18 @@ describe('FavoriteRepositoryBindingService', () => {
     await expect(service.adoptExistingPhysicalShard('100', {
       logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区',
       remoteDisplayTitle: 'bilimi·游戏专区', expectedRemoteTitle: 'bilimi·游戏专区',
-      remoteFolderId: 'game-2', shardNumber: 2, memberAids: [], allowRemoteRename: true
+      remoteFolderId: 'game-2', shardNumber: 2, memberAids: []
     })).resolves.toMatchObject({
       shards: [expect.objectContaining({
-        logicalLedgerId: 'game', shardNumber: 2, remoteFolderId: 'game-2', remoteTitle: 'bilimi·游戏专区②'
+        logicalLedgerId: 'game', shardNumber: 2, remoteFolderId: 'game-2', remoteTitle: 'bilimi·游戏专区'
       })]
     })
 
-    expect(renameFolder).toHaveBeenCalledOnce()
+    expect(renameFolder).not.toHaveBeenCalled()
     expect(readFolderInventory).toHaveBeenCalledTimes(1)
   })
 
-  it('renames an explicitly confirmed differently named candidate by its exact remote id before binding it', async () => {
+  it('rejects an explicitly confirmed differently named candidate without renaming it', async () => {
     const repository = await createRepository()
     let remoteTitle = 'bilimi·音乐舞台你好'
     const renameFolder = vi.fn(async (input: { accountMid: string; folderId: string; title: string }) => {
@@ -940,15 +940,39 @@ describe('FavoriteRepositoryBindingService', () => {
     await expect(service.adoptExistingPhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐舞台',
       remoteDisplayTitle: remoteTitle, expectedRemoteTitle: remoteTitle,
-      remoteFolderId: 'music-selected', shardNumber: 1, memberAids: [], allowRemoteRename: true
-    })).resolves.toMatchObject({
-      shards: [expect.objectContaining({
-        logicalLedgerId: 'music', remoteFolderId: 'music-selected', remoteTitle: 'bilimi·音乐舞台', bindingState: 'bound'
-      })]
+      remoteFolderId: 'music-selected', shardNumber: 1, memberAids: []
+    })).rejects.toThrow('remote shard title is invalid')
+
+    expect(renameFolder).not.toHaveBeenCalled()
+    expect(readFolderInventory).toHaveBeenCalledTimes(1)
+  })
+
+  it('adopts an explicitly selected same-name folder when its bilimi prefix has spacing around the separator', async () => {
+    const repository = await createRepository()
+    const remoteTitle = 'bilimi ： 梅林FIT'
+    const renameFolder = vi.fn()
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn(async () => ({
+            observedAccountMid: '100', folders: [{ id: 'meilin-selected', title: remoteTitle, memberCount: 0 }]
+          })),
+          renameFolder, createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
     })
 
-    expect(renameFolder).toHaveBeenCalledOnce()
-    expect(readFolderInventory).toHaveBeenCalledTimes(1)
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'meilin', logicalTitle: 'bilimi·梅林FIT',
+      remoteDisplayTitle: remoteTitle, expectedRemoteTitle: remoteTitle,
+      remoteFolderId: 'meilin-selected', shardNumber: 1, memberAids: []
+    })).resolves.toMatchObject({
+      shards: [expect.objectContaining({ remoteFolderId: 'meilin-selected', remoteTitle })]
+    })
+
+    expect(renameFolder).not.toHaveBeenCalled()
   })
 
   it('rejects an unbound explicitly selected shard whose title belongs to another logical name', async () => {
@@ -975,7 +999,7 @@ describe('FavoriteRepositoryBindingService', () => {
     await expect(service.adoptExistingPhysicalShard('100', {
       logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区',
       remoteDisplayTitle: 'bilimi·游戏专区', expectedRemoteTitle: 'bilimi·旧游戏专区',
-      remoteFolderId: 'game-2', shardNumber: 2, memberAids: [], allowRemoteRename: true
+      remoteFolderId: 'game-2', shardNumber: 2, memberAids: []
     })).rejects.toThrow('title is invalid')
 
     expect(renameFolder).not.toHaveBeenCalled()
@@ -983,7 +1007,7 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
   })
 
-  it('renames an explicitly selected folder from another logical name into this ledger', async () => {
+  it('rejects a differently named folder even when a legacy caller requests remote rename', async () => {
     const repository = await createRepository()
     let remoteTitle = 'bilimi·小咪的收藏夹'
     const renameFolder = vi.fn(async (input: { accountMid: string; folderId: string; title: string }) => {
@@ -1009,14 +1033,11 @@ describe('FavoriteRepositoryBindingService', () => {
     await expect(service.adoptExistingPhysicalShard('100', {
       logicalLedgerId: 'meilin', logicalTitle: 'bilimi·梅林FIT',
       expectedRemoteTitle: 'bilimi·小咪的收藏夹', remoteFolderId: 'xiaomi-id',
-      shardNumber: 1, memberAids: [], allowRemoteRename: true
-    })).resolves.toMatchObject({
-      shards: [expect.objectContaining({
-        logicalLedgerId: 'meilin', remoteFolderId: 'xiaomi-id', remoteTitle: 'bilimi·梅林FIT', bindingState: 'bound'
-      })]
-    })
+      shardNumber: 1, memberAids: []
+    })).rejects.toThrow('remote shard title is invalid')
 
-    expect(renameFolder).toHaveBeenCalledOnce()
+    expect(renameFolder).not.toHaveBeenCalled()
+    expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
   })
 
   it('does not let an already recorded bound id use candidate adoption to rename', async () => {
@@ -1046,13 +1067,13 @@ describe('FavoriteRepositoryBindingService', () => {
     await expect(service.adoptExistingPhysicalShard('100', {
       logicalLedgerId: 'meilin', logicalTitle: 'bilimi·梅林FIT',
       expectedRemoteTitle: 'bilimi·小咪的收藏夹', remoteFolderId: 'xiaomi-id',
-      shardNumber: 1, memberAids: [], allowRemoteRename: true
-    })).rejects.toThrow('formal binding must use the bound rename operation')
+      shardNumber: 1, memberAids: []
+    })).rejects.toThrow('remote shard title is invalid')
 
     expect(renameFolder).not.toHaveBeenCalled()
   })
 
-  it('reports a remote rename rejection for an explicitly selected differently named candidate', async () => {
+  it('does not call remote rename when an explicitly selected candidate does not match the local rule', async () => {
     const repository = await createRepository()
     const commit = vi.spyOn(repository, 'commit')
     const renameFolder = vi.fn().mockResolvedValue({
@@ -1076,14 +1097,14 @@ describe('FavoriteRepositoryBindingService', () => {
     await expect(service.adoptExistingPhysicalShard('100', {
       logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区哈哈',
       remoteDisplayTitle: 'bilimi·游戏专区', expectedRemoteTitle: 'bilimi·游戏专区',
-      remoteFolderId: 'game-2', shardNumber: 1, memberAids: [], allowRemoteRename: true
-    })).rejects.toThrow('remote shard rename rejected')
+      remoteFolderId: 'game-2', shardNumber: 1, memberAids: []
+    })).rejects.toThrow('remote shard title is invalid')
 
-    expect(renameFolder).toHaveBeenCalledOnce()
+    expect(renameFolder).not.toHaveBeenCalled()
     expect(commit).not.toHaveBeenCalled()
   })
 
-  it('confirms an explicitly selected unbound renamed candidate after its first inventory still has the old title', async () => {
+  it('does not rename an unbound candidate whose remote title differs from the local rule', async () => {
     const repository = await createRepository()
     const expectedTitle = 'bilimi·生活日常你好'
     let renamed = false
@@ -1119,17 +1140,15 @@ describe('FavoriteRepositoryBindingService', () => {
     await expect(service.adoptExistingPhysicalShard('100', {
       logicalLedgerId: 'life', logicalTitle: expectedTitle,
       remoteDisplayTitle: expectedTitle, expectedRemoteTitle: 'bilimi·生活日常',
-      remoteFolderId: 'life-1', shardNumber: 1, memberAids: [], allowRemoteRename: true
-    })).resolves.toMatchObject({
-      shards: [expect.objectContaining({ remoteFolderId: 'life-1', remoteTitle: expectedTitle, bindingState: 'bound' })]
-    })
+      remoteFolderId: 'life-1', shardNumber: 1, memberAids: []
+    })).rejects.toThrow('remote shard title is invalid')
 
-    expect(renameFolder).toHaveBeenCalledOnce()
+    expect(renameFolder).not.toHaveBeenCalled()
     expect(waitForInventoryRetry).not.toHaveBeenCalled()
     expect(readFolderInventory).toHaveBeenCalledTimes(1)
   })
 
-  it('confirms an explicitly selected unbound renamed candidate from its exact remote id while the directory remains stale', async () => {
+  it('does not rename an unbound candidate while the remote directory remains stale', async () => {
     const repository = await createRepository()
     const expectedTitle = 'bilimi·生活日常你好'
     let renamed = false
@@ -1161,12 +1180,10 @@ describe('FavoriteRepositoryBindingService', () => {
     await expect(service.adoptExistingPhysicalShard('100', {
       logicalLedgerId: 'life', logicalTitle: expectedTitle,
       remoteDisplayTitle: expectedTitle, expectedRemoteTitle: 'bilimi·生活日常',
-      remoteFolderId: 'life-1', shardNumber: 1, memberAids: [], allowRemoteRename: true
-    })).resolves.toMatchObject({
-      shards: [expect.objectContaining({ remoteFolderId: 'life-1', remoteTitle: expectedTitle, bindingState: 'bound' })]
-    })
+      remoteFolderId: 'life-1', shardNumber: 1, memberAids: []
+    })).rejects.toThrow('remote shard title is invalid')
 
-    expect(renameFolder).toHaveBeenCalledOnce()
+    expect(renameFolder).not.toHaveBeenCalled()
     expect(readFolderInventory).toHaveBeenCalledOnce()
     expect(readFolder).not.toHaveBeenCalled()
     expect(waitForInventoryRetry).not.toHaveBeenCalled()
@@ -1188,7 +1205,7 @@ describe('FavoriteRepositoryBindingService', () => {
       }
     })
     const input = {
-      logicalLedgerId: 'inbox', logicalTitle: 'Inbox', expectedRemoteTitle: 'Staging',
+      logicalLedgerId: 'inbox', logicalTitle: 'Staging', expectedRemoteTitle: 'Staging',
       remoteFolderId: '4070414411', shardNumber: 1, memberAids: []
     }
 
@@ -1228,8 +1245,8 @@ describe('FavoriteRepositoryBindingService', () => {
 
     await expect(service.adoptExistingPhysicalShard('100', {
       logicalLedgerId: 'knowledge', logicalTitle: 'bilimi·知识学习你好',
-      remoteDisplayTitle: 'bilimi·知识学习', expectedRemoteTitle: 'bilimi·知识学习',
-      remoteFolderId: 'knowledge-1', shardNumber: 1, memberAids: [], allowRemoteRename: true
+      remoteDisplayTitle: 'bilimi·知识学习你好', expectedRemoteTitle: 'bilimi·知识学习你好',
+      remoteFolderId: 'knowledge-1', shardNumber: 1, memberAids: []
     })).resolves.toMatchObject({
       shards: [expect.objectContaining({
         logicalLedgerId: 'knowledge', remoteFolderId: 'knowledge-1',

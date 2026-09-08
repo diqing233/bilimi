@@ -1092,6 +1092,25 @@ describe('favorite ledger API scripts', () => {
     ])
   })
 
+  it('does not offer a differently named persisted id as a Merlin binding candidate', async () => {
+    installCookies()
+    const meilin: FavoriteLedger = {
+      id: 'meilin', displayName: 'bilimi·梅林FIT', keywords: ['梅林'], enabled: true, priority: 1,
+      ruleOrigin: 'saved-rule', isDefault: false, bindingState: 'unbound',
+      bilibiliFolderId: 'xiaomi-id', bilibiliFolderIds: ['xiaomi-id']
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 'xiaomi-id', title: 'bilimi·小咪的收藏夹', media_count: 1 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript([meilin]))
+
+    expect(result.unboundCandidates).toEqual([{ ledgerId: 'meilin', candidates: [] }])
+  })
+
   it('creates only the explicit backup target while still using every saved rule for discovery', async () => {
     installCookies()
     const createTitles: string[] = []
@@ -1259,7 +1278,7 @@ describe('favorite ledger API scripts', () => {
     expect(result.message).not.toBe('册目查验已毕。')
   })
 
-  it('treats a bound folder with a changed title as an unbound exact-id candidate', async () => {
+  it('keeps a bound folder with a changed title out of ordinary binding candidates', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
@@ -1273,10 +1292,8 @@ describe('favorite ledger API scripts', () => {
       bilibiliFolderId: '88', bindingState: 'bound'
     }]))
 
-    expect(result.ledgers).toEqual([expect.objectContaining({ id: 'local-bound', bilibiliFolderId: '88', bindingState: 'unbound' })])
-    expect(result.unboundCandidates).toEqual([{
-      ledgerId: 'local-bound', candidates: [{ id: '88', title: '用户改过的名称', memberCount: 6 }]
-    }])
+    expect(result.ledgers).toEqual([expect.objectContaining({ id: 'local-bound', bilibiliFolderId: '88', bindingState: 'bound' })])
+    expect(result.unboundCandidates).toEqual([])
   })
 
   it('returns the exact formal shard title drift for a backup rename confirmation', async () => {
@@ -1458,7 +1475,7 @@ describe('favorite ledger API scripts', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/folder/add'))).toBe(false)
   })
 
-  it('does not rename a formally bound Bilibili folder during lightweight backup', async () => {
+  it('keeps a formally bound Bilibili folder bound during lightweight backup without renaming it', async () => {
     installCookies()
     const ledger: FavoriteLedger = {
       id: 'custom-lightweight', displayName: 'bilimi·新名称', keywords: ['新名称'], enabled: true,
@@ -1478,13 +1495,12 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger], { lightweightBackup: true }))
 
-    expect(result.ok).toBe(false)
-    expect(result.unboundLedgerIds).toEqual(['custom-lightweight'])
-    expect(result.unboundCandidates).toEqual([{ ledgerId: 'custom-lightweight', candidates: [{ id: '42', title: 'bilimi·旧名称', memberCount: 0 }] }])
+    expect(result.ok).toBe(true)
+    expect(result.unboundLedgerIds).toBeUndefined()
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/edit'))).toHaveLength(0)
   })
 
-  it('keeps the observed remote title in a full backup', async () => {
+  it('keeps the observed remote title in a full backup without renaming it', async () => {
     installCookies()
     const ledger: FavoriteLedger = {
       id: 'custom-full-backup', displayName: 'bilimi·新名称', keywords: ['新名称'], enabled: true,
@@ -1504,13 +1520,13 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
 
-    expect(result.ok).toBe(false)
-    expect(result.unboundLedgerIds).toEqual(['custom-full-backup'])
+    expect(result.ok).toBe(true)
+    expect(result.unboundLedgerIds).toBeUndefined()
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/edit'))).toHaveLength(0)
     expect(result.ledgers).toEqual([expect.objectContaining({ bilibiliFolderTitle: 'bilimi·旧名称' })])
   })
 
-  it('treats a renamed formally bound folder as an unbound exact-id candidate', async () => {
+  it('keeps a renamed formally bound folder bound for the separate rename flow', async () => {
     installCookies()
     const ledger: FavoriteLedger = {
       id: 'custom-music', displayName: 'bilimi·音乐舞台', keywords: ['音乐'], enabled: true,
@@ -1527,13 +1543,10 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildFavoriteLedgerStatusScript([ledger]))
 
     expect(result.ledgers).toEqual([expect.objectContaining({
-      id: 'custom-music', bindingState: 'unbound', bilibiliFolderId: '4065561111'
+      id: 'custom-music', bindingState: 'bound', bilibiliFolderId: '4065561111'
     })])
-    expect(result.unboundLedgerIds).toEqual(['custom-music'])
-    expect(result.unboundCandidates).toEqual([{
-      ledgerId: 'custom-music',
-      candidates: [{ id: '4065561111', title: 'bilimi·音乐舞台哈哈', memberCount: 7 }]
-    }])
+    expect(result.unboundLedgerIds).toEqual([])
+    expect(result.unboundCandidates).toEqual([])
   })
 
   it('accepts an explicitly selected exact-ID folder for the backup binding handoff even after its title loses the bilimi prefix', async () => {
@@ -1561,7 +1574,7 @@ describe('favorite ledger API scripts', () => {
     })])
   })
 
-  it('does not rename an existing remote folder during an ordinary backup', async () => {
+  it('keeps an existing bound remote folder bound during an ordinary backup without renaming it', async () => {
     installCookies()
     const ledger: FavoriteLedger = {
       id: 'custom-no-rename', displayName: 'bilimi·新名称', keywords: ['新名称'], enabled: true,
@@ -1581,8 +1594,8 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildEnsureFavoriteLedgersScript([ledger]))
 
-    expect(result.ok).toBe(false)
-    expect(result.unboundLedgerIds).toEqual(['custom-no-rename'])
+    expect(result.ok).toBe(true)
+    expect(result.unboundLedgerIds).toBeUndefined()
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/folder/edit'))).toHaveLength(0)
     expect(result.ledgers).toEqual([expect.objectContaining({ bilibiliFolderTitle: 'bilimi·旧名称' })])
   })

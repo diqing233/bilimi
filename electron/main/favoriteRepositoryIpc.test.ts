@@ -55,6 +55,30 @@ describe('registerFavoriteRepositoryIpc', () => {
     })
   })
 
+  it('drops a legacy remote-rename flag before invoking the adoption service', async () => {
+    const ipcMain = new FakeIpcMain()
+    const adoptExistingPhysicalShard = vi.fn().mockResolvedValue({ logicalLedgerId: 'meilin' })
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary: vi.fn() } as never,
+      bindingService: { adoptExistingPhysicalShard },
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await ipcMain.invoke('favorite-repository:adopt-ledger-binding', 7, '100', {
+      logicalLedgerId: 'meilin', logicalTitle: 'bilimi·梅林FIT',
+      remoteFolderId: 'xiaomi-id', remoteTitle: 'bilimi·小咪的收藏夹', allowRemoteRename: true
+    })
+
+    expect(adoptExistingPhysicalShard).toHaveBeenCalledWith('100', {
+      logicalLedgerId: 'meilin', logicalTitle: 'bilimi·梅林FIT',
+      remoteDisplayTitle: 'bilimi·小咪的收藏夹', expectedRemoteTitle: 'bilimi·小咪的收藏夹',
+      remoteFolderId: 'xiaomi-id', shardNumber: 1, memberAids: []
+    })
+    expect(adoptExistingPhysicalShard.mock.calls[0]?.[1]).not.toHaveProperty('allowRemoteRename')
+  })
+
   it('renames only an explicitly addressed formally bound shard without adoption', async () => {
     const ipcMain = new FakeIpcMain()
     const renameBoundPhysicalShard = vi.fn().mockResolvedValue({ logicalLedgerId: 'game' })

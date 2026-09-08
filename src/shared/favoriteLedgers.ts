@@ -180,7 +180,9 @@ export function disambiguateRecommendedFavoriteLedgerNames<
   })
 }
 
-const BILIMI_LEDGER_PREFIX_PATTERN = /^bilimi(?:[·:：]|\s+|-|路)?/i
+export const BILIMI_LEDGER_PREFIX_PATTERN_SOURCE = '^bilimi(?=$|[\\s·.:：_\\-]|路|[\\u3400-\\u9fff])\\s*(?:[·.:：_\\-]|路)?\\s*'
+
+const BILIMI_LEDGER_PREFIX_PATTERN = new RegExp(BILIMI_LEDGER_PREFIX_PATTERN_SOURCE, 'iu')
 
 const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
   [

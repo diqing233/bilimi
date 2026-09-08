@@ -789,6 +789,7 @@ export default function App() {
   const webviewRefs = useRef<Record<string, Electron.WebviewTag>>({})
   const favoriteRepositoryPageTargetRef = useRef<ReturnType<typeof createFavoriteRepositoryPageTarget> | null>(null)
   const favoriteRepositoryTargetStates = useRef(new Map<number, FavoriteRepositoryPageTarget>())
+  const programmaticFavoriteCreateRefreshSuppressionsRef = useRef(new Map<string, number>())
   const activeTabChangeMounted = useRef(false)
   const lastPetVideoKey = useRef<string | undefined>(undefined)
   const assistantRuntimeFeedbackRef = useRef<{ id: number; message: string } | undefined>(undefined)
@@ -1273,6 +1274,13 @@ export default function App() {
     _tabId: string,
     mutation: { accountMid: string; kind: 'create' | 'rename' | 'delete' }
   ) => {
+    // A programmatic backup must formally register its exact created folder
+    // before reloading the same WebView. The observer signal is still used
+    // for manual page mutations, but its matching programmatic create is
+    // handled by that backup transaction after adoption succeeds.
+    if (mutation.kind === 'create' && (programmaticFavoriteCreateRefreshSuppressionsRef.current.get(mutation.accountMid) ?? 0) > 0) {
+      return
+    }
     void mutation.kind
     void (async () => {
       let refresh: { status: 'idle' | 'pending' } | undefined
@@ -1285,6 +1293,21 @@ export default function App() {
       await readRemoteFavoriteDiscovery(mutation.accountMid).catch(() => undefined)
     })()
   }, [])
+
+  function suppressProgrammaticFavoriteCreateRefresh(accountMid: string) {
+    const normalizedAccountMid = accountMid.trim()
+    if (!normalizedAccountMid) return () => undefined
+    const current = programmaticFavoriteCreateRefreshSuppressionsRef.current.get(normalizedAccountMid) ?? 0
+    programmaticFavoriteCreateRefreshSuppressionsRef.current.set(normalizedAccountMid, current + 1)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const remaining = (programmaticFavoriteCreateRefreshSuppressionsRef.current.get(normalizedAccountMid) ?? 1) - 1
+      if (remaining > 0) programmaticFavoriteCreateRefreshSuppressionsRef.current.set(normalizedAccountMid, remaining)
+      else programmaticFavoriteCreateRefreshSuppressionsRef.current.delete(normalizedAccountMid)
+    }
+  }
 
   function getCurrentActiveWebview() {
     return (
@@ -1988,9 +2011,9 @@ export default function App() {
 
   /**
    * The page script is the only code path that can confirm a direct Bilibili
-   * folder creation. Refresh the personal-space SPA only after that explicit
-   * success marker; a later local binding registration may legitimately need
-   * a retry and must not hide the already-created folder from the user.
+   * folder creation. Refresh the personal-space SPA only after the same
+   * transaction has formally bound that exact folder. Reloading earlier makes
+   * the page target unavailable to the binding inventory read.
    */
   async function refreshFavoriteSpaceAfterConfirmedPageCreate(
     accountMid: string,
@@ -2261,9 +2284,6 @@ export default function App() {
       remoteTitle: string
       memberCount: number
       shardNumber: number
-      // Only a folder selected in the explicit binding-confirmation dialog
-      // receives permission to repair its displayed remote shard name.
-      allowRemoteRename: boolean
     }> = []
     const failures: FavoriteLedgerBindingRegistrationResult['failures'] = []
     for (const ledger of resultLedgers) {
@@ -2316,15 +2336,14 @@ export default function App() {
             remoteFolderId: folder.id.trim(),
             remoteTitle,
             memberCount: Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0 ? folder.memberCount : 0,
-            shardNumber,
-            allowRemoteRename: selectedFolders.length > 0
+            shardNumber
           })
         }
       }
     }
 
     const successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; memberCount: number; shardNumber: number }> = []
-    for (const { ledger, remoteFolderId, remoteTitle, memberCount, shardNumber, allowRemoteRename } of registrations) {
+    for (const { ledger, remoteFolderId, remoteTitle, memberCount, shardNumber } of registrations) {
       if (!window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
         failures.push({
           ledgerId: ledger.id,
@@ -2343,8 +2362,7 @@ export default function App() {
           logicalLedgerId: ledger.id, shardNumber,
           logicalTitle: ledger.displayName,
           remoteFolderId,
-          remoteTitle,
-          ...(allowRemoteRename ? { allowRemoteRename: true } : {})
+          remoteTitle
         })
         const adoptedShard = adoptionResult && typeof adoptionResult === 'object' && !Array.isArray(adoptionResult) &&
           Array.isArray((adoptionResult as { shards?: unknown }).shards)
@@ -2758,22 +2776,22 @@ export default function App() {
       ...pendingRemoteDraftRediscoveryIds
     ])]
 
-    const result = await runScript(
-      buildEnsureFavoriteLedgersScript(
-        ledgersWithFormalBindings,
-        {
-          dismissedRemoteFolderIds: suppressedRemoteDraftFolderIds,
-          remoteDraftKnownFolderIds,
-          // The ensure script is an operational intermediate result. A
-          // complete discovery read below is the only place this explicit
-          // backup may publish an unfamiliar remote folder.
-          includeRemoteOnlyDrafts: false
-        },
-        remoteDraftBoundFolderIds
-      )
-    ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
-
-    await refreshFavoriteSpaceAfterConfirmedPageCreate(accountMid, result)
+    const releaseCreateRefreshSuppression = suppressProgrammaticFavoriteCreateRefresh(accountMid)
+    try {
+      const result = await runScript(
+        buildEnsureFavoriteLedgersScript(
+          ledgersWithFormalBindings,
+          {
+            dismissedRemoteFolderIds: suppressedRemoteDraftFolderIds,
+            remoteDraftKnownFolderIds,
+            // The ensure script is an operational intermediate result. A
+            // complete discovery read below is the only place this explicit
+            // backup may publish an unfamiliar remote folder.
+            includeRemoteOnlyDrafts: false
+          },
+          remoteDraftBoundFolderIds
+        )
+      ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
       // A legacy/incomplete page bridge must not reintroduce an intermediate
@@ -2839,6 +2857,7 @@ export default function App() {
           message: '收藏夹已在 B 站创建，但正式绑定未完成，请在备册时重新确认对应收藏夹。'
         }
       }
+      await refreshFavoriteSpaceAfterConfirmedPageCreate(accountMid, result)
       const ledgersChanged = JSON.stringify(persistedLedgersWithHistory) !== JSON.stringify(favoriteLedgers)
       const nextPreferences = createInitialAssistantPreferences({
         ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgersWithHistory)
@@ -2893,6 +2912,9 @@ export default function App() {
     }
 
     return result
+    } finally {
+      releaseCreateRefreshSuppression()
+    }
   }
 
   async function ensureFavoriteLedgers(): Promise<AssistantAutomationResult> {
@@ -3007,23 +3029,24 @@ export default function App() {
       }
     }
     const ledgersAfterDirectRename = directRename.ledgers
-    const result = await runScript(
-      buildEnsureFavoriteLedgersScript(
-        ledgersAfterDirectRename,
-        {
-          ...options,
-          // A single-ledger backup never returns remote observations from its
-          // write script. The dedicated read-only preflight owns that data.
-          includeRemoteOnlyDrafts: false,
-          remoteDraftKnownFolderIds: [...new Set([
-            ...(options?.remoteDraftKnownFolderIds ?? []),
-            ...remoteDraftKnownFolderIds
-          ])]
-        },
-        remoteDraftBoundFolderIds
-      )
-    ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
-    await refreshFavoriteSpaceAfterConfirmedPageCreate(accountMid, result)
+    const releaseCreateRefreshSuppression = suppressProgrammaticFavoriteCreateRefresh(accountMid)
+    try {
+      const result = await runScript(
+        buildEnsureFavoriteLedgersScript(
+          ledgersAfterDirectRename,
+          {
+            ...options,
+            // A single-ledger backup never returns remote observations from its
+            // write script. The dedicated read-only preflight owns that data.
+            includeRemoteOnlyDrafts: false,
+            remoteDraftKnownFolderIds: [...new Set([
+              ...(options?.remoteDraftKnownFolderIds ?? []),
+              ...remoteDraftKnownFolderIds
+            ])]
+          },
+          remoteDraftBoundFolderIds
+        )
+      ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
     const mergedResult = mergeBoundRenameIntoAutomationResult(result, ledgersAfterDirectRename, directRename.renamedLedgerIds)
 
     if (Array.isArray(mergedResult.ledgers)) {
@@ -3079,6 +3102,7 @@ export default function App() {
           message: '收藏夹已在 B 站创建，但正式绑定未完成，请在备册时重新确认对应收藏夹。'
         }
       }
+      await refreshFavoriteSpaceAfterConfirmedPageCreate(accountMid, result)
       const persistedById = new Map(persistedLedgers.map((ledger) => [ledger.id, ledger]))
       const mergedLedgers = currentLedgers.map((ledger) => persistedById.get(ledger.id) ?? ledger)
       if (JSON.stringify(mergedLedgers) !== JSON.stringify(currentLedgers)) {
@@ -3098,6 +3122,9 @@ export default function App() {
     }
 
     return mergedResult
+    } finally {
+      releaseCreateRefreshSuppression()
+    }
   }
 
   async function saveFavoriteLedgers(
@@ -3225,17 +3252,14 @@ export default function App() {
         .filter((ledgerId) => targetLedgerIds.size === 0 || targetLedgerIds.has(ledgerId))
       const targetMissingLedgerIds = observationStatus.missingLedgerIds
         .filter((ledgerId) => targetLedgerIds.size === 0 || targetLedgerIds.has(ledgerId))
-      const targetUnbackedCandidates = targetLedgers
-        .filter((ledger) => ledger.enabled && ledger.bindingState === 'unbacked')
-        .map((ledger) => ({ ledgerId: ledger.id, candidates: [] }))
       return {
-        ok: observationStatus.verified === true && targetUnboundLedgerIds.length === 0 && targetMissingLedgerIds.length === 0,
+        ok: observationStatus.verified === true && targetUnboundLedgerIds.length === 0,
         verified: observationStatus.verified,
         ledgers: observationStatus.ledgers,
         steps: ['favorite:remote-observation-preflight'],
         missingTargets: [...targetMissingLedgerIds],
         unboundLedgerIds: targetUnboundLedgerIds,
-        unboundCandidates: [...targetUnboundCandidates, ...targetUnbackedCandidates],
+        unboundCandidates: targetUnboundCandidates,
         remoteOnlyDraftLedgerIds: [],
         remoteObservations: observationStatus.remoteObservations ?? [],
         message: observationStatus.message
@@ -3287,18 +3311,19 @@ export default function App() {
       ...ledgersAfterDirectRename
     ].map((ledger) => [ledger.id, ledger])).values()]
 
-    const result = await runScript(
-      buildSaveFavoriteLedgersScript(ledgersForRemoteDiscovery, previousLedgers, {
-          ...options,
-          dismissedRemoteFolderIds,
-          remoteDraftKnownFolderIds,
-          // Only the user-triggered backup preflight exposes B 站-only
-          // observations. They remain in this result and never enter
-          // preferences as local rules.
+    const releaseCreateRefreshSuppression = suppressProgrammaticFavoriteCreateRefresh(accountMid)
+    try {
+      const result = await runScript(
+        buildSaveFavoriteLedgersScript(ledgersForRemoteDiscovery, previousLedgers, {
+            ...options,
+            dismissedRemoteFolderIds,
+            remoteDraftKnownFolderIds,
+            // Only the user-triggered backup preflight exposes B 站-only
+            // observations. They remain in this result and never enter
+            // preferences as local rules.
           includeRemoteOnlyDrafts: options?.includeRemoteOnlyDrafts === true
-      }, remoteDraftBoundFolderIds)
-    ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
-    await refreshFavoriteSpaceAfterConfirmedPageCreate(accountMid, result)
+        }, remoteDraftBoundFolderIds)
+      ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
     const mergedResult = mergeBoundRenameIntoAutomationResult(result, ledgersForRemoteDiscovery, directRename.renamedLedgerIds)
     const visibleMergedResult = mergedResult
     const refreshFavoriteLedgerStatusAfterBackup = async (preserveBoundLedgerIds: readonly string[] = []) => {
@@ -3439,6 +3464,7 @@ export default function App() {
             : '收藏夹已创建，正在等待 B 站收藏夹清单刷新后完成正式绑定；不会重复创建或写入视频。'
         }
       }
+      await refreshFavoriteSpaceAfterConfirmedPageCreate(accountMid, result)
       const nextPreferences = createInitialAssistantPreferences({
         ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, persistedLedgersWithHistory)
       })
@@ -3486,6 +3512,9 @@ export default function App() {
           : ledger
       }) }
       : visibleMergedResult
+    } finally {
+      releaseCreateRefreshSuppression()
+    }
   }
 
   async function openBilibiliFavorites(): Promise<AssistantAutomationResult> {
@@ -4030,63 +4059,68 @@ export default function App() {
           if (!ledger) continue
           const pendingKey = `${actionAccountMid}:${ledgerId}`
           const pendingFolder = pendingFavoriteShardBindingsRef.current.get(pendingKey)?.folder
-          const creation = pendingFolder
-            ? { ok: true, steps: ['favorite:shard-binding-retry'], missingTargets: [], existingFolder: pendingFolder }
-            : await runScript(
-                buildCreateFavoriteLedgerPhysicalShardScript(ledger)
-              ) as AssistantAutomationResult & {
-                folder?: { id: string; title: string; shardNumber: number }
-                existingFolder?: { id: string; title: string; shardNumber: number }
-              }
-          const folder = creation.folder ?? creation.existingFolder
-          if (!creation.ok || !folder?.id || !window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
-            return {
-              ok: false,
-              steps: [...(capacity.steps ?? []), ...(creation.steps ?? [])],
-              missingTargets: creation.missingTargets?.length ? creation.missingTargets : [`favorite-shard-binding:${ledgerId}`],
-              message: creation.message || '新的 B 站收藏夹分区未能完成正式绑定，本次批阅没有写入收藏夹。'
-            }
-          }
-          if (creation.folder) {
-            await window.bilimiDesktop.retryBilibiliFavoriteSpaceRefresh?.(actionAccountMid)
-          }
+          const releaseCreateRefreshSuppression = suppressProgrammaticFavoriteCreateRefresh(actionAccountMid)
           try {
-            await window.bilimiDesktop.adoptFavoriteRepositoryLedgerBinding(actionAccountMid, {
-              logicalLedgerId: ledger.id,
-              logicalTitle: ledger.displayName,
-              remoteFolderId: folder.id,
-              remoteTitle: folder.title,
-              shardNumber: folder.shardNumber
-            })
-          } catch (error) {
-            pendingFavoriteShardBindingsRef.current.set(pendingKey, { folder })
-            const pendingLedgers = actionFavoriteLedgers.map((candidate) => candidate.id === ledgerId
-              ? {
-                  ...candidate,
-                  pendingRemoteFolderId: folder.id,
-                  pendingRemoteFolderTitle: folder.title,
-                  pendingRemoteBinding: true,
-                  bindingState: candidate.bindingState ?? 'bound' as const
+            const creation = pendingFolder
+              ? { ok: true, steps: ['favorite:shard-binding-retry'], missingTargets: [], existingFolder: pendingFolder }
+              : await runScript(
+                  buildCreateFavoriteLedgerPhysicalShardScript(ledger)
+                ) as AssistantAutomationResult & {
+                  folder?: { id: string; title: string; shardNumber: number }
+                  existingFolder?: { id: string; title: string; shardNumber: number }
                 }
-              : candidate)
-            const pendingPreferences = createInitialAssistantPreferences({
-              ...preferencesWithFavoriteLedgers(preferencesRef.current, actionAccountMid, pendingLedgers)
-            })
-            const savedPendingPreferences = window.bilimiDesktop?.savePreferences
-              ? createInitialAssistantPreferences(await window.bilimiDesktop.savePreferences(pendingPreferences))
-              : pendingPreferences
-            preferencesRef.current = savedPendingPreferences
-            setPreferences(savedPendingPreferences)
-            favoriteLedgerStatusCacheRef.current = null
-            return {
-              ok: false,
-              steps: [...(capacity.steps ?? []), ...(creation.steps ?? [])],
-              missingTargets: [`favorite-shard-binding:${ledgerId}`],
-              message: `新的 B 站收藏夹分区已创建，但正式绑定暂未完成；已记住该分区，下次会只重试绑定，不会重复创建。本次批阅没有写入收藏夹。${error instanceof Error && error.message ? `原因：${error.message}` : ''}`
+            const folder = creation.folder ?? creation.existingFolder
+            if (!creation.ok || !folder?.id || !window.bilimiDesktop?.adoptFavoriteRepositoryLedgerBinding) {
+              return {
+                ok: false,
+                steps: [...(capacity.steps ?? []), ...(creation.steps ?? [])],
+                missingTargets: creation.missingTargets?.length ? creation.missingTargets : [`favorite-shard-binding:${ledgerId}`],
+                message: creation.message || '新的 B 站收藏夹分区未能完成正式绑定，本次批阅没有写入收藏夹。'
+              }
             }
+            try {
+              await window.bilimiDesktop.adoptFavoriteRepositoryLedgerBinding(actionAccountMid, {
+                logicalLedgerId: ledger.id,
+                logicalTitle: ledger.displayName,
+                remoteFolderId: folder.id,
+                remoteTitle: folder.title,
+                shardNumber: folder.shardNumber
+              })
+            } catch (error) {
+              pendingFavoriteShardBindingsRef.current.set(pendingKey, { folder })
+              const pendingLedgers = actionFavoriteLedgers.map((candidate) => candidate.id === ledgerId
+                ? {
+                    ...candidate,
+                    pendingRemoteFolderId: folder.id,
+                    pendingRemoteFolderTitle: folder.title,
+                    pendingRemoteBinding: true,
+                    bindingState: candidate.bindingState ?? 'bound' as const
+                  }
+                : candidate)
+              const pendingPreferences = createInitialAssistantPreferences({
+                ...preferencesWithFavoriteLedgers(preferencesRef.current, actionAccountMid, pendingLedgers)
+              })
+              const savedPendingPreferences = window.bilimiDesktop?.savePreferences
+                ? createInitialAssistantPreferences(await window.bilimiDesktop.savePreferences(pendingPreferences))
+                : pendingPreferences
+              preferencesRef.current = savedPendingPreferences
+              setPreferences(savedPendingPreferences)
+              favoriteLedgerStatusCacheRef.current = null
+              return {
+                ok: false,
+                steps: [...(capacity.steps ?? []), ...(creation.steps ?? [])],
+                missingTargets: [`favorite-shard-binding:${ledgerId}`],
+                message: `新的 B 站收藏夹分区已创建，但正式绑定暂未完成；已记住该分区，下次会只重试绑定，不会重复创建。本次批阅没有写入收藏夹。${error instanceof Error && error.message ? `原因：${error.message}` : ''}`
+              }
+            }
+            if (creation.folder) {
+              await window.bilimiDesktop.retryBilibiliFavoriteSpaceRefresh?.(actionAccountMid)
+            }
+            createdByLedgerId.set(ledgerId, folder)
+            pendingFavoriteShardBindingsRef.current.delete(pendingKey)
+          } finally {
+            releaseCreateRefreshSuppression()
           }
-          createdByLedgerId.set(ledgerId, folder)
-          pendingFavoriteShardBindingsRef.current.delete(pendingKey)
         }
         if (createdByLedgerId.size) {
           actionFavoriteLedgers = actionFavoriteLedgers.map((ledger) => {

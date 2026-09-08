@@ -4,7 +4,9 @@ import { REMOTE_FAVORITE_FOLDER_LIMIT } from '../../src/shared/favoriteRepositor
 import type { AccountFavoriteRepositorySnapshot } from '../../src/shared/favoriteRepository'
 import {
   favoriteLedgerBindingNameAndShard,
-  favoriteLedgerCapacityShardName
+  favoriteLedgerCapacityShardName,
+  isBilimiManagedLedgerName,
+  stripBilimiLedgerPrefix
 } from '../../src/shared/favoriteLedgers'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositoryPageBridgeManager } from './favoriteRepositorySyncService'
@@ -36,7 +38,6 @@ export type AdoptExistingPhysicalShardInput = {
   remoteFolderId: string
   shardNumber: number
   memberAids: number[]
-  allowRemoteRename?: boolean
 }
 
 export type RenameBoundPhysicalShardInput = {
@@ -76,6 +77,14 @@ function titleToken(value: string) {
 function comparableManagedShardTitle(value: string) {
   const { baseName, shardNumber } = favoriteLedgerBindingNameAndShard(value)
   return `${baseName}\u0000${shardNumber}`
+}
+
+function sameLogicalRemoteFolderTitle(remoteTitle: string, logicalTitle: string) {
+  return comparableLogicalRemoteFolderTitle(remoteTitle) === comparableLogicalRemoteFolderTitle(logicalTitle)
+}
+
+function comparableLogicalRemoteFolderTitle(title: string) {
+  return favoriteLedgerBindingNameAndShard(stripBilimiLedgerPrefix(title)).baseName
 }
 
 function remoteRenameFailure(result: {
@@ -174,7 +183,7 @@ function normalizeAdoptionInput(input: AdoptExistingPhysicalShardInput) {
   if (memberAids.length > REMOTE_FAVORITE_SHARD_CAPACITY) {
     throw new Error('Favorite repository shard capacity is exceeded.')
   }
-  return { logicalLedgerId, logicalTitle, remoteFolderId, expectedRemoteTitle, memberAids, allowRemoteRename: input.allowRemoteRename === true }
+  return { logicalLedgerId, logicalTitle, remoteFolderId, expectedRemoteTitle, memberAids }
 }
 
 function normalizeBoundRenameInput(input: RenameBoundPhysicalShardInput) {
@@ -320,7 +329,10 @@ export class FavoriteRepositoryBindingService {
     await pageBridgeManager.bind(account, runId)
     try {
       const bridge = pageBridgeManager.pageBridge(account, runId)
-      // Adoption is deliberately ID-only: duplicate names must never affect the target.
+      // Adoption is deliberately ID-only after the renderer has selected a
+      // same-name candidate. This operation never changes the Bilibili title:
+      // a mismatch must go through renameBoundPhysicalShard after a formal
+      // binding exists and the user confirms the separate rename dialog.
       // A successful create response already gives the renderer the exact
       // remote ID. Bilibili's folder list can lag that response briefly, so
       // make bounded, condition-based reads for that ID before reporting a
@@ -345,16 +357,8 @@ export class FavoriteRepositoryBindingService {
         if (matches.length === 1) break
       }
       if (matches.length !== 1) throw new Error('Favorite repository remote shard is absent from inventory.')
-      let remote = matches[0]
-      const remoteTitleMatches = comparableManagedShardTitle(remote.title) === comparableManagedShardTitle(normalized.expectedRemoteTitle)
-      // The caller reaches this point only after the user selected this exact
-      // remote folder ID in the rebind confirmation. A title drift must not
-      // turn that ID-confirmed repair into a name-based rejection: the
-      // explicit rename is what restores the managed title.
-      // The confirmation dialog supplies both the exact remote ID and the
-      // title observed for that ID. A user may explicitly authorize renaming
-      // that candidate into a different local rule, but the candidate must
-      // not have changed between confirmation and this remote operation.
+      const remote = matches[0]
+      const remoteTitleMatchesPreview = comparableManagedShardTitle(remote.title) === comparableManagedShardTitle(normalized.expectedRemoteTitle)
       if (!Number.isSafeInteger(remote.memberCount) || remote.memberCount < 0 ||
         remote.memberCount > REMOTE_FAVORITE_SHARD_CAPACITY) {
         throw new Error('Favorite repository remote shard inventory is invalid.')
@@ -371,34 +375,14 @@ export class FavoriteRepositoryBindingService {
       const exactExisting = snapshot.physicalShards.find((shard) =>
         shard.logicalLedgerId === normalized.logicalLedgerId && shard.shardNumber === input.shardNumber &&
         shard.remoteFolderId === normalized.remoteFolderId && shard.bindingState === 'bound')
-      const expectedManagedTitle = favoriteRepositoryManagedShardTitleForDisplay(
-        normalized.logicalLedgerId, input.shardNumber, 'explicit-adoption', normalized.logicalTitle
-      )
-      if (!remoteTitleMatches && (!exactExisting || !normalized.allowRemoteRename)) {
+      if (!remoteTitleMatchesPreview || !sameLogicalRemoteFolderTitle(remote.title, normalized.logicalTitle)) {
         throw new Error('Favorite repository remote shard title is invalid.')
-      }
-      if (exactExisting && normalized.allowRemoteRename &&
-        comparableManagedShardTitle(remote.title) !== comparableManagedShardTitle(expectedManagedTitle)) {
-        throw new Error('Favorite repository formal binding must use the bound rename operation.')
-      }
-      const requiresRename = normalized.allowRemoteRename &&
-        comparableManagedShardTitle(remote.title) !== comparableManagedShardTitle(expectedManagedTitle)
-      if (requiresRename) {
-        const renameResult = await bridge.renameFolder({
-          accountMid: account,
-          operationKey: `${runId}:rename:${normalized.remoteFolderId}`,
-          folderId: normalized.remoteFolderId,
-          title: expectedManagedTitle
-        })
-        if (renameResult?.status === 'rejected') throw remoteRenameFailure(renameResult)
-        if (renameResult?.status === 'unknown') throw remoteRenameFailure(renameResult)
-        remote = { ...remote, title: expectedManagedTitle }
       }
       // A remote title that is already correct does not need another Bilibili
       // rename, but a formally bound shard may still carry an older title in
       // the local ledger. Commit that repair once so deletion preflight and
       // future idempotent adoptions observe the same authoritative title.
-      if (exactExisting && !requiresRename &&
+      if (exactExisting &&
         comparableManagedShardTitle(exactExisting.remoteTitle) === comparableManagedShardTitle(remote.title)) {
         return this.getBindings(account)
       }
@@ -422,7 +406,6 @@ export class FavoriteRepositoryBindingService {
           remoteMemberCount: remote.memberCount
         }
       })
-      if (requiresRename) await this.options.onConfirmedRemoteFolderMutation?.(account)
       return this.getBindings(account)
     } finally {
       pageBridgeManager.release(account, runId)
@@ -658,12 +641,12 @@ export class FavoriteRepositoryBindingService {
             if (!historicalShardNumberByRemoteId.has(remoteFolderId)) historicalShardNumberByRemoteId.set(remoteFolderId, shard.shardNumber)
           }
         }
-        const normalizeLogicalTitle = (title: string) => favoriteLedgerBindingNameAndShard(title).baseName
         return ledgers.map((ledger) => ({
           ledgerId: ledger.ledgerId.trim(),
           candidates: inventory.folders
             .filter((folder) => !formallyBoundRemoteFolderIds.has(folder.id))
-            .filter((folder) => normalizeLogicalTitle(folder.title) === normalizeLogicalTitle(ledger.title) && /^bilimi(?=$|[\s·.:：\-_]|[\u3400-\u9fff])/iu.test(folder.title.trim()))
+            .filter((folder) => isBilimiManagedLedgerName(folder.title) &&
+              sameLogicalRemoteFolderTitle(folder.title, ledger.title))
             .map((folder) => ({
               id: folder.id,
               title: folder.title,

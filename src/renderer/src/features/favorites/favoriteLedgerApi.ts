@@ -1,4 +1,9 @@
-import { BILIMI_LEDGER_PREFIX, isBilimiManagedLedgerName, stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
+import {
+  BILIMI_LEDGER_PREFIX,
+  BILIMI_LEDGER_PREFIX_PATTERN_SOURCE,
+  isBilimiManagedLedgerName,
+  stripBilimiLedgerPrefix
+} from '@shared/favoriteLedgers'
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 
 export type FavoriteLedgerPreviewItem = {
@@ -143,9 +148,10 @@ function sharedScriptHelpers(): string {
       }
       return json.data.list;
     };
+    const bilimiLedgerPrefixPattern = new RegExp(${scriptPayload(BILIMI_LEDGER_PREFIX_PATTERN_SOURCE)}, 'iu');
     const normalizeFolderTitle = (title) => String(title || '')
       .trim()
-      .replace(/^bilimi\\s*[·:：\-]?\\s*/iu, '')
+      .replace(bilimiLedgerPrefixPattern, '')
       .trim();
     const circledShardNumbers = [
       '',
@@ -188,24 +194,22 @@ function sharedScriptHelpers(): string {
         .trim()
         .toLocaleLowerCase();
     };
-    const isBilimiManagedFolder = (folder) => /^bilimi(?=$|[\\s·.：:-]|[\\u3400-\\u9fff])/iu.test(String(folder?.title || '').trim());
+    const isBilimiManagedFolder = (folder) => bilimiLedgerPrefixPattern.test(String(folder?.title || '').trim());
     const ledgerRemoteFolderIds = (ledger) => Array.from(new Set([
       ...(Array.isArray(ledger?.bilibiliFolderIds) ? ledger.bilibiliFolderIds : []),
       ...(ledger?.bilibiliFolderId ? [ledger.bilibiliFolderId] : [])
     ].map((folderId) => String(folderId || '').trim()).filter(Boolean)));
     const remoteFolderCandidates = (ledger, folders) => {
       const normalizedLedgerTitle = normalizeLogicalFolderTitle(ledger.displayName);
-      const persistedFolderIds = new Set(ledgerRemoteFolderIds(ledger));
       const confirmedDeletedRemoteFolderIds = new Set((Array.isArray(ledger?.confirmedDeletedRemoteFolderIds)
         ? ledger.confirmedDeletedRemoteFolderIds
         : []).map((folderId) => String(folderId || '').trim()).filter(Boolean));
       const candidates = folders
         .filter((candidate) => {
           const candidateId = String(findFolderId(candidate) || '').trim();
-          const exactPersistedId = persistedFolderIds.has(candidateId);
           const sameManagedTitle = isBilimiManagedFolder(candidate) &&
             normalizeLogicalFolderTitle(candidate?.title) === normalizedLedgerTitle;
-          return (sameManagedTitle || exactPersistedId) && candidateId &&
+          return sameManagedTitle && candidateId &&
             !confirmedDeletedRemoteFolderIds.has(candidateId)
         })
         .map((candidate) => ({
@@ -315,9 +319,11 @@ function sharedScriptHelpers(): string {
           } = ledger;
           return { ...ledgerWithoutMissingPendingRemote, bindingState: 'unbacked' };
         }
-        // A persisted binding is keyed by the remote folder ID, but a title
-        // change is an explicit unbound repair candidate until the user
-        // confirms the existing backup flow. Never rename or bind here.
+        // A formally bound folder is keyed by its exact remote ID. Its title
+        // may drift after the owner renames this rule or the Bilibili folder;
+        // keep that formal association so the dedicated bound-rename flow can
+        // ask whether to synchronize the name. It must never become a normal
+        // name-based binding candidate.
         const storedFolders = ledgerRemoteFolderIds(ledger)
           .map((folderId) => folderById.get(folderId))
           .filter(Boolean);
@@ -330,7 +336,7 @@ function sharedScriptHelpers(): string {
           const primaryFolder = storedFolders[0];
           const folderIds = storedFolders.map((folder) => String(findFolderId(folder)));
           const titleMatches = storedFolders.every((folder) => normalizeLogicalFolderTitle(folder.title) === normalizedLedgerTitle);
-          return { ...ledger, bilibiliFolderId: folderIds[0], bilibiliFolderIds: folderIds, bilibiliFolderTitle: String(primaryFolder.title || ledger.displayName), bilibiliFolderVideoCount: storedFolders.reduce((count, folder) => count + Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0), 0), bindingState: titleMatches ? 'bound' : 'unbound' };
+          return { ...ledger, bilibiliFolderId: folderIds[0], bilibiliFolderIds: folderIds, bilibiliFolderTitle: String(primaryFolder.title || ledger.displayName), bilibiliFolderVideoCount: storedFolders.reduce((count, folder) => count + Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0), 0), bindingState: ledger.bindingState === 'bound' || titleMatches ? 'bound' : 'unbound' };
         }
 
         if (candidates.length && (ledger.isDefault || ledger.id === 'inbox')) {

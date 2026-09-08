@@ -527,6 +527,14 @@ describe('favorite ledger model', () => {
     expect(isBilimiManagedLedgerName('我的 bilimi 灵感')).toBe(false)
   })
 
+  it('strips equivalent bilimi prefix separators before comparing managed folder titles', () => {
+    expect(stripBilimiLedgerPrefix('bilimi·梅林FIT')).toBe('梅林FIT')
+    expect(stripBilimiLedgerPrefix('bilimi梅林FIT')).toBe('梅林FIT')
+    expect(stripBilimiLedgerPrefix('bilimi ： 梅林FIT')).toBe('梅林FIT')
+    expect(stripBilimiLedgerPrefix('bilimi : 梅林FIT')).toBe('梅林FIT')
+    expect(stripBilimiLedgerPrefix('bilimi - 梅林FIT')).toBe('梅林FIT')
+  })
+
   it('normalizes legacy visible Bilimi prefixes to lowercase bilimi', () => {
     const ledgers = normalizeFavoriteLedgers([
       {
