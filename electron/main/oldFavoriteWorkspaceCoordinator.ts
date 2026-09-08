@@ -1128,13 +1128,6 @@ function recoverableManagedFolders(
   })
 }
 
-function uniquelyRecoveredRemoteFolderId(candidate: RecoverableManagedFolder) {
-  const remoteFolderIds = [...new Set(candidate.knownRemoteFolderIds ?? [candidate.remoteFolderId])]
-    .map((folderId) => folderId.trim())
-    .filter(Boolean)
-  return remoteFolderIds.length === 1 ? remoteFolderIds[0] : undefined
-}
-
 /**
  * Owns the main-process old-favorite mirror while keeping its large baseline
  * and high-frequency edits in OldFavoriteWorkspaceStore. The repository only
@@ -1224,9 +1217,8 @@ export class OldFavoriteWorkspaceCoordinator {
       accountMid: string,
       state: OldFavoriteWorkspaceFavoriteRuleHistoryState
     ) => Promise<void>
-    /** Reads restorable local rules only; remote-only drafts stay outside undo history. */
+    /** Reads restorable local rules only; remote observations stay outside undo history. */
     loadFavoriteLedgerHistoryLedgers?: (accountMid: string) => Promise<FavoriteLedger[]>
-    saveRecoveredLedgerDrafts?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     getUserDeletedDefaultLedgerIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>
     getConfirmedDeletedRemoteFolderIds?: (accountMid: string) => readonly string[] | Promise<readonly string[]>
     onManagedFolderDeletion?: (accountMid: string, deletions: Array<{
@@ -1379,42 +1371,6 @@ export class OldFavoriteWorkspaceCoordinator {
         confirmedDeletedRemoteFolderIds,
         blockedRemoteFolderIds
       )
-      const persistedCustomCandidates = snapshot.physicalShards.flatMap((shard): RecoverableManagedFolder[] => {
-        if (!shard.logicalLedgerId.startsWith('custom-') || shard.bindingState !== 'bound' || !shard.remoteFolderId ||
-          blockedRemoteFolderIds.has(shard.remoteFolderId)) return []
-        const folder = overview.sourceFolders.find((candidate) => candidate.id === shard.remoteFolderId)
-        if (!folder?.isBilimiWorkFolder) return []
-        return [{
-          logicalLedgerId: shard.logicalLedgerId,
-          logicalTitle: folder.title,
-          shardNumber: shard.shardNumber,
-          remoteFolderId: shard.remoteFolderId,
-          remoteTitle: shard.remoteTitle,
-          memberAids: snapshot.memberships[shard.folderId] ?? [],
-          bindingState: 'bound'
-        }]
-      })
-      const recoveredCustomDrafts = [...new Map([...candidates, ...persistedCustomCandidates]
-        .filter((candidate) => candidate.bindingState === 'pending-reconcile' && candidate.logicalLedgerId.startsWith('custom-'))
-        .filter((candidate) => !blockedRemoteFolderIds.has(candidate.remoteFolderId))
-        .map((candidate) => [candidate.logicalLedgerId, candidate])).values()]
-        .map((candidate, index): FavoriteLedger => ({
-          id: candidate.logicalLedgerId,
-          displayName: candidate.logicalTitle.replace(/^bilimi[\u00b7.\s_-]*/i, '').trim() || candidate.logicalTitle,
-          keywords: [],
-          ruleType: 'keyword',
-          enabled: false,
-          priority: 20_000 + index,
-          ...(uniquelyRecoveredRemoteFolderId(candidate)
-            ? { bilibiliFolderId: uniquelyRecoveredRemoteFolderId(candidate) }
-            : {}),
-          bindingState: 'unbound',
-          syncState: 'local-draft',
-          isDefault: false
-        }))
-      if (recoveredCustomDrafts.length) {
-        await this.options.saveRecoveredLedgerDrafts?.(workspace.accountMid, recoveredCustomDrafts)
-      }
       const boundRemoteIds = new Set(snapshot.physicalShards.flatMap((shard) => shard.remoteFolderId ? [shard.remoteFolderId] : []))
       const boundTargets = new Set(snapshot.physicalShards.map((shard) => `${shard.logicalLedgerId}:${shard.shardNumber}`))
       const bindings = [] as Array<{
@@ -3162,25 +3118,6 @@ export class OldFavoriteWorkspaceCoordinator {
             placements: []
           }
         })
-      }
-      const recoveredCustomDrafts = recoveredBindings
-        .filter((binding) => binding.bindingState === 'pending-reconcile' && binding.logicalLedgerId.startsWith('custom-'))
-        .map((binding, index): FavoriteLedger => ({
-          id: binding.logicalLedgerId,
-          displayName: binding.logicalTitle.replace(/^bilimi[\u00b7.\s_-]*/i, '').trim() || binding.logicalTitle,
-          keywords: [],
-          ruleType: 'keyword',
-          enabled: false,
-          priority: 20_000 + index,
-          ...(uniquelyRecoveredRemoteFolderId(binding)
-            ? { bilibiliFolderId: uniquelyRecoveredRemoteFolderId(binding) }
-            : {}),
-          bindingState: 'unbound',
-          syncState: 'local-draft',
-          isDefault: false
-      }))
-      if (recoveredCustomDrafts.length) {
-        await this.options.saveRecoveredLedgerDrafts?.(workspace.accountMid, recoveredCustomDrafts)
       }
       // A scan records remote facts only. Local placement remains the user's intent
       // until an explicit adopt/sync command changes it.

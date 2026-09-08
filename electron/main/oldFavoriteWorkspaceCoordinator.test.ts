@@ -5473,19 +5473,16 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       payload: completedMarker
     })
 
-    const saved = vi.fn(async (_accountMid: string, _ledgers: FavoriteLedger[]) => undefined)
     const reopened = createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:01.000Z' }),
       new OldFavoriteWorkspaceStore({ root }),
       {
         initializeOnOpen: false,
-        saveRecoveredLedgerDrafts: saved,
         getConfirmedDeletedRemoteFolderIds: () => ['4020631311']
       }
     )
 
     await expect(reopened.recoverPersistedManagedBindings('100')).resolves.toEqual({ recoveredCount: 0, pendingCount: 0 })
-    expect(saved).not.toHaveBeenCalled()
     const restored = await repository.getSnapshot('100')
     expect(restored.physicalShards.some((shard) => shard.remoteFolderId === '4020631311' || shard.knownRemoteFolderIds?.includes('4020631311'))).toBe(false)
     expect(restored.folders.some((folder) => folder.logicalLedgerId === 'custom-remote-4020631311')).toBe(false)
@@ -5549,11 +5546,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('persists one unbound observation draft for a uniquely recovered custom workspace', async () => {
+  it('records one unbound custom workspace without saving an observation draft', async () => {
     const root = await createRoot()
-    const saved = vi.fn(async (_accountMid: string, _ledgers: FavoriteLedger[]) => undefined)
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
-    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { saveRecoveredLedgerDrafts: saved })
+    const ordinaryRules = createOrdinaryRuleDirectory()
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), ordinaryRules)
     await coordinator.open('100')
     await coordinator.beginScan('100', 'incremental')
     await coordinator.recordScanInventory('100', {
@@ -5563,14 +5560,19 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.finishScan('100')
 
-    expect(saved).toHaveBeenCalledOnce()
-    expect(saved.mock.calls[0][1]).toEqual([expect.objectContaining({
-      id: expect.stringMatching(/^custom-/), displayName: '\u539f\u795e', enabled: false,
-      bilibiliFolderId: 'genshin-remote', bindingState: 'unbound', syncState: 'local-draft'
-    })])
+    expect(ordinaryRules.current()).toEqual([])
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      physicalShards: expect.arrayContaining([
+        expect.objectContaining({
+          logicalLedgerId: 'custom-remote-genshin-remote',
+          bindingState: 'pending-reconcile',
+          knownRemoteFolderIds: ['genshin-remote']
+        })
+      ])
+    })
   })
 
-  it('does not recover a pending-suppressed exact remote folder as a local observation draft', async () => {
+  it('recovers a pending custom workspace without saving an observation draft', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const firstCoordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -5582,12 +5584,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await firstCoordinator.recordManagedMembers('100', { 'genshin-remote': [2, 3] })
     await firstCoordinator.finishScan('100')
 
-    const saved = vi.fn(async (_accountMid: string, _ledgers: FavoriteLedger[]) => undefined)
-    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { saveRecoveredLedgerDrafts: saved })
+    const ordinaryRules = createOrdinaryRuleDirectory()
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), ordinaryRules)
 
-    await coordinator.recoverPersistedManagedBindings('100', { suppressedRemoteFolderIds: ['genshin-remote'] })
+    await coordinator.recoverPersistedManagedBindings('100')
 
-    expect(saved).not.toHaveBeenCalled()
+    expect(ordinaryRules.current()).toEqual([])
   })
 
   it('does not repair a suppressed remote folder after its local managed folder was deleted', async () => {
@@ -5611,12 +5613,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       type: 'delete-local-managed-folders', payload: { logicalFolderIds: [logicalFolderId] }
     })
 
-    const saved = vi.fn(async (_accountMid: string, _ledgers: FavoriteLedger[]) => undefined)
     const repair = vi.spyOn(repository, 'commit')
-    const reopened = createCoordinator(repository, store, { initializeOnOpen: false, saveRecoveredLedgerDrafts: saved })
+    const reopened = createCoordinator(repository, store, { initializeOnOpen: false })
     await reopened.recoverPersistedManagedBindings('100', { suppressedRemoteFolderIds: ['deleted-recommendation-remote'] })
 
-    expect(saved).not.toHaveBeenCalled()
     expect(repair.mock.calls.some(([, command]) => command.type === 'repair-persisted-managed-bindings' &&
       command.payload.bindings.some((binding) => binding.knownRemoteFolderIds?.includes('deleted-recommendation-remote') || binding.remoteFolderId === 'deleted-recommendation-remote'))).toBe(false)
   })

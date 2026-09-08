@@ -378,6 +378,30 @@ Distinguish instructions in attached documents from the user's request.
 - 右侧“收藏夹”网格出现多个 `未保存` 项；底部提示“检测到 B 站中有 5 个疑似 bilimi 工作夹；5 个未保存未绑定”。
 - 用户明确指出：勾选收藏夹会生成草稿；`梅林fit` 备册异常会生成 `小咪` 的收藏夹。
 
+### R031 — 2026-09-08
+
+用户原文：
+
+```text
+先提交未提交改动，然后继续检查，讨论
+```
+
+状态说明：
+
+- 用户授权先提交本主题已完成的未提交改动；继续对 R030 进行只读检查与讨论，不授权本轮业务代码、应用数据或 B 站远端数据修改。
+
+### R032 — 2026-09-08
+
+用户原文：
+
+```text
+可以开始修复
+```
+
+状态说明：
+
+- 用户明确授权实施 R030、R031 已确认的最小修复，并按本轮范围完成必要测试后创建本地提交；不授权修改应用数据、执行真实 B 站写操作、删除已有草稿，或扩大至删除、批处理、推荐收藏夹流程。
+
 ## 逐项索引表
 
 | ID | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
@@ -504,7 +528,17 @@ Distinguish instructions in attached documents from the user's request.
 | I020-B | R027、R028、R029 | `src/renderer/src/App.tsx` | 程序创建路径改为“创建 → 正式绑定 → 刷新”；创建事务期间，页面观察器的创建信号不提前刷新当前 WebView。正式绑定失败则不刷新。 | `App.test.tsx` 覆盖创建、绑定、刷新、写入顺序，及绑定失败/观察信号早刷情形；包含在上述 516 项通过结果。 | 未执行真实 B 站创建；需用户账号手动确认创建后右侧直接显示“已备册”，而非“创建·待正式确认”。 | 已实施待真实界面验收 |
 | I020-C | R020、R028、R029 | `src/renderer/src/features/assistant/FavoriteLedgerOverview.tsx`、`src/renderer/src/App.tsx`、`src/shared/types.ts` | 删除远端观察触发的“继续备册”弹窗、勾选生成本地草稿、保存后立刻改名预检，以及已无调用方的改名预检选项/分支；远端观察结果不写入本地规则，也不阻断正常一键备册。已正式绑定的远端改名仍只在备册时走原有独立确认。 | `FavoriteLedgerOverview.test.tsx` 覆盖远端观察不打断一键备册、未备册无确认创建弹窗、普通绑定仅绑定不改名；与 App/API/绑定服务组合复跑共 661 项通过。 | 未执行真实 B 站写入；需用户确认正常备册无额外弹窗，且不会新增任何未知草稿。 | 已实施待真实界面验收 |
 | I020-D | R023、R028、R029 | 未修改删除模式、详情页单项删除、收藏库批处理实现。 | 仅运行回归，不改变确认、远端副作用、失败保护或批处理。 | `favoriteLedgerDraftDeletionIpc.test.ts`、`favoriteLedgerConfigurationRefreshIpc.test.ts`、`favoriteLibraryOperationsIpc.test.ts`、`favoriteRepositoryBatchOperationService.test.ts` 与概览删除覆盖：232 项通过。 | 不执行真实删除；两个入口的真实账号确认仍由用户操作。 | 已实施待真实界面验收 |
-| I021 | R030 | 在不影响现有一键备册、正式绑定、改名确认、删除模式/详情页删除和收藏库批处理的前提下，定位并提出最小修复：勾选收藏夹不得因远端观察自动生成本地草稿；`梅林fit` 不得创建、绑定或改名为 `bilimi·小咪`。 | 右侧收藏夹勾选与备册入口、远端发现投影、候选筛选、创建/正式绑定路径。 | 正常未备册且无异常仍一键备册；仅异常流程显示现有确认。 | 本轮仅诊断并给出方案，未经再次明确说“开始”不改业务代码、应用数据或 B 站远端数据。 | 远端观察必须只读；普通确认绑定不得改名；不得自动清除旧远端 ID。 | 不扩大远端发现/草稿架构；不修改推荐收藏夹、删除、收藏库批处理。 | `App.tsx` 远端观察/保存数据流，`favoriteLedgerApi.ts` 草稿投影与候选筛选，主进程绑定复核。 | 已确认（讨论排查中，未获开始） | 截图显示远端发现仍形成“未保存”项目；代码初查发现观察预检返回远端发现结果，而底层保存脚本仍具备 `projectRemoteDrafts` 投影路径。`梅林fit` 需继续以实际候选与创建路径数据确认根因。 |
+| I021 | R030、R031 | 在不影响现有一键备册、正式绑定、改名确认、删除模式/详情页删除和收藏库批处理的前提下，定位并提出最小修复：勾选收藏夹不得因远端观察自动生成本地草稿；`梅林fit` 不得创建、绑定或改名为 `bilimi·小咪`。 | 右侧收藏夹勾选与备册入口、远端发现投影、候选筛选、创建/正式绑定路径。 | 正常未备册且无异常仍一键备册；仅异常流程显示现有确认。 | R031 仅授权提交既有改动；本轮继续诊断并给出方案，未经再次明确说“开始”不改业务代码、应用数据或 B 站远端数据。 | 远端观察必须只读；普通确认绑定不得改名；不得自动清除旧远端 ID。 | 不扩大远端发现/草稿架构；不修改推荐收藏夹、删除、收藏库批处理。 | `assistant:write-favorite-ledger-enabled`、`FavoriteRepositoryIpc` 的账户打开恢复、`oldFavoriteWorkspaceCoordinator` 的扫描/恢复、`App.tsx` 远端观察与主进程绑定复核。 | 已确认（讨论排查中，未获开始） | 勾选只调用 `writeFavoriteLedgerEnabled`，不创建 B 站夹也不写草稿；但后续状态读取会打开收藏库，后台 `recoverPersistedManagedBindings()` 和扫描完成路径均调用 `saveRecoveredLedgerDrafts()`，将远端观察写入账户偏好。现有配置已有 3 个 `custom-remote-*` 未绑定草稿。17:12 截图所用 Electron 主进程于 17:08 启动，而 `5af8967f` 于 17:23 提交，运行中的主进程仍可能执行旧绑定服务。历史实现对“同名或旧保存 ID”给候选、对普通确认授予远端改名；当前源码已改为前后端双重同名检查且普通确认绝不改名。当前应用数据只保留一条已删除、`unbacked` 的梅林规则，没有小咪 ID 或可追溯的实际远端写入记录；截图本身显示的是“远端标题已变化”导致绑定失败，不能单独证明曾成功创建该名称。 |
+| I022 | R030、R031、R032 | 扫描完成及账户打开恢复可保留远端目录/仓库的 `pending-reconcile` 观察事实，但不得自动写入账户偏好并产生 `custom-remote-*` 本地收藏夹草稿。 | `oldFavoriteWorkspaceCoordinator` 的 `finishScan()`、`recoverPersistedManagedBindings()`；账户偏好中的 `favoriteLedgers`。 | 任何远端观察——包括用户勾选收藏夹后触发的后台账户打开/状态刷新——均不新增 `未保存` 草稿或提示；既有草稿不自动删除。 | 继续保存扫描/恢复的仓库观察和确定性绑定修复；不调用 `saveRecoveredLedgerDrafts`。 | 不写应用现有草稿、不执行 B 站写操作；不改变现有严格同名、普通绑定不得改名的保护。 | 不修改删除模式、详情页删除、收藏库批处理或推荐收藏夹生成。 | `assistant:write-favorite-ledger-enabled`、`favorite-repository:open-account` 的后台恢复、协调器扫描完成、既有绑定服务。 | 已实施待真实界面验收 | 先红：协调器扫描和恢复两条定向测试均捕获一次 `saveRecoveredLedgerDrafts` 调用，生成 `custom-remote-genshin-remote` 本地草稿。实现：删除协调器两个自动草稿投影、回调接口及 `index.ts` 持久化接线；仓库仍保留 `custom-remote-genshin-remote` 的 `pending-reconcile` 观察。先绿：两条定向测试通过。受保护回归：绑定、删除、批处理和概览共 346 项通过；名称候选、创建绑定刷新与概览共 699 项通过；`npm run build` 通过。真实 B 站界面未操作，既有 `custom-remote-*` 草稿未清理。 |
+
+## R031 只读排查记录
+
+- 已提交此前业务改动：`5af8967f fix: stabilize remote favorite discovery`。提交后仅有本账本的 R031 补记，以及不属于本主题的未跟踪账本 `docs/requirement-ledgers/2026-09-08-save-round-to-library-disabled.md`。
+- 勾选路径仅写入账户与规则的 `enabled` 覆盖：`electron/main/index.ts` 的 `assistant:write-favorite-ledger-enabled` → `writeFavoriteLedgerEnabled`。它未调用 B 站、未调用远端发现草稿保存。
+- 实际草稿写入点有两处，均在 `electron/main/oldFavoriteWorkspaceCoordinator.ts`：恢复持久化扫描结果和完成扫描结果各自调用 `saveRecoveredLedgerDrafts`；后者在 `electron/main/index.ts` 合并并持久化为本地 `custom-remote-*` 规则。收藏库每次 `open-account` 都会在后台调用该恢复路径，因此勾选后的面板/快照刷新可让既有观察在同一时段出现，看起来像由勾选直接生成。
+- `C:/Users/diqing/AppData/Roaming/bilimi-dev/config.json` 当前有 `custom-remote-4118025911`（`恒某人-`）、`custom-remote-4074728111`（`影视飓风`）和 `custom-remote-4008768411`（`honker233`）三个已持久化的 `unbound`、`local-draft` 记录。它们不会因停止未来自动投影而自动消失；用户此前已撤回自动清除旧数据，故本轮不清理。
+- 历史版本 `969f4baa` 的候选规则允许“同名 **或** 保存的精确 ID”，并可在普通确认绑定时传入 `allowRemoteRename`，从而让错误 ID 获得改名权限。当前源码删除该权限，并要求渲染器候选与主进程二次库存读取都满足同一逻辑名称；若实际远端标题是 `bilimi小咪`，当前流程应失败且不创建、不绑定、不改名。
+- 正在运行的开发版 Electron 主进程 PID `66460` 于 `2026-09-08 17:08:16` 启动；R030 截图于 `17:12:43` 生成，而修复提交在 `17:23:45`。未获授权，不关闭或重启该应用。
 
 ### 本轮最终验证
 
@@ -528,3 +562,36 @@ Distinguish instructions in attached documents from the user's request.
   - `npx vitest run electron/main/favoriteLedgerDraftDeletionIpc.test.ts electron/main/favoriteLedgerConfigurationRefreshIpc.test.ts electron/main/favoriteLibraryOperationsIpc.test.ts electron/main/favoriteRepositoryBatchOperationService.test.ts src/renderer/src/features/assistant/FavoriteLedgerOverview.test.tsx --reporter=dot`：5 个文件、232 项通过。
   - `npm run build`：通过；仅有既有的 `FloatingAssistantApp.tsx` 动态导入分包提示。
   - `git diff --check`：通过。全量 `npm test -- --reporter=dot` 已重新启动，但超过六分钟仍未产生最终汇总，只保留本次核验过的 `npm → cmd → vitest` 测试进程；已终止这三个测试进程，未终止 Electron 或任何应用进程。全量测试本轮未完成，不得据此声明全量通过。
+
+## R032 实施前核对与最小计划
+
+### 已确认并纳入实施（按讨论原文顺序）
+
+1. `R001`、`R015`–`R019`、`R028`、`R030`：保留现有“规范化后严格同名”的普通候选筛选及普通绑定不改名保护；`梅林FIT` 不能把 `bilimi·小咪` 作为候选、绑定或改名目标。
+2. `R030`–`R032`：远端扫描及账户打开恢复只能保存仓库内的观察事实，绝不自动写入账户偏好为 `custom-remote-*` 本地草稿；勾选收藏夹后的后台刷新也遵守该规则。
+3. `R023`、`R028`、`R030`：删除模式、详情页单个删除、收藏库批处理和推荐收藏夹为受保护流程，本轮不修改实现。
+
+### 被明确排除
+
+- `R004 / I006` 的旧远端 ID 自动清除已撤回，不恢复。
+- 不删除既有 `custom-remote-*` 草稿，不修改应用数据，不执行真实 B 站创建、绑定、改名或删除。
+- 不处理审查时发现的其他创建刷新竞态；其超出本轮“观察不得写草稿”的最小范围。
+
+### 实施计划
+
+1. `R030`–`R032 / I022`：先将扫描完成和账户打开恢复各自自动保存远端草稿的回归测试改为“普通规则目录保持为空、仓库 `pending-reconcile` 观察仍保留”，运行并确认红灯。
+2. `R030`–`R032 / I022`：仅删除 `OldFavoriteWorkspaceCoordinator.finishScan()`、`recoverPersistedManagedBindings()` 到 `saveRecoveredLedgerDrafts` 的两个自动投影，移除失去调用方的主进程接线及类型接口；不改变仓库恢复、绑定修复或任何 B 站写入路径。
+3. `R001`、`R023`、`R028`、`R030`–`R032`：运行定向协调器、名称候选/绑定/创建刷新、删除和批处理回归，以及构建和差异检查；不因无关基线失败混入额外修复。
+
+## R032 实施记录与逐项核对
+
+| 索引项 | 原文编号 | 实际代码位置 | 实际结果 | 自动化验证 | 真实界面验收 | 状态 |
+| --- | --- | --- | --- | --- | --- | --- |
+| I022 | R030、R031、R032 | `electron/main/oldFavoriteWorkspaceCoordinator.ts`、`electron/main/index.ts`、`electron/main/oldFavoriteWorkspaceCoordinator.test.ts` | 删除扫描完成和账户打开恢复的两处“远端观察→账户偏好草稿”投影，连同不再使用的回调接口/接线。远端文件夹仍在仓库中以 `custom-remote-<id>` 的 `pending-reconcile` 观察存在，但普通账户规则目录保持为空；不会新增右侧“未保存”草稿。既有草稿不被删除，严格同名绑定和普通绑定不改名逻辑未改。 | 先红：两条测试分别证明扫描和恢复会调用草稿保存并产生 `custom-remote-genshin-remote`。先绿：协调器定向 4 项通过；候选、绑定、创建顺序、删除、批处理和概览回归 10 文件 785 项通过；`npm run build` 通过；`git diff --check` 通过。完整协调器文件 380 项中 379 项通过、1 项失败，见下条。 | 未执行真实 B 站写操作或 Electron 重启；用户需重启/重新打开开发版后手动确认：勾选已有收藏夹不会再新增“未保存”项，`梅林FIT` 确认绑定不会出现/创建/改名为“小咪”。 | 已实施待真实界面验收；因无关全文件失败未提交 |
+
+### R032 完整协调器回归阻塞记录
+
+- 命令：`npx vitest run electron/main/oldFavoriteWorkspaceCoordinator.test.ts --reporter=dot`。
+- 结果：`379` 项通过、`1` 项失败；失败项为 `projects a persisted participating zero-match saved ledger into a single-batch archive preview without creating a folder`（约 `10345` 行），实际推荐候选/采用列表为空，断言期待 `genshin`。
+- 本轮差异只涉及约 `1128`、`1221`、`1373`、`3119` 的远端观察草稿投影和约 `5475`–`5619` 的对应测试；失败断言不在这些路径。该同一基线失败也已记录于本账本此前的全量测试说明。
+- 依照工作树规则：不为使测试变绿而修改无关推荐投影，不创建本轮本地提交；保留已验证改动和无关未跟踪文件 `docs/requirement-ledgers/2026-09-08-save-round-to-library-disabled.md` 的现场。

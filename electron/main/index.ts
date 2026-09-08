@@ -109,7 +109,6 @@ import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepS
 import { recordFavoriteLedgerHistoryAroundMutation } from './favoriteLedgerHistoryWiring'
 import { classifyOldFavoriteItemsCooperatively, classifierLedgersForAccount, enableDefaultLedgersForOrganization, mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 import { resolveSavedOldFavoriteWorkspaceLedgerTitle } from './oldFavoriteWorkspaceLedgerTitle'
-import { mergeRecoveredLedgerDrafts } from './oldFavoriteWorkspaceRecommendationPersistence'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositoryArchiveService } from './favoriteRepositoryArchiveService'
@@ -3104,16 +3103,6 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       })
       sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
       notifyFloatingAssistantSnapshotChanged()
-    },
-    saveRecoveredLedgerDrafts: async (accountMid, ledgers) => {
-      const current = loadFavoriteAccountPreferences(getDesktopStore(), accountMid)
-      const favoriteLedgers = mergeRecoveredLedgerDrafts(current.favoriteLedgers, ledgers)
-      if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return
-      saveFavoriteAccountPreferences(getDesktopStore(), accountMid, {
-        ...current,
-        favoriteLedgers
-      })
-      sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     },
     workspaceStore: new OldFavoriteWorkspaceStore({
       root: join(app.getPath('userData'), 'favorites', 'repository-v1')
