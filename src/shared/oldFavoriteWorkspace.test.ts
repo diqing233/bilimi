@@ -13,7 +13,7 @@ import {
 } from './oldFavoriteWorkspace'
 
 describe('old favorite workspace', () => {
-  it('treats every observed Bilibili folder as a selectable scan source regardless of local relationship', () => {
+  it('preserves explicitly suppressed Bilimi observations while leaving ordinary sources selectable', () => {
     const projection = projectOldFavoriteInventoryMetrics({
       authority: 'complete',
       sourceFolders: [
@@ -28,12 +28,12 @@ describe('old favorite workspace', () => {
       ]
     })
 
-    expect(oldFavoriteFolderIsScanEligible({ isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: false })).toBe(true)
-    expect(projection.plannedAidCount).toBe(2)
+    expect(oldFavoriteFolderIsScanEligible({ isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: false })).toBe(false)
+    expect(projection.plannedAidCount).toBe(1)
     expect(projection.sourceFolders).toMatchObject([
       { id: 'ordinary', scanEligible: true, selected: true, plannedAidCount: 1 },
-      { id: 'bound', scanEligible: true, selected: true, plannedAidCount: 1 },
-      { id: 'reconcile', scanEligible: true, selected: true, plannedAidCount: 0, protectedAidCount: 1 }
+      { id: 'bound', scanEligible: false, selected: true, plannedAidCount: 0 },
+      { id: 'reconcile', scanEligible: false, selected: true, plannedAidCount: 0, protectedAidCount: 1 }
     ])
   })
 
@@ -86,7 +86,7 @@ describe('old favorite workspace', () => {
     })
   })
 
-  it('keeps explicit remote relationships without using them to remove scan eligibility', () => {
+  it('preserves explicit scan suppression without using remote relationships to re-enable it', () => {
     const projection = projectOldFavoriteInventoryMetrics({
       authority: 'complete',
       sourceFolders: [
@@ -123,8 +123,8 @@ describe('old favorite workspace', () => {
     expect(projection.sourceFolders).toMatchObject([
       { id: 'ordinary', remoteRelationship: 'none', scanEligible: true, plannedAidCount: 1 },
       { id: 'name-only', remoteRelationship: 'none', scanEligible: true, plannedAidCount: 1 },
-      { id: 'bound', remoteRelationship: 'bound', scanEligible: true, plannedAidCount: 0 },
-      { id: 'reconcile', remoteRelationship: 'reconcile-required', scanEligible: true, plannedAidCount: 0 }
+      { id: 'bound', remoteRelationship: 'bound', scanEligible: false, plannedAidCount: 0 },
+      { id: 'reconcile', remoteRelationship: 'reconcile-required', scanEligible: false, plannedAidCount: 0 }
     ])
   })
 

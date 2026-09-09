@@ -2933,6 +2933,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     syncService: favoriteRepositorySyncService,
     bindingService: favoriteRepositoryBindingService,
     onPhysicalShardProvisioned: refreshFavoriteLedgerBindingProjectionAfterPhysicalShard,
+    getFavoriteLedgersForScanProjection: async (accountMid) =>
+      loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers,
     getUserDeletedDefaultLedgerIds: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
       .filter((ledger) => ledger.isDefault && ledger.managedFolderDeletedByUser)
       .map((ledger) => ledger.id),
@@ -3111,6 +3113,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   await yieldStartupEventLoop()
   oldFavoriteWorkspaceScanService = new OldFavoriteWorkspaceScanService({
     coordinator: oldFavoriteWorkspaceCoordinator,
+    getFavoriteLedgers: async (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers,
     requestRuntime: (request) => requestMainAssistantRuntime(request),
     remoteOperations: favoriteRepositoryRemoteOperations,
     cancelDeepSeek: (accountMid) => oldFavoriteWorkspaceDeepSeekService?.cancelCurrentSegment(accountMid) ?? false,

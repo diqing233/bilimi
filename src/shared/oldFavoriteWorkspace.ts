@@ -45,11 +45,9 @@ export function oldFavoriteRemoteRelationship(folder: OldFavoriteRemoteSourceFol
 }
 
 export function oldFavoriteFolderIsScanEligible(folder: OldFavoriteRemoteSourceFolder): boolean {
-  // A scan overview is a Bilibili fact table, not a local-rule chooser. Every
-  // source folder in this domain has already been observed remotely, so local
-  // binding/reconciliation state must never take away the user's source choice.
-  void folder
-  return true
+  // A scanner may explicitly suppress a Bilimi observation whose card is not
+  // backed. Preserve that decision across workspace projection and reload.
+  return folder.scanEligible !== false
 }
 
 export type OldFavoriteWorkspaceBaseline = {

@@ -439,3 +439,142 @@ Distinguish instructions in attached documents from the user's request.
 
 - `I014` 已实施：`src/renderer/src/App.tsx` 增加按账号、runId、WebView instance/navigation epoch 绑定的批量删除刷新暂缓记录；收藏页删除 observer 在匹配运行期间只记录 mutation，不立即刷新；`electron/main/favoriteRepositoryRuntimePageBridge.ts` 与 `src/renderer/src/features/assistant/assistantRuntimeTypes.ts` 增加 begin/end runtime 握手；`electron/main/favoriteRepositorySyncService.ts` 的 `deleteManagedFolders` 与 `deleteManagedRemoteFolders` 在绑定后 begin、`finally` end，再由既有 `onConfirmedRemoteFolderMutation` 对确认成功批次统一刷新一次，最后 release。未知且无确认删除时不刷新；未改变精确 ID、串行、对账停止和手动 observer 刷新语义。
 - `I015` 自动化验证：先运行新增 runtime bridge、App、sync-service 测试确认缺少生命周期实现时 RED；实现后 `electron/main/favoriteRepositoryRuntimePageBridge.test.ts` 10/10、`src/renderer/src/App.test.tsx` 180/180、`electron/main/favoriteRepositorySyncService.test.ts` 88/88 通过；`npm run build` 成功；`git diff --check` 无错误。若 end 清理请求失败，仍执行已确认删除的唯一刷新并最终 release。未执行真实 B 站破坏性批量删除，未进行界面自动化验收。
+
+### R016（2026-09-10）
+
+附件截图：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-391d2128-f9a5-43d0-bf37-a24360895a38.png`
+
+截图目标区域：
+
+- 左侧“小咪收藏库”导航底部，出现空的 `bilimi:游戏专区` 与 `bilimi:知识学习`（均为 `0`）；右侧“收藏夹”中“游戏专区”为未绑定，“知识学习”为已备册。红色箭头从右侧“游戏专区”指向左侧 `bilimi:游戏专区`。
+
+用户原文：
+
+```text
+# Files mentioned by the user:
+
+## codex-clipboard-391d2128-f9a5-43d0-bf37-a24360895a38.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-391d2128-f9a5-43d0-bf37-a24360895a38.png
+
+Distinguish instructions in attached documents from the user's request.
+
+## My request:
+找到环节了，上面讨论方向都不对，看这个，是因为收藏夹删除变成未绑定或者未备册，会在收藏库生成一个这样的收藏夹，这是不应该的，收藏库数据会因为什么更新，这个环节明显不该这么做
+```
+
+本条目标：将“删除后收藏库生成空的 `bilimi:<显示名称>` 收藏夹”作为新的待复现症状，沿收藏夹删除、未绑定/未备册状态投影、收藏库镜像/摘要更新的完整数据写入链，确定是哪一个更新环节创建了该条目。不得再把该症状解释为当前 B站同名远端夹残留；未找到可复现的写入证据前不得修改删除 reducer、绑定逻辑或展示分组。
+
+### R017（2026-09-10）
+
+用户原文：
+
+```text
+绝对不是这样，正常整理它会进bilimi工作夹，无绑定或者删除没有了，会生成
+```
+
+本条修正 R016 的调查前提：正常整理时，实际收藏夹应进入 `bilimi 工作夹`；当绑定不存在或收藏夹删除后，才出现下方同名条目。不得将其解释成“无论是否绑定都会显示的普通 B 站镜像”或仅以导航未展示 ID 为根因。必须追溯同一远端夹从 `bound` 到 `unbound` / 删除后，扫描来源关系如何由 Bilimi 工作夹降级为普通收藏夹并触发收藏库条目生成；须核对实际远端 ID、物理分册、扫描关系、镜像写入和导航分组的每一层。
+
+## 逐项索引表追加
+
+| 索引 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I016 | R016, R017 | 查明收藏夹删除使其变为“未绑定”或“未备册”后，为什么收藏库会出现空的 `bilimi:<显示名称>` 条目；明确收藏库受哪些操作/快照更新而变化，并找出不应创建该条目的实际写入环节。R017 明确：正常整理时该实际夹应归入 `bilimi 工作夹`，仅在无绑定或删除后生成下方条目。 | 左侧“小咪收藏库”导航及其摘要；删除后的收藏夹规则状态；收藏库 generation、命令回执、扫描/镜像/投影、renderer 缓存刷新链。 | 出现删除后、工作夹处于未绑定/未备册状态时；该空条目不应被生成为当前收藏库实体。 | 本轮只读复现与追溯；必须区分实际持久化条目、运行中 renderer 缓存和真实 B站目录。 | 不执行收藏夹删除、备册、绑定、扫描、同步、清理或迁移；不读写 B站业务状态。 | 不按同名合并、不修改分册/绑定/删除语义、不将历史残留猜作根因。 | 删除命令 reducer；逻辑册投影；B站镜像记录；renderer 扫描来源关系；收藏库摘要 IPC；导航分组。 | 调查中（先前“镜像恒常显示”判断被 R017 明确否定） | 已读取截图与开发账号 `32922854` 的 generation 114/115。不存在 `bilimi:游戏专区` 或 `bilimi:知识学习` ID；删除记录 revision 110、115 仅移除 `bilimi:<logicalId>:001` 物理分册，不直接创建 B站镜像；规则实时状态读取亦不写 repository。R017 指出先前把 `bilibili:<远端ID>` 镜像视为恒常普通项的归因错误：需验证绑定移除后远端来源关系是否从 `bound` 降级为 `none`，使下一次扫描的 `record-bilibili-mirror` 将该实际夹写为普通收藏夹并进入下方分组。 |
+
+### R018（2026-09-10）
+
+用户原文：
+
+```text
+远端归属判定是什么
+```
+
+## 逐项索引表追加
+
+| 索引 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I017 | R018 | 用实际代码规则解释“远端归属判定”的含义及其与本症状的关系，不把它误称为 B站字段。 | 扫描器的远端目录清单到收藏库镜像写入链。 | `bound` 为正式物理分册精确绑定；`reconcile-required` 为待核对的当前/历史远端 ID；无两者为 `none`。 | 仅解释、只读。 | 不写入本地或 B站。 | 不据此实施修复或修改绑定语义。 | `physicalShards`、`getRemoteFolderRelationships`、扫描器、镜像投影。 | 已解释，调查继续 | `oldFavoriteWorkspaceCoordinator.ts:1307` 只从持久化物理分册建立关系；`oldFavoriteWorkspaceScanService.ts:439` 将 `none` 作为普通扫描来源。 |
+
+### R019（2026-09-10）
+
+用户原文：
+
+```text
+根据收藏夹备册情况来判断，不需要远端归属判断，收藏夹已经做好了
+```
+
+## 逐项索引表追加
+
+| 索引 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I018 | R019 | 将收藏库的 Bilimi/普通收藏夹归类收敛为读取既有“收藏夹”备册情况；收藏夹已有状态是唯一业务事实，收藏库不得另行基于远端 ID 作归属推断。先追踪当前扫描器的 `remoteRelationship` 如何绕过或重复该已有状态，并确定应移除的投影写入条件。 | 右侧“收藏夹”备册状态 → 收藏库导航/镜像投影。 | 已备册的收藏夹进入 Bilimi 工作夹；未备册、未绑定或删除后的收藏夹不得因扫描被新建为下方同名 Bilimi 条目。 | 本轮仅讨论/只读调查。 | 不修改现有收藏夹备册状态，不发起 B站操作或本地迁移。 | 不新增第二套远端归属判断，不以 folder ID 或名称替代既有备册事实。 | 收藏夹备册状态投影、扫描器、`record-bilibili-mirror`、收藏库导航。 | 已确认，待用户说“开始”后实施 | 用户明确指定备册情况为判断来源；后续需证实收藏库可读取该现有投影并以其决定写入/展示。 |
+
+### R020（2026-09-10）
+
+用户原文：
+
+```text
+开始，只做这个，之前的都不要改
+```
+
+## 本次实施前清单（非用户原文）
+
+- 已确认且本次实施：`R019 / I018`。收藏库只能读取既有收藏夹备册状态作为 Bilimi 投影依据；移除扫描路径独立“远端归属”对该投影的决定权。已备册进入 Bilimi 工作夹；未备册、未绑定或删除后，扫描不得写出下方同名普通镜像。
+- 授权：`R020` 允许上述唯一范围的业务代码、自动化测试、需求账本更新及本地提交。
+- 明确不做：`R001`–`R018` 中所有不属于 `R019` 的展示改造、名称合并、folder ID 同步、绑定/分册/删除/刷新流程、已有镜像清理与任何 B站操作，均不在本次范围。
+- 当前基线：`main`，`15fdf60c fix: defer favorite page refresh during batch deletion`；开始时工作树仅有本账本的讨论记录修改。本次允许修改范围待现有备册状态投影的实际代码位置确认后补充；不得修改其他文件。
+
+## 本次实施计划（非用户原文）
+
+1. `R019`：追踪右侧收藏夹备册状态的现有主进程投影，确定收藏库镜像写入可直接使用的状态数据；允许阅读扫描器、备册状态投影和既有测试，预期不引入新的 ID/名称判断；先增加覆盖“未备册不写同名普通镜像”的失败测试。
+2. `R019`：最小修改扫描/镜像投影，使其只按既有备册状态决定是否保留 Bilimi 镜像；不改绑定、删除、分册或 B站请求；运行相关单元测试、构建与差异检查。
+3. `R019`：逐项记录实际代码位置、自动化结果和无法执行的真实界面/B站验收；确认没有混入无关文件后创建一次本地提交。
+
+### R021（2026-09-10，开始后补充）
+
+用户原文：
+
+```text
+继续完成 C:\Users\diqing\bilimi 中的本轮任务。
+
+先阅读并遵守根目录 AGENTS.md，然后执行：
+git status --short --branch
+
+不要 reset、stash、revert、clean，也不要丢弃现有未提交改动。
+当前分支是 main，已有未提交文件：
+
+\- docs/requirement-ledgers/2026-09-09-favorite-library-duplicate-names.md
+\- electron/main/oldFavoriteWorkspaceScanService.test.ts
+\- electron/main/oldFavoriteWorkspaceCoordinator.test.ts
+
+本轮用户已经明确“开始”，只做这一件事：
+根据收藏夹自身的备册情况判断收藏库中的 Bilimi 工作夹投影，不做远端归属判断，不改之前讨论过的其他设计。
+
+目标行为：
+
+1\. 只有收藏夹卡片状态为 bound 的 Bilimi 收藏夹，才进入收藏库中的 Bilimi 工作夹投影。
+2\. unbacked、unbound、删除后留下的 Bilimi 观察，都不能作为普通扫描来源。
+3\. 这些状态不能写入 bilibili:<id> 镜像，也不能触发候选恢复。
+4\. 普通非 Bilimi 收藏夹保持原有行为。
+5\. folder ID 只继续作为卡片与远端收藏夹的对应键，不新增远端归属判断。
+6\. 显式 scanEligible: false 必须保留，后续刷新不能把它改回可扫描。
+7\. 只修改扫描投影、镜像写入保护、对应测试和本轮需求账本。
+8\. 先修正现有测试误改：getFavoriteLedgers 被放到了标签增强用例，应移到“未备册 Bilimi 夹不作为普通来源”的扫描用例。
+9\. 完成后运行相关单测、构建/必要验证、git diff --check，更新需求账本证据，并创建本地 commit。
+10\. 不执行任何 B 站删除、备册或其他远端写入操作。
+
+请从检查现有差异开始，持续做到验证和本地提交完成，不要重新设计方案。
+```
+
+## 逐项索引表追加
+
+| 索引 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I019 | R019, R020, R021 | 收藏库扫描投影只以收藏夹卡片 `bindingState === 'bound'` 判断 Bilimi 工作夹。只有该卡片的精确 folder ID 对应的远端夹作为工作夹投影；`unbacked`、`unbound`、删除后的 Bilimi 观察不可普通扫描、不可写 `bilibili:<id>` 镜像、不可候选恢复。普通非 Bilimi 来源保持原行为。显式 `scanEligible: false` 经过记录、持久化和关系刷新都保持 false。 | 扫描器清单→`sourceFolders`；扫描页读取；`record-bilibili-mirror` 投影；候选恢复；工作区关系刷新。 | 卡片为 `bound` 的 Bilimi 夹进入工作夹成员投影；所有其他 Bilimi 观察均隐藏于普通扫描/镜像/恢复路径；普通非 Bilimi 仍可按既有扫描。 | folder ID 仅作卡片与远端夹的精确匹配键；不从 repository `physicalShards` 或远端名称推断归属。 | 只在本地扫描完成时更新既有本地 repository 投影；不发起 B站删除、备册、绑定、同步或任何其他远端写入。 | 不修改此前讨论的展示、名称合并、folder ID 同步、绑定、分册、删除、刷新或历史清理设计。 | 已保存收藏夹卡片；旧扫描工作区；Bilibili 镜像 reducer；本地恢复候选。 | 已确认，实施中 | 实施前已通读原文区/索引并确认当前分支、未提交范围和最近提交。已将误放在标签增强用例的 `getFavoriteLedgers` 移至“未备册 Bilimi 夹不作为普通来源”用例；待先行 RED、实现和全量验证。 |
+
+## I019 实施记录（非用户原文）
+
+- 实际代码位置：`electron/main/oldFavoriteWorkspaceScanService.ts` 读取当前账号 `favoriteLedgers`，仅将显示名命中 Bilimi 规则且 `bindingState === 'bound'` 的精确 `bilibiliFolderId`/`bilibiliFolderIds` 标记为工作夹；`unbacked`、`unbound`、历史/删除 ID 以及名称命中的未备册观察均设置 `scanEligible: false`，普通来源仍按原规则分页读取。`electron/main/oldFavoriteWorkspaceCoordinator.ts` 的镜像写入仅接受可扫描来源或正式 bound 工作夹，恢复候选仅接受正式工作夹；关系刷新读取同一收藏夹卡片状态，不再读取 repository 远端归属来决定扫描投影，并保留显式抑制。`src/shared/oldFavoriteWorkspace.ts` 保留显式 `scanEligible: false`。`electron/main/index.ts` 注入当前账户收藏夹卡片事实。
+- 测试证据：`npx vitest run electron/main/oldFavoriteWorkspaceScanService.test.ts`：49/49；`npx vitest run src/shared/oldFavoriteWorkspace.test.ts`：18/18；`npx vitest run electron/main/oldFavoriteWorkspaceCoordinator.test.ts --reporter=dot`：382/382。新增/调整用例分别覆盖未备册、未绑定、删除后 Bilimi 观察、普通非 Bilimi bound 卡片、镜像/恢复排除、刷新与重启后显式抑制保持。测试中的 stderr 仅来自已有预期失败模拟场景。
+- 构建与差异检查：`npm run build` 退出码 0；`git diff --check` 退出码 0（仅有 Git 的 LF→CRLF 提示）。
+- 界面与远端边界：未启动真实 Electron 窗口进行界面验收；未执行任何 B 站删除、备册、绑定、同步或其他远端写入，因此这些条件仍标记为待真实界面/远端验收。本轮未修改展示、名称合并、绑定、分册、删除、刷新或历史清理设计。

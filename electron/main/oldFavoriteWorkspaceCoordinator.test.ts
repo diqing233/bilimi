@@ -251,6 +251,38 @@ function createSyncService(overrides: Partial<CoordinatorSyncService> = {}): Coo
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('does not persist unbacked, unbound, or deleted Bilimi observations as mirrors or recovered shards', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-09-10T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{
+        id: 'unbacked-game', title: 'bilimi·游戏专区', itemCount: 0,
+        isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true,
+        remoteRelationship: 'none', scanEligible: false, selected: false
+      }, {
+        id: 'unbound-game', title: 'bilimi·游戏专区', itemCount: 0,
+        isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true,
+        remoteRelationship: 'none', scanEligible: false, selected: false
+      }, {
+        id: 'deleted-game', title: 'bilimi·游戏专区', itemCount: 0,
+        isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true,
+        remoteRelationship: 'none', scanEligible: false, selected: false
+      }]
+    })
+
+    await coordinator.finishScan('100')
+
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.folders).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: expect.stringMatching(/^bilibili:(?:unbacked|unbound|deleted)-game$/) })
+    ]))
+    expect(snapshot.physicalShards).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ remoteFolderId: expect.stringMatching(/^(?:unbacked|unbound|deleted)-game$/) })
+    ]))
+  })
+
   it('drops an adopted recommendation when a later scan no longer generates it', () => {
     const adopted = {
       id: 'custom-author-alice', displayName: 'bilimi\u00b7Alice', kind: 'author' as const,
@@ -11577,7 +11609,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('keeps every observed remote folder selectable regardless of its local relationship', async () => {
+  it('keeps explicitly suppressed Bilimi observations out of source selection', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -11587,11 +11619,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       sourceFolders: [
         {
           id: 'name-only', title: 'bilimi·只是同名', itemCount: 1,
-          isBilimiWorkFolder: true, remoteRelationship: 'none', scanEligible: true
+          isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true, remoteRelationship: 'none', scanEligible: false
         },
         {
-          id: 'bound', title: '已绑定的远端收藏夹', itemCount: 1,
-          isBilimiWorkFolder: false, remoteRelationship: 'bound', scanEligible: false
+          id: 'ordinary', title: '普通收藏夹', itemCount: 1,
+          isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true
         }
       ] as never
     })
@@ -11599,67 +11631,77 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       sourceFolders: [
-        { id: 'name-only', remoteRelationship: 'none', scanEligible: true, selected: true },
-        { id: 'bound', remoteRelationship: 'bound', scanEligible: true, selected: true }
+        { id: 'name-only', remoteRelationship: 'none', scanEligible: false, selected: false },
+        { id: 'ordinary', remoteRelationship: 'none', scanEligible: true, selected: true }
       ]
     })
-    await expect(coordinator.selectSourceFolders('100', ['name-only'])).resolves.toBeUndefined()
-    await expect(coordinator.selectSourceFolders('100', ['bound'])).resolves.toBeUndefined()
+    await expect(coordinator.selectSourceFolders('100', ['name-only'])).rejects.toThrow('source selection is invalid')
+    await expect(coordinator.selectSourceFolders('100', ['ordinary'])).resolves.toBeUndefined()
   })
 
-  it('refreshes scanned source relationships from authoritative repository bindings and persists the projection', async () => {
+  it('preserves explicitly suppressed Bilimi observations through relationship refreshes and restart', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const store = new OldFavoriteWorkspaceStore({ root })
-    const coordinator = createCoordinator(repository, store, { initializeOnOpen: false })
+    const getFavoriteLedgersForScanProjection = vi.fn().mockResolvedValue([{
+      id: 'learning', displayName: 'bilimi·学习', keywords: [], enabled: true, priority: 10,
+      isDefault: true, bindingState: 'unbacked', bilibiliFolderId: 'remote-learning'
+    }])
+    const coordinator = createCoordinator(repository, store, { initializeOnOpen: false, getFavoriteLedgersForScanProjection })
     await coordinator.beginScan('100', 'incremental')
     await coordinator.recordScanInventory('100', {
-      sourceFolders: [{ id: 'remote-learning', title: 'Learning', itemCount: 3, isBilimiWorkFolder: false }]
+      sourceFolders: [{
+        id: 'remote-learning', title: 'bilimi·学习', itemCount: 3,
+        isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true,
+        remoteRelationship: 'none', scanEligible: false, selected: false
+      }]
     })
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
 
-    await repository.commit('100', {
-      id: 'bind-learning', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'upsert-physical-shard-binding',
-      payload: {
-        logicalLedgerId: 'learning', logicalTitle: 'bilimi·学习', shardNumber: 1, memberAids: [],
-        remoteTitle: 'bilimi·学习', bindingState: 'bound', remoteFolderId: 'remote-learning'
-      }
-    })
-
     await expect(coordinator.refreshRelationshipProjection('100')).resolves.toMatchObject({
-      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'bound', isBilimiWorkFolder: true, scanEligible: true, selected: true }],
-      inventoryMetrics: { sourceFolders: [{ id: 'remote-learning', selected: true, scanEligible: true }] },
-      localWorkspaceFolders: [{ id: 'bilimi-logical:learning', relationship: 'bound' }]
+      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'none', isBilimiWorkFolder: false, scanEligible: false, selected: false }],
+      inventoryMetrics: { sourceFolders: [{ id: 'remote-learning', selected: false, scanEligible: false }] },
+      localWorkspaceFolders: []
     })
-
-    await repository.commit('100', {
-      id: 'reconcile-learning', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'upsert-physical-shard-binding',
-      payload: {
-        logicalLedgerId: 'learning', logicalTitle: 'bilimi·学习', shardNumber: 1, memberAids: [],
-        remoteTitle: 'bilimi·学习', bindingState: 'pending-reconcile', remoteFolderId: 'remote-learning', knownRemoteFolderIds: ['remote-learning']
-      }
-    })
-
-    await expect(coordinator.refreshRelationshipProjection('100')).resolves.toMatchObject({
-      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'reconcile-required', isBilimiWorkFolder: true, scanEligible: true, selected: true }],
-      localWorkspaceFolders: [{ id: 'bilimi-logical:learning', relationship: 'reconcile-required' }]
-    })
-
-    await repository.commit('100', {
-      id: 'remove-learning', accountMid: '100', issuedAt: '2026-07-20T00:00:03.000Z', type: 'remove-physical-shard-binding',
-      payload: { remoteFolderId: 'remote-learning' }
-    })
-
-    await expect(coordinator.refreshRelationshipProjection('100')).resolves.toMatchObject({
-      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'none', isBilimiWorkFolder: false, scanEligible: true, selected: true }]
-    })
-    await expect(createCoordinator(
+    const restored = createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
       new OldFavoriteWorkspaceStore({ root }),
-      { initializeOnOpen: false }
-    ).getSnapshot('100')).resolves.toMatchObject({
+      { initializeOnOpen: false, getFavoriteLedgersForScanProjection }
+    )
+    await expect(restored.refreshRelationshipProjection('100')).resolves.toMatchObject({
+      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'none', isBilimiWorkFolder: false, scanEligible: false, selected: false }]
+    })
+    await expect(restored.getSnapshot('100')).resolves.toMatchObject({
       currentSegment: { id: 'segment-1', aids: [1] },
-      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'none', isBilimiWorkFolder: false, scanEligible: true, selected: true }]
+      sourceFolders: [{ id: 'remote-learning', remoteRelationship: 'none', isBilimiWorkFolder: false, scanEligible: false, selected: false }]
+    })
+  })
+
+  it('does not treat a legacy Bilimi projection as authority when its card is non-Bilimi', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store, {
+      initializeOnOpen: false,
+      getFavoriteLedgersForScanProjection: vi.fn().mockResolvedValue([{
+        id: 'ordinary', displayName: '普通收藏夹', keywords: [], enabled: true, priority: 10,
+        isDefault: false, bindingState: 'bound', bilibiliFolderId: 'ordinary-bound'
+      }])
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{
+        id: 'ordinary-bound', title: '普通收藏夹', itemCount: 1,
+        isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: true, selected: true
+      }]
+    })
+    await coordinator.completeScan('100', { revision: 1, aids: [] })
+
+    await expect(coordinator.refreshRelationshipProjection('100')).resolves.toMatchObject({
+      sourceFolders: [{
+        id: 'ordinary-bound', isBilimiWorkFolder: false,
+        remoteRelationship: 'none', scanEligible: true, selected: true
+      }]
     })
   })
 

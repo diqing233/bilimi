@@ -50,7 +50,8 @@ import {
   createUserFavoriteLedgerId,
   disambiguateRecommendedFavoriteLedgerNames,
   createRemoteObservationFavoriteLedgerId,
-  favoriteLedgerBindingNameAndShard
+  favoriteLedgerBindingNameAndShard,
+  isBilimiManagedLedgerName
 } from '../../src/shared/favoriteLedgers'
 import {
   buildFavoriteRecommendationLinks,
@@ -370,6 +371,15 @@ type RecoveryConfiguration = {
   defaultSettings?: unknown
 }
 type RecommendedLedger = Pick<FavoriteLedger, 'id' | 'displayName' | 'keywords' | 'ruleType' | 'enabled' | 'priority' | 'isDefault'>
+
+function favoriteLedgerRemoteFolderIds(ledger: FavoriteLedger) {
+  return [
+    ledger.bilibiliFolderId,
+    ...(ledger.bilibiliFolderIds ?? []),
+    ...(ledger.historicalBilibiliFolderIds ?? []),
+    ...(ledger.confirmedDeletedRemoteFolderIds ?? [])
+  ].map((folderId) => folderId?.trim()).filter((folderId): folderId is string => Boolean(folderId))
+}
 type StoredRecommendation = {
   id: string
   displayName: string
@@ -1063,7 +1073,7 @@ function recoverableManagedFolders(
 ) {
   const defaults = createDefaultFavoriteLedgers()
   const candidates: RecoverableManagedFolder[] = []
-  for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder || candidate.isBilimiWorkFolderCandidate)) {
+  for (const folder of sourceFolders.filter((candidate) => candidate.isBilimiWorkFolder)) {
     if (confirmedDeletedRemoteFolderIds.has(folder.id) || suppressedRemoteFolderIds.has(folder.id)) continue
     const title = folder.title.trim()
     const memberAids = [...new Set(managedMembers[folder.id] ?? [])].sort((left, right) => left - right)
@@ -1204,6 +1214,8 @@ export class OldFavoriteWorkspaceCoordinator {
     ) => AutomaticClassification[] | Promise<AutomaticClassification[]>
     /** Ordinary account rules used for asynchronous candidate-to-rule links. */
     listSavedFavoriteLedgers?: (accountMid: string) => Promise<FavoriteLedger[]>
+    /** The right-side card state is the only authority for Bilimi scan projection. */
+    getFavoriteLedgersForScanProjection?: (accountMid: string) => Promise<FavoriteLedger[]>
     applyFavoriteRecommendationRuleChanges?: (
       accountMid: string,
       changes: {
@@ -3012,7 +3024,8 @@ export class OldFavoriteWorkspaceCoordinator {
         .filter(isUnavailableScanItem)
         .map((item) => item.aid)
         .sort((left, right) => left - right)
-      const mirrorFolders = sourceFolders.map((folder) => ({
+      const mirrorFolders = sourceFolders.filter((folder) =>
+        scanSourceIsEligible(folder) || scanSourceRelationship(folder) === 'bound').map((folder) => ({
         id: `bilibili:${folder.id}`,
         title: folder.title,
         remoteFolderId: folder.id
@@ -7716,26 +7729,28 @@ export class OldFavoriteWorkspaceCoordinator {
   ) {
     const overview = this.scanOverviews.get(workspace.accountMid)
     if (!overview) return
+    const bilimiLedgers = (await this.options.getFavoriteLedgersForScanProjection?.(workspace.accountMid) ?? [])
+      .filter((ledger) => isBilimiManagedLedgerName(ledger.displayName))
+    const knownBilimiFolderIds = new Set(bilimiLedgers.flatMap(favoriteLedgerRemoteFolderIds))
+    const boundBilimiFolderIds = new Set(bilimiLedgers
+      .filter((ledger) => ledger.bindingState === 'bound')
+      .flatMap((ledger) => [ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])])
+      .map((folderId) => folderId?.trim())
+      .filter((folderId): folderId is string => Boolean(folderId)))
     const sourceFolders = overview.sourceFolders.map((folder) => {
-      const matchingShards = repository.physicalShards.filter((shard) =>
-        [shard.remoteFolderId, ...(shard.knownRemoteFolderIds ?? [])].some((remoteFolderId) => remoteFolderId === folder.id))
-      const relatedLogicalIds = new Set(matchingShards.map((shard) => shard.logicalLedgerId))
-      const relationship: OldFavoriteRemoteRelationship = relatedLogicalIds.size === 0
-        ? 'none'
-        : relatedLogicalIds.size === 1 && matchingShards.some((shard) =>
-          shard.bindingState === 'bound' && shard.remoteFolderId === folder.id)
-          ? 'bound'
-          : 'reconcile-required'
-      // Relationship data remains useful to the library, but the scan
-      // overview is an observed-remote source table. A local binding must not
-      // erase either its source eligibility or a user's existing selection.
-      const scanEligible = true
+      const isBilimiCandidate = folder.isBilimiWorkFolderCandidate ||
+        isBilimiManagedLedgerName(folder.title) || knownBilimiFolderIds.has(folder.id)
+      const isBoundBilimiWorkFolder = boundBilimiFolderIds.has(folder.id)
+      // A repository refresh may update regular observed data, but must never
+      // grant scan authority or a Bilimi projection to an unbacked card.
+      const relationship: OldFavoriteRemoteRelationship = isBoundBilimiWorkFolder ? 'bound' : 'none'
+      const scanEligible = isBilimiCandidate ? false : scanSourceIsEligible(folder)
       return {
         ...folder,
-        isBilimiWorkFolder: relationship !== 'none',
+        isBilimiWorkFolder: isBoundBilimiWorkFolder,
         remoteRelationship: relationship,
         scanEligible,
-        selected: Boolean(folder.selected)
+        selected: scanEligible && Boolean(folder.selected)
       }
     })
     const localWorkspaceFolders = this.projectLocalWorkspaceFolders(repository)

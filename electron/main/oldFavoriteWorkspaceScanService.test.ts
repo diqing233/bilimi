@@ -155,7 +155,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
     expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'old-favorite-workspace-read-video-tags' }))
   })
 
-  it('treats an unbound bilimi-named folder as a scan source instead of a protected work folder', async () => {
+  it('does not scan unbacked, unbound, or deleted Bilimi observations as ordinary library sources', async () => {
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const coordinator = {
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
@@ -171,7 +171,11 @@ describe('OldFavoriteWorkspaceScanService', () => {
       if (request.type === 'old-favorite-workspace-inventory') {
         return Promise.resolve({
           status: 'ok' as const, observedAccountMid: '100',
-          folders: [{ id: 'ordinary-same-name', title: 'bilimi·游戏专区', mediaCount: 1 }]
+          folders: [
+            { id: 'unbacked-game', title: 'bilimi·游戏专区', mediaCount: 1 },
+            { id: 'unbound-game', title: 'bilimi·游戏专区', mediaCount: 1 },
+            { id: 'deleted-game', title: 'bilimi·游戏专区', mediaCount: 1 }
+          ]
         })
       }
       return Promise.resolve({
@@ -180,7 +184,67 @@ describe('OldFavoriteWorkspaceScanService', () => {
       })
     })
     const service = new OldFavoriteWorkspaceScanService({
-      coordinator: coordinator as never, requestRuntime: runtime as never, wait: vi.fn().mockResolvedValue(undefined)
+      coordinator: coordinator as never, requestRuntime: runtime as never, wait: vi.fn().mockResolvedValue(undefined),
+      getFavoriteLedgers: vi.fn().mockResolvedValue([{
+        id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10,
+        isDefault: true, bindingState: 'unbacked', bilibiliFolderId: 'unbacked-game'
+      }, {
+        id: 'game-unbound', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 20,
+        isDefault: false, bindingState: 'unbound', bilibiliFolderId: 'unbound-game'
+      }, {
+        id: 'game-deleted', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 30,
+        isDefault: false, bindingState: 'unbound', confirmedDeletedRemoteFolderIds: ['deleted-game']
+      }])
+    })
+
+    await service.start('100', 'incremental')
+    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'scan-run-1'))
+
+    expect(coordinator.recordScanInventory).toHaveBeenCalledWith('100', {
+      sourceFolders: [
+        { id: 'unbacked-game', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true, remoteRelationship: 'none', scanEligible: false },
+        { id: 'unbound-game', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true, remoteRelationship: 'none', scanEligible: false },
+        { id: 'deleted-game', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true, remoteRelationship: 'none', scanEligible: false }
+      ]
+    }, 'scan-run-1')
+    expect(runtime.mock.calls.filter(([request]) => request.type === 'old-favorite-workspace-read-source-page')).toEqual([])
+    expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-managed-members'
+    }))
+  })
+
+  it('keeps a bound non-Bilimi card as an ordinary library source', async () => {
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), recordScanInventory: vi.fn(),
+      recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([])
+    }
+    const runtime = vi.fn((request: { type: string; folderId?: string }) => {
+      if (request.type === 'old-favorite-workspace-bind-scan-target') {
+        return Promise.resolve({ status: 'ok' as const, observedAccountMid: '100', target })
+      }
+      if (request.type === 'old-favorite-workspace-inventory') {
+        return Promise.resolve({
+          status: 'ok' as const, observedAccountMid: '100',
+          folders: [{ id: 'ordinary-bound', title: '普通收藏夹', mediaCount: 1 }]
+        })
+      }
+      if (request.type === 'old-favorite-workspace-read-source-page' && request.folderId === 'ordinary-bound') {
+        return Promise.resolve({
+          status: 'ok' as const, observedAccountMid: '100', hasMore: false,
+          items: [{ aid: 9, title: 'Video', upperName: 'UP', cover: '', addedAt: 0 }]
+        })
+      }
+      return Promise.resolve({ status: 'unknown' as const, observedAccountMid: '100', reason: 'unexpected-request' })
+    })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime as never, wait: vi.fn().mockResolvedValue(undefined),
+      getFavoriteLedgers: vi.fn().mockResolvedValue([{
+        id: 'ordinary', displayName: '普通收藏夹', keywords: [], enabled: true, priority: 10,
+        isDefault: false, bindingState: 'bound', bilibiliFolderId: 'ordinary-bound'
+      }])
     })
 
     await service.start('100', 'incremental')
@@ -188,13 +252,12 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
     expect(coordinator.recordScanInventory).toHaveBeenCalledWith('100', {
       sourceFolders: [{
-        id: 'ordinary-same-name', title: 'bilimi·游戏专区', itemCount: 1,
-        isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true,
-        remoteRelationship: 'none', scanEligible: true
+        id: 'ordinary-bound', title: '普通收藏夹', itemCount: 1,
+        isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true
       }]
     }, 'scan-run-1')
     expect(runtime).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'old-favorite-workspace-read-source-page', folderId: 'ordinary-same-name'
+      type: 'old-favorite-workspace-read-source-page', folderId: 'ordinary-bound'
     }))
     expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({
       type: 'old-favorite-workspace-read-managed-members'
@@ -315,8 +378,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
       recordScanInventory: vi.fn(),
       recordManagedMembers: vi.fn().mockRejectedValue(new Error('managed member storage interrupted')),
-      recordScanFailure: vi.fn(),
-      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['managed-1']))
+      recordScanFailure: vi.fn()
     }
     const runtime = vi.fn((request: { type: string }) => {
       if (request.type === 'old-favorite-workspace-bind-scan-target') {
@@ -332,7 +394,13 @@ describe('OldFavoriteWorkspaceScanService', () => {
         status: 'ok' as const, observedAccountMid: '100', members: { 'managed-1': [1] }
       })
     })
-    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime,
+      getFavoriteLedgers: vi.fn().mockResolvedValue([{
+        id: 'inbox', displayName: 'Bilimi Inbox', keywords: [], enabled: true, priority: 10,
+        isDefault: true, bindingState: 'bound', bilibiliFolderId: 'managed-1'
+      }])
+    })
 
     await service.start('100', 'incremental')
 
@@ -390,7 +458,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
           status: 'ok' as const,
           observedAccountMid: '100',
           folders: [
-            { id: 'empty-source', title: 'bilimi·暂存', mediaCount: 0 },
+            { id: 'empty-source', title: '普通空收藏夹', mediaCount: 0 },
             { id: 'source-1', title: 'Source', mediaCount: 1 }
           ]
         })
@@ -463,13 +531,18 @@ describe('OldFavoriteWorkspaceScanService', () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning', scan: { phase: 'inventory' } }),
       recordScanInventory: vi.fn(),
-      recordScanFailure: vi.fn(),
-      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['bilimi']))
+      recordScanFailure: vi.fn()
     }
     const runtime = vi.fn()
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target: { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 } })
       .mockReturnValueOnce(inventory)
-    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime,
+      getFavoriteLedgers: vi.fn().mockResolvedValue([{
+        id: 'inbox', displayName: 'Bilimi·Inbox', keywords: [], enabled: true, priority: 10,
+        isDefault: true, bindingState: 'bound', bilibiliFolderId: 'bilimi'
+      }])
+    })
 
     await expect(service.start('100', 'incremental')).resolves.toMatchObject({
       accountMid: '100', status: 'scanning', scan: { phase: 'inventory' }
@@ -874,8 +947,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
   it('reads Bilimi work-folder members in batches before ordinary source pages', async () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
-      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanPage: vi.fn(), recordScanFailure: vi.fn(),
-      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['managed-1']))
+      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanPage: vi.fn(), recordScanFailure: vi.fn()
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const runtime = vi.fn()
@@ -885,7 +957,13 @@ describe('OldFavoriteWorkspaceScanService', () => {
       ] })
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', members: { 'managed-1': [9, 1] } })
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [], hasMore: false })
-    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime,
+      getFavoriteLedgers: vi.fn().mockResolvedValue([{
+        id: 'inbox', displayName: 'Bilimi Inbox', keywords: [], enabled: true, priority: 10,
+        isDefault: true, bindingState: 'bound', bilibiliFolderId: 'managed-1'
+      }])
+    })
 
     await service.start('100', 'incremental')
 
@@ -927,8 +1005,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
-      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
-      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['managed-1']))
+      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn()
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const runtime = vi.fn()
@@ -940,7 +1017,11 @@ describe('OldFavoriteWorkspaceScanService', () => {
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', members: { 'managed-1': [] } })
     const wait = vi.fn().mockResolvedValue(undefined)
     const service = new OldFavoriteWorkspaceScanService({
-      coordinator: coordinator as never, requestRuntime: runtime, inventoryRetryDelayMs: 25, wait
+      coordinator: coordinator as never, requestRuntime: runtime, inventoryRetryDelayMs: 25, wait,
+      getFavoriteLedgers: vi.fn().mockResolvedValue([{
+        id: 'inbox', displayName: 'Bilimi Inbox', keywords: [], enabled: true, priority: 10,
+        isDefault: true, bindingState: 'bound', bilibiliFolderId: 'managed-1'
+      }])
     })
 
     await service.start('100', 'incremental')
@@ -958,8 +1039,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
-      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanFailure: vi.fn(),
-      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['managed-1']))
+      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanFailure: vi.fn()
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const runtime = vi.fn()
@@ -972,7 +1052,13 @@ describe('OldFavoriteWorkspaceScanService', () => {
         httpStatus: 403, contentType: 'application/json', bilibiliCode: -101,
         responseCategory: 'forbidden'
       })
-    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+    const service = new OldFavoriteWorkspaceScanService({
+      coordinator: coordinator as never, requestRuntime: runtime,
+      getFavoriteLedgers: vi.fn().mockResolvedValue([{
+        id: 'inbox', displayName: 'Bilimi Inbox', keywords: [], enabled: true, priority: 10,
+        isDefault: true, bindingState: 'bound', bilibiliFolderId: 'managed-1'
+      }])
+    })
 
     await service.start('100', 'incremental')
 
@@ -988,8 +1074,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
-      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanFailure: vi.fn(),
-      getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set(['managed-1']))
+      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanFailure: vi.fn()
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const runtime = vi.fn()
@@ -1001,7 +1086,10 @@ describe('OldFavoriteWorkspaceScanService', () => {
       .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '200', members: { 'managed-1': [9] } })
     const service = new OldFavoriteWorkspaceScanService({
       coordinator: coordinator as never, requestRuntime: runtime, inventoryRetryDelayMs: 0,
-      wait: vi.fn().mockResolvedValue(undefined)
+      wait: vi.fn().mockResolvedValue(undefined), getFavoriteLedgers: vi.fn().mockResolvedValue([{
+        id: 'inbox', displayName: 'Bilimi Inbox', keywords: [], enabled: true, priority: 10,
+        isDefault: true, bindingState: 'bound', bilibiliFolderId: 'managed-1'
+      }])
     })
 
     await service.start('100', 'incremental')
