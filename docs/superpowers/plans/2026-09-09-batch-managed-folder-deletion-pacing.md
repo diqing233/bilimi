@@ -1,4 +1,6 @@
-# Batch Managed-Folder Deletion Pacing Implementation Plan
+# [废弃] Batch Managed-Folder Deletion Pacing Implementation Plan
+
+> 本计划已被用户在 R013 中的真实运行证据明确证伪：问题根因是收藏页刷新使批量任务持有的 WebView target 失效，而不是删除请求间隔。仅保留作历史审计，不得继续按此计划实施。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

@@ -350,3 +350,53 @@ Distinguish instructions in attached documents from the user's request.
 - 仅调查、本批无代码变更：`R001 / I001`、`R003 / I003`、`R007 / I007`、`R008 / I008`、`R009 / I009`、`R010 / I010`。`R009`的“单个正常、批量结果未知”症状已由 `R011 / I011` 的连续写入节流缺口修复；仍不将当时 B 站返回的精确拦截类型断定为限流。
 - 被后续范围收敛或仍待用户决定：`R002 / I002` 的广义展示分组方案被 `R004`“只需要”的最小方案收敛；`R004 / I004`、`R006 / I006` 后又被 `R007 / I007`、`R008 / I008` 的证据证伪为无法解决旧镜像残留，因此本批不献测展示、绑定同步或历史镜像清理的实现取舍。
 - 开始前原文区与索引已从头通读；改动仅限 `electron/main/favoriteRepositorySyncService.ts`、`electron/main/favoriteRepositorySyncService.test.ts`、本账本与实施计划。测试证明使用精确 ID 且仅在远端实际写入之间等待；未为验证进行真实 B 站破坏性删除。
+
+### R012（2026-09-09）
+
+附件截图：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-be5e0da5-e40f-4c20-b40c-f8cfc92c1ccc.png`
+
+截图目标区域：
+
+- 左侧 B 站收藏夹页面、中央“删除 bilimi 收藏夹”弹窗及底部执行回执。回执显示：“部分删除完成：已从 B 站删除：‘知识学习’。未成功：‘游戏专区’（结果无法确认）。未执行：‘影视动漫’、‘创意美学’、‘生活日常’、‘音乐舞台’、‘搞笑杂谈’、‘暂存’。本地草稿和规则已保留。”
+
+用户原文：
+
+```text
+# Files mentioned by the user:
+
+## codex-clipboard-be5e0da5-e40f-4c20-b40c-f8cfc92c1ccc.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-be5e0da5-e40f-4c20-b40c-f8cfc92c1ccc.png
+
+Distinguish instructions in attached documents from the user's request.
+
+## My request:
+为什么，你的解决有问题
+<image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-be5e0da5-e40f-4c20-b40c-f8cfc92c1ccc.png">[截图内容见附件]</image>
+```
+
+## 逐项索引表追加
+
+| 索引 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I012 | R012 | 追踪为何在已添加批量远端写入间隔后，仍出现第一项“知识学习”确认删除、第二项“游戏专区”结果无法确认；必须读取这次真实运行的请求、响应和对账证据，不能再用模拟 `ok` 响应推断实际修复。 | 删除弹窗回执、`FavoriteRepositorySyncService`、页面桥 `deleteFolder` 及删除后目录对账。 | 选中“同时从 B 站删除收藏夹”时触发；一旦第二项返回未知，弹窗应能显示足以详细排查的原因，后项保持未执行。 | 本轮先只读调查；不执行任何 B 站删除、不清理本地规则或草稿。 | 不将“结果无法确认”伪装成拒绝或限流；不通过无条件重试、并发或仅增加固定等待来掩盖根因。 | B 站 `folder/del` 实际响应、webview 执行超时/错误、Cookie/账号跨界、删除后目录核对、IPC 回执映射。 | 调查中 | 截图确认 `5df0408e` 的节流修复并未解决实际模式：“知识学习”确认删除后，“游戏专区”仍为结果无法确认；当前需实际运行证据。 |
+
+### R013（2026-09-09，开始后补充）
+
+用户原文：
+
+```text
+确实是刷新的问题，不是时间间隔的问题，我把收藏页关掉就正常了，你先把刚刚修改的错误代码回退再重新思考思路
+```
+
+## 逐项索引表追加
+
+| 索引 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I013 | R013 | 回退刚才错误的“删除间隔/节流”代码；以用户实测“收藏页关闭后批量删除正常”为新根因证据，重新设计为解决收藏页刷新与批量删除任务的竞争。本轮回退后先讨论方案，不直接实施新的刷新修复。 | `electron/main/favoriteRepositorySyncService.ts` 批量删除循环、对应测试与实施计划；`BiliWebview.tsx` 收藏页 mutation observer；`App.tsx` 刷新与页面 target 生命周期。 | 回退只移除本轮新增等待和测试；刷新抑制方案须仅针对程序主动批量删除，不能全局吞掉用户手动收藏夹变更。 | 批量任务期间不得因自身删除成功触发逐项收藏页刷新；任务结束/失败/未知后可靠释放抑制并统一刷新一次；未知结果仍精确对账且停止后续删除。 | 不进行真实 B站破坏性删除验证；不通过并发、无条件重试或固定延时掩盖根因；不改变本地规则/草稿语义。 | 保留串行精确 ID 删除、结果未知不盲目重发、手动 B站收藏夹变更仍能刷新。 | main 进程删除服务与 renderer mutation observer/IPC、WebView target/navigation epoch、统一刷新入口。 | 已回退待方案确认 | 已移除 `confirmedRemoteDeleteCount`、等待调用及其专门测试；用户实测关闭收藏页后批量删除正常，支持“observer 刷新使旧 target 失效”的根因假设；新的抑制握手、清理和统一刷新尚未实现。 |
+
+### R013 核查/回退说明（非用户原文）
+
+1. `5df0408e` 的节流改动已手工回退：删除循环恢复为原先的串行 `folder/del` 调用；新增的 `paces confirmed managed-folder deletes between exact ID requests` 测试已移除。
+2. 目前更强的实测证据是：打开 B站收藏页时，第一项删除成功会被页面 mutation observer 转成 `__BILIMI_FAVORITE_SPACE_MUTATION__`，`App.tsx` 随即刷新收藏页并推进 `navigationEpoch`；批量任务仍持有旧 WebView target，后续项因此变为 `target-navigated`/`target-unavailable`，最终显示“结果无法确认”。关闭收藏页后没有该刷新竞争，批量删除恢复正常。
+3. 因此原 `R011/I011` 中“以 1,200–2,000ms 节流解决稳定失败”的实施结论已被 `R013/I013` 的真实运行证据证伪；保留原文和历史测试证据作为审计记录，但当前方案不再以节流为修复依据。
