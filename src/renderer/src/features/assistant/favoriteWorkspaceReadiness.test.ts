@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { FavoriteLedger } from '@shared/types'
-import { hasMissingFavoriteLedgerBindings, favoriteWorkspaceReadinessMessage } from './FloatingAssistantApp'
+import {
+  hasMissingFavoriteLedgerBindings,
+  hasMissingCurrentFavoriteLedgerBinding,
+  favoriteWorkspaceReadinessMessage
+} from './FloatingAssistantApp'
 
 describe('favoriteWorkspaceReadinessMessage', () => {
   it('tells a user already in the ledger that the local template still needs Bilibili backup', () => {
@@ -26,5 +30,28 @@ describe('favoriteWorkspaceReadinessMessage', () => {
     }]
 
     expect(hasMissingFavoriteLedgerBindings(activeAccountLedgers, null)).toBe(false)
+  })
+
+  it('checks only the current matched ledger when deciding the video hint', () => {
+    const currentLedger: FavoriteLedger = {
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true,
+      priority: 10, isDefault: true, bilibiliFolderId: '101', bindingState: 'bound'
+    }
+    const unrelatedMissingLedger: FavoriteLedger = {
+      id: 'entertainment', displayName: 'bilimi·搞笑杂谈', keywords: [], enabled: true,
+      priority: 20, isDefault: true, bindingState: 'unbacked'
+    }
+    const status = {
+      ok: false,
+      verified: true,
+      ledgers: [currentLedger, unrelatedMissingLedger],
+      missingLedgerIds: ['entertainment'],
+      unboundLedgerIds: [],
+      message: '发现尚未备册的 bilimi 收藏夹。'
+    }
+
+    expect(hasMissingCurrentFavoriteLedgerBinding('game', status)).toBe(false)
+    expect(hasMissingCurrentFavoriteLedgerBinding('entertainment', status)).toBe(true)
+    expect(hasMissingCurrentFavoriteLedgerBinding('entertainment', { ...status, verified: false })).toBe(false)
   })
 })

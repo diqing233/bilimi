@@ -872,6 +872,16 @@ export function hasMissingFavoriteLedgerBindings(ledgers: FavoriteLedger[], favo
     backupGap.enabledCount === 0 || backupGap.enabledWithoutFolderCount > 0
 }
 
+export function hasMissingCurrentFavoriteLedgerBinding(
+  currentLedgerId: string,
+  favoriteLedgerStatus: FavoriteLedgerStatus | null
+) {
+  const normalizedLedgerId = currentLedgerId.trim()
+  if (!normalizedLedgerId || favoriteLedgerStatus?.verified !== true) return false
+  return favoriteLedgerStatus.missingLedgerIds.includes(normalizedLedgerId) ||
+    Boolean(favoriteLedgerStatus.unboundLedgerIds?.includes(normalizedLedgerId))
+}
+
 export function suppressRemoteDraftReminder(status: FavoriteLedgerStatus | null, ledgerId: string) {
   const normalizedLedgerId = ledgerId.trim()
   if (!status || !normalizedLedgerId || !status.remoteOnlyDraftLedgerIds?.includes(normalizedLedgerId)) return status
@@ -3785,6 +3795,7 @@ export function FloatingAssistantApp({
     [activeFavoriteLedgers, favoriteLedgerStatus?.remoteOnlyDraftLedgerIds]
   )
   const hasMissingFavoriteLedgers = hasMissingFavoriteLedgerBindings(activeFavoriteLedgers, favoriteLedgerStatus)
+  const hasMissingCurrentFavoriteLedger = hasMissingCurrentFavoriteLedgerBinding(currentKind, favoriteLedgerStatus)
   const readinessFeedbackMessage = useMemo(() => {
     return favoriteWorkspaceReadinessMessage({
       hasBilibiliPageOpen,
@@ -5665,7 +5676,7 @@ export function FloatingAssistantApp({
                   )
                 }
                 videoCategory={videoCategory}
-                favoriteProvisioningHint={hasMissingFavoriteLedgers ? `最佳匹配：${videoCategory}（未备册）` : undefined}
+                favoriteProvisioningHint={hasMissingCurrentFavoriteLedger ? `最佳匹配：${videoCategory}（未备册）` : undefined}
                 currentAccountMid={resolvedSnapshot.accountMid}
                 videoTitle={resolvedVideoTitle}
                 videoAuthor={resolvedVideoAuthor}
