@@ -10786,6 +10786,104 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(onPhysicalShardProvisioned).toHaveBeenCalledWith('100')
   })
 
+  it('releases absent exact shard ids then reuses the lowest missing capacity shard number', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-09-10T00:00:00.000Z' })
+    const ensurePhysicalShard = vi.fn().mockResolvedValue({})
+    const releaseBoundPhysicalShardsAbsentFromRemote = vi.fn(async () => {
+      await repository.commit('100', {
+        id: 'release-game-2', accountMid: '100', issuedAt: '2026-09-10T00:00:02.000Z',
+        type: 'remove-physical-shard-binding', payload: { remoteFolderId: 'game-2' }
+      })
+      return { releasedRemoteFolderIds: ['game-2'] }
+    })
+    const onPhysicalShardProvisioned = vi.fn().mockResolvedValue(undefined)
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: { ensurePhysicalShard, releaseBoundPhysicalShardsAbsentFromRemote },
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([{ id: 'game', title: 'bilimi·游戏专区' }]),
+      onPhysicalShardProvisioned,
+      now: () => '2026-09-10T00:00:00.000Z'
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const memberAids = Array.from({ length: 1000 }, (_, index) => index + 1)
+    for (const [shardNumber, remoteFolderId, remoteTitle] of [
+      [1, 'game-1', 'bilimi·游戏专区'],
+      [2, 'game-2', 'bilimi·游戏专区②'],
+      [3, 'game-3', 'bilimi·游戏专区③']
+    ] as const) {
+      await bindings.preparePhysicalShard('100', {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteDisplayTitle: 'bilimi·游戏专区', shardNumber,
+        memberAids, observedAccountMid: '100', remoteFolderId,
+        inventory: [{ id: remoteFolderId, title: remoteTitle, memberCount: 1000, memberAids }]
+      })
+    }
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1001] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1001, targetLedgerIds: ['game'] }]
+    })
+
+    await coordinator.provisionBilibiliExecutionPreflightShards('100')
+
+    expect(releaseBoundPhysicalShardsAbsentFromRemote).toHaveBeenCalledWith('100', {
+      logicalLedgerIds: ['game']
+    })
+    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({
+      logicalLedgerId: 'game', shardNumber: 2
+    }))
+    expect(onPhysicalShardProvisioned).toHaveBeenCalledTimes(2)
+    expect(onPhysicalShardProvisioned).toHaveBeenNthCalledWith(1, '100')
+    expect(onPhysicalShardProvisioned).toHaveBeenNthCalledWith(2, '100')
+  })
+
+  it('requires explicit confirmation for a same-title replacement after releasing an absent exact shard id', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-09-10T00:00:00.000Z' })
+    const ensurePhysicalShard = vi.fn()
+    const releaseBoundPhysicalShardsAbsentFromRemote = vi.fn(async () => {
+      await repository.commit('100', {
+        id: 'release-game-2', accountMid: '100', issuedAt: '2026-09-10T00:00:02.000Z',
+        type: 'remove-physical-shard-binding', payload: { remoteFolderId: 'game-2' }
+      })
+      return { releasedRemoteFolderIds: ['game-2'] }
+    })
+    const previewLedgerBindingCandidates = vi.fn().mockResolvedValue([{
+      ledgerId: 'game', candidates: [{ id: 'replacement-game-2', title: 'bilimi·游戏专区②', memberCount: 0 }]
+    }])
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: { ensurePhysicalShard, releaseBoundPhysicalShardsAbsentFromRemote, previewLedgerBindingCandidates },
+      listSavedEnabledLedgers: vi.fn().mockResolvedValue([{ id: 'game', title: 'bilimi·游戏专区' }]),
+      now: () => '2026-09-10T00:00:00.000Z'
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const memberAids = Array.from({ length: 1000 }, (_, index) => index + 1)
+    for (const [shardNumber, remoteFolderId, remoteTitle] of [
+      [1, 'game-1', 'bilimi·游戏专区'],
+      [2, 'game-2', 'bilimi·游戏专区②'],
+      [3, 'game-3', 'bilimi·游戏专区③']
+    ] as const) {
+      await bindings.preparePhysicalShard('100', {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteDisplayTitle: 'bilimi·游戏专区', shardNumber,
+        memberAids, observedAccountMid: '100', remoteFolderId,
+        inventory: [{ id: remoteFolderId, title: remoteTitle, memberCount: 1000, memberAids }]
+      })
+    }
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.completeScan('100', { revision: 1, aids: [1001] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1001, targetLedgerIds: ['game'] }]
+    })
+
+    await expect(coordinator.provisionBilibiliExecutionPreflightShards('100')).rejects.toThrow('candidate-confirmation-required')
+
+    expect(releaseBoundPhysicalShardsAbsentFromRemote).toHaveBeenCalledOnce()
+    expect(ensurePhysicalShard).not.toHaveBeenCalled()
+  })
+
   it('blocks a manually created local ledger from remote execution until it is formally bound', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })

@@ -1629,6 +1629,39 @@ describe('account favorite repository contracts', () => {
     expect(result.positions['100:9']?.localDesiredFolderIds).toEqual(['bilimi-logical:game'])
   })
 
+  it('does not copy logical members into a later empty capacity shard', () => {
+    const now = '2026-09-10T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      folders: [{
+        id: 'bilimi-logical:game', title: 'bilimi·游戏专区', kind: 'bilimi-logical' as const,
+        logicalLedgerId: 'game', syncState: 'bound' as const
+      }],
+      memberships: {
+        'bilimi-logical:game': [7, 9],
+        'bilimi:game:001': [7, 9]
+      },
+      physicalShards: [{
+        logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+        remoteFolderId: 'remote-game-1', remoteTitle: 'bilimi·游戏专区', bindingState: 'bound' as const
+      }]
+    }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'bind-game-second-shard', accountMid: '100', issuedAt: now, type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 2, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区②', bindingState: 'bound', remoteFolderId: 'remote-game-2', remoteMemberCount: 0
+      }
+    }, now)
+
+    expect(result.memberships).toMatchObject({
+      'bilimi-logical:game': [7, 9],
+      'bilimi:game:001': [7, 9],
+      'bilimi:game:002': []
+    })
+  })
+
   it('projects a moved placement through bound physical shards without retaining the old logical member', () => {
     const now = '2026-09-05T00:00:00.000Z'
     const snapshot = {

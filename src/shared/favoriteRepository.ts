@@ -1903,6 +1903,7 @@ export function applyFavoriteRepositoryCommand(
     }
     let shardNumber = payload.shardNumber
     let existingShard = physicalShards.find((shard) => shard.logicalLedgerId === logicalLedgerId && shard.shardNumber === shardNumber)
+    const hasExistingPhysicalShard = physicalShards.some((shard) => shard.logicalLedgerId === logicalLedgerId)
     if (command.id.startsWith('favorite-library:restore-managed:') &&
       existingShard?.bindingState === 'bound' && bindingState === 'pending-reconcile') {
       // A delayed restore may only repeat the formal remote ID or add another
@@ -1941,7 +1942,7 @@ export function applyFavoriteRepositoryCommand(
     const nextShardMembers = uniquePositiveAids([
       ...existingShardMembers,
       ...payload.memberAids,
-      ...(existingShard || payload.memberAids.length ? [] : existingLogicalMembers)
+      ...(hasExistingPhysicalShard || payload.memberAids.length ? [] : existingLogicalMembers)
     ])
     memberships = { ...memberships, [folderId]: nextShardMembers }
     const logicalMembers = new Set<number>(existingLogicalMembers)

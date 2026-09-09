@@ -309,6 +309,59 @@ describe('FavoriteRepositoryBindingService', () => {
     expect((await service.getBindings('100')).shards[0]).toMatchObject({ bindingState: 'bound', remoteFolderId: 'remote-music' })
   })
 
+  it('releases only bound exact ids absent from the explicit preflight inventory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'bilimi-favorite-binding-release-'))
+    roots.push(root)
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-09-10T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'bound-game-1', accountMid: '100', issuedAt: '2026-09-10T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: 'game-1', remoteMemberCount: 999
+      }
+    })
+    await repository.commit('100', {
+      id: 'bound-game-2', accountMid: '100', issuedAt: '2026-09-10T00:00:01.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 2, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区②', bindingState: 'bound', remoteFolderId: 'deleted-game-2', remoteMemberCount: 0
+      }
+    })
+    const createFolder = vi.fn()
+    const deleteFolder = vi.fn()
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100',
+            folders: [
+              { id: 'game-1', title: 'bilimi·游戏专区', memberCount: 999 },
+              { id: 'replacement-game-2', title: 'bilimi·游戏专区②', memberCount: 0 }
+            ]
+          }),
+          createFolder, deleteFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.releaseBoundPhysicalShardsAbsentFromRemote('100', {
+      logicalLedgerIds: ['game']
+    })).resolves.toEqual({ releasedRemoteFolderIds: ['deleted-game-2'] })
+
+    expect((await service.getBindings('100')).shards).toEqual([
+      expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: 'game-1' })
+    ])
+    expect(createFolder).not.toHaveBeenCalled()
+    expect(deleteFolder).not.toHaveBeenCalled()
+    expect((await new FavoriteRepositoryBindingService({
+      repository: new FavoriteRepositoryService({ root })
+    }).getBindings('100')).shards).toEqual([
+      expect.objectContaining({ logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: 'game-1' })
+    ])
+  })
+
   it('does not reconcile a pending shard whose exact remote id is deletion-suppressed', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

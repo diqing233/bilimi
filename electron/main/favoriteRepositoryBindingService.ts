@@ -622,6 +622,56 @@ export class FavoriteRepositoryBindingService {
     return this.options.remoteOperations?.run(account, run) ?? run()
   }
 
+  /**
+   * In the explicit backup-confirmation path, release only formal local
+   * bindings whose immutable remote IDs are absent from one complete live
+   * inventory. Same-title folders remain candidates; this never adopts,
+   * deletes, renames, or otherwise mutates Bilibili.
+   */
+  async releaseBoundPhysicalShardsAbsentFromRemote(
+    accountMid: string,
+    options: { logicalLedgerIds?: readonly string[] } = {}
+  ): Promise<{ releasedRemoteFolderIds: string[] }> {
+    const account = normalizedAccountMid(accountMid)
+    const requestedLogicalLedgerIds = new Set((options.logicalLedgerIds ?? [])
+      .map((logicalLedgerId) => logicalLedgerId.trim())
+      .filter(Boolean))
+    const run = async () => {
+      const pageBridgeManager = this.options.pageBridgeManager
+      if (!pageBridgeManager) throw new Error('Favorite repository page bridge is unavailable.')
+      const runId = `favorite-binding-release-absent:${account}:${randomUUID()}`
+      await pageBridgeManager.bind(account, runId)
+      try {
+        const inventory = await pageBridgeManager.pageBridge(account, runId).readFolderInventory({
+          accountMid: account, operationKey: `${runId}:inventory`
+        })
+        if (normalizedAccountMid(inventory.observedAccountMid) !== account) {
+          throw new Error('Favorite repository remote account mismatch.')
+        }
+        const remoteFolderIds = new Set(inventory.folders.map((folder) => folder.id.trim()).filter(Boolean))
+        const snapshot = await this.options.repository.getSnapshot(account)
+        const releasedRemoteFolderIds: string[] = []
+        for (const shard of snapshot.physicalShards.filter((candidate) =>
+          candidate.bindingState === 'bound' && Boolean(candidate.remoteFolderId) &&
+          (!requestedLogicalLedgerIds.size || requestedLogicalLedgerIds.has(candidate.logicalLedgerId)) &&
+          !remoteFolderIds.has(candidate.remoteFolderId!))) {
+          await this.options.repository.commit(account, {
+            id: `favorite-binding-release-absent:${shard.logicalLedgerId}:${shard.shardNumber}:${shard.remoteFolderId}:${randomUUID()}`,
+            accountMid: account,
+            issuedAt: this.now(),
+            type: 'remove-physical-shard-binding',
+            payload: { remoteFolderId: shard.remoteFolderId! }
+          })
+          releasedRemoteFolderIds.push(shard.remoteFolderId!)
+        }
+        return { releasedRemoteFolderIds: releasedRemoteFolderIds.sort() }
+      } finally {
+        pageBridgeManager.release(account, runId)
+      }
+    }
+    return this.options.remoteOperations?.run(account, run) ?? run()
+  }
+
   /** Read-only candidate preview; adoption still requires an explicit remote id. */
   async previewLedgerBindingCandidates(accountMid: string, ledgers: Array<{ ledgerId: string; title: string }>): Promise<FavoriteRepositoryLedgerBindingCandidate[]> {
     const account = normalizedAccountMid(accountMid)

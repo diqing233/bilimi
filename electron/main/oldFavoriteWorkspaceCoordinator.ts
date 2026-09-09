@@ -1192,6 +1192,14 @@ export class OldFavoriteWorkspaceCoordinator {
         ledgerId: string
         candidates: Array<{ id: string; title: string; memberCount: number; shardNumber?: number }>
       }>>
+      /**
+       * Reads the complete Bilibili directory in the explicit backup-confirm
+       * path, then releases only formal bindings whose exact remote IDs no
+       * longer exist. It never adopts or mutates a same-title remote folder.
+       */
+      releaseBoundPhysicalShardsAbsentFromRemote?(accountMid: string, options: {
+        logicalLedgerIds?: readonly string[]
+      }): Promise<{ releasedRemoteFolderIds: string[] }>
       /** Refreshes the account-level rule projection after automatic shard provisioning. */
       onPhysicalShardProvisioned?: (accountMid: string) => Promise<unknown> | unknown
     }
@@ -4984,12 +4992,18 @@ export class OldFavoriteWorkspaceCoordinator {
           )
         ), 0)
         const needed = Math.max(0, Math.ceil((boundRequiredAssignmentCount - availableCapacity) / REMOTE_FAVORITE_SHARD_CAPACITY))
-        const nextShardNumber = Math.max(0, ...physicalShards.map((shard) => shard.shardNumber)) + 1
-        for (let offset = 0; offset < needed; offset += 1) {
+        const occupiedShardNumbers = new Set(physicalShards.map((shard) => shard.shardNumber))
+        const plannedShardNumbers: number[] = []
+        for (let candidateShardNumber = 1; plannedShardNumbers.length < needed; candidateShardNumber += 1) {
+          if (occupiedShardNumbers.has(candidateShardNumber)) continue
+          plannedShardNumbers.push(candidateShardNumber)
+          occupiedShardNumbers.add(candidateShardNumber)
+        }
+        for (const shardNumber of plannedShardNumbers) {
           requiredPhysicalShards.push({
             logicalLedgerId,
             logicalTitle: logicalTitles.get(logicalLedgerId)!,
-            shardNumber: nextShardNumber + offset,
+            shardNumber,
             requiredAssignmentCount: boundRequiredAssignmentCount
           })
         }
@@ -5020,7 +5034,7 @@ export class OldFavoriteWorkspaceCoordinator {
    * unbacked, and provisions exactly the currently required shard ordinals.
    */
   async provisionBilibiliExecutionPreflightShards(accountMid: string): Promise<OldFavoriteWorkspaceBilibiliSyncPreflight> {
-    const preflight = await this.getBilibiliExecutionPreflight(accountMid)
+    let preflight = await this.getBilibiliExecutionPreflight(accountMid)
     if (preflight.missingLedgers.length) {
       throw new Error('Old favorite workspace cannot provision shards: backup-preflight-required')
     }
@@ -5029,6 +5043,22 @@ export class OldFavoriteWorkspaceCoordinator {
     }
     if (!preflight.requiredPhysicalShards.length) return preflight
     if (!this.options.bindingService) throw new Error('Old favorite workspace binding service is unavailable.')
+    const released = await this.options.bindingService.releaseBoundPhysicalShardsAbsentFromRemote?.(preflight.accountMid, {
+      logicalLedgerIds: [...new Set(preflight.requiredPhysicalShards.map((shard) => shard.logicalLedgerId))].sort()
+    })
+    if (released?.releasedRemoteFolderIds.length) {
+      // The repository has changed locally, so refresh its rule projection
+      // before recomputing capacity. This is not a Bilibili write.
+      await this.options.onPhysicalShardProvisioned?.(preflight.accountMid)
+      preflight = await this.getBilibiliExecutionPreflight(accountMid)
+      if (preflight.missingLedgers.length) {
+        throw new Error('Old favorite workspace cannot provision shards: backup-preflight-required')
+      }
+      if (preflight.requiredPhysicalShards.some((shard) => shard.bindingCandidates.length)) {
+        throw new Error('Old favorite workspace cannot provision shards: candidate-confirmation-required')
+      }
+      if (!preflight.requiredPhysicalShards.length) return preflight
+    }
     for (const shard of preflight.requiredPhysicalShards) {
       await this.options.bindingService.ensurePhysicalShard(preflight.accountMid, {
         logicalLedgerId: shard.logicalLedgerId,
