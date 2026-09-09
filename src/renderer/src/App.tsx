@@ -801,6 +801,13 @@ export default function App() {
   const favoriteRepositoryPageTargetRef = useRef<ReturnType<typeof createFavoriteRepositoryPageTarget> | null>(null)
   const favoriteRepositoryTargetStates = useRef(new Map<number, FavoriteRepositoryPageTarget>())
   const programmaticFavoriteCreateRefreshSuppressionsRef = useRef(new Map<string, number>())
+  const managedFolderDeletionRefreshDeferralsRef = useRef(new Map<string, {
+    accountMid: string
+    webContentsId: number
+    instanceId: string
+    navigationEpoch: number
+    refreshDeferred: boolean
+  }>())
   const activeTabChangeMounted = useRef(false)
   const lastPetVideoKey = useRef<string | undefined>(undefined)
   const assistantRuntimeFeedbackRef = useRef<{ id: number; message: string } | undefined>(undefined)
@@ -1282,7 +1289,7 @@ export default function App() {
   }, [])
 
   const handleFavoriteSpaceMutationConfirmed = useCallback((
-    _tabId: string,
+    tabId: string,
     mutation: { accountMid: string; kind: 'create' | 'rename' | 'delete' }
   ) => {
     // A programmatic backup must formally register its exact created folder
@@ -1291,6 +1298,20 @@ export default function App() {
     // handled by that backup transaction after adoption succeeds.
     if (mutation.kind === 'create' && (programmaticFavoriteCreateRefreshSuppressionsRef.current.get(mutation.accountMid) ?? 0) > 0) {
       return
+    }
+    if (mutation.kind === 'delete') {
+      const webview = webviewRefs.current[tabId]
+      const webContentsId = webview?.getWebContentsId?.()
+      if (typeof webContentsId === 'number') {
+        const target = favoriteRepositoryTargetStates.current.get(webContentsId)
+        for (const deferral of managedFolderDeletionRefreshDeferralsRef.current.values()) {
+          if (deferral.accountMid === mutation.accountMid && deferral.webContentsId === webContentsId &&
+            deferral.instanceId === target?.instanceId && deferral.navigationEpoch === target?.navigationEpoch) {
+            deferral.refreshDeferred = true
+            return
+          }
+        }
+      }
     }
     // The mutation observer only emits after verifying the page URL and the
     // signed-in B站账号 are the same.  Navigating to the favourite page clears
@@ -1468,6 +1489,38 @@ export default function App() {
       }
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
     })()
+  }
+
+  function managedFolderDeletionRefreshDeferralKey(accountMid: string, runId: string) {
+    return `${accountMid.trim()}:${runId}`
+  }
+
+  function beginManagedFolderDeletionRefreshDeferral(
+    accountMid: string,
+    runId: string,
+    target: FavoriteRepositoryPageTarget
+  ) {
+    const account = accountMid.trim()
+    const current = favoriteRepositoryTargetStates.current.get(target.webContentsId)
+    if (!account || !current || current.webContentsId !== target.webContentsId || current.instanceId !== target.instanceId ||
+      current.navigationEpoch !== target.navigationEpoch) {
+      return { status: 'unknown' as const, observedAccountMid: '', reason: 'target-unavailable' }
+    }
+    managedFolderDeletionRefreshDeferralsRef.current.set(managedFolderDeletionRefreshDeferralKey(account, runId), {
+      accountMid: account,
+      webContentsId: target.webContentsId,
+      instanceId: target.instanceId,
+      navigationEpoch: target.navigationEpoch,
+      refreshDeferred: false
+    })
+    return { status: 'ok' as const, observedAccountMid: account }
+  }
+
+  function endManagedFolderDeletionRefreshDeferral(accountMid: string, runId: string) {
+    const key = managedFolderDeletionRefreshDeferralKey(accountMid, runId)
+    const deferral = managedFolderDeletionRefreshDeferralsRef.current.get(key)
+    managedFolderDeletionRefreshDeferralsRef.current.delete(key)
+    return { observedAccountMid: accountMid.trim(), refreshDeferred: deferral?.refreshDeferred === true }
   }
 
   async function readVideoContentContext(): Promise<VideoContentContext> {
@@ -5023,6 +5076,10 @@ export default function App() {
           return runFavoriteRepositoryPageOperation(
             request.accountMid, request.runId, request.target, request.action, request.input
           )
+        case 'begin-managed-folder-deletion-refresh-deferral':
+          return beginManagedFolderDeletionRefreshDeferral(request.accountMid, request.runId, request.target)
+        case 'end-managed-folder-deletion-refresh-deferral':
+          return endManagedFolderDeletionRefreshDeferral(request.accountMid, request.runId)
         case 'old-favorite-workspace-bind-scan-target':
           return bindFavoriteRepositoryPageTarget(request.accountMid)
         case 'old-favorite-workspace-inventory':

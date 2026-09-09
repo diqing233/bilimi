@@ -104,6 +104,19 @@ export type AssistantRuntimeRequest =
       action: FavoriteRepositoryPageOperationAction
       input: FavoriteRepositoryPageOperationInput | FavoriteRepositoryUnfavoriteInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderReadInput | FavoriteRepositoryFolderCreateInput | FavoriteRepositoryFolderDeleteInput | FavoriteRepositoryFolderRenameInput
     }
+  | {
+      id: string
+      type: 'begin-managed-folder-deletion-refresh-deferral'
+      accountMid: string
+      runId: string
+      target: FavoriteRepositoryPageTarget
+    }
+  | {
+      id: string
+      type: 'end-managed-folder-deletion-refresh-deferral'
+      accountMid: string
+      runId: string
+    }
   | { id: string; type: 'old-favorite-workspace-bind-scan-target'; accountMid: string }
   | {
       id: string
@@ -152,6 +165,7 @@ export type AssistantRuntimeResponsePayload =
   | number
   | boolean
   | FavoriteRepositoryPageOperationResult
+  | { refreshDeferred: boolean }
   | { pending: boolean }
   | null
 

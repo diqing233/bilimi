@@ -164,4 +164,23 @@ describe('FavoriteRepositoryRuntimePageBridgeManager', () => {
     }))
     await expect(unavailable.bind('100', 'run-2')).rejects.toThrow('target-unavailable')
   })
+
+  it('begins and ends a managed deletion refresh deferral on the bound target', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100' })
+      .mockResolvedValueOnce({ observedAccountMid: '100', refreshDeferred: true })
+    const manager = new FavoriteRepositoryRuntimePageBridgeManager(request)
+
+    await manager.bind('100', 'run-1')
+    await manager.beginManagedFolderDeletionRefreshDeferral('100', 'run-1')
+    await expect(manager.endManagedFolderDeletionRefreshDeferral('100', 'run-1')).resolves.toEqual({ refreshDeferred: true })
+
+    expect(request).toHaveBeenNthCalledWith(2, {
+      type: 'begin-managed-folder-deletion-refresh-deferral', accountMid: '100', runId: 'run-1', target
+    })
+    expect(request).toHaveBeenNthCalledWith(3, {
+      type: 'end-managed-folder-deletion-refresh-deferral', accountMid: '100', runId: 'run-1'
+    })
+  })
 })

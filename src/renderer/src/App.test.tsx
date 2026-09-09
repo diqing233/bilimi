@@ -3300,6 +3300,47 @@ describe('App runtime integration', () => {
     expect(events).toEqual(['bind:start', 'bind:done', 'refresh'])
   })
 
+  it('defers managed deletion observer refresh until the matching run ends', async () => {
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
+    const app = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      retryBilibiliFavoriteSpaceRefresh
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      getWebContentsId: () => 101,
+      executeJavaScript: vi.fn().mockResolvedValue('100')
+    })
+    act(() => webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+      detail: { url: 'https://space.bilibili.com/100/favlist' }
+    })))
+    const binding = await app.requestRuntime({
+      id: 'bind-delete-target', type: 'favorite-repository-bind-page-target', accountMid: '100', runId: 'delete-run'
+    })
+    if (!binding || typeof binding !== 'object' || !('target' in binding) || !binding.target) throw new Error('missing delete target')
+    await expect(app.requestRuntime({
+      id: 'begin-delete-deferral', type: 'begin-managed-folder-deletion-refresh-deferral', accountMid: '100', runId: 'delete-run',
+      target: binding.target
+    } as AssistantRuntimeRequest)).resolves.toMatchObject({ status: 'ok' })
+
+    act(() => webview.dispatchEvent(new CustomEvent('page-title-updated', {
+      detail: { title: `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid: '100', kind: 'delete', nonce: 91 }))}` }
+    })))
+    await Promise.resolve()
+    expect(retryBilibiliFavoriteSpaceRefresh).not.toHaveBeenCalled()
+
+    await expect(app.requestRuntime({
+      id: 'end-delete-deferral', type: 'end-managed-folder-deletion-refresh-deferral', accountMid: '100', runId: 'delete-run'
+    } as AssistantRuntimeRequest)).resolves.toMatchObject({ refreshDeferred: true })
+
+    act(() => webview.dispatchEvent(new CustomEvent('page-title-updated', {
+      detail: { title: `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid: '100', kind: 'delete', nonce: 92 }))}` }
+    })))
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith('100'))
+  })
+
   it('reconciles remote discovery after a confirmed favorite-space mutation', async () => {
     const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)

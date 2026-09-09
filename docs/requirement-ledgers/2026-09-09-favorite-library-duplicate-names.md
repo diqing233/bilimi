@@ -400,3 +400,42 @@ Distinguish instructions in attached documents from the user's request.
 1. `5df0408e` 的节流改动已手工回退：删除循环恢复为原先的串行 `folder/del` 调用；新增的 `paces confirmed managed-folder deletes between exact ID requests` 测试已移除。
 2. 目前更强的实测证据是：打开 B站收藏页时，第一项删除成功会被页面 mutation observer 转成 `__BILIMI_FAVORITE_SPACE_MUTATION__`，`App.tsx` 随即刷新收藏页并推进 `navigationEpoch`；批量任务仍持有旧 WebView target，后续项因此变为 `target-navigated`/`target-unavailable`，最终显示“结果无法确认”。关闭收藏页后没有该刷新竞争，批量删除恢复正常。
 3. 因此原 `R011/I011` 中“以 1,200–2,000ms 节流解决稳定失败”的实施结论已被 `R013/I013` 的真实运行证据证伪；保留原文和历史测试证据作为审计记录，但当前方案不再以节流为修复依据。
+
+### R014（2026-09-09）
+
+用户原文：
+
+```text
+这么麻烦，批量删除只做一次刷新不就行了
+```
+
+## 逐项索引表追加
+
+| 索引 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I014 | R014 | 将方案收敛为“批量删除只做一次刷新”：批量远端删除运行中暂缓收藏页 observer 刷新，批次结束后由既有统一刷新入口最多刷新一次。 | 右侧掌库的“同时从 B 站删除收藏夹”批量确认；renderer mutation handler；主进程 B站收藏页刷新协调器。 | 仅在程序发起、已绑定页面 target 的批量远端删除中启用；单个/其他页面操作和未处于该运行期的收藏页 mutation 保持现有刷新。 | 首项成功不导航当前收藏页；后续删除继续使用同一 target；成功或部分成功在批次完成后刷新一次。未知且没有确认删除时不凭空刷新。无论成功、失败、未知或异常均在 finally 解除暂缓状态。 | 不变更 folder ID、串行删除、远端对账、规则/草稿持久化；不产生额外 B站写入。 | 不引入删除间隔、并发、重试或按 folder ID 细分 observer 信号的额外设计。 | `FavoriteRepositoryRuntimePageBridgeManager`、`App.tsx` 运行时请求与 observer、`FavoriteRepositorySyncService` finally、现有 `BilibiliFavoriteSpaceRefreshCoordinator`。 | 已确认，待实施 | 用户明确要求最小化为批量只刷新一次；主进程现有 `onConfirmedRemoteFolderMutation` 已在批量删除返回后调用一次，可保留为唯一刷新入口。 |
+
+### R015（2026-09-09）
+
+用户原文：
+
+```text
+开始
+```
+
+## 逐项索引表追加
+
+| 索引 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I015 | R015 | 授权按 I014 实施并本地提交。 | I014 所列批量删除、运行时桥、收藏页刷新链路。 | 仅实施当前轮已确认的批量一次刷新方案。 | 测试先行；失败/异常也必须释放暂缓；完成后运行相关自动化和构建检查。 | 不执行真实 B站破坏性删除测试，不 push/merge/发布。 | 不实施此前被证伪的删除间隔方案，不扩展到名称归并、绑定迁移或其他收藏库改造。 | I014 的运行时握手、原有主进程统一刷新与现有删除回执。 | 实施中 | 已收到明确“开始”授权；实施前已重新通读本账本原文区与逐项索引。 |
+
+### R014 / R015 实施前处置（非用户原文）
+
+- 本轮已确认并实施：`R014 / I014`、`R015 / I015`。
+- 已被后续实测证伪、不再实施：`R011 / I011` 的删除间隔方案，依据 `R013 / I013`。
+- 保持仅调查或不在本次范围：`R001`–`R010` 的展示/绑定/历史镜像议题；不因本次刷新修复修改它们。
+
+### R014 / R015 实施记录（非用户原文）
+
+- `I014` 已实施：`src/renderer/src/App.tsx` 增加按账号、runId、WebView instance/navigation epoch 绑定的批量删除刷新暂缓记录；收藏页删除 observer 在匹配运行期间只记录 mutation，不立即刷新；`electron/main/favoriteRepositoryRuntimePageBridge.ts` 与 `src/renderer/src/features/assistant/assistantRuntimeTypes.ts` 增加 begin/end runtime 握手；`electron/main/favoriteRepositorySyncService.ts` 的 `deleteManagedFolders` 与 `deleteManagedRemoteFolders` 在绑定后 begin、`finally` end，再由既有 `onConfirmedRemoteFolderMutation` 对确认成功批次统一刷新一次，最后 release。未知且无确认删除时不刷新；未改变精确 ID、串行、对账停止和手动 observer 刷新语义。
+- `I015` 自动化验证：先运行新增 runtime bridge、App、sync-service 测试确认缺少生命周期实现时 RED；实现后 `electron/main/favoriteRepositoryRuntimePageBridge.test.ts` 10/10、`src/renderer/src/App.test.tsx` 180/180、`electron/main/favoriteRepositorySyncService.test.ts` 88/88 通过；`npm run build` 成功；`git diff --check` 无错误。若 end 清理请求失败，仍执行已确认删除的唯一刷新并最终 release。未执行真实 B 站破坏性批量删除，未进行界面自动化验收。

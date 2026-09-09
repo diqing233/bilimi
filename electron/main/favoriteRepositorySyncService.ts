@@ -116,6 +116,8 @@ export type FavoriteRepositoryPageBridge = {
 
 export type FavoriteRepositoryPageBridgeManager = {
   bind(accountMid: string, runId: string): Promise<void>
+  beginManagedFolderDeletionRefreshDeferral?(accountMid: string, runId: string): Promise<void>
+  endManagedFolderDeletionRefreshDeferral?(accountMid: string, runId: string): Promise<{ refreshDeferred: boolean }>
   pageBridge(accountMid: string, runId: string): FavoriteRepositoryPageBridge
   release(accountMid: string, runId: string): void
 }
@@ -1385,11 +1387,16 @@ export class FavoriteRepositorySyncService {
       if (!requestedLedgerIds.size) throw new Error('Managed folder deletion selection is empty.')
       const runId = `favorite-delete:${this.now()}`
       await this.bindPageTarget(account, runId)
+      let managedDeletionRefreshDeferralStarted = false
+      let confirmedRemoteFolderMutation = false
       try {
+        await this.options.pageBridgeManager?.beginManagedFolderDeletionRefreshDeferral?.(account, runId)
+        managedDeletionRefreshDeferralStarted = true
         const bridge = this.pageBridge(account, runId)
         const remoteDeletion = await this.deleteManagedRemoteFoldersWithBridge(
           account, requestedLedgerIds, bridge, runId, acknowledgeUnboundRemoteDeletion, ledgerTitleHints, expectedRemoteFolderIds
         )
+        confirmedRemoteFolderMutation = remoteDeletion.succeededRemoteFolderIds.length > 0
         if (remoteDeletion.status !== 'succeeded') {
           const locallyBoundRemoteFolderIds = new Set(remoteDeletion.candidates
             .filter((candidate) => candidate.state === 'bound' || candidate.state === 'missing-remote')
@@ -1402,9 +1409,6 @@ export class FavoriteRepositorySyncService {
               type: 'remove-physical-shard-binding',
               payload: { remoteFolderId }
             })
-          }
-          if (remoteDeletion.succeededRemoteFolderIds.length) {
-            await this.options.onConfirmedRemoteFolderMutation?.(account)
           }
           return remoteDeletion
         }
@@ -1443,12 +1447,18 @@ export class FavoriteRepositorySyncService {
             }
           })
         }
-        if (remoteDeletion.succeededRemoteFolderIds.length) {
-          await this.options.onConfirmedRemoteFolderMutation?.(account)
-        }
         return remoteDeletion
       } finally {
-        this.options.pageBridgeManager?.release(account, runId)
+        try {
+          if (managedDeletionRefreshDeferralStarted) {
+            await this.options.pageBridgeManager?.endManagedFolderDeletionRefreshDeferral?.(account, runId).catch(() => undefined)
+          }
+          if (confirmedRemoteFolderMutation) {
+            await this.options.onConfirmedRemoteFolderMutation?.(account)
+          }
+        } finally {
+          this.options.pageBridgeManager?.release(account, runId)
+        }
       }
     })
   }
@@ -1471,7 +1481,11 @@ export class FavoriteRepositorySyncService {
       if (!requestedLedgerIds.size && !normalizedRemoteDraftTargets.length && !normalizedHistoricalBindingTargets.length) throw new Error('Managed folder deletion selection is empty.')
       const runId = `favorite-remote-delete:${this.now()}`
       await this.bindPageTarget(account, runId)
+      let managedDeletionRefreshDeferralStarted = false
+      let confirmedRemoteFolderMutation = false
       try {
+        await this.options.pageBridgeManager?.beginManagedFolderDeletionRefreshDeferral?.(account, runId)
+        managedDeletionRefreshDeferralStarted = true
         const result = await this.deleteManagedRemoteFoldersWithBridge(
           account,
           requestedLedgerIds,
@@ -1483,6 +1497,7 @@ export class FavoriteRepositorySyncService {
           normalizedRemoteDraftTargets,
           normalizedHistoricalBindingTargets
         )
+        confirmedRemoteFolderMutation = result.succeededRemoteFolderIds.length > 0
         // This entry point deliberately preserves the logical work folder, but
         // every confirmed Bilibili deletion must stop being a bound shard before
         // the user can retry the remaining remote folders.
@@ -1498,12 +1513,18 @@ export class FavoriteRepositorySyncService {
             payload: { remoteFolderId }
           })
         }
-        if (result.succeededRemoteFolderIds.length) {
-          await this.options.onConfirmedRemoteFolderMutation?.(account)
-        }
         return result
       } finally {
-        this.options.pageBridgeManager?.release(account, runId)
+        try {
+          if (managedDeletionRefreshDeferralStarted) {
+            await this.options.pageBridgeManager?.endManagedFolderDeletionRefreshDeferral?.(account, runId).catch(() => undefined)
+          }
+          if (confirmedRemoteFolderMutation) {
+            await this.options.onConfirmedRemoteFolderMutation?.(account)
+          }
+        } finally {
+          this.options.pageBridgeManager?.release(account, runId)
+        }
       }
     })
   }

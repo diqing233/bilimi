@@ -52,7 +52,7 @@ export class FavoriteRepositoryRuntimePageBridgeManager {
   private readonly bindings = new Map<string, FavoriteRepositoryPageTarget>()
 
   constructor(private readonly request: <T>(request: {
-    type: 'favorite-repository-bind-page-target' | 'favorite-repository-page-operation'
+    type: 'favorite-repository-bind-page-target' | 'favorite-repository-page-operation' | 'begin-managed-folder-deletion-refresh-deferral' | 'end-managed-folder-deletion-refresh-deferral'
     accountMid: string
     runId: string
     target?: FavoriteRepositoryPageTarget
@@ -69,6 +69,27 @@ export class FavoriteRepositoryRuntimePageBridgeManager {
     assertResult(result, account)
     if (!result.target) throw new Error('Favorite sync page target is unavailable.')
     this.bindings.set(bindingKey(account, runId), result.target)
+  }
+
+  async beginManagedFolderDeletionRefreshDeferral(accountMid: string, runId: string) {
+    const account = normalizedAccountMid(accountMid)
+    const target = this.bindings.get(bindingKey(account, runId))
+    if (!target) throw new Error('Favorite sync page target is unavailable.')
+    const result = await this.request<FavoriteRepositoryPageOperationResult>({
+      type: 'begin-managed-folder-deletion-refresh-deferral', accountMid: account, runId, target
+    })
+    assertResult(result, account)
+  }
+
+  async endManagedFolderDeletionRefreshDeferral(accountMid: string, runId: string) {
+    const account = normalizedAccountMid(accountMid)
+    const result = await this.request<{ observedAccountMid?: string; refreshDeferred?: boolean }>({
+      type: 'end-managed-folder-deletion-refresh-deferral', accountMid: account, runId
+    })
+    if (result.observedAccountMid !== undefined && normalizedAccountMid(result.observedAccountMid) !== account) {
+      throw new Error('Favorite sync page bridge account changed during execution.')
+    }
+    return { refreshDeferred: result.refreshDeferred === true }
   }
 
   pageBridge(accountMid: string, runId: string): FavoriteRepositoryPageBridge & {

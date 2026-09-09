@@ -130,6 +130,120 @@ describe('FavoriteRepositorySyncService', () => {
     expect(onConfirmedRemoteFolderMutation).not.toHaveBeenCalled()
   })
 
+  it('holds one managed deletion refresh deferral until the batch finishes, then refreshes once before release', async () => {
+    const repository = await createRepository()
+    for (const [logicalLedgerId, remoteFolderId] of [['music', 'remote-music'], ['game', 'remote-game']] as const) {
+      await repository.commit('100', {
+        id: `binding-${logicalLedgerId}`, accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [], remoteTitle: `bilimi·${logicalLedgerId}`, bindingState: 'bound', remoteFolderId }
+      })
+    }
+    const events: string[] = []
+    const pageBridge = {
+      append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(),
+      deleteFolder: vi.fn(async (input: { folderId: string }) => {
+        events.push(`delete:${input.folderId}`)
+        return { observedAccountMid: '100', status: 'ok' as const }
+      }),
+      readFolderInventory: vi.fn().mockResolvedValue({
+        observedAccountMid: '100', folders: [
+          { id: 'remote-music', title: 'bilimi·music', memberCount: 0 },
+          { id: 'remote-game', title: 'bilimi·game', memberCount: 0 }
+        ]
+      })
+    }
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn(async () => { events.push('bind') }),
+        beginManagedFolderDeletionRefreshDeferral: vi.fn(async () => { events.push('begin') }),
+        endManagedFolderDeletionRefreshDeferral: vi.fn(async () => {
+          events.push('end')
+          return { refreshDeferred: false }
+        }),
+        pageBridge: vi.fn(() => pageBridge),
+        release: vi.fn(() => { events.push('release') })
+      },
+      onConfirmedRemoteFolderMutation: vi.fn(async () => { events.push('refresh') })
+    })
+
+    await expect(service.deleteManagedRemoteFolders('100', ['music', 'game'], false, {
+      music: 'bilimi·music', game: 'bilimi·game'
+    }, { music: ['remote-music'], game: ['remote-game'] })).resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(events).toEqual(['bind', 'begin', 'delete:remote-music', 'delete:remote-game', 'end', 'refresh', 'release'])
+  })
+
+  it('still runs the confirmed deletion refresh when deferral cleanup reports an error', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'binding-music', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    const events: string[] = []
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn(),
+        beginManagedFolderDeletionRefreshDeferral: vi.fn(),
+        endManagedFolderDeletionRefreshDeferral: vi.fn(async () => {
+          events.push('end')
+          throw new Error('renderer cleanup unavailable')
+        }),
+        pageBridge: vi.fn(() => ({
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(),
+          deleteFolder: vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'ok' }),
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100', folders: [{ id: 'remote-music', title: 'bilimi·music', memberCount: 0 }]
+          })
+        })),
+        release: vi.fn(() => { events.push('release') })
+      },
+      onConfirmedRemoteFolderMutation: vi.fn(async () => { events.push('refresh') })
+    })
+
+    await expect(service.deleteManagedRemoteFolders('100', ['music'], false, {
+      music: 'bilimi·music'
+    }, { music: ['remote-music'] })).resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(events).toEqual(['end', 'refresh', 'release'])
+  })
+
+  it('releases a deferred observer mutation without refreshing when deletion confirmation is unknown', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'binding-music', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'music', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    const events: string[] = []
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn(),
+        beginManagedFolderDeletionRefreshDeferral: vi.fn(async () => { events.push('begin') }),
+        endManagedFolderDeletionRefreshDeferral: vi.fn(async () => {
+          events.push('end')
+          return { refreshDeferred: true }
+        }),
+        pageBridge: vi.fn(() => ({
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(),
+          deleteFolder: vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'unknown', reason: 'ambiguous' }),
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100', folders: [{ id: 'remote-music', title: 'bilimi·music', memberCount: 0 }]
+          })
+        })),
+        release: vi.fn(() => { events.push('release') })
+      },
+      onConfirmedRemoteFolderMutation: vi.fn(async () => { events.push('refresh') })
+    })
+
+    await expect(service.deleteManagedRemoteFolders('100', ['music'], false, {
+      music: 'bilimi·music'
+    }, { music: ['remote-music'] })).resolves.toMatchObject({ status: 'result-unknown' })
+
+    expect(events).toEqual(['begin', 'end', 'release'])
+  })
+
   it('synchronizes a saved local placement through the per-account remote arbiter and projects the confirmed physical fact', async () => {
     const repository = await createRepository()
     await repository.commit('100', {
