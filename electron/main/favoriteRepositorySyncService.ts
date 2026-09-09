@@ -1545,6 +1545,7 @@ export class FavoriteRepositorySyncService {
     }
     const confirmedRemoteFolderIds = new Set<string>()
     const deletedRemoteFolderIds = new Set<string>()
+    let confirmedRemoteDeleteCount = 0
     for (const candidate of deletionCandidates) {
       if (!candidate.remoteFolderId || deletedRemoteFolderIds.has(candidate.remoteFolderId)) continue
       if (candidate.state === 'missing-remote') {
@@ -1553,6 +1554,9 @@ export class FavoriteRepositorySyncService {
         continue
       }
       try {
+        // Bilibili folder deletion is a remote write just like placement sync;
+        // do not burst a batch through the same page session.
+        if (confirmedRemoteDeleteCount > 0) await this.sleep(confirmedRemoteDeleteCount)
         const result = await bridge.deleteFolder({ accountMid: account, operationKey: `${runId}:delete:${candidate.remoteFolderId}`, folderId: candidate.remoteFolderId })
         this.assertObservedAccount(account, result.observedAccountMid)
         if (result.status && result.status !== 'ok') {
@@ -1570,6 +1574,7 @@ export class FavoriteRepositorySyncService {
         }
         deletedRemoteFolderIds.add(candidate.remoteFolderId)
         confirmedRemoteFolderIds.add(candidate.remoteFolderId)
+        confirmedRemoteDeleteCount++
       } catch (error) {
         const outcome = error instanceof Error && 'remoteWriteRejected' in error
           ? 'failed'
@@ -1584,6 +1589,7 @@ export class FavoriteRepositorySyncService {
             if (!reconciliation.folders.some((folder) => folder.id === candidate.remoteFolderId)) {
               deletedRemoteFolderIds.add(candidate.remoteFolderId)
               confirmedRemoteFolderIds.add(candidate.remoteFolderId)
+              confirmedRemoteDeleteCount++
               continue
             }
           } catch {

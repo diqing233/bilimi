@@ -104,6 +104,56 @@ describe('FavoriteRepositorySyncService', () => {
     expect(onConfirmedRemoteFolderMutation).toHaveBeenCalledWith('100')
   })
 
+  it('paces confirmed managed-folder deletes between exact ID requests', async () => {
+    const repository = await createRepository()
+    const entries = [
+      ['music', 'remote-music'],
+      ['game', 'remote-game'],
+      ['life', 'remote-life']
+    ] as const
+    for (const [logicalLedgerId, remoteFolderId] of entries) {
+      await repository.commit('100', {
+        id: `binding-${logicalLedgerId}`, accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [],
+          remoteTitle: `bilimi·${logicalLedgerId}`, bindingState: 'bound', remoteFolderId
+        }
+      })
+    }
+    const events: string[] = []
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      random: () => 0,
+      sleep: async (milliseconds) => { events.push(`sleep:${milliseconds}`) },
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(),
+        deleteFolder: vi.fn(async ({ folderId }) => {
+          events.push(`delete:${folderId}`)
+          return { observedAccountMid: '100', status: 'ok' as const }
+        }),
+        readFolderInventory: vi.fn().mockResolvedValue({
+          observedAccountMid: '100', folders: entries.map(([logicalLedgerId, id]) => ({
+            id, title: `bilimi·${logicalLedgerId}`, memberCount: 0
+          }))
+        })
+      }
+    })
+
+    await expect(service.deleteManagedRemoteFolders('100', entries.map(([logicalLedgerId]) => logicalLedgerId), false, {
+      music: 'bilimi·music', game: 'bilimi·game', life: 'bilimi·life'
+    }, {
+      music: ['remote-music'], game: ['remote-game'], life: ['remote-life']
+    })).resolves.toMatchObject({
+      status: 'succeeded', succeededRemoteFolderIds: ['remote-game', 'remote-life', 'remote-music']
+    })
+
+    expect(events).toEqual([
+      'delete:remote-music', 'sleep:1200',
+      'delete:remote-game', 'sleep:1200',
+      'delete:remote-life'
+    ])
+  })
+
   it('does not notify a folder-mutation refresh when remote deletion is rejected or unknown', async () => {
     const repository = await createRepository()
     await repository.commit('100', {
