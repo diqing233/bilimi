@@ -1494,6 +1494,46 @@ describe('account favorite repository contracts', () => {
     expect(result.physicalShards).toEqual([expect.objectContaining({ remoteFolderId: 'remote-knowledge' })])
   })
 
+  it('removes the exact raw Bilibili mirror when its physical binding is removed', () => {
+    const now = '2026-09-10T00:00:00.000Z'
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
+      folders: [
+        { id: 'bilimi-logical:knowledge', title: 'bilimi·知识学习', kind: 'bilimi-logical' as const, logicalLedgerId: 'knowledge', syncState: 'bound' as const },
+        { id: 'bilimi:knowledge:001', title: 'bilimi·知识学习', kind: 'bilibili' as const, logicalLedgerId: 'knowledge', remoteFolderId: 'remote-knowledge', syncState: 'bound' as const },
+        { id: 'bilibili:remote-knowledge', title: 'bilimi·知识学习', kind: 'bilibili' as const, remoteFolderId: 'remote-knowledge', syncState: 'bound' as const },
+        { id: 'bilibili:other-remote', title: '其他收藏夹', kind: 'bilibili' as const, remoteFolderId: 'other-remote', syncState: 'bound' as const }
+      ],
+      memberships: {
+        'bilimi-logical:knowledge': [101, 102],
+        'bilimi:knowledge:001': [101, 102],
+        'bilibili:remote-knowledge': [101, 102],
+        'bilibili:other-remote': [303]
+      },
+      physicalShards: [{ logicalLedgerId: 'knowledge', folderId: 'bilimi:knowledge:001', shardNumber: 1, remoteFolderId: 'remote-knowledge', remoteTitle: 'bilimi·知识学习', bindingState: 'bound' as const }]
+    }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'remove-knowledge-binding', accountMid: '100', issuedAt: now, type: 'remove-physical-shard-binding',
+      payload: { remoteFolderId: 'remote-knowledge' }
+    }, now)
+
+    expect(result.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:knowledge', syncState: 'pending-reconcile' }),
+      expect.objectContaining({ id: 'bilibili:other-remote', remoteFolderId: 'other-remote' })
+    ]))
+    expect(result.folders).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi:knowledge:001' }),
+      expect.objectContaining({ id: 'bilibili:remote-knowledge' })
+    ]))
+    expect(result.memberships).toMatchObject({
+      'bilimi-logical:knowledge': [101, 102],
+      'bilibili:other-remote': [303]
+    })
+    expect(result.memberships['bilimi:knowledge:001']).toBeUndefined()
+    expect(result.memberships['bilibili:remote-knowledge']).toBeUndefined()
+  })
+
   it('marks a logical folder pending when its last physical shard is removed', () => {
     const now = '2026-08-20T00:00:00.000Z'
     const snapshot = {

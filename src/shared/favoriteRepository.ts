@@ -2415,10 +2415,13 @@ export function applyFavoriteRepositoryCommand(
       const remoteFolderId = command.payload.remoteFolderId.trim()
       const removedShards = physicalShards.filter((shard) => shard.remoteFolderId === remoteFolderId)
       if (!removedShards.length) throw new Error('Favorite repository remote shard binding was not found.')
-      const removedFolderIds = new Set(removedShards.map((shard) => shard.folderId))
+      const removedRawMirrorFolderIds = folders
+        .filter((folder) => folder.kind === 'bilibili' && folder.remoteFolderId === remoteFolderId)
+        .map((folder) => folder.id)
+      const removedFolderIds = new Set([...removedShards.map((shard) => shard.folderId), ...removedRawMirrorFolderIds])
       const affectedLogicalLedgerIds = new Set(removedShards.map((shard) => shard.logicalLedgerId))
       affectedFolderIds = [...removedFolderIds].sort()
-      affectedAids = uniquePositiveAids(removedShards.flatMap((shard) => memberships[shard.folderId] ?? [])).sort((left, right) => left - right)
+      affectedAids = uniquePositiveAids([...removedFolderIds].flatMap((folderId) => memberships[folderId] ?? [])).sort((left, right) => left - right)
       physicalShards = physicalShards.filter((shard) => shard.remoteFolderId !== remoteFolderId)
       folders = folders.filter((folder) => !removedFolderIds.has(folder.id))
       folders = folders.map((folder) => {

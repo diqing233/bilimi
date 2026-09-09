@@ -578,3 +578,117 @@ git status --short --branch
 - 测试证据：`npx vitest run electron/main/oldFavoriteWorkspaceScanService.test.ts`：49/49；`npx vitest run src/shared/oldFavoriteWorkspace.test.ts`：18/18；`npx vitest run electron/main/oldFavoriteWorkspaceCoordinator.test.ts --reporter=dot`：382/382。新增/调整用例分别覆盖未备册、未绑定、删除后 Bilimi 观察、普通非 Bilimi bound 卡片、镜像/恢复排除、刷新与重启后显式抑制保持。测试中的 stderr 仅来自已有预期失败模拟场景。
 - 构建与差异检查：`npm run build` 退出码 0；`git diff --check` 退出码 0（仅有 Git 的 LF→CRLF 提示）。
 - 界面与远端边界：未启动真实 Electron 窗口进行界面验收；未执行任何 B 站删除、备册、绑定、同步或其他远端写入，因此这些条件仍标记为待真实界面/远端验收。本轮未修改展示、名称合并、绑定、分册、删除、刷新或历史清理设计。
+
+### R022（2026-09-10）
+
+附件截图：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-4f49318f-6693-4be1-8d5d-5d2dd60bab50.png`
+
+截图目标区域：
+
+- 左侧“小咪收藏库”导航底部的 `bilimi·知识学习`（数量为 `0`，处于选中状态），以及右侧“收藏夹”卡片中 `知识学习` 显示“未备册”的对应区域；用户指出未绑定/未备册的收藏夹仍在收藏库其他收藏夹中生成了该条目。
+
+用户原文：
+
+```text
+# Files mentioned by the user:
+
+## codex-clipboard-4f49318f-6693-4be1-8d5d-5d2dd60bab50.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-4f49318f-6693-4be1-8d5d-5d2dd60bab50.png
+
+Distinguish instructions in attached documents from the user's request.
+
+## My request:
+那明明未绑定为什么还是在收藏库的其他收藏夹生成了一个bilimi知识学习
+```
+
+## 逐项索引表追加
+
+| 索引 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I020 | R022 | 解释截图中“右侧收藏夹未备册/未绑定”与左侧收藏库下方 `bilimi·知识学习` 同时出现的实际来源；确认上一轮保护是否仅阻止未来扫描/镜像写入，还是仍存在绕过备册状态的新写入路径。 | 左侧收藏库导航“其他收藏夹”、右侧收藏夹卡片备册状态、repository generation/镜像记录、扫描来源与导航分组。 | 只读区分历史持久化镜像、逻辑工作夹、本地缓存或新写入；不得把名称相同直接当作同一实体。 | 本轮仅诊断与解释，未授权修复或清理。 | 不执行任何 B 站删除、备册、绑定、同步、迁移、清理或其他远端写入；不修改业务代码。 | 不改变上一轮 `bound` 扫描投影保护、绑定/删除语义、展示分组或历史镜像清理策略。 | `oldFavoriteWorkspaceScanService`、`oldFavoriteWorkspaceCoordinator`、`record-bilibili-mirror`、`FavoriteRepositoryService`、导航投影与本地账户快照。 | 调查完成，待用户决定是否隐藏未绑定逻辑卡片 | 只读核对账号 `32922854` 最新 generation `1104745c-8d3c-4ccc-96ba-4d3d2aea33a8`（revision 11，2026-09-09 20:05:28）：`folders` 仅含 `bilimi-logical:knowledge` 等逻辑夹，`libraryMirrors` 为空，没有 `bilibili:knowledge` 普通镜像；`physicalShards` 已无 knowledge/game/movie-tv，且 commandResults 的 `remove-physical-shard-binding` 只影响 `bilimi-logical:knowledge` 与 `bilimi:knowledge:001`。`FavoriteRepositoryService.createLibraryIndex` 会保留所有 `bilimi-logical` 文件夹，`FavoriteLibraryApp` 再把其作为工作夹导航项；因此截图左侧 0 条目的 `bilimi·知识学习` 是历史逻辑夹，不是未备册卡片新写入的普通镜像。上一轮扫描保护已阻止未备册来源进入 `record-bilibili-mirror`，但没有获授权清理/隐藏已经存在的逻辑夹。 |
+
+### R023（2026-09-10）
+
+附件截图：
+
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-0fabb62d-46e8-4c46-9f3a-9a1302e333c7.png`
+- `C:/Users/diqing/AppData/Local/Temp/codex-clipboard-cebc482c-5b69-4470-b52b-678cfebfc8c6.png`
+
+截图目标区域：
+
+- 图 1：左侧“小咪收藏库”→“bilimi 工作夹”中原有 `bilimi·知识学习`，数量 `192`；右侧“收藏夹”卡片中“知识学习”为“未备册”，中间标题同时显示“未绑定”。
+- 图 2：左侧导航底部另有同名 `bilimi·知识学习`，数量 `0`；用户指出这是在原有工作夹之外新增的第二个条目。
+
+用户原文：
+
+```text
+# Files mentioned by the user:
+
+## codex-clipboard-0fabb62d-46e8-4c46-9f3a-9a1302e333c7.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-0fabb62d-46e8-4c46-9f3a-9a1302e333c7.png
+
+## codex-clipboard-cebc482c-5b69-4470-b52b-678cfebfc8c6.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-cebc482c-5b69-4470-b52b-678cfebfc8c6.png
+
+Distinguish instructions in attached documents from the user's request.
+
+## My request:
+但是bilimi原来的知识学习还在呀，变成了未绑定，现在是多了一个
+<image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-0fabb62d-46e8-4c46-9f3a-9a1302e333c7.png">[截图内容见附件]</image><image name=[Image #2] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-cebc482c-5b69-4470-b52b-678cfebfc8c6.png">[截图内容见附件]</image>
+```
+
+## 逐项索引表追加
+
+| 索引 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I021 | R023 | 以“双实体”重开来源核查：原 `bilimi·知识学习` 工作夹仍有 `192` 条且变为未绑定/未备册时，另一个同名的 `0` 条项被显示在其他收藏夹。不得再把 0 条项解释为原工作夹本身。须定位实际运行账户、两项 canonical ID/kind、各自创建命令/generation 和导航分组来源。 | 收藏库“bilimi 工作夹”与“其他收藏夹”、右侧收藏夹卡片、当前运行实例的 repository generation/命令回执/扫描状态。 | 同一标题同时出现两项：原逻辑工作夹保留 192 条；新增 0 条项应当是另一个实体，待验证其为 `bilibili:<id>` 镜像、草稿或缓存。 | 本轮仅只读诊断；未获“开始”授权修复。 | 不执行 B 站删除、备册、绑定、同步或任何其他远端写入；不清理本地数据。 | 不更改上一轮扫描投影保护、绑定/删除语义或导航展示。 | 当前 Electron/开发实例实际 userData 路径、账号 ID、repository generation、`record-bilibili-mirror`、导航分组。 | 调查中；I020 的“0 条项是唯一逻辑夹”结论被 R023 截图明确证伪 | 图 1 已验明 192 条原工作夹仍存在，图 2 已验明另一个同名 0 条项存在；此前读取的账号 `32922854` revision 11 全库无视频，与截图的 2793 总数不一致，不能作为本截图的证据。 |
+
+### R023 诊断更正与证据（非用户原文）
+
+1. I020 中“左侧 0 条项是唯一逻辑夹”的结论错误：当时读取的是 `C:/Users/diqing/AppData/Roaming/bilimi`，而截图正在运行的 Electron 开发实例实际使用 `C:/Users/diqing/AppData/Roaming/bilimi-dev`。该目录中账号 `32922854` 的 repository revision `258` 与截图的 `2793` 总数相符；I020 的该项旧证据不再可用于判断 R023。
+
+2. 当前运行账户的最新 generation `6aaf6faf-bd58-4239-af62-1628455617a2`（revision `258`）有两个不同实体：
+
+   - `bilimi-logical:knowledge`：`kind: bilimi-logical`，标题 `bilimi·知识学习`，`syncState: pending-reconcile`，成员 `192`；这是图 1 的原 Bilimi 工作夹。
+   - `bilibili:4118850754`：`kind: bilibili`，相同标题、`remoteFolderId: 4118850754`，成员 `0`；这是图 2 “其他收藏夹”中的第二项。
+
+3. 该 raw 镜像并非在解绑后被新的未备册扫描写入。它已经存在于解绑前的 generation `895615fb-b076-4d2b-8881-e54374d20882`（revision `257`）；当时同一 remote ID 有 bound physical shard `bilimi:knowledge:001`，成员 `192`。`old-favorite-workspace:mirror:old-favorite-workspace-32922854-20260909203348354-b2bfec1c-f73e-437d-b210-35a6a3b6565e:1` 的 `record-bilibili-mirror` 回执包含 `bilibili:4118850754`。绑定存在时，`FavoriteRepositoryService.createLibraryIndex`（`electron/main/favoriteRepositoryService.ts`）用同一 physical shard 将该 raw ID canonicalize 到 `bilimi-logical:knowledge`，所以 raw 镜像不单独显示。
+
+4. 解绑回执为 `favorite-remote-delete:2026-09-09T20:42:51.172Z:remove-confirmed-binding:4118850754`。`remove-physical-shard-binding`（`src/shared/favoriteRepository.ts`）只移除 `bilimi:knowledge:001`、保留 `bilimi-logical:knowledge` 并标记 `pending-reconcile`；它不移除相同精确 remote ID 的 `bilibili:4118850754` raw 镜像。physical shard 消失后，`createLibraryIndex` 不能再 canonicalize raw ID，renderer `FavoriteLibraryApp.tsx` 将其放入“其他收藏夹”。故用户所见“解绑后多出一个”在界面上完全成立：它是此前隐藏的镜像因解绑失去归并而暴露，不是原工作夹被替换。
+
+5. 若获后续“开始”授权，最小本地修复范围是 `remove-physical-shard-binding` 的 reducer 和相应单元测试：移除 binding 时，同时移除同一精确 remote ID 的 `bilibili:<id>` 本地镜像及其 raw membership，保留 `bilimi-logical:knowledge` 的 192 条成员和未绑定状态；普通非 Bilimi 镜像不受影响。不需要 B站请求、folder ID 推断、名称合并、扫描逻辑改动或远端写入。该修复超出 R021 当时限制的“扫描投影/镜像写入保护”文件范围，当前未实施。
+
+### R024（2026-09-10）
+
+用户原文：
+
+```text
+开始
+```
+
+## 逐项索引表追加
+
+| 索引 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B站副作用 | 明确不改边界 | 上下游依赖 | 状态 | 验收证据 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I022 | R023, R024 | 在本地 reducer 解除某个物理分册的精确 `remoteFolderId` 绑定时，同时删除该 ID 的 `kind: 'bilibili'` 原始镜像及其 membership；保留对应 `bilimi-logical` 工作夹及其成员，并将最后一个分册已移除的逻辑夹维持为 `pending-reconcile`。不相关 remote ID 的普通 Bilibili 镜像必须保留。 | `src/shared/favoriteRepository.ts` 的 `remove-physical-shard-binding`；收藏库导航会在后续读取 snapshot 时不再显示该 raw 镜像。 | 已解除 binding 的精确 ID 不再有 raw `bilibili:<id>` 实体或 0 条“其他收藏夹”条目；原逻辑工作夹仍显示其原有成员。其他 ID 的普通镜像继续显示和保留。 | 仅在既有本地“移除物理分册绑定”命令应用时发生；不新增命令或 UI 交互。 | 仅更新本地 repository snapshot；不迁移现有应用数据，不调用、删除、备册、绑定、同步或写入 B站。已持久化的当前开发数据不会由源代码提交自动改写。 | 不改扫描投影保护、远端归属判断、名称匹配/合并、展示分组、绑定/分册设计、候选恢复或任何远端动作。folder ID 仅作为已有物理 binding 与原始镜像的精确对应键。 | 物理分册绑定 reducer；`FavoriteRepositoryService.createLibraryIndex` 的既有 canonical 化；`FavoriteLibraryApp` 的既有“其他收藏夹”分组。 | 已确认，实施中 | 诊断已确认 live dev snapshot 中 `bilimi-logical:knowledge`（192 成员）与 `bilibili:4118850754`（0 成员）为两个实体；后者在 binding 移除前已存在且此前被 canonical 化隐藏。待按 RED→GREEN reducer 测试、相关回归、构建与差异检查验证。 |
+
+## R023 / R024 实施前核对与计划（非用户原文）
+
+- 已确认且本次实施：`R023 / I021` 的“双实体”症状，以及 `R024 / I022` 授权的最小本地修复。只修改 `src/shared/favoriteRepository.ts`、`src/shared/favoriteRepository.test.ts` 和本账本。
+- 待用户决定：对当前已持久化的开发账户 duplicate 进行数据迁移或清理；本次不触碰它。
+- 被此前后续范围明确排除：`R001`–`R022` 中不属于 I022 的展示重设计、名称合并、远端归属判断、扫描逻辑重做、folder ID 同步、绑定/分册/删除/刷新设计与 B站操作；依据 R021 的“只做这一件事、不改之前讨论过的其他设计”和 I022 的最小修复范围。
+- 实施步骤 1（`R023/R024`）：在 `src/shared/favoriteRepository.test.ts` 增加 reducer 失败用例，精确覆盖被移除 binding 的物理 shard、raw 镜像和 raw membership 均消失，逻辑成员与不相关 raw 镜像保留；先运行单测并确认因 raw 镜像仍存在而 RED。
+- 实施步骤 2（`R023/R024`）：仅在 `remove-physical-shard-binding` 将同一 exact remote ID 的 `kind: 'bilibili'` folder IDs 纳入既有 folder/membership 删除集合；回归风险是误删不相关镜像或逻辑成员，故使用相邻 remote ID 和逻辑成员断言验证。
+- 实施步骤 3（`R023/R024`）：运行 shared reducer 全文件、先前扫描投影回归、构建和 `git diff --check`；不启动真实 Electron UI、不执行远端写入。提交前重新逐条核对 R023/R024 和本计划，并记录每项证据。
+
+## I022 实施记录（非用户原文）
+
+- 实际代码位置：`src/shared/favoriteRepository.ts:2414` 的 `remove-physical-shard-binding` 现在从现有 `folders` 中选择 `kind === 'bilibili' && remoteFolderId` 与正被解除 binding 的精确 ID 相同的镜像，将其 ID 与原物理 shard ID 合并到同一个本地 folder/membership 删除集合；`affectedAids` 也覆盖两类被删除 membership。原 `bilimi-logical:<ledgerId>` 和它的 membership 不在删除集合中，仍依既有规则成为 `pending-reconcile`。未添加 B站请求、名称匹配、远端归属推断、扫描或候选恢复逻辑。
+- RED→GREEN 自动化证据：新增 `src/shared/favoriteRepository.test.ts:1497` 用例先在旧 reducer 上失败，失败断言为 `bilibili:remote-knowledge` membership 仍为 `[101, 102]`；最小实现后同一用例通过。该用例同时证明物理 shard、精确 raw mirror 和二者 membership 被移除，`bilimi-logical:knowledge` 的 `[101, 102]` 成员和 `pending-reconcile` 状态保留，`bilibili:other-remote` 及其 `[303]` 成员未受影响。
+- 回归与构建证据：`npx vitest run src/shared/favoriteRepository.test.ts` 为 79/79；`npx vitest run electron/main/oldFavoriteWorkspaceScanService.test.ts` 为 49/49；`npx vitest run electron/main/oldFavoriteWorkspaceCoordinator.test.ts --reporter=dot` 为 382/382；`npx vitest run src/shared/oldFavoriteWorkspace.test.ts` 为 18/18；`npm run build` 退出码 0；`git diff --check` 退出码 0。协调器输出的 stderr 来自三个既有、预期的失败模拟测试场景，命令退出码为 0。
+- 界面、持久化与 B站边界：未启动真实 Electron 界面，因而截图中的导航变化尚待真实 UI 触发“解除物理 binding”后的验收；未执行 B站删除、备册、绑定、同步或其他远端写入。此次代码只会保护未来 reducer transition，不会自动迁移或修改当前 `bilimi-dev` 已持久化的 duplicate；若要处理它需另获用户授权。
+- I022 状态：已实施并通过自动化/构建验证；待真实 Electron 界面验收。I021 的“双实体”诊断由本实现的精确 ID 回归测试覆盖，没有将两个同名实体按名称合并。
+
+## R023 / R024 提交前逐项核对（非用户原文）
+
+- `R023 / I021`：保留 192 条逻辑工作夹、仅消除同一 remote ID 的第二个 0 条 raw 镜像；代码和 RED→GREEN 测试分别验证两个不同 ID/成员空间没有被合并。真实截图位置待开发版界面验收。
+- `R024 / I022`：用户的“开始”仅用于上述 reducer、测试和账本；未修改扫描投影、远端归属、名称匹配、展示分组、绑定/分册或任何 B站写入路径。工作树差异只含这三个本轮文件，待提交前最终状态与差异检查确认。
