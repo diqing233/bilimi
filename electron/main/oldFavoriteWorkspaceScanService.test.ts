@@ -155,12 +155,12 @@ describe('OldFavoriteWorkspaceScanService', () => {
     expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'old-favorite-workspace-read-video-tags' }))
   })
 
-  it('does not scan unbacked, unbound, or deleted Bilimi observations as ordinary library sources', async () => {
+  it('scans every live Bilimi folder and excludes only the exact confirmed-deleted ID', async () => {
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
     const coordinator = {
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), recordScanInventory: vi.fn(),
-      recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      recordScanPage: vi.fn(), recordManagedMembers: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
       getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([]),
       getFormallyBoundRemoteFolderIds: vi.fn().mockResolvedValue(new Set())
     }
@@ -172,11 +172,16 @@ describe('OldFavoriteWorkspaceScanService', () => {
         return Promise.resolve({
           status: 'ok' as const, observedAccountMid: '100',
           folders: [
+            { id: 'bound-game', title: 'bilimi·游戏专区', mediaCount: 1 },
             { id: 'unbacked-game', title: 'bilimi·游戏专区', mediaCount: 1 },
             { id: 'unbound-game', title: 'bilimi·游戏专区', mediaCount: 1 },
+            { id: 'fresh-game', title: 'bilimi·游戏专区', mediaCount: 1 },
             { id: 'deleted-game', title: 'bilimi·游戏专区', mediaCount: 1 }
           ]
         })
+      }
+      if (request.type === 'old-favorite-workspace-read-managed-members') {
+        return Promise.resolve({ status: 'ok' as const, observedAccountMid: '100', members: { 'bound-game': [8] } })
       }
       return Promise.resolve({
         status: 'ok' as const, observedAccountMid: '100', hasMore: false,
@@ -187,13 +192,16 @@ describe('OldFavoriteWorkspaceScanService', () => {
       coordinator: coordinator as never, requestRuntime: runtime as never, wait: vi.fn().mockResolvedValue(undefined),
       getFavoriteLedgers: vi.fn().mockResolvedValue([{
         id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10,
-        isDefault: true, bindingState: 'unbacked', bilibiliFolderId: 'unbacked-game'
+        isDefault: true, bindingState: 'bound', bilibiliFolderId: 'bound-game'
+      }, {
+        id: 'game-unbacked', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 15,
+        isDefault: false, bindingState: 'unbacked', bilibiliFolderId: 'unbacked-game'
       }, {
         id: 'game-unbound', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 20,
         isDefault: false, bindingState: 'unbound', bilibiliFolderId: 'unbound-game'
       }, {
         id: 'game-deleted', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 30,
-        isDefault: false, bindingState: 'unbound', confirmedDeletedRemoteFolderIds: ['deleted-game']
+        isDefault: false, bindingState: 'bound', bilibiliFolderId: 'deleted-game', confirmedDeletedRemoteFolderIds: ['deleted-game']
       }])
     })
 
@@ -202,15 +210,18 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
     expect(coordinator.recordScanInventory).toHaveBeenCalledWith('100', {
       sourceFolders: [
-        { id: 'unbacked-game', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true, remoteRelationship: 'none', scanEligible: false },
-        { id: 'unbound-game', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true, remoteRelationship: 'none', scanEligible: false },
-        { id: 'deleted-game', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true, remoteRelationship: 'none', scanEligible: false }
+        { id: 'bound-game', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: true },
+        { id: 'unbacked-game', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true },
+        { id: 'unbound-game', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true },
+        { id: 'fresh-game', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true },
+        { id: 'deleted-game', title: 'bilimi·游戏专区', itemCount: 1, isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: false }
       ]
     }, 'scan-run-1')
-    expect(runtime.mock.calls.filter(([request]) => request.type === 'old-favorite-workspace-read-source-page')).toEqual([])
-    expect(runtime).not.toHaveBeenCalledWith(expect.objectContaining({
-      type: 'old-favorite-workspace-read-managed-members'
+    expect(runtime).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'old-favorite-workspace-read-managed-members', folderIds: ['bound-game']
     }))
+    expect(runtime.mock.calls.filter(([request]) => request.type === 'old-favorite-workspace-read-source-page')
+      .map(([request]) => request.folderId).sort()).toEqual(['bound-game', 'fresh-game', 'unbacked-game', 'unbound-game'])
   })
 
   it('keeps a bound non-Bilimi card as an ordinary library source', async () => {
@@ -218,7 +229,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
     const coordinator = {
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), recordScanInventory: vi.fn(),
-      recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      recordScanPage: vi.fn(), recordManagedMembers: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
       getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([])
     }
     const runtime = vi.fn((request: { type: string; folderId?: string }) => {

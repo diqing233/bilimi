@@ -251,35 +251,43 @@ function createSyncService(overrides: Partial<CoordinatorSyncService> = {}): Coo
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
-  it('does not persist unbacked, unbound, or deleted Bilimi observations as mirrors or recovered shards', async () => {
+  it('mirrors live Bilimi observations and excludes only the exact confirmed-deleted remote ID', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-09-10T00:00:00.000Z' })
-    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false, getConfirmedDeletedRemoteFolderIds: () => ['deleted-game']
+    })
     await coordinator.beginScan('100', 'incremental')
     await coordinator.recordScanInventory('100', {
       sourceFolders: [{
         id: 'unbacked-game', title: 'bilimi·游戏专区', itemCount: 0,
-        isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true,
-        remoteRelationship: 'none', scanEligible: false, selected: false
+        isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true, selected: true
       }, {
         id: 'unbound-game', title: 'bilimi·游戏专区', itemCount: 0,
-        isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true,
-        remoteRelationship: 'none', scanEligible: false, selected: false
+        isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true, selected: true
+      }, {
+        id: 'fresh-game', title: 'bilimi·游戏专区', itemCount: 0,
+        isBilimiWorkFolder: false, remoteRelationship: 'none', scanEligible: true, selected: true
       }, {
         id: 'deleted-game', title: 'bilimi·游戏专区', itemCount: 0,
-        isBilimiWorkFolder: false, isBilimiWorkFolderCandidate: true,
-        remoteRelationship: 'none', scanEligible: false, selected: false
+        isBilimiWorkFolder: true, remoteRelationship: 'bound', scanEligible: false, selected: false
       }]
     })
 
     await coordinator.finishScan('100')
 
     const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilibili:unbacked-game' }),
+      expect.objectContaining({ id: 'bilibili:unbound-game' }),
+      expect.objectContaining({ id: 'bilibili:fresh-game' })
+    ]))
     expect(snapshot.folders).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: expect.stringMatching(/^bilibili:(?:unbacked|unbound|deleted)-game$/) })
+      expect.objectContaining({ id: 'bilibili:deleted-game' })
     ]))
     expect(snapshot.physicalShards).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ remoteFolderId: expect.stringMatching(/^(?:unbacked|unbound|deleted)-game$/) })
+      expect.objectContaining({ remoteFolderId: 'deleted-game' }),
+      expect.objectContaining({ knownRemoteFolderIds: expect.arrayContaining(['deleted-game']) })
     ]))
   })
 

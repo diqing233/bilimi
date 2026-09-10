@@ -1,5 +1,4 @@
 import type {
-  OldFavoriteRemoteRelationship,
   OldFavoriteWorkspaceMode,
   OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
@@ -41,15 +40,6 @@ type PersistedScanResumeState = {
 
 function normalizeAccountMid(value: string) {
   return /^\d+$/.test(value.trim()) && BigInt(value.trim()) > 0n ? BigInt(value.trim()).toString() : ''
-}
-
-function favoriteLedgerRemoteFolderIds(ledger: FavoriteLedger) {
-  return [
-    ledger.bilibiliFolderId,
-    ...(ledger.bilibiliFolderIds ?? []),
-    ...(ledger.historicalBilibiliFolderIds ?? []),
-    ...(ledger.confirmedDeletedRemoteFolderIds ?? [])
-  ].map((folderId) => folderId?.trim()).filter((folderId): folderId is string => Boolean(folderId))
 }
 
 function isRecoverableTagReadFailure(result: RuntimeInventoryResult, accountMid: string) {
@@ -106,7 +96,7 @@ export class OldFavoriteWorkspaceScanService {
       releaseClaimedTagEnrichmentAid?: (accountMid: string, aid: number) => Promise<void>
     }
     requestRuntime: (request: RuntimeRequest) => Promise<RuntimeInventoryResult>
-    /** The right-side card state is the only authority for Bilimi scan projection. */
+    /** Only durable bound cards identify managed member-protection folders. */
     getFavoriteLedgers?: (accountMid: string) => Promise<FavoriteLedger[]>
     remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
     /** A full reorganization replaces the workspace, so its old DeepSeek run must stop after its current request. */
@@ -439,26 +429,25 @@ export class OldFavoriteWorkspaceScanService {
         await this.options.coordinator.recordScanFailure(accountMid, 'inventory-account-mismatch', runId)
         return
       }
-      const bilimiLedgers = (await this.options.getFavoriteLedgers?.(accountMid) ?? [])
-        .filter((ledger) => isBilimiManagedLedgerName(ledger.displayName))
-      const knownBilimiFolderIds = new Set(bilimiLedgers.flatMap(favoriteLedgerRemoteFolderIds))
+      const favoriteLedgers = await this.options.getFavoriteLedgers?.(accountMid) ?? []
+      const confirmedDeletedRemoteFolderIds = new Set(favoriteLedgers.flatMap((ledger) =>
+        ledger.confirmedDeletedRemoteFolderIds ?? []).map((folderId) => folderId.trim()).filter(Boolean))
+      const bilimiLedgers = favoriteLedgers.filter((ledger) =>
+        ledger.bindingState === 'bound' && isBilimiManagedLedgerName(ledger.displayName))
       const boundBilimiFolderIds = new Set(bilimiLedgers
-        .filter((ledger) => ledger.bindingState === 'bound')
         .flatMap((ledger) => [ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])])
         .map((folderId) => folderId?.trim())
         .filter((folderId): folderId is string => Boolean(folderId)))
       const sourceFolders = inventory.folders.map((folder) => {
-        const isBoundBilimiWorkFolder = boundBilimiFolderIds.has(folder.id)
-        const isBilimiCandidate = isBoundBilimiWorkFolder || knownBilimiFolderIds.has(folder.id) ||
-          isBilimiManagedLedgerName(folder.title)
+        const confirmedDeleted = confirmedDeletedRemoteFolderIds.has(folder.id)
+        const isBoundBilimiWorkFolder = !confirmedDeleted && boundBilimiFolderIds.has(folder.id)
         return {
           id: folder.id,
           title: folder.title,
           itemCount: folder.mediaCount,
           isBilimiWorkFolder: isBoundBilimiWorkFolder,
           remoteRelationship: isBoundBilimiWorkFolder ? 'bound' as const : 'none' as const,
-          scanEligible: !isBilimiCandidate,
-          ...(isBilimiCandidate ? { isBilimiWorkFolderCandidate: true } : {})
+          scanEligible: !confirmedDeleted
         }
       })
       const managedFolderIds = new Set(sourceFolders

@@ -372,14 +372,6 @@ type RecoveryConfiguration = {
 }
 type RecommendedLedger = Pick<FavoriteLedger, 'id' | 'displayName' | 'keywords' | 'ruleType' | 'enabled' | 'priority' | 'isDefault'>
 
-function favoriteLedgerRemoteFolderIds(ledger: FavoriteLedger) {
-  return [
-    ledger.bilibiliFolderId,
-    ...(ledger.bilibiliFolderIds ?? []),
-    ...(ledger.historicalBilibiliFolderIds ?? []),
-    ...(ledger.confirmedDeletedRemoteFolderIds ?? [])
-  ].map((folderId) => folderId?.trim()).filter((folderId): folderId is string => Boolean(folderId))
-}
 type StoredRecommendation = {
   id: string
   displayName: string
@@ -1235,7 +1227,7 @@ export class OldFavoriteWorkspaceCoordinator {
     ) => AutomaticClassification[] | Promise<AutomaticClassification[]>
     /** Ordinary account rules used for asynchronous candidate-to-rule links. */
     listSavedFavoriteLedgers?: (accountMid: string) => Promise<FavoriteLedger[]>
-    /** The right-side card state is the only authority for Bilimi scan projection. */
+    /** Only durable bound cards identify managed member-protection folders. */
     getFavoriteLedgersForScanProjection?: (accountMid: string) => Promise<FavoriteLedger[]>
     applyFavoriteRecommendationRuleChanges?: (
       accountMid: string,
@@ -3046,7 +3038,8 @@ export class OldFavoriteWorkspaceCoordinator {
         .map((item) => item.aid)
         .sort((left, right) => left - right)
       const mirrorFolders = sourceFolders.filter((folder) =>
-        scanSourceIsEligible(folder) || scanSourceRelationship(folder) === 'bound').map((folder) => ({
+        !confirmedDeletedRemoteFolderIds.has(folder.id) &&
+        (scanSourceIsEligible(folder) || scanSourceRelationship(folder) === 'bound')).map((folder) => ({
         id: `bilibili:${folder.id}`,
         title: folder.title,
         remoteFolderId: folder.id
@@ -3055,7 +3048,8 @@ export class OldFavoriteWorkspaceCoordinator {
       for (const item of itemsByAid.values()) {
         for (const folderId of item.sourceFolderIds) mirrorMembers.get(folderId)?.push(item.aid)
       }
-      for (const folder of sourceFolders.filter((candidate) => scanSourceRelationship(candidate) === 'bound')) {
+      for (const folder of sourceFolders.filter((candidate) =>
+        !confirmedDeletedRemoteFolderIds.has(candidate.id) && scanSourceRelationship(candidate) === 'bound')) {
         mirrorMembers.set(folder.id, [...new Set(managedMembers[folder.id] ?? [])])
       }
       const mirrorUpdatedAt = this.now()
@@ -3080,7 +3074,8 @@ export class OldFavoriteWorkspaceCoordinator {
             unavailable: isUnavailableScanItem(item),
             updatedAt: mirrorUpdatedAt
             })),
-            ...sourceFolders.filter((folder) => scanSourceRelationship(folder) === 'bound').flatMap((folder) =>
+            ...sourceFolders.filter((folder) =>
+              !confirmedDeletedRemoteFolderIds.has(folder.id) && scanSourceRelationship(folder) === 'bound').flatMap((folder) =>
               (managedMembers[folder.id] ?? []).filter((aid) => !itemsByAid.has(aid)).map((aid) => ({
                 aid, title: `Video ${aid}`, tags: [], updatedAt: mirrorUpdatedAt
               }))
@@ -3170,7 +3165,8 @@ export class OldFavoriteWorkspaceCoordinator {
         observedPhysicalFolderIdsByAid.set(aid, observed)
       }
       for (const item of itemsByAid.values()) recordObservedFolders(item.aid, item.sourceFolderIds)
-      for (const folder of sourceFolders.filter((candidate) => scanSourceRelationship(candidate) === 'bound')) {
+      for (const folder of sourceFolders.filter((candidate) =>
+        !confirmedDeletedRemoteFolderIds.has(candidate.id) && scanSourceRelationship(candidate) === 'bound')) {
         for (const aid of managedMembers[folder.id] ?? []) recordObservedFolders(aid, [folder.id])
       }
       await this.commitRemoteObservationRepair(workspace.accountMid,
@@ -7816,22 +7812,22 @@ export class OldFavoriteWorkspaceCoordinator {
   ) {
     const overview = this.scanOverviews.get(workspace.accountMid)
     if (!overview) return
-    const bilimiLedgers = (await this.options.getFavoriteLedgersForScanProjection?.(workspace.accountMid) ?? [])
-      .filter((ledger) => isBilimiManagedLedgerName(ledger.displayName))
-    const knownBilimiFolderIds = new Set(bilimiLedgers.flatMap(favoriteLedgerRemoteFolderIds))
+    const favoriteLedgers = await this.options.getFavoriteLedgersForScanProjection?.(workspace.accountMid) ?? []
+    const confirmedDeletedRemoteFolderIds = new Set(favoriteLedgers.flatMap((ledger) =>
+      ledger.confirmedDeletedRemoteFolderIds ?? []).map((folderId) => folderId.trim()).filter(Boolean))
+    const bilimiLedgers = favoriteLedgers.filter((ledger) =>
+      ledger.bindingState === 'bound' && isBilimiManagedLedgerName(ledger.displayName))
     const boundBilimiFolderIds = new Set(bilimiLedgers
-      .filter((ledger) => ledger.bindingState === 'bound')
       .flatMap((ledger) => [ledger.bilibiliFolderId, ...(ledger.bilibiliFolderIds ?? [])])
       .map((folderId) => folderId?.trim())
       .filter((folderId): folderId is string => Boolean(folderId)))
     const sourceFolders = overview.sourceFolders.map((folder) => {
-      const isBilimiCandidate = folder.isBilimiWorkFolderCandidate ||
-        isBilimiManagedLedgerName(folder.title) || knownBilimiFolderIds.has(folder.id)
-      const isBoundBilimiWorkFolder = boundBilimiFolderIds.has(folder.id)
-      // A repository refresh may update regular observed data, but must never
-      // grant scan authority or a Bilimi projection to an unbacked card.
+      const confirmedDeleted = confirmedDeletedRemoteFolderIds.has(folder.id)
+      const isBoundBilimiWorkFolder = !confirmedDeleted && boundBilimiFolderIds.has(folder.id)
       const relationship: OldFavoriteRemoteRelationship = isBoundBilimiWorkFolder ? 'bound' : 'none'
-      const scanEligible = isBilimiCandidate ? false : scanSourceIsEligible(folder)
+      // Preserve an explicit opt-out across refresh/restart; only an exact
+      // confirmed deletion can introduce a new suppression here.
+      const scanEligible = !confirmedDeleted && scanSourceIsEligible(folder)
       return {
         ...folder,
         isBilimiWorkFolder: isBoundBilimiWorkFolder,

@@ -181,6 +181,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const [backgroundRefreshing, setBackgroundRefreshing] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
   const [executionError, setExecutionError] = useState<string | null>(null)
+  const latestExecutionFailure = useRef<unknown>(null)
   const [reconciling, setReconciling] = useState(false)
   const [recommendedCandidateIds, setRecommendedCandidateIds] = useState<string[]>([])
   const [recommendationSaving, setRecommendationSaving] = useState(false)
@@ -558,7 +559,10 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (!accountMid || !command) return null
     setLoading(true)
     foregroundRequestCount.current += 1
-    if (reportExecutionFailure) setExecutionError(null)
+    if (reportExecutionFailure) {
+      latestExecutionFailure.current = null
+      setExecutionError(null)
+    }
     try {
       const next = await command(accountMid, commandValue)
       if (!next) return null
@@ -568,6 +572,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       return next
     } catch (error) {
       if (reportExecutionFailure && requestVersion.current === version && accountGeneration.current === generation) {
+        latestExecutionFailure.current = error
         setExecutionError(executionFailureMessage(error))
       }
       return null
@@ -1174,7 +1179,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   return {
     snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, tagEnrichmentUpdating, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, pauseScan, prepareRecovery, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, reclassifyFavoriteConfiguration, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, stageRecommendedCandidateSelection, updateRecommendedCandidates, setRoundExcludedLedgerIds, saveDraftLedgerRule, queueDraftLedgerRuleAnalysis, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan, pauseBilibiliSync, stopBilibiliSyncAndFinish,
-    reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
+    reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan, getLatestExecutionFailure: () => latestExecutionFailure.current,
     rebuildCorruptWorkspace, prepareRecommendationPreview, cancelRecommendationPreviewPreparation, waitForRecommendationQueue,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)
   }

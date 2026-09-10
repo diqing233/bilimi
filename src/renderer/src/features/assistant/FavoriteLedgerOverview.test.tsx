@@ -16,7 +16,7 @@ function deferred<T>() {
 
 describe('FavoriteLedgerOverview', () => {
 
-  it('keeps combined remote detection in one notice and opens the suspected-favorite dialog only on request', () => {
+  it('opens read-only combined remote detection details with selectable observations and no backup action', () => {
     const save = vi.fn()
     const sync = vi.fn()
     render(<FavoriteLedgerOverview
@@ -43,56 +43,46 @@ describe('FavoriteLedgerOverview', () => {
       .toHaveClass('favorite-ledger-panel__list-toggle')
     expect(screen.queryByText('部分 Bilimi 收藏夹尚未备册。')).not.toBeInTheDocument()
     const details = screen.getByRole('button', { name: '查看详情' })
-    expect(details).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('bilimi·远端观察')).not.toBeInTheDocument()
 
     fireEvent.click(details)
 
-    expect(details).toHaveAttribute('aria-expanded', 'true')
-    const suspectedFavorite = screen.getByRole('button', { name: '疑似 bilimi 收藏夹：bilimi·远端观察（2 个视频）。' })
-    const renameText = screen.getByText('将b站收藏夹“bilimi·旧游戏”变更为“bilimi·游戏”')
-    expect(renameText.closest('button')).toBeNull()
-    expect(screen.getByRole('button', { name: '变更' })).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: '检测到疑似 bilimi 收藏夹' })
+    expect(dialog).toHaveTextContent('疑似 bilimi 收藏夹：bilimi·远端观察（2 个视频）')
+    expect(dialog).toHaveTextContent('已绑定收藏夹名称变更：bilimi·旧游戏 → bilimi·游戏（2 个视频）')
+    expect(within(dialog).getByRole('checkbox', { name: '全选' })).not.toBeChecked()
+    expect(within(dialog).getByRole('checkbox', { name: 'bilimi·远端观察（2 个视频）' })).not.toBeChecked()
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '全选' }))
+    expect(within(dialog).getByRole('checkbox', { name: 'bilimi·远端观察（2 个视频）' })).toBeChecked()
     expect(screen.queryByRole('dialog', { name: '发现疑似 bilimi 收藏夹' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument()
-    expect(save).not.toHaveBeenCalled()
-    expect(sync).not.toHaveBeenCalled()
-
-    fireEvent.click(suspectedFavorite)
-
-    expect(screen.getByRole('dialog', { name: '发现疑似 bilimi 收藏夹' })).toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument()
     expect(save).not.toHaveBeenCalled()
     expect(sync).not.toHaveBeenCalled()
   })
 
-  it('opens the bound-rename dialog only after clicking its detection detail', () => {
+  it('keeps an unbound notice visible alongside the read-only detection entry', () => {
     const save = vi.fn()
     const sync = vi.fn()
     render(<FavoriteLedgerOverview
-      ledgers={[{
-        id: 'game', displayName: 'bilimi·游戏', keywords: [], enabled: true, priority: 10, isDefault: false,
-        bilibiliFolderId: '4106106611', bindingState: 'bound'
-      }]}
       missingLedgerIds={[]}
-      observedBoundRenameCandidates={[{
-        ledgerId: 'game', logicalTitle: 'bilimi·游戏', logicalVideoCount: 2,
-        shards: [{
-          remoteFolderId: '4106106611', shardNumber: 1, currentRemoteTitle: 'bilimi·旧游戏',
-          remoteMemberCount: 2, targetTitle: 'bilimi·游戏'
-        }]
-      }]}
+      observedRemoteObservations={[{ folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }]}
+      remoteOnlyDraftLedgerIds={['remote-draft']}
+      ledgers={[
+        {
+          id: 'game', displayName: 'bilimi·游戏', keywords: [], enabled: true, priority: 10, isDefault: false,
+          bilibiliFolderId: '4106106611', bindingState: 'bound'
+        },
+        {
+          id: 'remote-draft', displayName: 'bilimi·远端草稿', keywords: [], enabled: false, priority: 20, isDefault: false,
+          bilibiliFolderId: '88', bindingState: 'unbound', syncState: 'local-draft'
+        }
+      ]}
       onSaveLedgers={save}
       onSyncLedgers={sync}
     />)
 
-    expect(screen.queryByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '查看详情' }))
-    fireEvent.click(screen.getByRole('button', { name: '变更' }))
-
-    const dialog = screen.getByRole('dialog', { name: '确认修改 B 站收藏夹名称' })
-    expect(dialog).toHaveTextContent('游戏（共 2 个视频）')
-    expect(dialog).toHaveTextContent('分册 1：bilimi·旧游戏（2 个视频，确认后 B站收藏夹名字会更改为 bilimi·游戏）')
+    expect(screen.getByText(/检测到 B 站中有 1 个疑似 bilimi 工作夹/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '查看详情' })).toBeInTheDocument()
     expect(save).not.toHaveBeenCalled()
     expect(sync).not.toHaveBeenCalled()
   })

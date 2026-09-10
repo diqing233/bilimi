@@ -175,6 +175,17 @@ function confirmationNeedsBackup(
   )
 }
 
+function confirmationNeedsShardCapacityPreflight(
+  snapshot: Exclude<ReturnType<typeof useOldFavoriteWorkspace>['snapshot'], null>,
+  ledgers: FavoriteLedger[]
+) {
+  if ('recovery' in snapshot) return false
+  const targetLedgerIds = new Set(Object.values(snapshot.classifications)
+    .flatMap((classification) => classification.targetLedgerIds))
+  return ledgers.some((ledger) => targetLedgerIds.has(ledger.id) && ledger.enabled &&
+    ledger.bilibiliFolderIds?.some((folderId) => folderId.trim()) === true)
+}
+
 function bilibiliBackupShardKey(shard: OldFavoriteWorkspaceBilibiliSyncPreflight['requiredPhysicalShards'][number]) {
   return `${shard.logicalLedgerId}:${shard.shardNumber}`
 }
@@ -1017,8 +1028,8 @@ export function ControlledFavoriteLedgerPanel({
   }
   const executeConfirmedBilibiliSync = async (includeInbox: boolean) => {
     if (!activeSnapshot) return
-    if (activeSnapshot.hasMultipleSegments) await workspace.setWholeRunExecutionIntent('bilibili', includeInbox)
-    else await workspace.confirmAndExecuteBilibiliPlan(includeInbox)
+    if (activeSnapshot.hasMultipleSegments) return workspace.setWholeRunExecutionIntent('bilibili', includeInbox)
+    return workspace.confirmAndExecuteBilibiliPlan(includeInbox)
   }
   const readBilibiliBackupPreflight = async (includeInbox = false) => {
     const accountMid = normalizeAccountMid(currentAccountMid)
@@ -1267,18 +1278,23 @@ export function ControlledFavoriteLedgerPanel({
     setConfirmationPreparing(true)
     setConfirmationPreparationError(null)
     try {
-      const preflight = await readBilibiliBackupPreflight(includeInbox)
       const unmatchedCount = activeSnapshot.planReadiness?.unclassifiedAidCount ?? 0
-      if (preflight && (hasBilibiliBackupGaps(preflight) || unmatchedCount > 0)) {
-        bilibiliBackupSyncIntentRef.current = { includeInbox, workspaceId: preflight.workspaceId }
-        setBilibiliBackupIncludeInbox(includeInbox)
-        presentBilibiliBackupPreflight(preflight)
-        return
+      const needsKnownBackup = confirmationNeedsBackup(activeSnapshot, displayedLedgersWithLiveEnabled, missingLedgerIds) ||
+        displayedLedgersWithLiveEnabled.some((ledger) => ledger.enabled && !ledger.bilibiliFolderId)
+      const needsKnownShardCapacity = confirmationNeedsShardCapacityPreflight(activeSnapshot, displayedLedgersWithLiveEnabled)
+      if (needsKnownBackup || needsKnownShardCapacity || unmatchedCount > 0) {
+        const preflight = await readBilibiliBackupPreflight(includeInbox)
+        if (preflight) {
+          bilibiliBackupSyncIntentRef.current = { includeInbox, workspaceId: preflight.workspaceId }
+          setBilibiliBackupIncludeInbox(includeInbox)
+          presentBilibiliBackupPreflight(preflight)
+          return
+        }
       }
       // Compatibility for a renderer running with an older preload. Current
       // Electron builds use the main-process preflight above; the freeze guard
       // remains fail-closed even if this fallback is reached.
-      if (!preflight && confirmationNeedsBackup(activeSnapshot, displayedLedgersWithLiveEnabled, missingLedgerIds)) {
+      if (needsKnownBackup) {
         setConfirmationPreparationStatus('正在同步目标收藏夹，完成后会继续同步到 B 站。')
         const result = await onEnsureLedgers() as { ok?: boolean; message?: string } | undefined
         if (result?.ok === false) {
@@ -1286,7 +1302,19 @@ export function ControlledFavoriteLedgerPanel({
           return
         }
       }
-      await executeConfirmedBilibiliSync(includeInbox)
+      const execution = await executeConfirmedBilibiliSync(includeInbox)
+      const executionFailure = workspace.getLatestExecutionFailure()
+      const backupPreflightRequired = executionFailure instanceof Error && /backup-preflight-required/i.test(executionFailure.message) ||
+        Boolean(execution && !('recovery' in execution) && execution.executionIntent?.failureCode === 'backup-preflight-required')
+      if (backupPreflightRequired) {
+        const preflight = await readBilibiliBackupPreflight(includeInbox)
+        if (preflight && hasBilibiliBackupGaps(preflight) && preflight.workspaceId === activeSnapshot.workspaceId) {
+          bilibiliBackupSyncIntentRef.current = { includeInbox, workspaceId: preflight.workspaceId }
+          setBilibiliBackupIncludeInbox(includeInbox)
+          presentBilibiliBackupPreflight(preflight)
+          return
+        }
+      }
     } catch (error) {
       setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹同步失败，请重试。')
     } finally {

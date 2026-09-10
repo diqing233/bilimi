@@ -3144,6 +3144,77 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('本轮目标收藏夹尚未同步到 B 站')
   })
 
+  it('defers a clear Bilibili backup preflight to the authoritative freeze check', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 },
+      history: { cursor: 1, length: 1 }
+    }
+    const preflight = vi.fn().mockResolvedValue({
+      accountMid: '100', workspaceId: 'workspace-100', missingLedgers: [], requiredPhysicalShards: []
+    })
+    const command = vi.fn().mockResolvedValue(preview)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      getOldFavoriteWorkspaceBilibiliExecutionPreflightV1: preflight,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false, bilibiliFolderId: 'remote-music', bindingState: 'bound' }]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' }))
+    expect(preflight).not.toHaveBeenCalled()
+  })
+
+  it('returns to backup confirmation when the authoritative freeze discovers a new gap', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 },
+      history: { cursor: 1, length: 1 }
+    }
+    const preflight = vi.fn().mockResolvedValue({
+      accountMid: '100', workspaceId: 'workspace-100',
+      missingLedgers: [{ logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', reason: 'unbacked' as const }],
+      requiredPhysicalShards: []
+    })
+    const command = vi.fn().mockRejectedValue(new Error('backup-preflight-required'))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      getOldFavoriteWorkspaceBilibiliExecutionPreflightV1: preflight,
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false, bilibiliFolderId: 'remote-music', bindingState: 'bound' }]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+
+    expect(await screen.findByRole('dialog', { name: '同步前备册确认' })).toHaveTextContent('收藏夹：bilimi·游戏专区（未备册）')
+    expect(command).toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' })
+    expect(preflight).toHaveBeenCalledExactlyOnceWith('100')
+  })
+
   it('syncs enabled ledgers without querying or deleting disabled managed folders', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
@@ -3552,7 +3623,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       commandOldFavoriteWorkspaceV1: command
     } as unknown as typeof window.bilimiDesktop
 
-    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={['old-target']}
       ledgers={[
         { id: 'old-target', displayName: 'bilimi·旧目标', keywords: [], enabled: true, priority: 10, isDefault: false, bindingState: 'unbacked' },
         { id: 'new-target', displayName: 'bilimi·新目标', keywords: [], enabled: true, priority: 20, isDefault: false, bindingState: 'unbacked' }
@@ -3654,7 +3725,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     } as unknown as typeof window.bilimiDesktop
 
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
-      ledgers={[{ id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10, isDefault: false, bilibiliFolderId: 'game-1', bindingState: 'bound' }]}
+      ledgers={[{ id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10, isDefault: false, bilibiliFolderId: 'game-1', bilibiliFolderIds: ['game-1'], bindingState: 'bound' }]}
       onEnsureLedgers={vi.fn()} onSyncLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     await openPersistedWorkspaceGuide()

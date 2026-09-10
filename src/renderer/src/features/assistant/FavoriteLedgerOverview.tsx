@@ -110,6 +110,12 @@ type RebindCandidateEntry = {
 
 type RemoteObservationDialogMode = 'backup' | 'save'
 
+type RemoteDetectionDetail = {
+  id: string
+  kind: 'observation' | 'rename'
+  label: string
+}
+
 type FavoriteLedgerRemoteDiscoveryResult = AssistantAutomationResult & {
   unboundCandidates?: RebindCandidateEntry[]
   boundRenameCandidates?: FavoriteLedgerBoundRenameCandidate[]
@@ -485,6 +491,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const [saveError, setSaveError] = useState<string | null>(null)
   const [backupSkipNotice, setBackupSkipNotice] = useState<string | null>(null)
   const [remoteDetectionDetailsVisible, setRemoteDetectionDetailsVisible] = useState(false)
+  const [selectedRemoteDetectionDetailIds, setSelectedRemoteDetectionDetailIds] = useState<ReadonlySet<string>>(() => new Set())
   const [deletionModeActive, setDeletionModeActive] = useState(false)
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
   const [ledgerListExpanded, setLedgerListExpanded] = useState(true)
@@ -502,6 +509,18 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     Boolean(ledger.bilibiliFolderId) &&
     (ledger.bindingState === 'unbound' || ledger.syncState === 'local-draft'))
   const hasRemoteDetectionNotice = observedRemoteObservations.length > 0 || observedBoundRenameCandidates.length > 0
+  const remoteDetectionDetails = useMemo<RemoteDetectionDetail[]>(() => [
+    ...observedRemoteObservations.map((observation) => ({
+      id: `observation:${observation.folderId}`,
+      kind: 'observation' as const,
+      label: `疑似 bilimi 收藏夹：${observation.title}（${observation.memberCount} 个视频）`
+    })),
+    ...observedBoundRenameCandidates.flatMap((candidate) => candidate.shards.map((shard) => ({
+      id: `rename:${candidate.ledgerId}:${shard.remoteFolderId}:${shard.shardNumber}`,
+      kind: 'rename' as const,
+      label: `已绑定收藏夹名称变更：${shard.currentRemoteTitle} → ${shard.targetTitle}（${shard.remoteMemberCount} 个视频）`
+    })))
+  ], [observedBoundRenameCandidates, observedRemoteObservations])
   const persistVersionRef = useRef(0)
   const toggleSaveTimerRef = useRef<number | null>(null)
   const pendingToggleSaveRef = useRef(new Map<string, { previous: boolean; enabled: boolean; version: number }>())
@@ -1859,11 +1878,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         {deletionModeActive && deletionError && !deletionPlan ? <p role="alert" className="favorite-ledger-panel__notice">{deletionError}</p> : null}
         {hasRemoteDetectionNotice ? <div className="favorite-ledger-panel__notice">
           <span>检测到 {observedRemoteObservations.length} 个疑似 bilimi 收藏夹、{observedBoundRenameCandidates.length} 个已绑定收藏夹名称变更。</span>
-          <button type="button" aria-expanded={remoteDetectionDetailsVisible} onClick={() => setRemoteDetectionDetailsVisible((visible) => !visible)}>{remoteDetectionDetailsVisible ? '收起' : '查看详情'}</button>
-          {remoteDetectionDetailsVisible ? <div className="favorite-ledger-panel__remote-detection-details">
-            {observedRemoteObservations.map((observation) => <button key={observation.folderId} type="button" className="favorite-ledger-panel__remote-detection-detail" onClick={() => showRemoteObservationDialog('save', [observation], [])}>疑似 bilimi 收藏夹：{observation.title}（{observation.memberCount} 个视频）。</button>)}
-            {observedBoundRenameCandidates.flatMap((candidate) => candidate.shards.map((shard) => <div key={`${candidate.ledgerId}:${shard.shardNumber}`} className="favorite-ledger-panel__remote-rename-detail"><span>将b站收藏夹“{shard.currentRemoteTitle}”变更为“{shard.targetTitle}”</span><button type="button" onClick={() => { setBoundRenameCandidates([candidate]); setBoundRenameError(null) }}>变更</button></div>))}
-          </div> : null}
+          <button type="button" onClick={() => {
+            setSelectedRemoteDetectionDetailIds(new Set())
+            setRemoteDetectionDetailsVisible(true)
+          }}>查看详情</button>
         </div> : null}
         {recoveredRemoteLedgers.length ? <p className="favorite-ledger-panel__notice">检测到 B 站中有 {recoveredRemoteLedgers.reduce((count, ledger) => count + new Set([...(ledger.bilibiliFolderIds ?? []), ledger.bilibiliFolderId].filter(Boolean)).size, 0)} 个疑似 bilimi 工作夹：{recoveredRemoteStatusSummary}。请先编辑保存好收藏夹规则，再点击“备册”确认绑定；尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。</p> : null}
         <div className="favorite-ledger-panel__list-toggle"><button type="button" disabled={isLocalToggleOnly} onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={fullLedgerListVisible} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{fullLedgerListVisible ? '折叠' : '展开'}</button> : null}</div>
@@ -1938,6 +1956,26 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
           </div>
         </div>)}
         {boundRenameError ? <p role="alert" className="favorite-ledger-panel__notice">{boundRenameError}</p> : null}
+      </OldFavoriteModal> : null}
+      {remoteDetectionDetailsVisible ? <OldFavoriteModal title="检测到疑似 bilimi 收藏夹" onCancel={() => {
+        setRemoteDetectionDetailsVisible(false)
+        setSelectedRemoteDetectionDetailIds(new Set())
+      }}>
+        <p>以下检测结果仅供查看和选择；不会备册、绑定、改名、创建、删除或同步 B 站收藏夹。</p>
+        <fieldset className="favorite-ledger-panel__rebind-choice"><legend>检测详情</legend>
+          <label><input type="checkbox" aria-label="全选" checked={remoteDetectionDetails.length > 0 && selectedRemoteDetectionDetailIds.size === remoteDetectionDetails.length} ref={(node) => { if (node) node.indeterminate = selectedRemoteDetectionDetailIds.size > 0 && selectedRemoteDetectionDetailIds.size < remoteDetectionDetails.length }} onChange={(event) => {
+            setSelectedRemoteDetectionDetailIds(event.currentTarget.checked ? new Set(remoteDetectionDetails.map((detail) => detail.id)) : new Set())
+          }} />全选</label>
+          {remoteDetectionDetails.map((detail) => <label key={detail.id}><input type="checkbox" aria-label={detail.kind === 'observation' ? detail.label.replace('疑似 bilimi 收藏夹：', '') : detail.label} checked={selectedRemoteDetectionDetailIds.has(detail.id)} onChange={(event) => {
+            const checked = event.currentTarget.checked
+            setSelectedRemoteDetectionDetailIds((current) => {
+              const next = new Set(current)
+              if (checked) next.add(detail.id)
+              else next.delete(detail.id)
+              return next
+            })
+          }} />{detail.label}</label>)}
+        </fieldset>
       </OldFavoriteModal> : null}
       {remoteObservationDialogMode ? <OldFavoriteModal title="发现疑似 bilimi 收藏夹" confirmLabel={remoteObservationDialogMode === 'backup' ? '继续备册' : '确认'} onCancel={clearRemoteObservationDialog} onConfirm={() => void confirmRemoteObservations()}>
         <p>发现 B 站中存在疑似 bilimi 收藏夹。它们不会自动加入本地规则，也不会自动绑定、创建或修改 B 站收藏夹；可按需勾选生成本地草稿。</p>
