@@ -44,6 +44,8 @@ type FavoriteLedgerOverviewProps = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
   unboundLedgerIds?: string[]
+  /** Exact binding registrations already completed by the active backup runtime. */
+  backupProgress?: { targetLedgerIds: readonly string[]; completedLedgerIds: readonly string[] }
   remoteOnlyDraftLedgerIds?: string[]
   /** Read-only observations triggered by a manual B站收藏夹 mutation. */
   observedRemoteObservations?: readonly RemoteFavoriteLedgerObservation[]
@@ -120,6 +122,11 @@ type FavoriteLedgerRemoteDiscoveryResult = AssistantAutomationResult & {
   unboundCandidates?: RebindCandidateEntry[]
   boundRenameCandidates?: FavoriteLedgerBoundRenameCandidate[]
   remoteObservations?: RemoteFavoriteLedgerObservation[]
+}
+
+type BackupProgress = {
+  targetLedgerIds: ReadonlySet<string>
+  completedLedgerIds: ReadonlySet<string>
 }
 
 type ManagedFolderDeletionCandidate = {
@@ -326,7 +333,7 @@ export function preserveFavoriteLedgerOrder(
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ currentAccountMid, localFavoriteToggleAccountMid, ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], observedRemoteObservations = [], observedBoundRenameCandidates = [], onDismissRemoteDraftReminder, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
+export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ currentAccountMid, localFavoriteToggleAccountMid, ledgers, missingLedgerIds, unboundLedgerIds = [], backupProgress: runtimeBackupProgress, remoteOnlyDraftLedgerIds = [], observedRemoteObservations = [], observedBoundRenameCandidates = [], onDismissRemoteDraftReminder, organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
@@ -335,7 +342,45 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const isRoundLocked = (ledger: FavoriteLedger) => organizationActive && ledger.isDefault
   const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault
   const isForcedEnabled = (ledger: FavoriteLedger) => ledger.id === 'inbox' || isDefaultSystemLocked(ledger)
-  const bindingLabelForLedger = (ledger: FavoriteLedger) => ledger.pendingRemoteBindingCreatedByBackup
+  // This state is only for the active manual backup. A newly created remote
+  // folder can reach the parent snapshot before exact-ID registration ends;
+  // that expected interval must not be presented as a final binding failure.
+  const [backupProgress, setBackupProgress] = useState<BackupProgress | null>(null)
+  const runtimeBackupProgressSignature = runtimeBackupProgress
+    ? JSON.stringify(runtimeBackupProgress)
+    : ''
+  useEffect(() => {
+    if (!runtimeBackupProgress) return
+    const nextProgress: BackupProgress = {
+      targetLedgerIds: new Set(runtimeBackupProgress.targetLedgerIds),
+      completedLedgerIds: new Set(runtimeBackupProgress.completedLedgerIds)
+    }
+    setBackupProgress((current) => {
+      if (current &&
+        current.targetLedgerIds.size === nextProgress.targetLedgerIds.size &&
+        current.completedLedgerIds.size === nextProgress.completedLedgerIds.size &&
+        [...current.targetLedgerIds].every((ledgerId) => nextProgress.targetLedgerIds.has(ledgerId)) &&
+        [...current.completedLedgerIds].every((ledgerId) => nextProgress.completedLedgerIds.has(ledgerId))) {
+        return current
+      }
+      return nextProgress
+    })
+  }, [runtimeBackupProgressSignature])
+  const activeBackupProgress = runtimeBackupProgress
+    ? {
+        targetLedgerIds: new Set(runtimeBackupProgress.targetLedgerIds),
+        completedLedgerIds: new Set(runtimeBackupProgress.completedLedgerIds)
+      }
+    : backupProgress
+  const isBackupBindingInProgress = (ledgerId: string) => Boolean(
+    activeBackupProgress?.targetLedgerIds.has(ledgerId) && !activeBackupProgress.completedLedgerIds.has(ledgerId)
+  )
+  const isBackupCompleted = (ledgerId: string) => Boolean(activeBackupProgress?.completedLedgerIds.has(ledgerId))
+  const bindingLabelForLedger = (ledger: FavoriteLedger) => isBackupBindingInProgress(ledger.id)
+    ? '正在绑定'
+    : isBackupCompleted(ledger.id)
+      ? '已备册'
+      : ledger.pendingRemoteBindingCreatedByBackup
     ? '已创建 · 待正式确认'
     : ledger.bindingState === 'bound'
       ? '已备册'
@@ -357,6 +402,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     ? 'local-draft'
     : label.includes('未备册')
       ? 'unbacked'
+      : label.includes('正在绑定')
+        ? 'backup-binding'
       : label.includes('未绑定')
         ? 'unbound'
         : ledger.bindingState ?? (label === '已备册' ? 'bound' : 'unbacked')
@@ -506,6 +553,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const recoveredRemoteDrafts = draftLedgers.filter((ledger) =>
     ledger.syncState === 'local-draft' && Boolean(ledger.bilibiliFolderId) && !ledger.enabled)
   const recoveredRemoteLedgers = draftLedgers.filter((ledger) =>
+    !activeBackupProgress?.targetLedgerIds.has(ledger.id) &&
     Boolean(ledger.bilibiliFolderId) &&
     (ledger.bindingState === 'unbound' || ledger.syncState === 'local-draft'))
   const hasRemoteDetectionNotice = observedRemoteObservations.length > 0 || observedBoundRenameCandidates.length > 0
@@ -568,6 +616,28 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setNewLedger(false)
     setDeletionModeActive(false)
     setDraftDeletionError(null)
+  }, [externalLedgerSignature])
+  useEffect(() => {
+    setBackupProgress((current) => {
+      if (!current) return current
+      const completedLedgerIds = new Set(current.completedLedgerIds)
+      let parentHasObservedEveryTarget = true
+      for (const ledger of ledgers) {
+        if (current.targetLedgerIds.has(ledger.id) && ledger.bindingState === 'bound') {
+          completedLedgerIds.add(ledger.id)
+        }
+      }
+      for (const ledgerId of current.targetLedgerIds) {
+        if (!ledgers.some((ledger) => ledger.id === ledgerId && ledger.bindingState === 'bound')) {
+          parentHasObservedEveryTarget = false
+          break
+        }
+      }
+      if (completedLedgerIds.size === current.targetLedgerIds.size && parentHasObservedEveryTarget) return null
+      return completedLedgerIds.size === current.completedLedgerIds.size
+        ? current
+        : { ...current, completedLedgerIds }
+    })
   }, [externalLedgerSignature])
   useEffect(() => () => {
     const scrollRestore = ledgerScrollRestoreRef.current
@@ -732,6 +802,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     recoveredRemotePendingCount ? `${recoveredRemotePendingCount} 个未绑定` : '',
     recoveredRemoteUnsavedCount ? `${recoveredRemoteUnsavedCount} 个未保存未绑定` : ''
   ].filter(Boolean).join('，')
+  const backupProgressSummary = activeBackupProgress && activeBackupProgress.completedLedgerIds.size < activeBackupProgress.targetLedgerIds.size
+    ? `正在备册：已完成 ${activeBackupProgress.completedLedgerIds.size}/${activeBackupProgress.targetLedgerIds.size}，正在绑定 ${activeBackupProgress.targetLedgerIds.size - activeBackupProgress.completedLedgerIds.size} 个收藏夹。`
+    : null
   const activeVideoCount = active ? videoCountForLedger(active) : undefined
   const activeRemoteBindingIds = active ? remoteBindingIdsForLedger(active) : []
   const activePendingRemoteBinding = Boolean(active?.pendingRemoteBinding && (active.pendingRemoteFolderId ?? active.bilibiliFolderId)?.trim())
@@ -1134,22 +1207,49 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       if (!eligibleLedgers.length) {
         return { ok: false, message: '请先保存并勾选至少一个 bilimi 收藏夹，再备册到 B 站。' }
       }
-      const result = await onSyncLedgers(eligibleLedgers, {
+      const backupOptions = {
         deleteDisabled: false,
         backupTargetLedgerIds: eligibleLedgers.map((ledger) => ledger.id),
         rediscoverDeletedRemoteDrafts: true,
-        ...(options?.skipRemoteObservationPreflight ? {} : { remoteObservationPreflight: true }),
         ...options?.confirmedBackupOptions
-      }) as FavoriteLedgerRemoteDiscoveryResult | undefined
+      }
+      const runBackup = () => onSyncLedgers(eligibleLedgers, {
+        ...backupOptions,
+        requireFinalBackupVerification: true
+      })
+      const runBackupWithProgress = async () => {
+        const targetLedgerIds = new Set(eligibleLedgers.map((ledger) => ledger.id))
+        setBackupProgress({
+          targetLedgerIds,
+          completedLedgerIds: new Set()
+        })
+        try {
+          const backupResult = await runBackup() as { ok?: boolean } | undefined
+          // The parent snapshot is published asynchronously after the final
+          // exact-ID verification. Keep the verified success projection until
+          // that snapshot arrives, so the UI cannot flash back to red in the
+          // single render between receipt and parent-state propagation.
+          if (backupResult?.ok === true) {
+            setBackupProgress({ targetLedgerIds, completedLedgerIds: new Set(targetLedgerIds) })
+          } else {
+            setBackupProgress(null)
+          }
+          return backupResult
+        } catch (error) {
+          setBackupProgress(null)
+          throw error
+        }
+      }
+      const result = (options?.skipRemoteObservationPreflight
+        ? await runBackupWithProgress()
+        : await onSyncLedgers(eligibleLedgers, {
+            ...backupOptions,
+            remoteObservationPreflight: true
+          })) as FavoriteLedgerRemoteDiscoveryResult | undefined
       const freshRemoteObservations = Array.isArray(result?.remoteObservations) ? result.remoteObservations : []
       if (freshRemoteObservations.length) {
         if (options?.suppressConfirmationDialog) {
-          return onSyncLedgers(eligibleLedgers, {
-            deleteDisabled: false,
-            backupTargetLedgerIds: eligibleLedgers.map((ledger) => ledger.id),
-            rediscoverDeletedRemoteDrafts: true,
-            ...options?.confirmedBackupOptions
-          })
+          return runBackupWithProgress()
         }
         showRemoteObservationDialog(
           'backup',
@@ -1174,12 +1274,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         return result
       }
       if (options?.skipRemoteObservationPreflight) return result
-      return onSyncLedgers(eligibleLedgers, {
-        deleteDisabled: false,
-        backupTargetLedgerIds: eligibleLedgers.map((ledger) => ledger.id),
-        rediscoverDeletedRemoteDrafts: true,
-        ...options?.confirmedBackupOptions
-      })
+      return runBackupWithProgress()
     })()
     backupInFlightRef.current = operation
     try {
@@ -1661,14 +1756,31 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     ]))
     const rebindRemoteFolderIds = Object.fromEntries(Object.entries(rebindSelections)
       .filter(([ledgerId, remoteFolderId]) => rebindCandidates.some((entry) => entry.ledgerId === ledgerId && entry.candidates.length > 0) && Boolean(remoteFolderId)))
-    const result = await onSyncLedgers(projectEnabled(draftLedgersRef.current), {
-      backupTargetLedgerIds: rebindTargetLedgerIds,
-      deleteDisabled: false,
-      rediscoverDeletedRemoteDrafts: true,
-      ...(hasCreationConfirmation ? { confirmCreateAndBind: true } : {}),
-      ...(Object.keys(rebindRemoteFolderIds).length ? { rebindRemoteFolderIds } : {}),
-      ...(Object.keys(rebindRemoteFolders).length ? { rebindRemoteFolders } : {})
-    }) as AssistantAutomationResult & { unboundCandidates?: RebindCandidateEntry[] } | undefined
+    const targetLedgerIds = new Set(rebindTargetLedgerIds)
+    setBackupProgress({
+      targetLedgerIds,
+      completedLedgerIds: new Set()
+    })
+    let result: AssistantAutomationResult & { unboundCandidates?: RebindCandidateEntry[] } | undefined
+    try {
+      result = await onSyncLedgers(projectEnabled(draftLedgersRef.current), {
+        backupTargetLedgerIds: rebindTargetLedgerIds,
+        requireFinalBackupVerification: true,
+        deleteDisabled: false,
+        rediscoverDeletedRemoteDrafts: true,
+        ...(hasCreationConfirmation ? { confirmCreateAndBind: true } : {}),
+        ...(Object.keys(rebindRemoteFolderIds).length ? { rebindRemoteFolderIds } : {}),
+        ...(Object.keys(rebindRemoteFolders).length ? { rebindRemoteFolders } : {})
+      }) as AssistantAutomationResult & { unboundCandidates?: RebindCandidateEntry[] } | undefined
+    } catch (error) {
+      setBackupProgress(null)
+      throw error
+    }
+    if (result?.ok === true) {
+      setBackupProgress({ targetLedgerIds, completedLedgerIds: new Set(targetLedgerIds) })
+    } else {
+      setBackupProgress(null)
+    }
     if (result?.boundRenameCandidates?.length) {
       setBoundRenameCandidates(result.boundRenameCandidates)
       setBoundRenameError(null)
@@ -1883,6 +1995,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             setRemoteDetectionDetailsVisible(true)
           }}>查看详情</button>
         </div> : null}
+        {backupProgressSummary ? <p className="favorite-ledger-panel__notice" role="status">{backupProgressSummary}</p> : null}
         {recoveredRemoteLedgers.length ? <p className="favorite-ledger-panel__notice">检测到 B 站中有 {recoveredRemoteLedgers.reduce((count, ledger) => count + new Set([...(ledger.bilibiliFolderIds ?? []), ledger.bilibiliFolderId].filter(Boolean)).size, 0)} 个疑似 bilimi 工作夹：{recoveredRemoteStatusSummary}。请先编辑保存好收藏夹规则，再点击“备册”确认绑定；尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。</p> : null}
         <div className="favorite-ledger-panel__list-toggle"><button type="button" disabled={isLocalToggleOnly} onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={fullLedgerListVisible} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{fullLedgerListVisible ? '折叠' : '展开'}</button> : null}</div>
       </section>

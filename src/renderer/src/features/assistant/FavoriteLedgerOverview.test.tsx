@@ -2669,6 +2669,132 @@ describe('FavoriteLedgerOverview', () => {
     expect(sync).toHaveBeenCalledTimes(2)
   })
 
+  it('renders exact binding progress published by the backup runtime', () => {
+    render(<FavoriteLedgerOverview
+      ledgers={[{
+        id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+        bilibiliFolderId: 'new-music', bindingState: 'unbound', isDefault: false
+      }, {
+        id: 'film', displayName: 'bilimi·影视动漫', keywords: [], enabled: true, priority: 20,
+        bilibiliFolderId: 'new-film', bindingState: 'unbound', isDefault: false
+      }]}
+      missingLedgerIds={[]}
+      unboundLedgerIds={['music', 'film']}
+      backupProgress={{ targetLedgerIds: ['music', 'film'], completedLedgerIds: ['music'] }}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    expect(screen.getByText('正在备册：已完成 1/2，正在绑定 1 个收藏夹。')).toBeInTheDocument()
+    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('已备册')
+    expect(screen.getByTestId('favorite-ledger-chip-film')).toHaveTextContent('正在绑定')
+  })
+
+  it('shows backup binding progress instead of transient unbound statuses', async () => {
+    const backup = deferred<{ ok: boolean; message: string }>()
+    const sync = vi.fn()
+      .mockResolvedValueOnce({ ok: true })
+      .mockImplementationOnce(() => backup.promise)
+    const initialLedgers = [{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: 'new-music', bindingState: 'unbound' as const, isDefault: false
+    }, {
+      id: 'film', displayName: 'bilimi·影视动漫', keywords: [], enabled: true, priority: 20,
+      bilibiliFolderId: 'new-film', bindingState: 'unbound' as const, isDefault: false
+    }]
+    const view = render(<FavoriteLedgerOverview
+      ledgers={initialLedgers}
+      missingLedgerIds={[]}
+      unboundLedgerIds={['music', 'film']}
+      onSaveLedgers={vi.fn()}
+      onSyncLedgers={sync}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('正在备册：已完成 0/2，正在绑定 2 个收藏夹。')).toBeInTheDocument()
+    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('正在绑定')
+    expect(screen.getByTestId('favorite-ledger-chip-film')).toHaveTextContent('正在绑定')
+    expect(screen.queryByText(/检测到 B 站中有 2 个疑似 bilimi 工作夹/)).not.toBeInTheDocument()
+
+    view.rerender(<FavoriteLedgerOverview
+      ledgers={[
+        { ...initialLedgers[0], bindingState: 'bound' },
+        initialLedgers[1]
+      ]}
+      missingLedgerIds={[]}
+      unboundLedgerIds={['film']}
+      onSaveLedgers={vi.fn()}
+      onSyncLedgers={sync}
+    />)
+
+    await waitFor(() => expect(screen.getByText('正在备册：已完成 1/2，正在绑定 1 个收藏夹。')).toBeInTheDocument())
+    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('已备册')
+    expect(screen.getByTestId('favorite-ledger-chip-film')).toHaveTextContent('正在绑定')
+
+    backup.resolve({ ok: false, message: '正式绑定未完成。' })
+
+    await waitFor(() => expect(screen.getByTestId('favorite-ledger-chip-film')).toHaveTextContent('未绑定'))
+    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('已备册')
+  })
+
+  it('keeps successful backup targets backed until the parent snapshot catches up', async () => {
+    const backup = deferred<{ ok: boolean; message: string }>()
+    const sync = vi.fn()
+      .mockResolvedValueOnce({ ok: true })
+      .mockImplementationOnce(() => backup.promise)
+    const ledgers = [{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: 'new-music', bindingState: 'unbound' as const, isDefault: false
+    }]
+    render(<FavoriteLedgerOverview
+      ledgers={ledgers}
+      missingLedgerIds={[]}
+      unboundLedgerIds={['music']}
+      onSaveLedgers={vi.fn()}
+      onSyncLedgers={sync}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(2))
+    backup.resolve({ ok: true, message: '收藏夹已备册。' })
+
+    await waitFor(() => expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('已备册'))
+    expect(screen.getByTestId('favorite-ledger-chip-music')).not.toHaveTextContent('未绑定')
+    expect(screen.queryByText(/正在备册：/)).not.toBeInTheDocument()
+  })
+
+  it('keeps a confirmed binding target backed until the parent snapshot catches up', async () => {
+    const binding = deferred<{ ok: boolean; message: string }>()
+    const sync = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        unboundCandidates: [{ ledgerId: 'game', candidates: [{ id: 'recovered-game', title: 'bilimi·游戏专区', memberCount: 0 }] }]
+      })
+      .mockImplementationOnce(() => binding.promise)
+    const ledger = {
+      id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: 'recovered-game', bindingState: 'unbound' as const, isDefault: false
+    }
+    render(<FavoriteLedgerOverview
+      ledgers={[ledger]}
+      missingLedgerIds={[]}
+      unboundLedgerIds={['game']}
+      onSaveLedgers={vi.fn()}
+      onSyncLedgers={sync}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    fireEvent.click(await screen.findByRole('button', { name: '确认绑定' }))
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(2))
+    expect(screen.getByTestId('favorite-ledger-chip-game')).toHaveTextContent('正在绑定')
+
+    binding.resolve({ ok: true, message: '收藏夹已备册。' })
+
+    await waitFor(() => expect(screen.getByTestId('favorite-ledger-chip-game')).toHaveTextContent('已备册'))
+    expect(screen.getByTestId('favorite-ledger-chip-game')).not.toHaveTextContent('未绑定')
+  })
+
   it('asks before continuing a backup when it observes a remote-only bilimi folder', async () => {
     const observation = { folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }
     const sync = vi.fn().mockResolvedValue({ ok: true, remoteObservations: [observation] })
@@ -2719,7 +2845,8 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), {
       backupTargetLedgerIds: ['music'],
       deleteDisabled: false,
-      rediscoverDeletedRemoteDrafts: true
+      rediscoverDeletedRemoteDrafts: true,
+      requireFinalBackupVerification: true
     }))
     expect(sync).toHaveBeenCalledTimes(2)
   })
@@ -2811,7 +2938,8 @@ describe('FavoriteLedgerOverview', () => {
     await waitFor(() => expect(sync).toHaveBeenLastCalledWith(expect.any(Array), {
       backupTargetLedgerIds: ['music', 'game'],
       deleteDisabled: false,
-      rediscoverDeletedRemoteDrafts: true
+      rediscoverDeletedRemoteDrafts: true,
+      requireFinalBackupVerification: true
     }))
     expect(await screen.findByRole('dialog', { name: '确认修改 B 站收藏夹名称' })).toBeInTheDocument()
   })
