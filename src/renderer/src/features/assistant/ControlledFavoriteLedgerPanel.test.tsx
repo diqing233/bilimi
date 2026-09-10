@@ -782,7 +782,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       expect(sync).not.toHaveBeenCalled()
       expect(screen.getByTestId('favorite-ledger-chip-inbox')).not.toHaveTextContent('未绑定')
       expect(screen.getByTestId('favorite-ledger-chip-other')).toHaveTextContent('未绑定')
-      expect(screen.getByText(/检测到 B 站中有 1 个疑似 bilimi 工作夹：1 个未绑定/)).toBeInTheDocument()
+      expect(screen.queryByText(/检测到 B 站中有 1 个疑似 bilimi 工作夹：1 个未绑定/)).not.toBeInTheDocument()
     } finally {
       requestFrame.mockRestore()
     }

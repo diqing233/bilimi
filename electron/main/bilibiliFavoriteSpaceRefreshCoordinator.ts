@@ -67,7 +67,19 @@ export class BilibiliFavoriteSpaceRefreshCoordinator {
 
   private setStatus(accountMid: string, status: BilibiliFavoriteSpaceRefreshStatus) {
     const current = this.getStatus(accountMid)
-    if (current.status === status.status) return current
+    if (current.status === status.status) {
+      // An explicit refresh can complete while the coordinator was already
+      // idle (for example after a managed deletion deferral). Emit the
+      // completion edge so renderer-side pending discovery work is consumed.
+      if (status.status === 'idle') {
+        try {
+          this.options.onStatusChange?.(accountMid, status)
+        } catch {
+          // Status delivery must not make a confirmed remote mutation fail.
+        }
+      }
+      return current
+    }
     if (status.status === 'idle') this.statuses.delete(accountMid)
     else this.statuses.set(accountMid, status)
     try {

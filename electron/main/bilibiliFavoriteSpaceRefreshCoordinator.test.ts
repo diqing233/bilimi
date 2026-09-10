@@ -27,4 +27,18 @@ describe('BilibiliFavoriteSpaceRefreshCoordinator', () => {
       { accountMid: '100', status: 'idle' }
     ])
   })
+
+  it('notifies completion when an explicit refresh finishes while already idle', async () => {
+    const statuses: Array<{ accountMid: string; status: 'idle' | 'pending' }> = []
+    const coordinator = new BilibiliFavoriteSpaceRefreshCoordinator({
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      refreshProjection: vi.fn().mockResolvedValue(undefined),
+      refreshFavoriteSpacePages: vi.fn().mockResolvedValue({ requested: 1, completed: 1, failed: 0 }),
+      onStatusChange: (accountMid, status) => statuses.push({ accountMid, status: status.status })
+    })
+
+    await expect(coordinator.refresh('100')).resolves.toEqual({ status: 'idle' })
+
+    expect(statuses).toEqual([{ accountMid: '100', status: 'idle' }])
+  })
 })

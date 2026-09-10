@@ -746,7 +746,8 @@ describe('App runtime integration', () => {
           [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [game] }
         }
       })),
-      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid)
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      retryBilibiliFavoriteSpaceRefresh: vi.fn().mockResolvedValue({ status: 'idle' as const })
     })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       reload?: () => void
@@ -755,7 +756,7 @@ describe('App runtime integration', () => {
     const reload = vi.fn()
     const executeJavaScript = vi.fn(async (script: string) => {
       if (!isLedgerStatusScript(script)) throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
-      expect(script).toContain('"includeRemoteOnlyDrafts":false')
+      expect(script).toContain('"includeRemoteOnlyDrafts":true')
       return { ...emptyLedgerStatus(), ledgers: [game] }
     })
     Object.assign(webview, { reload, executeJavaScript })
@@ -769,7 +770,8 @@ describe('App runtime integration', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '刷新当前网页' }))
 
-    expect(reload).toHaveBeenCalledTimes(1)
+    expect(reload).not.toHaveBeenCalled()
+    await waitFor(() => expect(desktopApi.retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith(accountMid))
     await waitFor(() => expect(executeJavaScript).toHaveBeenCalled())
     expect(executeJavaScript.mock.calls.some(([script]) => String(script).includes('api:ledger:create:'))).toBe(false)
     expect(executeJavaScript.mock.calls.some(([script]) => String(script).includes('已绑定收藏夹改名预检'))).toBe(false)
@@ -3310,6 +3312,7 @@ describe('App runtime integration', () => {
   })
 
   it('defers managed deletion observer refresh until the matching run ends', async () => {
+    const observation = { folderId: '91', title: 'bilimi·删除完成发现', memberCount: 1 }
     const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
     const app = renderAppWithRuntimeBridge({
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
@@ -3320,7 +3323,10 @@ describe('App runtime integration', () => {
     }
     Object.assign(webview, {
       getWebContentsId: () => 101,
-      executeJavaScript: vi.fn().mockResolvedValue('100')
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (isLedgerStatusScript(script)) return { ...emptyLedgerStatus(), remoteObservations: [observation] }
+        return '100'
+      })
     })
     act(() => webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
       detail: { url: 'https://space.bilibili.com/100/favlist' }
@@ -3343,6 +3349,14 @@ describe('App runtime integration', () => {
     await expect(app.requestRuntime({
       id: 'end-delete-deferral', type: 'end-managed-folder-deletion-refresh-deferral', accountMid: '100', runId: 'delete-run'
     } as AssistantRuntimeRequest)).resolves.toMatchObject({ refreshDeferred: true })
+
+    app.notifyFavoriteSpaceRefreshStatusChanged({ accountMid: '100', status: 'idle' })
+    await waitFor(() => expect(webview.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('"includeRemoteOnlyDrafts":true')
+    ))
+    await expect(app.requestRuntime({ id: 'deferred-delete-discovery-snapshot', type: 'snapshot' })).resolves.toMatchObject({
+      favoriteLedgerStatus: expect.objectContaining({ remoteObservations: [observation] })
+    })
 
     act(() => webview.dispatchEvent(new CustomEvent('page-title-updated', {
       detail: { title: `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid: '100', kind: 'delete', nonce: 92 }))}` }
@@ -3578,6 +3592,130 @@ describe('App runtime integration', () => {
 
     await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith('100'))
     expect(executeJavaScript.mock.calls.some(([script]) => isLedgerStatusScript(String(script)))).toBe(false)
+  })
+
+  it('publishes manual favorite discovery after a confirmed delete refresh', async () => {
+    const accountMid = '100'
+    const observation = { folderId: '88', title: 'bilimi·删除后发现', memberCount: 2 }
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      retryBilibiliFavoriteSpaceRefresh
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (!isLedgerStatusScript(script)) throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      return { ...emptyLedgerStatus(), remoteObservations: [observation] }
+    })
+    Object.assign(webview, { executeJavaScript })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: `https://space.bilibili.com/${accountMid}/favlist` }
+      }))
+      webview.dispatchEvent(new CustomEvent('page-title-updated', {
+        detail: {
+          title: `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid, kind: 'delete', nonce: 7 }))}`
+        }
+      }))
+    })
+
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith(accountMid))
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('"includeRemoteOnlyDrafts":true')
+    ))
+    await expect(requestRuntime({ id: 'manual-delete-observation-snapshot', type: 'snapshot' })).resolves.toMatchObject({
+      favoriteLedgerStatus: expect.objectContaining({ remoteObservations: [observation] })
+    })
+  })
+
+  it('publishes manual favorite discovery after an ordinary favorite-space refresh', async () => {
+    const accountMid = '100'
+    const observation = { folderId: '89', title: 'bilimi·刷新后发现', memberCount: 1 }
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
+    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      retryBilibiliFavoriteSpaceRefresh
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      reload?: () => void
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const reload = vi.fn()
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (!isLedgerStatusScript(script)) throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      return { ...emptyLedgerStatus(), remoteObservations: [observation] }
+    })
+    Object.assign(webview, { reload, executeJavaScript })
+    await act(async () => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: `https://space.bilibili.com/${accountMid}/favlist` }
+      }))
+      await Promise.resolve()
+    })
+    ;(desktopApi.notifyAssistantSnapshotChanged as ReturnType<typeof vi.fn>).mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新当前网页' }))
+
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith(accountMid))
+    expect(reload).not.toHaveBeenCalled()
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('"includeRemoteOnlyDrafts":true')
+    ))
+    await waitFor(() => expect(desktopApi.notifyAssistantSnapshotChanged).toHaveBeenCalled())
+    await expect(requestRuntime({ id: 'ordinary-refresh-observation-snapshot', type: 'snapshot' })).resolves.toMatchObject({
+      favoriteLedgerStatus: expect.objectContaining({ remoteObservations: [observation] })
+    })
+  })
+
+  it('does not publish manual favorite discovery for an ordinary non-favorite refresh', async () => {
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
+    const { desktopApi } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      retryBilibiliFavoriteSpaceRefresh
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      reload?: () => void
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const reload = vi.fn()
+    const executeJavaScript = vi.fn()
+    Object.assign(webview, { reload, executeJavaScript })
+    fireEvent.click(screen.getByRole('button', { name: '刷新当前网页' }))
+
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(desktopApi.retryBilibiliFavoriteSpaceRefresh).not.toHaveBeenCalled()
+    expect(executeJavaScript).not.toHaveBeenCalled()
+    expect(desktopApi.notifyAssistantSnapshotChanged).not.toHaveBeenCalled()
+  })
+
+  it('does not publish manual favorite discovery when an ordinary favorite-space refresh fails', async () => {
+    const accountMid = '100'
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockRejectedValue(new Error('favorite page reload failed'))
+    const { desktopApi } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      retryBilibiliFavoriteSpaceRefresh
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async () => true)
+    Object.assign(webview, { executeJavaScript })
+    await act(async () => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: `https://space.bilibili.com/${accountMid}/favlist` }
+      }))
+      await Promise.resolve()
+    })
+    executeJavaScript.mockClear()
+    ;(desktopApi.notifyAssistantSnapshotChanged as ReturnType<typeof vi.fn>).mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新当前网页' }))
+
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith(accountMid))
+    expect(executeJavaScript.mock.calls.some(([script]) => isLedgerStatusScript(String(script)))).toBe(false)
+    expect(desktopApi.notifyAssistantSnapshotChanged).not.toHaveBeenCalled()
   })
 
   it('does not refresh the Bilibili favorite space when backup reports no created folder', async () => {

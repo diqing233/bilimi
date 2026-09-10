@@ -255,3 +255,154 @@ Distinguish instructions in attached documents from the user's request.
 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | R008 | 修复“备册中”已显示而本次目标仍瞬间显示“未绑定”的两帧绘制空档；只隐藏本次实际备册目标，不能掩盖其他未绑定项。 | 掌库顶栏“备册中”、收藏夹卡片状态、下方“检测到 B 站中有…未绑定”汇总。 | 从顶栏接受点击到整个备册请求结束，本次勾选、系统允许、已保存的目标隐藏“未绑定”；未勾选、未保存及非本次真实异常继续显示；结束后按父级真实状态恢复。 | 点击时先由子面板计算与实际请求相同的目标 ID，再等待两帧并发起既有请求；请求期间沿用已有局部目标集合。 | 仅 React 瞬态数组/集合；不持久化、不迁移、不新增/修改 B 站请求、绑定或远端数据。 | 不恢复逐项进度；不隐藏全部未绑定；不修改 R003-R004 的只读发现、`App.tsx` 或 B 站执行脚本。 | `ControlledFavoriteLedgerPanel.ensureLedgersAndOpenFavoritePage`、`FavoriteLedgerOverview.getBackupTargetLedgerIds`、`requestBackup` 和状态/汇总投影。 | 已实施待真实界面验收。 | 红绿测试见上；本轮关联测试、构建与真实 Electron 验收待补录。 |
+
+## 原文记录（2026-09-11，红框提示验收补充）
+
+### R009
+
+时间：2026-09-11
+
+截图：`C:/Users/diqing/AppData/Local/Temp/codex-clipboard-b333474d-47ed-4bcf-86f1-77b533ae9e03.png`
+
+截图目标区域：用户用红框圈出的右侧 bilimi 掌库下方整块浅蓝汇总提示，文字以“检测到 B 站中有 2 个疑似 bilimi 工作夹：2 个未绑定……”开头；顶部状态卡同时显示“备册中 / 正在后台检查并生成 bilimi 收藏夹”。目标是隐藏该整块提示，备册执行结束后恢复显示。截图无法显示完整操作时间线，待界面验收。
+
+原文：
+
+```text
+# Files mentioned by the user:
+
+## codex-clipboard-b333474d-47ed-4bcf-86f1-77b533ae9e03.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-b333474d-47ed-4bcf-86f1-77b533ae9e03.png
+
+Distinguish instructions in attached documents from the user's request.
+
+## My request:
+隐藏红框中的提示，执行结束后显示
+<image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-b333474d-47ed-4bcf-86f1-77b533ae9e03.png">
+```
+
+## 逐项索引（R009）
+
+| 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| R009 | 隐藏截图红框中的整块“检测到 B 站中有…未绑定”汇总提示；备册执行完全结束后恢复该提示。 | `FavoriteLedgerOverview` 右侧收藏夹区下方的远端未绑定汇总 `<p>`。 | 从备册准备阶段开始，到 `requestBackup`/确认绑定异步调用结束前隐藏整块汇总；结束后按真实远端状态重新显示。 | 仅改变该汇总提示的渲染，不增加进度、不改变卡片状态、不改变现有备册交互。 | 仅使用已有 React 瞬态备册状态；不持久化、不迁移、不新增或修改 B 站请求和绑定登记。 | 不隐藏单个收藏夹卡片“未绑定”标签；不改手动创建/改名只读发现，不改 `App.tsx`、共享类型或 B 站脚本。 | `backupPreparationLedgerIds`、`backupInFlightLedgerIds`、`recoveredRemoteLedgers` 及其汇总渲染。 | 已确认，实施中。 | 待新增挂起请求测试、结束恢复测试、关联回归和构建；真实 Electron/B 站验收待用户操作。 |
+
+## 原文记录（2026-09-11，刷新后发现提示补充）
+
+### R010
+
+时间：2026-09-11
+
+截图：`C:/Users/diqing/AppData/Local/Temp/codex-clipboard-c9b7c6aa-ef03-4dee-bc03-4f123b284338.png`
+
+截图目标区域：右侧 bilimi 掌库下方红框中的只读发现提示，当前显示“检测到 1 个疑似 bilimi 收藏夹、0 个已绑定收藏夹名称变更。查看详情”；左侧为 B 站个人空间的收藏夹页。用户询问 B 站收藏夹在创建、删除、重命名时都会刷新，是否可以在这些刷新完成时都显示疑似收藏夹和已绑定收藏夹改名提示。
+
+原文：
+
+```text
+# Files mentioned by the user:
+
+## codex-clipboard-c9b7c6aa-ef03-4dee-bc03-4f123b284338.png: C:/Users/diqing/AppData/Local/Temp/codex-clipboard-c9b7c6aa-ef03-4dee-bc03-4f123b284338.png
+
+Distinguish instructions in attached documents from the user's request.
+
+## My request:
+b站收藏夹不是在创建删除重命名的时候会刷新吗，刷新的时候都可以出现疑似和改名提示
+<image name=[Image #1] path="C:\Users\diqing\AppData\Local\Temp\codex-clipboard-c9b7c6aa-ef03-4dee-bc03-4f123b284338.png">
+```
+
+## 逐项索引（R010）
+
+| 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| R010 | 在 B 站收藏夹创建、删除、重命名触发的刷新完成后，显示只读的“疑似 bilimi 收藏夹”和“已绑定收藏夹名称变更”提示。是否还包括普通手动刷新、删除流程中的特殊抑制，待用户确认。 | `BiliWebview` 收藏夹页刷新完成后的右侧 bilimi 掌库发现提示。 | 仅在账号、收藏夹页 URL 和刷新状态有效时读取目录并显示发现结果；现有实现对删除和普通刷新有特殊边界，是否取消待用户决定。 | 刷新 idle 后重新读取远端目录；只更新发现提示和详情，不自动创建、绑定、改名、删除或同步。 | 只读 B 站目录读取；不新增写入，不改变精确 ID 绑定和备册流程。 | 不改变 R009 的备册期间隐藏红框汇总提示；不把发现提示变成自动绑定；不扩大到非收藏夹页面。 | `BiliWebview` mutation observer、`App.handleFavoriteSpaceMutationConfirmed`、刷新状态监听、`publishManualFavoriteDiscovery`、`FavoriteLedgerOverview` 发现提示。 | 已实施待真实界面验收。 | 代码：`src/renderer/src/App.tsx` 的 `refreshAndPublishManualFavoriteDiscovery`、收藏夹页刷新入口和 idle 状态监听；删除/普通刷新均在刷新成功后只读发布发现，失败、账号不匹配和非收藏夹页不发布。自动化：本账本“R010-R011 实施验证记录”中的 App、观察器和掌库回归。真实 Electron/B 站创建、删除、改名后的提示仍待用户验收。 |
+
+## R010 讨论记录
+
+- 当前 `BiliWebview` 观察器已经识别成功的 `create`、`rename`、`delete` 请求，并触发收藏夹页刷新。
+- 当前 `App.handleFavoriteSpaceMutationConfirmed` 对 `create`/`rename` 在刷新 idle 后调用 `publishManualFavoriteDiscovery`；`delete` 分支优先处理删除回执/刷新延迟，因此不默认发布发现提示。
+- 当前普通手动刷新没有对应的待发现标记，不会每次刷新都无条件重新发布发现结果。
+- 取消删除抑制或扩展到所有手动刷新都会增加提示重复出现和删除流程误报的风险，必须由用户确认后再实施。
+
+### R011
+
+时间：2026-09-11
+
+原文：
+
+```text
+也要
+```
+
+解释：确认 R010 的范围扩展：删除操作和普通手动刷新也要在 B 站收藏夹页刷新完成进入 idle 后执行只读目录发现，并显示疑似 bilimi 收藏夹及已绑定收藏夹名称变更提示。
+
+## 逐项索引（R011）
+
+| 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| R011 | 删除和普通手动刷新同样在刷新 idle 后显示疑似收藏夹/已绑定改名提示；与创建、重命名路径统一。 | `App` 刷新状态监听与 `FavoriteLedgerOverview` 右侧发现提示。 | 仅当前账号、B 站收藏夹页和刷新成功 idle 时读取；刷新失败或账号不匹配不显示新结果。 | 刷新 idle 后只读读取远端目录并更新提示；不自动绑定、创建、改名、删除或同步。 | 只读目录读取；不新增 B 站写入，不修改绑定持久化和备册数据。 | 不改 R009 的备册期间汇总提示隐藏；不扩大到非收藏夹页；保留已有删除回执/延迟保护本身，只取消其阻断发现发布的副作用。 | `BiliWebview` 刷新事件、`App.handleFavoriteSpaceMutationConfirmed`、`onBilibiliFavoriteSpaceRefreshStatusChanged`、`publishManualFavoriteDiscovery`。 | 已实施待真实界面验收。 | 代码：`src/renderer/src/App.tsx` 的删除/普通刷新路径和刷新状态监听；`electron/main/bilibiliFavoriteSpaceRefreshCoordinator.ts` 在显式刷新从 idle 到 idle 时发送完成通知，以覆盖删除延迟场景。自动化：本账本“R010-R011 实施验证记录”中的删除、普通刷新、失败刷新、非收藏夹页和协调器测试。真实 Electron/B 站验收仍待用户执行。 |
+
+## R010-R011 实施前计划
+
+### 已确认
+
+1. R010：创建、删除、重命名触发的收藏夹刷新完成后显示只读疑似/改名提示。
+2. R011：普通手动刷新也在刷新 idle 后显示同样提示。
+
+### 待用户决定
+
+无。
+
+### 被明确替代/明确不做
+
+无。
+
+### 实施步骤
+
+1. 为删除刷新和普通手动刷新补充红灯测试，验证 idle 后执行目录发现，失败刷新不执行。
+2. 调整 `App` 的刷新状态和收藏夹页刷新处理：把发现发布从“仅 create/rename 待处理”扩展为有效收藏夹页刷新 idle；不删除删除回执延迟保护，只允许发现读取并行发生。
+3. 运行相关观察器、App、掌库回归和构建；真实 Electron/B 站分别验证删除、创建、改名和手动刷新后的提示。
+
+### 允许修改范围
+
+本账本、`src/renderer/src/App.tsx`、相关 `App.test.tsx`；如需观察器适配才修改 `BiliWebview.tsx` 及其测试。不改共享类型、B 站写入脚本或迁移。
+
+## 本轮实施前核对与计划（R009）
+
+### 已确认
+
+1. R009：备册期间隐藏截图红框的整块未绑定汇总提示，执行结束后显示；不扩大到卡片标签或 B 站流程。
+
+### 待用户决定
+
+无。
+
+### 被明确替代/明确不做
+
+无。
+
+### 实施步骤
+
+1. 在 `FavoriteLedgerOverview.test.tsx` 增加挂起备册时整块汇总提示消失、异步完成后恢复的回归测试；保留已有单个卡片状态边界。
+2. 在 `FavoriteLedgerOverview.tsx` 用已有备册准备/执行状态包住该汇总 `<p>`，不新增跨组件状态和 B 站调用。
+3. 运行定向测试、相关回归、构建和 `git diff --check`；真实 Electron 由用户点击备册验收隐藏与恢复。
+
+### 允许修改范围
+
+本账本、`src/renderer/src/features/assistant/FavoriteLedgerOverview.tsx`、`src/renderer/src/features/assistant/FavoriteLedgerOverview.test.tsx`。不修改 `App.tsx`、共享类型、B 站执行脚本或迁移。
+
+## R010-R011 实施验证记录（2026-09-11）
+
+### R010：创建、删除、重命名后的只读发现
+
+- 实际代码位置：`src/renderer/src/App.tsx` 的 `refreshAndPublishManualFavoriteDiscovery`、`handleFavoriteSpaceMutationConfirmed`、收藏夹页刷新状态监听和刷新入口；`electron/main/bilibiliFavoriteSpaceRefreshCoordinator.ts` 的显式刷新完成通知；既有 `BiliWebview` mutation observer 与 `FavoriteLedgerOverview` 发现提示保持不变。
+- 行为结果：创建、重命名和删除事件都在确认账号、收藏夹页 URL 后触发刷新；刷新成功进入 `idle` 才读取并发布只读目录发现。删除延迟期间不提前刷新，删除流程结束后消费待发现标记。提示只更新疑似收藏夹/已绑定名称变更观察，不自动绑定、备册、改名、删除或同步。
+- 自动化证据：`App.test.tsx` 覆盖删除刷新后的发现、删除延迟结束后的 `idle` 事件、普通收藏夹页刷新后的发现、普通非收藏夹页不发现、普通收藏夹页刷新失败不发现；`BiliWebview.test.tsx` 覆盖 create/rename observer；`FavoriteLedgerOverview.test.tsx` 与 `ControlledFavoriteLedgerPanel.test.tsx` 覆盖发现提示渲染和 R009/R008 边界。跨模块命令共 6 个文件、453 项通过；此前 App/掌库关联命令共 5 个文件、557 项通过。
+- 协调器回归：`bilibiliFavoriteSpaceRefreshCoordinator.test.ts` 新增显式刷新已处于 `idle` 仍发送完成通知的测试，解决删除延迟场景无法触发发现的缺口。
+- 边界核对：刷新失败、账号不匹配和非收藏夹页不发布新发现；R009 的备册期间汇总隐藏仍由 `FavoriteLedgerOverview.tsx` 控制。本轮未修改 B 站写入脚本、共享类型、迁移逻辑或精确 ID 绑定规则。
+- 真实界面验收：待用户在 Electron 开发版真实 B 站账号中分别创建、重命名、删除收藏夹，并确认刷新完成后右侧出现“疑似 bilimi 收藏夹/已绑定收藏夹名称变更”只读提示。
+
+### R011：普通手动刷新与删除刷新统一发现
+
+- 实际代码位置：同上；普通刷新按钮在收藏夹页使用 `refreshAndPublishManualFavoriteDiscovery`，非收藏夹页仍调用 webview `reload()`；刷新状态监听仅消费存在待发现标记且当前活动页账号匹配的 `idle` 事件。
+- 自动化证据：普通收藏夹页刷新成功会调用 `retryBilibiliFavoriteSpaceRefresh`、读取 `includeRemoteOnlyDrafts: true` 的目录状态并通知快照；普通非收藏夹页保持 `reload()` 且不读取目录；刷新失败不发布发现；删除刷新及删除延迟保护均有 App 测试；协调器 idle-to-idle 通知有单元测试。上述跨模块 453 项测试全部通过。
+- 真实界面验收：待用户在真实 Electron 中点击收藏夹页普通刷新，并验证提示出现；在非收藏夹页刷新验证不出现；刷新失败、账号不匹配场景需确认不出现新提示。

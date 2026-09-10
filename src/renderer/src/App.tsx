@@ -1326,6 +1326,21 @@ export default function App() {
     window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
   }
 
+  async function refreshAndPublishManualFavoriteDiscovery(accountMid: string) {
+    let refresh: { status: 'idle' | 'pending' } | undefined
+    try {
+      refresh = await window.bilimiDesktop?.retryBilibiliFavoriteSpaceRefresh?.(accountMid)
+    } catch {
+      return
+    }
+    if (refresh?.status !== 'idle') {
+      pendingManualFavoriteDiscoveryAccountMidsRef.current.add(accountMid)
+      return
+    }
+    pendingManualFavoriteDiscoveryAccountMidsRef.current.delete(accountMid)
+    await publishManualFavoriteDiscovery(accountMid)
+  }
+
   const handleFavoriteSpaceMutationConfirmed = useCallback((
     tabId: string,
     mutation: { accountMid: string; kind: 'create' | 'rename' | 'delete' }
@@ -1346,6 +1361,11 @@ export default function App() {
           if (deferral.accountMid === mutation.accountMid && deferral.webContentsId === webContentsId &&
             deferral.instanceId === target?.instanceId && deferral.navigationEpoch === target?.navigationEpoch) {
             deferral.refreshDeferred = true
+            // The mutation was verified against this page/account, even though
+            // its refresh is intentionally deferred until the managed delete
+            // finishes. Keep the account cache valid for the later idle event.
+            setObservedBilibiliAccount(mutation.accountMid)
+            pendingManualFavoriteDiscoveryAccountMidsRef.current.add(mutation.accountMid)
             return
           }
         }
@@ -1356,27 +1376,21 @@ export default function App() {
     // the generic tab account cache, so restore that verified identity before
     // caching this explicit, read-only observation.
     const accountMid = setObservedBilibiliAccount(mutation.accountMid)
-    const shouldPublishManualDiscovery = mutation.kind === 'create' || mutation.kind === 'rename'
     void (async () => {
-      let refresh: { status: 'idle' | 'pending' } | undefined
-      try {
-        refresh = await window.bilimiDesktop?.retryBilibiliFavoriteSpaceRefresh?.(accountMid)
-      } catch {
-        return
-      }
-      if (refresh?.status !== 'idle') {
-        if (shouldPublishManualDiscovery) pendingManualFavoriteDiscoveryAccountMidsRef.current.add(accountMid)
-        return
-      }
-      pendingManualFavoriteDiscoveryAccountMidsRef.current.delete(accountMid)
-      if (shouldPublishManualDiscovery) await publishManualFavoriteDiscovery(accountMid)
+      await refreshAndPublishManualFavoriteDiscovery(accountMid)
     })()
   }, [])
 
   useEffect(() => {
     return window.bilimiDesktop?.onBilibiliFavoriteSpaceRefreshStatusChanged?.(({ accountMid, status }) => {
-      if (status !== 'idle' || !pendingManualFavoriteDiscoveryAccountMidsRef.current.delete(accountMid)) return
-      if (assistantSnapshotCacheRef.current.accountMid !== accountMid) return
+      if (status !== 'idle') return
+      if (!pendingManualFavoriteDiscoveryAccountMidsRef.current.has(accountMid)) return
+      const activeFavoriteAccountMid = favoriteSpaceAccountMid(getActiveTabSnapshot()?.url)
+      if (activeFavoriteAccountMid !== accountMid || assistantSnapshotCacheRef.current.accountMid !== accountMid) {
+        pendingManualFavoriteDiscoveryAccountMidsRef.current.delete(accountMid)
+        return
+      }
+      pendingManualFavoriteDiscoveryAccountMidsRef.current.delete(accountMid)
       void publishManualFavoriteDiscovery(accountMid)
     })
   }, [])
@@ -1488,23 +1502,15 @@ export default function App() {
       setHomeWebviewActivated(true)
       return
     }
-    getCurrentActiveWebview()?.reload?.()
     const activeFavoriteAccountMid = favoriteSpaceAccountMid(getActiveTabSnapshot()?.url)
-    if (!activeFavoriteAccountMid) return
+    if (!activeFavoriteAccountMid) {
+      getCurrentActiveWebview()?.reload?.()
+      return
+    }
     void (async () => {
       const accountMid = await readBilibiliAccountMid()
       if (!accountMid || accountMid !== activeFavoriteAccountMid) return
-      const status = await readFavoriteLedgerStatus(accountMid, {
-        force: true,
-        includeRemoteOnlyDrafts: false
-      }).catch(() => undefined)
-      if (!status?.verified) {
-        window.bilimiDesktop?.setAssistantPetHint?.({
-          tone: 'hint',
-          message: '收藏夹状态核验失败，请刷新 B 站收藏夹后重试。'
-        })
-      }
-      window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+      await refreshAndPublishManualFavoriteDiscovery(accountMid)
     })()
   }
 

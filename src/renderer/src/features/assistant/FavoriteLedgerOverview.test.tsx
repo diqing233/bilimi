@@ -2410,7 +2410,7 @@ describe('FavoriteLedgerOverview', () => {
 
     expect(screen.getByTestId('favorite-ledger-chip-music')).not.toHaveTextContent('未绑定')
     expect(screen.getByTestId('favorite-ledger-chip-other')).toHaveTextContent('未绑定')
-    expect(screen.getByText(/检测到 B 站中有 1 个疑似 bilimi 工作夹：1 个未绑定/)).toBeInTheDocument()
+    expect(screen.queryByText(/检测到 B 站中有 1 个疑似 bilimi 工作夹：1 个未绑定/)).not.toBeInTheDocument()
 
     await act(async () => {
       pendingBackup.resolve({ ok: false })
