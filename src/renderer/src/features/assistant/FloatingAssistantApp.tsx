@@ -5594,7 +5594,6 @@ export function FloatingAssistantApp({
             ledgers={activeFavoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
             unboundLedgerIds={favoriteLedgerStatus?.unboundLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
-            backupProgress={favoriteLedgerStatus?.backupProgress}
             remoteOnlyDraftLedgerIds={editorRemoteOnlyDraftLedgerIds}
             observedRemoteObservations={favoriteLedgerStatus?.remoteObservations}
             observedBoundRenameCandidates={favoriteLedgerStatus?.boundRenameCandidates}

@@ -129,7 +129,6 @@ describe('ControlledFavoriteLedgerPanel', () => {
         backupTargetLedgerIds: ['music'],
         deleteDisabled: false,
         rediscoverDeletedRemoteDrafts: true,
-        requireFinalBackupVerification: true,
         rebindRemoteFolderIds: { music: 'remote-music' },
         rebindRemoteFolders: { music: [{ id: 'remote-music', title: 'bilimi·音乐', memberCount: 4 }] }
       }

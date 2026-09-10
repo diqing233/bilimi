@@ -97,8 +97,6 @@ export type FavoriteLedgerSaveOptions = {
   recommendationOnly?: boolean
   /** Logical ledgers locked by the current explicit batch-backup click; non-targets stay local only. */
   backupTargetLedgerIds?: FavoriteLedgerId[]
-  /** The visible batch-backup UI must not report success until final exact-ID discovery verifies its targets. */
-  requireFinalBackupVerification?: boolean
   /** Only an explicit backup may rediscover remote-only drafts deleted locally. */
   rediscoverDeletedRemoteDrafts?: boolean
   /** Remote-only draft reminders the owner explicitly dismissed for this account. */
@@ -302,11 +300,6 @@ export type FavoriteLedgerStatus = {
   ok: boolean
   /** Whether the current status was read successfully; `ok` may still be false for unrelated ledger gaps. */
   verified?: boolean
-  /** Ephemeral exact-ID progress for an active visible backup; never persisted. */
-  backupProgress?: {
-    targetLedgerIds: FavoriteLedgerId[]
-    completedLedgerIds: FavoriteLedgerId[]
-  }
   ledgers: FavoriteLedger[]
   missingLedgerIds: FavoriteLedgerId[]
   unboundLedgerIds?: FavoriteLedgerId[]

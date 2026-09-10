@@ -2455,8 +2455,7 @@ export default function App() {
     rebindRemoteFolders?: Record<string, Array<{ id: string; title: string; memberCount?: number; shardNumber?: number }>>,
     trustedRemoteShardNumbers?: ReadonlyMap<string, ReadonlyMap<string, number>>,
     formalShards?: readonly FormalBoundFavoriteShard[],
-    skipLedgerIds: ReadonlySet<string> = new Set(),
-    onBindingRegistered?: (ledgerId: string) => void
+    skipLedgerIds: ReadonlySet<string> = new Set()
   ): Promise<FavoriteLedgerBindingRegistrationResult> {
     const shardNumberFromTitle = (title: string, baseTitle: string): number | undefined => {
       const titleShard = favoriteLedgerBindingNameAndShard(title)
@@ -2590,7 +2589,6 @@ export default function App() {
           ? Number(adoptedShard.remoteMemberCount)
           : memberCount
         successfulBindings.push({ ledgerId: ledger.id, remoteFolderId, remoteTitle: committedRemoteTitle, memberCount: committedMemberCount, shardNumber, replacesExistingRemoteBinding })
-        onBindingRegistered?.(ledger.id)
       } catch (error) {
         const failure = favoriteLedgerBindingFailure(error)
         failures.push({
@@ -2732,12 +2730,6 @@ export default function App() {
       includeRemoteOnlyDrafts?: boolean
     } = {}
   ): Promise<FavoriteLedgerStatus> {
-    const withActiveVisibleBackupProgress = (status: FavoriteLedgerStatus): FavoriteLedgerStatus => {
-      const backupProgress = assistantSnapshotCacheRef.current.accountMid === accountMid
-        ? assistantSnapshotCacheRef.current.favoriteLedgerStatus?.backupProgress
-        : undefined
-      return backupProgress ? { ...status, backupProgress } : status
-    }
     const statusGeneration = favoriteLedgerStatusGenerationRef.current
     const favoriteLedgers = favoriteLedgersForActiveAccount(accountMid)
     const ledgerSignature = JSON.stringify(favoriteLedgers.map((ledger) => ({
@@ -2758,14 +2750,12 @@ export default function App() {
         if (currentRevision !== undefined && currentRevision !== cached.repositoryRevision) {
           favoriteLedgerStatusCacheRef.current = null
         } else {
-          const cachedStatus = withActiveVisibleBackupProgress(cached.status)
-          assistantSnapshotCacheRef.current.favoriteLedgerStatus = cachedStatus
-          return cachedStatus
+          assistantSnapshotCacheRef.current.favoriteLedgerStatus = cached.status
+          return cached.status
         }
       } else {
-        const cachedStatus = withActiveVisibleBackupProgress(cached.status)
-        assistantSnapshotCacheRef.current.favoriteLedgerStatus = cachedStatus
-        return cachedStatus
+        assistantSnapshotCacheRef.current.favoriteLedgerStatus = cached.status
+        return cached.status
       }
     }
     let formalBindings
@@ -2873,9 +2863,6 @@ export default function App() {
           : ledger
       })
       const missingLedgerIds = status.missingLedgerIds.filter((ledgerId) => !preservedBoundLedgerIds.has(ledgerId))
-      const activeBackupProgress = assistantSnapshotCacheRef.current.accountMid === accountMid
-        ? assistantSnapshotCacheRef.current.favoriteLedgerStatus?.backupProgress
-        : undefined
       const recoveredStatus: FavoriteLedgerStatus = {
         ok: missingLedgerIds.length === 0 && !(status.unboundLedgerIds?.some((ledgerId) => !preservedBoundLedgerIds.has(ledgerId))),
         verified: true,
@@ -2886,7 +2873,6 @@ export default function App() {
         unboundCandidates: (status.unboundCandidates ?? []).filter((candidate) => !preservedBoundLedgerIds.has(candidate.ledgerId)),
         remoteOnlyDraftLedgerIds: status.remoteOnlyDraftLedgerIds ?? [],
         remoteObservations: options.includeRemoteOnlyDrafts === true ? status.remoteObservations ?? [] : [],
-        ...(activeBackupProgress ? { backupProgress: activeBackupProgress } : {}),
         message: status.message
       }
       assistantSnapshotCacheRef.current.favoriteLedgerStatus = recoveredStatus
@@ -2904,7 +2890,6 @@ export default function App() {
         setPreferences(savedPreferences)
       }
 
-      const { backupProgress: _backupProgress, ...cacheableRecoveredStatus } = recoveredStatus
       favoriteLedgerStatusCacheRef.current = {
         accountMid,
         ledgerSignature: JSON.stringify(recoveredLedgers.map((ledger) => ({
@@ -2918,9 +2903,7 @@ export default function App() {
         repositoryRevision,
         checkedAt: Date.now(),
         includesRemoteOnlyDrafts: options.includeRemoteOnlyDrafts === true,
-        // Progress is a live operation projection, not a cacheable status.
-        // Subsequent snapshot reads overlay the current operation progress.
-        status: cacheableRecoveredStatus
+        status: recoveredStatus
       }
 
       return recoveredStatus
@@ -3689,39 +3672,6 @@ export default function App() {
       await pending
     }
     const observedRemoteOnlyDrafts = Array.isArray(visibleMergedResult.remoteOnlyDraftLedgerIds) && visibleMergedResult.remoteOnlyDraftLedgerIds.length > 0
-    const visibleBackupTargetLedgerIds = options?.requireFinalBackupVerification === true
-      ? [...backupTargetLedgerIdSet]
-      : []
-    const visibleBackupCompletedLedgerIds = new Set<string>()
-    const publishVisibleBackupProgress = () => {
-      if (!visibleBackupTargetLedgerIds.length || assistantSnapshotCacheRef.current.accountMid !== accountMid) return
-      const currentStatus = assistantSnapshotCacheRef.current.favoriteLedgerStatus
-      const fallbackLedgers = visibleMergedResult.ledgers ?? requestedLedgers
-      assistantSnapshotCacheRef.current.favoriteLedgerStatus = {
-        ok: currentStatus?.ok ?? false,
-        verified: currentStatus?.verified,
-        ledgers: currentStatus?.ledgers ?? fallbackLedgers,
-        missingLedgerIds: currentStatus?.missingLedgerIds ?? [],
-        unboundLedgerIds: currentStatus?.unboundLedgerIds ?? [],
-        backupConflictLedgerIds: currentStatus?.backupConflictLedgerIds ?? [],
-        unboundCandidates: currentStatus?.unboundCandidates ?? [],
-        remoteOnlyDraftLedgerIds: currentStatus?.remoteOnlyDraftLedgerIds ?? [],
-        remoteObservations: currentStatus?.remoteObservations ?? [],
-        boundRenameCandidates: currentStatus?.boundRenameCandidates ?? [],
-        backupProgress: {
-          targetLedgerIds: visibleBackupTargetLedgerIds,
-          completedLedgerIds: visibleBackupTargetLedgerIds.filter((ledgerId) => visibleBackupCompletedLedgerIds.has(ledgerId))
-        },
-        message: currentStatus?.message ?? '正在备册并登记收藏夹绑定。'
-      }
-      window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
-    }
-    const clearVisibleBackupProgress = () => {
-      const currentStatus = assistantSnapshotCacheRef.current.favoriteLedgerStatus
-      if (!visibleBackupTargetLedgerIds.length || !currentStatus?.backupProgress) return
-      const { backupProgress: _backupProgress, ...statusWithoutProgress } = currentStatus
-      assistantSnapshotCacheRef.current.favoriteLedgerStatus = statusWithoutProgress
-    }
     const releaseObservedRemoteDraftRediscovery = async () => {
       if (!options?.rediscoverDeletedRemoteDrafts || !(mergedResult.ok === true || observedRemoteOnlyDrafts)) return
       await window.bilimiDesktop?.consumeFavoriteLedgerRemoteDraftRediscoveryPending?.(accountMid)
@@ -3758,12 +3708,7 @@ export default function App() {
         options?.rebindRemoteFolders,
         trustedRemoteShardNumbers,
         formalBoundShards,
-        directRename.renamedLedgerIds,
-        (ledgerId) => {
-          if (!visibleBackupTargetLedgerIds.includes(ledgerId)) return
-          visibleBackupCompletedLedgerIds.add(ledgerId)
-          publishVisibleBackupProgress()
-        }
+        directRename.renamedLedgerIds
       )
       const backupLedgers = ledgersAfterBindingRegistration(
         resultLedgers,
@@ -3830,10 +3775,7 @@ export default function App() {
           setPreferences(savedPreferences)
         }
         await releaseObservedRemoteDraftRediscovery()
-        await refreshFavoriteLedgerStatusAfterBackup(
-          options?.requireFinalBackupVerification === true ? [] : preserveBoundLedgerIds
-        )
-        clearVisibleBackupProgress()
+        await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)
         window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
         return {
           ...visibleMergedResult,
@@ -3866,87 +3808,24 @@ export default function App() {
       // Release only after that observation; a failure before the inventory
       // leaves the temporary suppression intact for the next explicit backup.
       await releaseObservedRemoteDraftRediscovery()
-      // The ordinary save path preserves a just-adopted binding through one
-      // stale inventory read for compatibility. The visible manual backup
-      // path opts into a stricter contract: its result must reflect the
-      // actual final B站 directory rather than that temporary projection.
-      await refreshFavoriteLedgerStatusAfterBackup(
-        options?.requireFinalBackupVerification === true ? [] : preserveBoundLedgerIds
-      )
-      clearVisibleBackupProgress()
+      await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
       const finalDiscoveryStatus = assistantSnapshotCacheRef.current.accountMid === accountMid
         ? assistantSnapshotCacheRef.current.favoriteLedgerStatus
         : null
-      if (options?.requireFinalBackupVerification === true && finalDiscoveryStatus?.verified === true && backupTargetLedgerIdSet.size) {
-        // The write-script receipt only proves that its request completed. A
-        // manual backup becomes successful only after the final exact-ID
-        // discovery has cleared every ledger affected by this operation.
-        // Scope this to the operation targets so unrelated historical gaps do
-        // not turn a successfully completed single-ledger backup into failure.
-        const finalTargetLedgerIds = remoteOperationLedgerIds
-        const finalMissingTargets = finalDiscoveryStatus.missingLedgerIds
-          .filter((ledgerId) => finalTargetLedgerIds.has(ledgerId))
-        const finalUnboundLedgerIds = (finalDiscoveryStatus.unboundLedgerIds ?? [])
-          .filter((ledgerId) => finalTargetLedgerIds.has(ledgerId))
-        const finalConflictLedgerIds = (finalDiscoveryStatus.backupConflictLedgerIds ?? [])
-          .filter((ledgerId) => finalTargetLedgerIds.has(ledgerId))
-        const finalUnboundCandidates = (finalDiscoveryStatus.unboundCandidates ?? [])
-          .filter((candidate) => finalTargetLedgerIds.has(candidate.ledgerId))
-        const finalFailureLedgerIds = new Set([
-          ...finalMissingTargets,
-          ...finalUnboundLedgerIds,
-          ...finalConflictLedgerIds,
-          ...finalUnboundCandidates.map((candidate) => candidate.ledgerId)
-        ])
-        const finalBackupSucceeded = finalFailureLedgerIds.size === 0
-        return {
-          ...visibleMergedResult,
-          ok: finalBackupSucceeded,
-          ledgers: finalDiscoveryStatus.ledgers,
-          missingTargets: finalMissingTargets,
-          unboundLedgerIds: finalUnboundLedgerIds,
-          unboundCandidates: finalUnboundCandidates,
-          backupConflictLedgerIds: finalConflictLedgerIds,
-          message: finalBackupSucceeded
-            ? visibleMergedResult.message
-            : finalDiscoveryStatus.message || 'B 站目录已核验，但正式绑定尚未完成。',
-          remoteOnlyDraftLedgerIds: finalDiscoveryStatus.remoteOnlyDraftLedgerIds ?? [],
-          remoteObservations: visibleMergedResult.remoteObservations ?? []
-        }
-      }
-      if (options?.requireFinalBackupVerification === true && backupTargetLedgerIdSet.size) {
-        const receiptMissingTargets = (visibleMergedResult.missingTargets ?? [])
-          .filter((ledgerId) => backupTargetLedgerIdSet.has(ledgerId))
-        const receiptUnboundLedgerIds = (visibleMergedResult.unboundLedgerIds ?? [])
-          .filter((ledgerId) => backupTargetLedgerIdSet.has(ledgerId))
-        const receiptUnboundCandidates = (visibleMergedResult.unboundCandidates ?? [])
-          .filter((candidate) => backupTargetLedgerIdSet.has(candidate.ledgerId))
-        const receiptConflictLedgerIds = (visibleMergedResult.backupConflictLedgerIds ?? [])
-          .filter((ledgerId) => backupTargetLedgerIdSet.has(ledgerId))
-        const receiptReportedFailure = receiptMissingTargets.length || receiptUnboundLedgerIds.length ||
-          receiptUnboundCandidates.length || receiptConflictLedgerIds.length
-        return {
-          ...visibleMergedResult,
-          ok: false,
-          ledgers: persistedLedgersWithHistory,
-          missingTargets: receiptReportedFailure ? receiptMissingTargets : [...backupTargetLedgerIdSet],
-          unboundLedgerIds: receiptUnboundLedgerIds,
-          unboundCandidates: receiptUnboundCandidates,
-          backupConflictLedgerIds: receiptConflictLedgerIds,
-          message: receiptReportedFailure
-            ? visibleMergedResult.message
-            : finalDiscoveryStatus?.message || 'B 站目录最终核验失败，本次备册结果尚未确认。',
-          remoteOnlyDraftLedgerIds: [],
-          remoteObservations: visibleMergedResult.remoteObservations ?? []
-        }
-      }
-      return {
-        ...visibleMergedResult,
-        ledgers: persistedLedgersWithHistory,
-        remoteOnlyDraftLedgerIds: [],
-        remoteObservations: visibleMergedResult.remoteObservations ?? []
-      }
+      return finalDiscoveryStatus?.verified === true
+        ? {
+            ...visibleMergedResult,
+            ledgers: finalDiscoveryStatus.ledgers,
+            remoteOnlyDraftLedgerIds: finalDiscoveryStatus.remoteOnlyDraftLedgerIds ?? [],
+            remoteObservations: visibleMergedResult.remoteObservations ?? []
+          }
+        : {
+            ...visibleMergedResult,
+            ledgers: persistedLedgersWithHistory,
+            remoteOnlyDraftLedgerIds: [],
+            remoteObservations: visibleMergedResult.remoteObservations ?? []
+          }
     }
 
     return Array.isArray(visibleMergedResult.ledgers) && options?.rebindRemoteFolders
