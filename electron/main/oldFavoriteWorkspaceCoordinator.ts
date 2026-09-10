@@ -1193,6 +1193,19 @@ export class OldFavoriteWorkspaceCoordinator {
         candidates: Array<{ id: string; title: string; memberCount: number; shardNumber?: number }>
       }>>
       /**
+       * Reads only currently present exact-ID bound shards for capacity
+       * planning. This is read-only and never treats a same-title folder as a
+       * replacement binding.
+       */
+      inspectBoundPhysicalShardsFromRemote?(accountMid: string, options: {
+        logicalLedgerIds?: readonly string[]
+      }): Promise<Array<{
+        logicalLedgerId: string
+        remoteFolderId: string
+        shardNumber: number
+        memberCount: number
+      }> | null>
+      /**
        * Reads the complete Bilibili directory in the explicit backup-confirm
        * path, then releases only formal bindings whose exact remote IDs no
        * longer exist. It never adopts or mutates a same-title remote folder.
@@ -4828,7 +4841,8 @@ export class OldFavoriteWorkspaceCoordinator {
 
   /**
    * Reads the backup prerequisites for an organizer confirmation without
-   * changing the workspace, repository, page bridge, or remote Bilibili
+   * changing the workspace, repository, or remote Bilibili folders. It reads
+   * the page directory when available so capacity reflects live exact-ID
    * folders. A later explicit backup action is responsible for resolving the
    * returned gaps and must re-read this snapshot before freezing.
    */
@@ -4903,6 +4917,41 @@ export class OldFavoriteWorkspaceCoordinator {
       const logicalTitles = new Map(await Promise.all(logicalLedgerIds.map(async (logicalLedgerId) => [
         logicalLedgerId, await titleFor(logicalLedgerId)
       ] as const)))
+      const bindingService = this.options.bindingService
+      const inspectedBoundShards = bindingService?.inspectBoundPhysicalShardsFromRemote
+        ? await bindingService.inspectBoundPhysicalShardsFromRemote(workspace.accountMid, { logicalLedgerIds: logicalLedgerIds })
+        : null
+      const hasLiveCapacityInspection = inspectedBoundShards !== null
+      const liveBoundShards = inspectedBoundShards ?? repositorySnapshot.physicalShards.flatMap((shard) => {
+        if (shard.bindingState !== 'bound' || !shard.remoteFolderId || !logicalLedgerIds.includes(shard.logicalLedgerId)) return []
+        return [{
+          logicalLedgerId: shard.logicalLedgerId,
+          remoteFolderId: shard.remoteFolderId,
+          shardNumber: shard.shardNumber,
+          memberCount: Math.max(repositorySnapshot.memberships[shard.folderId]?.length ?? 0, shard.remoteMemberCount ?? 0)
+        }]
+      })
+      const liveBoundShardsByLedger = new Map<string, Array<{
+        logicalLedgerId: string
+        remoteFolderId: string
+        shardNumber: number
+        memberCount: number
+      }>>()
+      for (const shard of liveBoundShards) {
+        liveBoundShardsByLedger.set(shard.logicalLedgerId, [
+          ...(liveBoundShardsByLedger.get(shard.logicalLedgerId) ?? []), shard
+        ])
+      }
+      const locallyKnownMembersForLiveShard = (logicalLedgerId: string, remoteFolderId: string, memberCount: number) => {
+        const localShard = repositorySnapshot.physicalShards.find((candidate) =>
+          candidate.logicalLedgerId === logicalLedgerId && candidate.bindingState === 'bound' &&
+          candidate.remoteFolderId === remoteFolderId)
+        const localMemberAids = localShard ? repositorySnapshot.memberships[localShard.folderId] ?? [] : []
+        // The folder inventory proves only a count. If that count contradicts
+        // this mirror, the mirror cannot suppress a pending append or inflate
+        // capacity for this confirmation.
+        return hasLiveCapacityInspection && localMemberAids.length > memberCount ? [] : localMemberAids
+      }
       const comparableShardTitle = (title: string) => {
         const { baseName, shardNumber } = favoriteLedgerBindingNameAndShard(title)
         return `${baseName}\u0000${shardNumber}`
@@ -4928,6 +4977,7 @@ export class OldFavoriteWorkspaceCoordinator {
       for (const logicalLedgerId of selectedLogicalLedgerIds) {
         const physicalShards = repositorySnapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
         const formalShards = physicalShards.filter((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
+        const liveFormalShards = liveBoundShardsByLedger.get(logicalLedgerId) ?? []
         const hasIncompleteShard = physicalShards.some((shard) => shard.bindingState !== 'bound' || !shard.remoteFolderId)
         if (physicalShards.length === 0) {
           const logicalTitle = logicalTitles.get(logicalLedgerId)!
@@ -4938,10 +4988,12 @@ export class OldFavoriteWorkspaceCoordinator {
             bindingCandidates: await bindingCandidatesFor(logicalLedgerId, logicalTitle, 1)
           })
           blockedLogicalLedgerIds.add(logicalLedgerId)
-        } else if (hasIncompleteShard || formalShards.length === 0) {
+        } else if (hasIncompleteShard || formalShards.length === 0 ||
+          (hasLiveCapacityInspection && formalShards.length > 0 && liveFormalShards.length === 0)) {
           const logicalTitle = logicalTitles.get(logicalLedgerId)!
-          const incompleteShardCandidates = (await Promise.all(physicalShards
-            .filter((shard) => shard.bindingState !== 'bound' || !shard.remoteFolderId)
+          const incompleteOrAbsentShardCandidates = (await Promise.all(physicalShards
+            .filter((shard) => shard.bindingState !== 'bound' || !shard.remoteFolderId ||
+              (hasLiveCapacityInspection && liveFormalShards.length === 0 && shard.bindingState === 'bound' && Boolean(shard.remoteFolderId)))
             .map((shard) => bindingCandidatesFor(
               logicalLedgerId,
               favoriteRepositoryManagedShardTitleForDisplay(logicalLedgerId, shard.shardNumber, 'backup-preflight', logicalTitle),
@@ -4951,7 +5003,7 @@ export class OldFavoriteWorkspaceCoordinator {
             logicalLedgerId,
             logicalTitle,
             reason: physicalShards.some((shard) => shard.bindingState === 'pending-reconcile') ? 'pending-reconcile' : 'unbound',
-            bindingCandidates: incompleteShardCandidates
+            bindingCandidates: incompleteOrAbsentShardCandidates
           })
           blockedLogicalLedgerIds.add(logicalLedgerId)
         }
@@ -4982,17 +5034,14 @@ export class OldFavoriteWorkspaceCoordinator {
         // binding/reconciliation flow. Its capacity remains unknown until the
         // follow-up preflight receives a formal authoritative shard.
         if (blockedLogicalLedgerIds.has(logicalLedgerId) || !formalShards.length) continue
-        const existingMemberAids = new Set(formalShards.flatMap((shard) => repositorySnapshot.memberships[shard.folderId] ?? []))
+        const liveFormalShards = liveBoundShardsByLedger.get(logicalLedgerId) ?? []
+        const existingMemberAids = new Set(liveFormalShards.flatMap((shard) =>
+          locallyKnownMembersForLiveShard(logicalLedgerId, shard.remoteFolderId, shard.memberCount)))
         const boundRequiredAssignmentCount = assignmentAids[logicalLedgerId].filter((aid) => !existingMemberAids.has(aid)).length
-        const availableCapacity = formalShards.reduce((total, shard) => total + Math.max(
-          0,
-          REMOTE_FAVORITE_SHARD_CAPACITY - Math.max(
-            repositorySnapshot.memberships[shard.folderId]?.length ?? 0,
-            shard.remoteMemberCount ?? 0
-          )
-        ), 0)
+        const availableCapacity = liveFormalShards.reduce((total, shard) =>
+          total + Math.max(0, REMOTE_FAVORITE_SHARD_CAPACITY - shard.memberCount), 0)
         const needed = Math.max(0, Math.ceil((boundRequiredAssignmentCount - availableCapacity) / REMOTE_FAVORITE_SHARD_CAPACITY))
-        const occupiedShardNumbers = new Set(physicalShards.map((shard) => shard.shardNumber))
+        const occupiedShardNumbers = new Set(liveFormalShards.map((shard) => shard.shardNumber))
         const plannedShardNumbers: number[] = []
         for (let candidateShardNumber = 1; plannedShardNumbers.length < needed; candidateShardNumber += 1) {
           if (occupiedShardNumbers.has(candidateShardNumber)) continue
@@ -5020,6 +5069,7 @@ export class OldFavoriteWorkspaceCoordinator {
       return {
         accountMid: workspace.accountMid,
         workspaceId: workspace.id,
+        ...(hasLiveCapacityInspection ? { observedBoundPhysicalShards: liveBoundShards } : {}),
         missingLedgers,
         requiredPhysicalShards: requiredPhysicalShardsWithCandidates
       }
@@ -5076,7 +5126,7 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.getBilibiliExecutionPreflight(accountMid)
   }
 
-  /** Freezes a remote plan from persisted physical shards; it never touches the page bridge. */
+  /** Freezes a remote plan after a fresh read-only capacity preflight. */
   async freezeForBilibiliExecution(accountMid: string, options: { includeInbox?: boolean } = {}): Promise<FavoriteRepositoryWorkspace> {
     const preflight = await this.getBilibiliExecutionPreflight(accountMid, options)
     if (preflight.missingLedgers.length || preflight.requiredPhysicalShards.length) {
@@ -5127,14 +5177,21 @@ export class OldFavoriteWorkspaceCoordinator {
         }, {})
         if (JSON.stringify(currentAssignments) !== JSON.stringify(preparation.assignmentAids)) return null
         const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
+        const observedMemberCountByRemoteFolderId = new Map((preflight.observedBoundPhysicalShards ?? [])
+          .map((shard) => [shard.remoteFolderId, shard.memberCount] as const))
         const boundShards = snapshot.physicalShards.flatMap((shard) => {
           if (shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
-          const memberAids = snapshot.memberships[shard.folderId] ?? []
+          if (preflight.observedBoundPhysicalShards && !observedMemberCountByRemoteFolderId.has(shard.remoteFolderId)) return []
+          const localMemberAids = snapshot.memberships[shard.folderId] ?? []
+          const observedMemberCount = observedMemberCountByRemoteFolderId.get(shard.remoteFolderId)
+          const memberAids = observedMemberCount !== undefined && localMemberAids.length > observedMemberCount
+            ? []
+            : localMemberAids
           return [{
             logicalLedgerId: shard.logicalLedgerId,
             remoteFolderId: shard.remoteFolderId,
             memberAids,
-            memberCount: Math.max(memberAids.length, shard.remoteMemberCount ?? 0),
+            memberCount: observedMemberCount ?? Math.max(memberAids.length, shard.remoteMemberCount ?? 0),
             shardNumber: shard.shardNumber
           }]
         })

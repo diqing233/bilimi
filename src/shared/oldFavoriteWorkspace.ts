@@ -77,6 +77,17 @@ export type OldFavoriteWorkspaceClassification = {
 export type OldFavoriteWorkspaceBilibiliSyncPreflight = {
   accountMid: string
   workspaceId: string
+  /**
+   * The one read-only directory observation used for this preflight's
+   * capacity decision. It is omitted for legacy test-only integrations that
+   * cannot inspect a Bilibili page.
+   */
+  observedBoundPhysicalShards?: Array<{
+    logicalLedgerId: string
+    remoteFolderId: string
+    shardNumber: number
+    memberCount: number
+  }>
   missingLedgers: Array<{
     logicalLedgerId: string
     logicalTitle: string

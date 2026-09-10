@@ -362,6 +362,48 @@ describe('FavoriteRepositoryBindingService', () => {
     ])
   })
 
+  it('inspects only live bound exact ids and counts without mutating local bindings', async () => {
+    const repository = await createRepository()
+    for (const [shardNumber, remoteFolderId, remoteTitle] of [
+      [1, 'game-1', 'bilimi·游戏专区'],
+      [2, 'deleted-game-2', 'bilimi·游戏专区②']
+    ] as const) {
+      await repository.commit('100', {
+        id: `bound-game-${shardNumber}`, accountMid: '100', issuedAt: `2026-09-10T00:00:0${shardNumber}.000Z`,
+        type: 'upsert-physical-shard-binding', payload: {
+          logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber, memberAids: [],
+          remoteTitle, bindingState: 'bound', remoteFolderId, remoteMemberCount: 1_000
+        }
+      })
+    }
+    const readFolderInventory = vi.fn().mockResolvedValue({
+      observedAccountMid: '100', folders: [
+        { id: 'game-1', title: 'bilimi·游戏专区', memberCount: 3 },
+        { id: 'same-title-unbound', title: 'bilimi·游戏专区②', memberCount: 999 }
+      ]
+    })
+    const service = new FavoriteRepositoryBindingService({
+      repository,
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory, createFolder: vi.fn(), deleteFolder: vi.fn(),
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    const revisionBefore = (await repository.getSnapshot('100')).revision
+
+    await expect(service.inspectBoundPhysicalShardsFromRemote('100', {
+      logicalLedgerIds: ['game']
+    })).resolves.toEqual([
+      { logicalLedgerId: 'game', remoteFolderId: 'game-1', shardNumber: 1, memberCount: 3 }
+    ])
+
+    expect(readFolderInventory).toHaveBeenCalledOnce()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ revision: revisionBefore })
+  })
+
   it('does not reconcile a pending shard whose exact remote id is deletion-suppressed', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

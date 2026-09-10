@@ -171,6 +171,13 @@ export type FavoriteRepositoryLedgerBindingCandidate = {
   candidates: Array<{ id: string; title: string; memberCount: number; shardNumber?: number }>
 }
 
+export type FavoriteRepositoryBoundPhysicalShardObservation = {
+  logicalLedgerId: string
+  remoteFolderId: string
+  shardNumber: number
+  memberCount: number
+}
+
 function normalizeAdoptionInput(input: AdoptExistingPhysicalShardInput) {
   const logicalLedgerId = input.logicalLedgerId.trim()
   const logicalTitle = input.logicalTitle.trim()
@@ -665,6 +672,66 @@ export class FavoriteRepositoryBindingService {
           releasedRemoteFolderIds.push(shard.remoteFolderId!)
         }
         return { releasedRemoteFolderIds: releasedRemoteFolderIds.sort() }
+      } finally {
+        pageBridgeManager.release(account, runId)
+      }
+    }
+    return this.options.remoteOperations?.run(account, run) ?? run()
+  }
+
+  /**
+   * Reads the current directory for capacity planning. It reports only a
+   * formally bound shard whose exact persisted remote ID still exists; it
+   * neither repairs local bindings nor treats a same-title folder as a match.
+   */
+  async inspectBoundPhysicalShardsFromRemote(
+    accountMid: string,
+    options: { logicalLedgerIds?: readonly string[] } = {}
+  ): Promise<FavoriteRepositoryBoundPhysicalShardObservation[] | null> {
+    const account = normalizedAccountMid(accountMid)
+    const requestedLogicalLedgerIds = new Set((options.logicalLedgerIds ?? [])
+      .map((logicalLedgerId) => logicalLedgerId.trim())
+      .filter(Boolean))
+    const run = async () => {
+      const pageBridgeManager = this.options.pageBridgeManager
+      // A production preflight always has this bridge. `null` exists only for
+      // local-only callers that do not own a Bilibili page at all; a configured
+      // bridge that cannot read remains an error and must never fall back to a
+      // stale local capacity mirror.
+      if (!pageBridgeManager) return null
+      const runId = `favorite-binding-inspect-capacity:${account}:${randomUUID()}`
+      await pageBridgeManager.bind(account, runId)
+      try {
+        let inventory
+        try {
+          inventory = await pageBridgeManager.pageBridge(account, runId).readFolderInventory({
+            accountMid: account, operationKey: `${runId}:inventory`
+          })
+        } catch {
+          throw new Error('Favorite repository remote folder inventory is unavailable.')
+        }
+        if (normalizedAccountMid(inventory.observedAccountMid) !== account) {
+          throw new Error('Favorite repository remote account mismatch.')
+        }
+        const foldersById = new Map(inventory.folders.map((folder) => [folder.id.trim(), folder]))
+        const snapshot = await this.options.repository.getSnapshot(account)
+        return snapshot.physicalShards.flatMap((shard) => {
+          if (shard.bindingState !== 'bound' || !shard.remoteFolderId ||
+            (requestedLogicalLedgerIds.size && !requestedLogicalLedgerIds.has(shard.logicalLedgerId))) return []
+          const folder = foldersById.get(shard.remoteFolderId)
+          if (!folder) return []
+          if (!Number.isSafeInteger(folder.memberCount) || folder.memberCount < 0 ||
+            folder.memberCount > REMOTE_FAVORITE_SHARD_CAPACITY) {
+            throw new Error('Favorite repository remote shard inventory is invalid.')
+          }
+          return [{
+            logicalLedgerId: shard.logicalLedgerId,
+            remoteFolderId: shard.remoteFolderId,
+            shardNumber: shard.shardNumber,
+            memberCount: folder.memberCount
+          }]
+        }).sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) ||
+          left.shardNumber - right.shardNumber || left.remoteFolderId.localeCompare(right.remoteFolderId))
       } finally {
         pageBridgeManager.release(account, runId)
       }
