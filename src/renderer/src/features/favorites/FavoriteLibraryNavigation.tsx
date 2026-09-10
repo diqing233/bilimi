@@ -12,6 +12,7 @@ export type FavoriteLibraryNavigationItem = {
   /** Optional per-folder membership used only to calculate a de-duplicated workspace total. */
   aids?: readonly number[]
   managed?: boolean
+  readOnlyWorkspace?: boolean
   protected?: boolean
   removable?: boolean
 }

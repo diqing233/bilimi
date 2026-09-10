@@ -1879,6 +1879,32 @@ describe('FavoriteRepositoryService', () => {
     expect(summary.folders.find((folder) => folder.id === 'local:personal')).not.toHaveProperty('logicalLedgerId')
   })
 
+  it('counts an ambiguous Bilimi-named remote draft with workspace folders without changing its folder record', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-09-10T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'ambiguous-remote-draft', accountMid: '100', issuedAt: '2026-09-10T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'bilibili:88': [1], 'bilibili:89': [2] },
+        folders: [
+          { id: 'bilibili:88', title: 'bilimi·哈哈', remoteFolderId: '88' },
+          { id: 'bilibili:89', title: '普通收藏夹', remoteFolderId: '89' }
+        ],
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-09-10T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      workspaceVideoCount: 1,
+      otherFavoriteVideoCount: 1,
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'bilibili:88', title: 'bilimi·哈哈', kind: 'bilibili', remoteFolderId: '88' }),
+        expect.objectContaining({ id: 'bilibili:89', title: '普通收藏夹', kind: 'bilibili', remoteFolderId: '89' })
+      ])
+    })
+  })
+
   it('projects orphaned custom local folders as drafts without projecting ordinary local folders', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-08-05T00:00:00.000Z' })

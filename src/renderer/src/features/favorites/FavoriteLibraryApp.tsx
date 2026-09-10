@@ -49,6 +49,7 @@ import {
   favoriteLibraryLedgerBindingStatus,
   type FavoriteLibraryRow
 } from './favoriteLibraryModel'
+import { resolveFavoriteFolderCapabilities } from '@shared/favoriteLedgerCapabilities'
 import './FavoriteLibraryApp.css'
 import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 
@@ -1418,17 +1419,23 @@ export function FavoriteLibraryApp({
   }, [navigation])
   const navigationGroups = useMemo<FavoriteLibraryNavigationGroup[]>(() => {
     const deletedIds = new Set(deletedFavoriteLedgerRecords.map((record) => record.logicalLedgerId))
+    const folderById = new Map(folders.map((folder) => [folder.id, folder]))
     const items = navigation.map((item) => {
       const label = item.kind === 'all' ? text.all : item.kind === 'pending' ? text.pending : item.title
       const unmatchedClassification = item.kind === 'folder' && item.folderId === 'local:inbox'
       const managed = item.kind === 'folder' && item.source === 'bilimi-logical'
       const localDraft = item.kind === 'folder' && item.source === 'local' && Boolean(item.logicalLedgerId)
-      const workspace = item.kind === 'folder' && (managed || localDraft)
+      const ambiguousRemoteDraft = item.kind === 'folder' &&
+        resolveFavoriteFolderCapabilities(folderById.get(item.folderId) ?? {
+          id: item.folderId, title: item.title, kind: item.source
+        }).identity === 'ambiguous-bilimi-like'
+      const workspace = item.kind === 'folder' && (managed || localDraft || ambiguousRemoteDraft)
       return {
         id: item.id,
         label: item.kind === 'folder' && item.logicalLedgerId && deletedIds.has(item.logicalLedgerId) ? `${label}（收藏夹已删除）` : label,
         count: item.kind === 'pending' ? (summary?.scopeCounts?.pending ?? item.count) : item.kind === 'recycle' ? (summary?.scopeCounts?.recycle ?? item.count) : item.kind === 'all' ? (summary?.scopeCounts?.all ?? summary?.videoCount ?? 0) : (summary?.folderCounts?.[item.folderId] ?? 0),
         managed,
+        readOnlyWorkspace: ambiguousRemoteDraft,
         workspace,
         removable: item.kind === 'folder' && item.source === 'bilibili',
         protected: unmatchedClassification
@@ -1442,7 +1449,7 @@ export function FavoriteLibraryApp({
       { id: 'workspace', label: 'bilimi 工作夹', videoCount: summary?.workspaceVideoCount, items: workspaceItems },
       { id: 'bilibili', label: '其他收藏夹', videoCount: summary?.otherFavoriteVideoCount, items: otherFavoriteItems }
     ]
-  }, [deletedFavoriteLedgerRecords, navigation, summary?.workspaceVideoCount, summary?.otherFavoriteVideoCount])
+  }, [deletedFavoriteLedgerRecords, folders, navigation, summary?.workspaceVideoCount, summary?.otherFavoriteVideoCount])
   const [collapsedNavigationGroups, setCollapsedNavigationGroups] = useState<Record<string, boolean>>({})
   const collapsedNavigationGroupsByAccountRef = useRef(new Map<string, Record<string, boolean>>())
   const collapsedNavigationSaveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())

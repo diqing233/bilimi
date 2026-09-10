@@ -25,6 +25,7 @@ import {
   type FavoriteRepositorySyncRecord,
   type FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
+import { resolveFavoriteFolderCapabilities } from '../../src/shared/favoriteLedgerCapabilities'
 import type { VideoAudioTranscriptionQueueItem, VideoNoteArchiveEntry } from '../../src/shared/types'
 
 type PersistedRepository = {
@@ -494,7 +495,7 @@ export type FavoriteRepositoryLibrarySummary = {
   folders: import('../../src/shared/favoriteRepository').FavoriteRepositoryFolder[]
   physicalShards: Array<import('../../src/shared/favoriteRepository').FavoriteRepositoryPhysicalShard & { localMemberCount?: number }>
   folderCounts: Record<string, number>
-  /** Distinct videos across valid Bilimi logical work folders, not a sum of folder counts. */
+  /** Distinct videos in displayed Bilimi work folders, including read-only ambiguous remote drafts. */
   workspaceVideoCount?: number
   /** Distinct videos across non-workspace, non-inbox favorite folders. */
   otherFavoriteVideoCount?: number
@@ -653,7 +654,9 @@ export class FavoriteRepositoryService {
       ? [...stagingAids]
       : index.folderAidsByFolderId.get(folderId) ?? []
     const isWorkspaceFolder = (folder: typeof projectedFolders[number]) =>
-      folder.kind === 'bilimi-logical' || (folder.kind === 'local' && Boolean(folder.logicalLedgerId))
+      folder.kind === 'bilimi-logical' ||
+      (folder.kind === 'local' && Boolean(folder.logicalLedgerId)) ||
+      resolveFavoriteFolderCapabilities(folder).identity === 'ambiguous-bilimi-like'
     const workspaceVideoCount = new Set(
       projectedFolders
         .filter(isWorkspaceFolder)

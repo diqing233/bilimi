@@ -2134,11 +2134,11 @@ describe('FavoriteLibraryApp', () => {
       }
     })
   })
-  it('does not classify an ordinary Bilibili folder as a workspace from its bilimi title alone', async () => {
+  it('keeps an ordinary Bilibili folder outside the workspace when its title does not use the Bilimi ledger prefix', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z', videoCount: 0, folderCount: 1, folders: [
-        { id: 'bilibili:99', title: 'bilimi 原神', kind: 'bilibili', remoteFolderId: '99', syncState: 'synced' }
+        { id: 'bilibili:99', title: 'Bilibili 原神', kind: 'bilibili', remoteFolderId: '99', syncState: 'synced' }
       ], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
@@ -2146,7 +2146,26 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
 
-    expect((await screen.findByRole('button', { name: 'bilimi 原神' })).closest('[data-group-id]')).toHaveAttribute('data-group-id', 'bilibili')
+    expect((await screen.findByRole('button', { name: 'Bilibili 原神' })).closest('[data-group-id]')).toHaveAttribute('data-group-id', 'bilibili')
+  })
+
+  it('projects an ambiguous Bilimi-named remote draft into the workspace without granting work-folder actions', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-09-10T00:00:00.000Z', videoCount: 0, folderCount: 2, folders: [
+        { id: 'bilibili:88', title: 'bilimi·哈哈', kind: 'bilibili', remoteFolderId: '88', syncState: 'synced' },
+        { id: 'bilibili:89', title: '普通收藏夹', kind: 'bilibili', remoteFolderId: '89', syncState: 'synced' }
+      ], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+
+    const ambiguousDraft = await screen.findByRole('button', { name: 'bilimi·哈哈' })
+    expect(ambiguousDraft.closest('[data-group-id]')).toHaveAttribute('data-group-id', 'workspace')
+    expect(screen.getByRole('button', { name: '普通收藏夹' }).closest('[data-group-id]')).toHaveAttribute('data-group-id', 'bilibili')
+    expect(screen.queryByRole('button', { name: 'bilimi·哈哈 菜单' })).not.toBeInTheDocument()
   })
 
   it('keeps ordinary folders viewable without local-hide or bulk-delete controls', async () => {

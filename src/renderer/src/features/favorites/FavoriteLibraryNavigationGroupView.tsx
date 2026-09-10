@@ -66,7 +66,7 @@ export const FavoriteLibraryNavigationGroupView = memo(function FavoriteLibraryN
       {visibleItems.map((item, index) => <div className={`favorite-library__navigation-row${group.id === 'workspace' ? ' favorite-library__navigation-row--managed favorite-library__navigation-row--menu' : ''}`} style={group.items.length > windowSize ? { position: 'absolute', top: `${(windowStart + index) * rowHeight}px`, left: 0, right: 0, height: `${rowHeight}px` } : undefined} key={item.id}>
         <button type="button" aria-label={item.id === 'all' || item.id.startsWith('folder:') ? item.label : undefined} aria-current={selectedId === item.id ? 'page' : undefined} title={item.id === 'all' ? `\u5171 ${item.count} \u4e2a\u53bb\u91cd\u89c6\u9891` : item.label} onClick={() => onSelect(item.id)}><span>{item.label}</span></button>
         <span className="favorite-library__navigation-trailing-slot"><span className="favorite-library__navigation-count">{item.count}</span>
-          {group.id === 'workspace' ? renderManagedMenu(item, !collapsed) : null}
+          {group.id === 'workspace' && !item.readOnlyWorkspace ? renderManagedMenu(item, !collapsed) : null}
         </span>
       </div>)}
     </div> : null}

@@ -82,6 +82,7 @@ export type FavoriteRepositorySnapshotSummary = {
   folders: FavoriteRepositoryFolder[]
   physicalShards: Array<import('../../src/shared/favoriteRepository').FavoriteRepositoryPhysicalShard & { localMemberCount?: number }>
   folderCounts: Record<string, number>
+  /** Distinct videos in displayed Bilimi work folders, including read-only ambiguous remote drafts. */
   workspaceVideoCount?: number
   otherFavoriteVideoCount?: number
   scopeCounts: { all: number; pending: number; protected: number; unsynced: number; recycle?: number }
