@@ -760,6 +760,34 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }
   })
 
+  it('hides unbound notices during the visible-paint gap before backup starts', () => {
+    const paintCallbacks: FrameRequestCallback[] = []
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      paintCallbacks.push(callback)
+      return paintCallbacks.length
+    })
+    try {
+      const sync = vi.fn()
+      render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[{
+        id: 'inbox', displayName: 'bilimi·暂存', keywords: [], enabled: true, priority: 10,
+        bilibiliFolderId: 'remote-inbox', bindingState: 'unbound', isDefault: true
+      }, {
+        id: 'other', displayName: 'bilimi·其他', keywords: [], enabled: false, priority: 20,
+        bilibiliFolderId: 'remote-other', bindingState: 'unbound', isDefault: false
+      }]} missingLedgerIds={[]} unboundLedgerIds={['inbox', 'other']} onEnsureLedgers={vi.fn()} onSyncLedgers={sync} onSaveLedgers={vi.fn()} />)
+
+      fireEvent.click(screen.getByRole('button', { name: '备册' }))
+
+      expect(screen.getByRole('button', { name: '备册' })).toHaveTextContent('备册中')
+      expect(sync).not.toHaveBeenCalled()
+      expect(screen.getByTestId('favorite-ledger-chip-inbox')).not.toHaveTextContent('未绑定')
+      expect(screen.getByTestId('favorite-ledger-chip-other')).toHaveTextContent('未绑定')
+      expect(screen.getByText(/检测到 B 站中有 1 个疑似 bilimi 工作夹：1 个未绑定/)).toBeInTheDocument()
+    } finally {
+      requestFrame.mockRestore()
+    }
+  })
+
   it('starts backup after a short fallback when a hidden window stops producing frames', async () => {
     vi.useFakeTimers()
     const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1)

@@ -2390,6 +2390,39 @@ describe('FavoriteLedgerOverview', () => {
     ], { backupTargetLedgerIds: ['music'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true })
   })
 
+  it('hides only this backup batch unbound notices until the request finishes', async () => {
+    const pendingBackup = deferred<{ ok: false }>()
+    const sync = vi.fn().mockReturnValue(pendingBackup.promise)
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: 'remote-music', bindingState: 'unbound', isDefault: true
+    }, {
+      id: 'other', displayName: 'bilimi·其他', keywords: [], enabled: false, priority: 20,
+      bilibiliFolderId: 'remote-other', bindingState: 'unbound', isDefault: false
+    }]} missingLedgerIds={[]} unboundLedgerIds={['music', 'other']} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未绑定')
+    expect(screen.getByTestId('favorite-ledger-chip-other')).toHaveTextContent('未绑定')
+    expect(screen.getByText(/检测到 B 站中有 2 个疑似 bilimi 工作夹：2 个未绑定/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
+
+    expect(screen.getByTestId('favorite-ledger-chip-music')).not.toHaveTextContent('未绑定')
+    expect(screen.getByTestId('favorite-ledger-chip-other')).toHaveTextContent('未绑定')
+    expect(screen.getByText(/检测到 B 站中有 1 个疑似 bilimi 工作夹：1 个未绑定/)).toBeInTheDocument()
+
+    await act(async () => {
+      pendingBackup.resolve({ ok: false })
+      await pendingBackup.promise
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未绑定')
+      expect(screen.getByText(/检测到 B 站中有 2 个疑似 bilimi 工作夹：2 个未绑定/)).toBeInTheDocument()
+    })
+  })
+
   it('labels a backup-created exact id as awaiting formal confirmation instead of an ordinary unbound candidate', () => {
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'music', displayName: 'bilimi·音乐舞台', keywords: [], enabled: true, priority: 10,
@@ -2571,6 +2604,31 @@ describe('FavoriteLedgerOverview', () => {
         { id: '89', title: 'bilimi·游戏专区·2', memberCount: 6 }
       ] }
     })))
+  })
+
+  it('keeps an unbound target hidden while its binding confirmation is pending', async () => {
+    const pendingConfirmation = deferred<{ ok: false }>()
+    const sync = vi.fn()
+      .mockResolvedValueOnce({ ok: false, unboundCandidates: [{ ledgerId: 'music', candidates: [{ id: '77', title: 'bilimi·音乐', memberCount: 1 }] }] })
+      .mockReturnValueOnce(pendingConfirmation.promise)
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      bilibiliFolderId: '77', bindingState: 'unbound', isDefault: true
+    }]} missingLedgerIds={[]} unboundLedgerIds={['music']} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await screen.findByRole('dialog', { name: '确认绑定 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(2))
+
+    expect(screen.getByTestId('favorite-ledger-chip-music')).not.toHaveTextContent('未绑定')
+
+    await act(async () => {
+      pendingConfirmation.resolve({ ok: false })
+      await pendingConfirmation.promise
+    })
+
+    await waitFor(() => expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未绑定'))
   })
 
   it('requires a separate bound-rename confirmation without exposing an id or calling sync again on cancel', async () => {

@@ -738,6 +738,7 @@ export function ControlledFavoriteLedgerPanel({
   const [recoveryDecisionError, setRecoveryDecisionError] = useState<string | null>(null)
   const [scanStarting, setScanStarting] = useState(false)
   const [ensuringLedgers, setEnsuringLedgers] = useState(false)
+  const [backupPreparationLedgerIds, setBackupPreparationLedgerIds] = useState<string[]>([])
   const ensuringLedgersRef = useRef(false)
   const favoriteLedgerOverviewRef = useRef<FavoriteLedgerOverviewHandle>(null)
   const [scanStartFailure, setScanStartFailure] = useState<string | null>(null)
@@ -1421,6 +1422,9 @@ export function ControlledFavoriteLedgerPanel({
   const ensureLedgersAndOpenFavoritePage = async () => {
     if (ensuringLedgersRef.current) return
     ensuringLedgersRef.current = true
+    setBackupPreparationLedgerIds(onSyncLedgers
+      ? favoriteLedgerOverviewRef.current?.getBackupTargetLedgerIds() ?? []
+      : [])
     setEnsuringLedgers(true)
     try {
       await waitForVisiblePaint()
@@ -1430,6 +1434,7 @@ export function ControlledFavoriteLedgerPanel({
       if (result?.ok !== false) await onOpenFavoritePage?.()
     } finally {
       ensuringLedgersRef.current = false
+      setBackupPreparationLedgerIds([])
       setEnsuringLedgers(false)
     }
   }
@@ -1472,6 +1477,7 @@ export function ControlledFavoriteLedgerPanel({
         observedRemoteObservations={observedRemoteObservations}
         observedBoundRenameCandidates={observedBoundRenameCandidates}
         onDismissRemoteDraftReminder={onDismissRemoteDraftReminder}
+        backupPreparationLedgerIds={backupPreparationLedgerIds}
         organizationActive={Boolean(activeSnapshot && !['frozen', 'executing', 'reconciling'].includes(activeSnapshot.status))}
         hasExpandedOrganizationGuide={guideOpen}
         defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
