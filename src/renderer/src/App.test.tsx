@@ -125,6 +125,7 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
   let preferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
   let favoriteLedgerEnabledChanged: ((patch: { accountMid: string; ledgerId: string; enabled: boolean }) => void) | undefined
   let openInTab: ((url: string) => void) | undefined
+  let favoriteSpaceRefreshStatusChanged: ((status: { accountMid: string; status: 'idle' | 'pending' }) => void) | undefined
   const registerAssistantRuntime = vi.fn(
     (handler: (request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload>) => {
       runtimeHandler = handler
@@ -145,6 +146,10 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     }),
     onOpenInTab: vi.fn((callback: (url: string) => void) => {
       openInTab = callback
+      return vi.fn()
+    }),
+    onBilibiliFavoriteSpaceRefreshStatusChanged: vi.fn((callback: (status: { accountMid: string; status: 'idle' | 'pending' }) => void) => {
+      favoriteSpaceRefreshStatusChanged = callback
       return vi.fn()
     }),
     setAssistantPetHint: vi.fn(),
@@ -209,6 +214,10 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     openInTab: (url: string) => {
       if (!openInTab) throw new Error('Open-in-tab listener was not registered.')
       act(() => openInTab?.(url))
+    },
+    notifyFavoriteSpaceRefreshStatusChanged: (status: { accountMid: string; status: 'idle' | 'pending' }) => {
+      if (!favoriteSpaceRefreshStatusChanged) throw new Error('Favorite-space refresh listener was not registered.')
+      act(() => favoriteSpaceRefreshStatusChanged?.(status))
     },
     requestRuntime: async (request: AssistantRuntimeRequest) => {
       if (!runtimeHandler) {
@@ -3460,6 +3469,51 @@ describe('App runtime integration', () => {
           shards: [expect.objectContaining({ currentRemoteTitle: 'bilimi·旧游戏', targetTitle: game.displayName })]
         })]
       })
+    })
+    expect(executeJavaScript.mock.calls.map(([script]) => String(script))).not.toContain(
+      expect.stringContaining(LEDGER_SAVE_SCRIPT_MARKER)
+    )
+  })
+
+  it.each(['create', 'rename'] as const)('retries a pending manual favorite %s discovery when the same account refresh later becomes idle', async (kind) => {
+    const accountMid = '100'
+    const observation = { folderId: '88', title: 'bilimi·刷新后发现', memberCount: 2 }
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'pending' as const })
+    const { desktopApi, notifyFavoriteSpaceRefreshStatusChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      retryBilibiliFavoriteSpaceRefresh
+    })
+    await waitFor(() => expect(desktopApi.loadPreferences).toHaveBeenCalled())
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (!isLedgerStatusScript(script)) throw new Error(`Unexpected B站 write script: ${script.slice(0, 80)}`)
+      return { ...emptyLedgerStatus(), remoteObservations: [observation] }
+    })
+    Object.assign(webview, { executeJavaScript })
+    act(() => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: 'https://space.bilibili.com/100/favlist' }
+      }))
+      webview.dispatchEvent(new CustomEvent('page-title-updated', {
+        detail: {
+          title: `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid, kind, nonce: 5 }))}`
+        }
+      }))
+    })
+
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith(accountMid))
+    expect(executeJavaScript.mock.calls.some(([script]) => isLedgerStatusScript(String(script)))).toBe(false)
+
+    notifyFavoriteSpaceRefreshStatusChanged({ accountMid, status: 'idle' })
+
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('"includeRemoteOnlyDrafts":true')
+    ))
+    await waitFor(() => expect(desktopApi.notifyAssistantSnapshotChanged).toHaveBeenCalled())
+    await expect(requestRuntime({ id: 'pending-manual-rename-observation-snapshot', type: 'snapshot' })).resolves.toMatchObject({
+      favoriteLedgerStatus: expect.objectContaining({ remoteObservations: [observation] })
     })
     expect(executeJavaScript.mock.calls.map(([script]) => String(script))).not.toContain(
       expect.stringContaining(LEDGER_SAVE_SCRIPT_MARKER)

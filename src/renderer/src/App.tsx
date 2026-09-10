@@ -831,6 +831,7 @@ export default function App() {
     status: FavoriteLedgerStatus
   } | null>(null)
   const favoriteLedgerStatusRefreshPromisesRef = useRef(new Map<string, Promise<FavoriteLedgerStatus | undefined>>())
+  const pendingManualFavoriteDiscoveryAccountMidsRef = useRef(new Set<string>())
   const favoriteLedgerRemoteDiscoveryPromisesRef = useRef(new Map<string, Promise<FavoriteLedgerStatus>>())
   const favoriteLedgerStartupRemoteDiscoveryAccountMidsRef = useRef(new Set<string>())
   // A status read can outlive a main-process preference broadcast (for example,
@@ -1288,6 +1289,43 @@ export default function App() {
     window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
   }, [])
 
+  async function publishManualFavoriteDiscovery(accountMid: string) {
+    const observationStatus = await readRemoteFavoriteDiscovery(accountMid).catch(() => undefined)
+    if (!observationStatus || assistantSnapshotCacheRef.current.accountMid !== accountMid) {
+      return
+    }
+    let boundRenameCandidates: FavoriteLedgerStatus['boundRenameCandidates'] = []
+    try {
+      const formalBindings = await projectFavoriteLedgersToFormalBindings(
+        accountMid,
+        observationStatus.ledgers,
+        observationStatus.ledgers
+      )
+      const observedFormalBindings = await readBoundRenameCandidatesForTargets(
+        formalBindings.ledgers,
+        formalBindings.formalBoundShards,
+        new Set(formalBindings.ledgers.map((ledger) => ledger.id))
+      )
+      if (observedFormalBindings) {
+        boundRenameCandidates = boundRenameCandidatesForTargets(
+          formalBindings.ledgers,
+          observedFormalBindings.formalShards,
+          new Set(formalBindings.ledgers.map((ledger) => ledger.id))
+        )
+      }
+    } catch {
+      // The discovery result remains useful even if the separate exact-ID
+      // rename read cannot be completed. This branch is read-only.
+    }
+    const nextStatus: FavoriteLedgerStatus = { ...observationStatus, boundRenameCandidates }
+    assistantSnapshotCacheRef.current.favoriteLedgerStatus = nextStatus
+    const cachedStatus = favoriteLedgerStatusCacheRef.current
+    if (cachedStatus?.accountMid === accountMid) {
+      favoriteLedgerStatusCacheRef.current = { ...cachedStatus, status: nextStatus }
+    }
+    window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+  }
+
   const handleFavoriteSpaceMutationConfirmed = useCallback((
     tabId: string,
     mutation: { accountMid: string; kind: 'create' | 'rename' | 'delete' }
@@ -1318,6 +1356,7 @@ export default function App() {
     // the generic tab account cache, so restore that verified identity before
     // caching this explicit, read-only observation.
     const accountMid = setObservedBilibiliAccount(mutation.accountMid)
+    const shouldPublishManualDiscovery = mutation.kind === 'create' || mutation.kind === 'rename'
     void (async () => {
       let refresh: { status: 'idle' | 'pending' } | undefined
       try {
@@ -1325,43 +1364,21 @@ export default function App() {
       } catch {
         return
       }
-      if (refresh?.status !== 'idle') return
-      const observationStatus = await readRemoteFavoriteDiscovery(accountMid).catch(() => undefined)
-      if (!observationStatus || (mutation.kind !== 'create' && mutation.kind !== 'rename') ||
-        assistantSnapshotCacheRef.current.accountMid !== accountMid) {
+      if (refresh?.status !== 'idle') {
+        if (shouldPublishManualDiscovery) pendingManualFavoriteDiscoveryAccountMidsRef.current.add(accountMid)
         return
       }
-      let boundRenameCandidates: FavoriteLedgerStatus['boundRenameCandidates'] = []
-      try {
-        const formalBindings = await projectFavoriteLedgersToFormalBindings(
-          accountMid,
-          observationStatus.ledgers,
-          observationStatus.ledgers
-        )
-        const observedFormalBindings = await readBoundRenameCandidatesForTargets(
-          formalBindings.ledgers,
-          formalBindings.formalBoundShards,
-          new Set(formalBindings.ledgers.map((ledger) => ledger.id))
-        )
-        if (observedFormalBindings) {
-          boundRenameCandidates = boundRenameCandidatesForTargets(
-            formalBindings.ledgers,
-            observedFormalBindings.formalShards,
-            new Set(formalBindings.ledgers.map((ledger) => ledger.id))
-          )
-        }
-      } catch {
-        // The discovery result remains useful even if the separate exact-ID
-        // rename read cannot be completed.  This branch is read-only.
-      }
-      const nextStatus: FavoriteLedgerStatus = { ...observationStatus, boundRenameCandidates }
-      assistantSnapshotCacheRef.current.favoriteLedgerStatus = nextStatus
-      const cachedStatus = favoriteLedgerStatusCacheRef.current
-      if (cachedStatus?.accountMid === accountMid) {
-        favoriteLedgerStatusCacheRef.current = { ...cachedStatus, status: nextStatus }
-      }
-      window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+      pendingManualFavoriteDiscoveryAccountMidsRef.current.delete(accountMid)
+      if (shouldPublishManualDiscovery) await publishManualFavoriteDiscovery(accountMid)
     })()
+  }, [])
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onBilibiliFavoriteSpaceRefreshStatusChanged?.(({ accountMid, status }) => {
+      if (status !== 'idle' || !pendingManualFavoriteDiscoveryAccountMidsRef.current.delete(accountMid)) return
+      if (assistantSnapshotCacheRef.current.accountMid !== accountMid) return
+      void publishManualFavoriteDiscovery(accountMid)
+    })
   }, [])
 
   function suppressProgrammaticFavoriteCreateRefresh(accountMid: string) {
