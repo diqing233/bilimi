@@ -133,6 +133,23 @@ describe('BiliWebview', () => {
     expect(onFavoriteSpaceMutationConfirmed).toHaveBeenCalledWith('home', { accountMid: '100', kind: 'rename' })
   })
 
+  it('installs the favorite-space mutation observer when a restored guest was already loaded', async () => {
+    render(<BiliWebview active tabId="home" url="https://space.bilibili.com/100/favlist" />)
+
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    const executeJavaScript = vi.fn().mockResolvedValue(true)
+    Object.assign(webview, {
+      executeJavaScript,
+      getWebContentsId: () => 101,
+      isLoading: () => false
+    })
+
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('__BILIMI_FAVORITE_SPACE_MUTATION__'),
+      true
+    ))
+  })
+
   it('does not forward a favorite mutation signal outside the matching current favorite space', () => {
     const onFavoriteSpaceMutationConfirmed = vi.fn()
     render(

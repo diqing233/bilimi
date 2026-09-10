@@ -429,7 +429,10 @@ export const BiliWebview = memo(function BiliWebview({
       }
       if (typeof webContentsId !== 'number') return
       const guestLoading = (webview as Electron.WebviewTag & { isLoading?: () => boolean }).isLoading?.()
-      if (guestLoading === false) handleLoadSuccess()
+      if (guestLoading === false) {
+        installFavoriteSpaceMutationObserver()
+        handleLoadSuccess()
+      }
     }
 
     webview.addEventListener('new-window', handleNewWindow)
