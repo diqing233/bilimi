@@ -15,8 +15,6 @@ import {
 } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   getDesktopStore,
@@ -171,6 +169,7 @@ let videoNoteBatchExportIpc: {
 import { createPreloadScriptPath } from './preloadPath'
 import { createRendererFilePath } from './rendererPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
+import { createTranscriptionTempDirectory } from './transcriptionTempDirectory'
 import { createTranscriptionProviderResolver } from './transcriptionProviderResolver'
 import { disposeDefaultFasterWhisperGpuSessions, disposeDefaultFasterWhisperHelperSessions } from './fasterWhisperTranscription'
 import { disposeFasterWhisperGpuProbes } from './fasterWhisperGpu'
@@ -1478,7 +1477,7 @@ function getVideoTranscriptionQueue() {
         saveVideoAudioTranscriptionQueue(getDesktopStore(), items)
       },
       transcribe: async (request, progress, signal) => {
-        const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-transcribe-'))
+        const tempDir = await createTranscriptionTempDirectory()
         const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
         const preferences = loadAssistantPreferences(getDesktopStore())
 
@@ -2218,7 +2217,7 @@ function registerAssistantPreferenceHandlers() {
     'video-audio:transcribe-current',
     async (event, request: VideoAudioTranscriptionRequest) => {
       assertCurrentAccountOwnsTranscriptionRequest(await readCurrentBilibiliAccountMid(), request)
-      const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-transcribe-'))
+      const tempDir = await createTranscriptionTempDirectory()
       const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
       const preferences = loadAssistantPreferences(getDesktopStore())
       const transcriptionModelId = request.transcriptionModelId ?? (request.accountMid

@@ -76,7 +76,7 @@ export async function probeFasterWhisperCudaRuntime({
     const failure = `${selfTest.stderr}\n${selfTest.stdout}`.toLowerCase()
     if (failure.includes('cublas64_12.dll')) return { status: 'cpu-only', reason: '缺少 CUDA 12 cuBLAS 运行库。' }
     if (failure.includes('cudnn') && /(not found|cannot be loaded|could not load|missing)/u.test(failure)) return { status: 'cpu-only', reason: '缺少 CUDA cuDNN 运行库。' }
-    return { status: 'cpu-only', reason: 'CUDA 推理自检失败。' }
+    return { status: 'cpu-only', reason: 'CUDA 推理自检失败，可能是显存不足、驱动或 CUDA 运行库不兼容；已自动回退 CPU。' }
   }
   try {
     const payload = JSON.parse(selfTest.stdout) as { ok?: unknown; device?: unknown; computeType?: unknown }
@@ -86,5 +86,5 @@ export async function probeFasterWhisperCudaRuntime({
   } catch {
     // The controlled helper must return structured evidence of its actual runtime.
   }
-  return { status: 'cpu-only', reason: 'CUDA 推理自检失败。' }
+  return { status: 'cpu-only', reason: 'CUDA 推理自检失败，可能是显存不足、驱动或 CUDA 运行库不兼容；已自动回退 CPU。' }
 }

@@ -91,6 +91,12 @@ function parseSenseVoiceOutput(stdout: string): SenseVoiceOutput {
   return JSON.parse(line) as SenseVoiceOutput
 }
 
+function createAbortError(): Error {
+  const error = new Error('The operation was aborted.')
+  error.name = 'AbortError'
+  return error
+}
+
 export async function transcribeAudioSegmentWithSenseVoice({
   path,
   offsetSeconds,
@@ -107,7 +113,8 @@ export async function transcribeAudioSegmentWithSenseVoice({
   signal?: AbortSignal
 }): Promise<TranscriptSegment[]> {
   const result = await runProcess(helperPath, buildSenseVoiceArgs({ audioPath: path, modelDirectory }), { signal })
-  if (result.exitCode !== 0) throw new Error(result.stderr.trim() || 'SenseVoice transcription failed.')
+  if (signal?.aborted) throw createAbortError()
+  if (result.exitCode !== 0) throw new Error('SenseVoice 转写失败，请检查音频文件和模型后重试。')
   try {
     return mapSenseVoiceOutputToSegments(parseSenseVoiceOutput(result.stdout), offsetSeconds)
   } catch {

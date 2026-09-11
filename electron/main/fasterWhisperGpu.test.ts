@@ -46,7 +46,10 @@ describe('probeFasterWhisperCudaRuntime', () => {
     const selfTestFailure = vi.fn()
       .mockResolvedValueOnce({ exitCode: 0, stdout: '0, NVIDIA RTX, 551.23, 12288, 8192\n', stderr: '' })
       .mockResolvedValueOnce({ exitCode: 4, stdout: '', stderr: 'CUDA initialization failed' })
-    await expect(probeFasterWhisperCudaRuntime({ helperPath: 'helper.exe', modelDirectory: 'model', runProcess: selfTestFailure })).resolves.toEqual({ status: 'cpu-only', reason: 'CUDA 推理自检失败。' })
+    await expect(probeFasterWhisperCudaRuntime({ helperPath: 'helper.exe', modelDirectory: 'model', runProcess: selfTestFailure })).resolves.toEqual({
+      status: 'cpu-only',
+      reason: 'CUDA 推理自检失败，可能是显存不足、驱动或 CUDA 运行库不兼容；已自动回退 CPU。'
+    })
   })
 
   it('rejects CUDA when no NVIDIA adapter has enough currently free memory', async () => {

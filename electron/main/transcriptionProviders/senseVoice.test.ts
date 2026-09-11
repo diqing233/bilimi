@@ -18,6 +18,40 @@ describe('SenseVoice provider', () => {
     expect(runProcess).toHaveBeenCalledWith('sherpa-onnx-offline.exe', buildSenseVoiceArgs({ audioPath: 'audio.wav', modelDirectory: 'model' }), { signal: undefined })
   })
 
+  it('turns helper failures into a concise provider error instead of exposing native logs', async () => {
+    const runProcess = vi.fn().mockResolvedValue({
+      exitCode: -1,
+      stdout: '',
+      stderr: 'sherpa-onnx-offline.exe --sense-voice-model=C:/Users/中文/AppData/Local/Temp/x.wav\\nwave-reader.cc:ReadWave: C:/Users/���/AppData/Local/Temp/x.wav does not exist'
+    })
+
+    const rejection = transcribeAudioSegmentWithSenseVoice({
+      path: 'C:/Users/中文/AppData/Local/Temp/x.wav',
+      offsetSeconds: 0,
+      helperPath: 'sherpa-onnx-offline.exe',
+      modelDirectory: 'model',
+      runProcess
+    })
+    await expect(rejection).rejects.toMatchObject({ message: 'SenseVoice 转写失败，请检查音频文件和模型后重试。' })
+  })
+
+  it('preserves cancellation when the helper exits after cancellation was requested', async () => {
+    const controller = new AbortController()
+    const runProcess = vi.fn().mockImplementation(async () => {
+      controller.abort()
+      return { exitCode: -1, stdout: '', stderr: 'native helper failure' }
+    })
+
+    await expect(transcribeAudioSegmentWithSenseVoice({
+      path: 'audio.wav',
+      offsetSeconds: 0,
+      helperPath: 'sherpa-onnx-offline.exe',
+      modelDirectory: 'model',
+      runProcess,
+      signal: controller.signal
+    })).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
   it('maps the official sherpa-onnx JSON line with token timestamps', () => {
     expect(mapSenseVoiceOutputToSegments({
       lang: '<|yue|>', emotion: '<|NEUTRAL|>', event: '<|Speech|>',
