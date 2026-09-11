@@ -1293,9 +1293,41 @@ export default function App() {
     window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
   }, [])
 
+  async function clearFavoriteDiscoveryNoticeDismissal(accountMid: string) {
+    const normalizedAccountMid = accountMid.trim()
+    if (!normalizedAccountMid) return
+    const currentPreferences = preferencesRef.current
+    const currentAccountPreferences = currentPreferences.favoriteAccountPreferences?.[normalizedAccountMid]
+    if (!currentAccountPreferences?.favoriteDiscoveryNoticeDismissed) return
+    const nextPreferences = createInitialAssistantPreferences({
+      ...currentPreferences,
+      favoriteAccountPreferences: {
+        ...(currentPreferences.favoriteAccountPreferences ?? {}),
+        [normalizedAccountMid]: {
+          ...currentAccountPreferences,
+          favoriteDiscoveryNoticeDismissed: false
+        }
+      }
+    })
+    preferencesRef.current = nextPreferences
+    setPreferences(nextPreferences)
+    try {
+      const saved = window.bilimiDesktop?.patchPreferences
+        ? await window.bilimiDesktop.patchPreferences({ favoriteAccountPreferences: nextPreferences.favoriteAccountPreferences })
+        : window.bilimiDesktop?.savePreferences
+          ? await window.bilimiDesktop.savePreferences(nextPreferences)
+          : nextPreferences
+      const normalizedSaved = createInitialAssistantPreferences(saved)
+      preferencesRef.current = normalizedSaved
+      setPreferences(normalizedSaved)
+    } catch {
+      // Keep the wake-up visible; a later preference reload will reconcile persistence.
+    }
+  }
+
   async function publishManualFavoriteDiscovery(accountMid: string) {
     const observationStatus = await readRemoteFavoriteDiscovery(accountMid).catch(() => undefined)
-    if (!observationStatus || assistantSnapshotCacheRef.current.accountMid !== accountMid) {
+    if (!observationStatus || observationStatus.verified !== true || assistantSnapshotCacheRef.current.accountMid !== accountMid) {
       return
     }
     let boundRenameCandidates: FavoriteLedgerStatus['boundRenameCandidates'] = []
@@ -1327,6 +1359,7 @@ export default function App() {
     if (cachedStatus?.accountMid === accountMid) {
       favoriteLedgerStatusCacheRef.current = { ...cachedStatus, status: nextStatus }
     }
+    await clearFavoriteDiscoveryNoticeDismissal(accountMid)
     window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
   }
 
@@ -3668,9 +3701,11 @@ export default function App() {
           // bridge returns an incomplete post-save inventory. The sync panel
           // performs a separate fail-closed preflight and will not start
           // remote execution until that read is verified.
-          return assistantSnapshotCacheRef.current.accountMid === accountMid && status.verified === true
-            ? status
-            : undefined
+          if (assistantSnapshotCacheRef.current.accountMid !== accountMid || status.verified !== true) {
+            return undefined
+          }
+          void clearFavoriteDiscoveryNoticeDismissal(accountMid)
+          return status
         })
         .then((status) => status, () => undefined)
         .finally(() => {

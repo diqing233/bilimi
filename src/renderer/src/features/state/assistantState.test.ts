@@ -17,6 +17,35 @@ import { classifyVideoContent } from '../recommendation/videoClassifier'
 const LIKE_ACTION = '赞' as AssistantAction
 
 describe('assistant state', () => {
+  it('normalizes the per-account favorite discovery notice dismissal flag', () => {
+    const legacy = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: []
+        }
+      }
+    })
+    expect(legacy.favoriteAccountPreferences?.['100']?.favoriteDiscoveryNoticeDismissed ?? false).toBe(false)
+
+    const dismissed = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [],
+          favoriteDiscoveryNoticeDismissed: true
+        },
+        '200': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [],
+          favoriteDiscoveryNoticeDismissed: 'true' as never
+        }
+      }
+    })
+    expect(dismissed.favoriteAccountPreferences?.['100']?.favoriteDiscoveryNoticeDismissed).toBe(true)
+    expect(dismissed.favoriteAccountPreferences?.['200']?.favoriteDiscoveryNoticeDismissed ?? false).toBe(false)
+  })
+
   it('migrates a legacy recommendation deletion record to an ordinary saved rule during preference normalization', () => {
     const preferences = createInitialAssistantPreferences({
       favoriteAccountPreferences: {

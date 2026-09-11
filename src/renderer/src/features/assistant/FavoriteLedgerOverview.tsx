@@ -49,6 +49,8 @@ type FavoriteLedgerOverviewProps = {
   observedRemoteObservations?: readonly RemoteFavoriteLedgerObservation[]
   /** Read-only exact-ID rename observations triggered by a manual B站收藏夹 mutation. */
   observedBoundRenameCandidates?: readonly FavoriteLedgerBoundRenameCandidate[]
+  remoteDiscoveryNoticeDismissed?: boolean
+  onDismissRemoteDiscoveryNotice?: () => void
   onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderIds: string[]) => Promise<void> | void
   /** Exact backup targets while the toolbar is painting its busy state before the request begins. */
   backupPreparationLedgerIds?: readonly string[]
@@ -329,7 +331,7 @@ export function preserveFavoriteLedgerOrder(
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ currentAccountMid, localFavoriteToggleAccountMid, ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], observedRemoteObservations = [], observedBoundRenameCandidates = [], onDismissRemoteDraftReminder, backupPreparationLedgerIds = [], organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
+export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ currentAccountMid, localFavoriteToggleAccountMid, ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], observedRemoteObservations = [], observedBoundRenameCandidates = [], remoteDiscoveryNoticeDismissed = false, onDismissRemoteDiscoveryNotice, onDismissRemoteDraftReminder, backupPreparationLedgerIds = [], organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
@@ -518,7 +520,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     !shouldHideUnboundNotice(ledger.id) &&
     Boolean(ledger.bilibiliFolderId) &&
     (ledger.bindingState === 'unbound' || ledger.syncState === 'local-draft'))
-  const hasRemoteDetectionNotice = observedRemoteObservations.length > 0 || observedBoundRenameCandidates.length > 0
+  const hasRemoteDetectionNotice = !remoteDiscoveryNoticeDismissed && (observedRemoteObservations.length > 0 || observedBoundRenameCandidates.length > 0)
   const remoteDetectionDetails = useMemo<RemoteDetectionDetail[]>(() => [
     ...observedRemoteObservations.map((observation) => ({
       id: `observation:${observation.folderId}`,
@@ -1908,6 +1910,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             setSelectedRemoteDetectionDetailIds(new Set())
             setRemoteDetectionDetailsVisible(true)
           }}>查看详情</button>
+          {onDismissRemoteDiscoveryNotice ? <button type="button" onClick={onDismissRemoteDiscoveryNotice}>暂不提醒</button> : null}
         </div> : null}
         {!backupInProgress && recoveredRemoteLedgers.length ? <p className="favorite-ledger-panel__notice">检测到 B 站中有 {recoveredRemoteLedgers.reduce((count, ledger) => count + new Set([...(ledger.bilibiliFolderIds ?? []), ledger.bilibiliFolderId].filter(Boolean)).size, 0)} 个疑似 bilimi 工作夹：{recoveredRemoteStatusSummary}。请先编辑保存好收藏夹规则，再点击“备册”确认绑定；尚未建立绑定前，只可预分类，不能执行 B 站分类同步；更换电脑时建议优先迁移本地数据。</p> : null}
         <div className="favorite-ledger-panel__list-toggle"><button type="button" disabled={isLocalToggleOnly} onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={fullLedgerListVisible} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{fullLedgerListVisible ? '折叠' : '展开'}</button> : null}</div>

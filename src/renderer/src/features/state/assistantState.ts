@@ -93,6 +93,9 @@ function normalizeFavoriteAccountPreferenceMap(
       return [[accountMid, {
         defaultFavoriteSystemEnabled: accountPreferences.defaultFavoriteSystemEnabled !== false,
         favoriteLedgers: normalizeFavoriteLedgers(accountPreferences.favoriteLedgers),
+        ...(accountPreferences.favoriteDiscoveryNoticeDismissed === true
+          ? { favoriteDiscoveryNoticeDismissed: true }
+          : {}),
         ...(Array.isArray(accountPreferences.deletedFavoriteLedgerRecords)
           ? {
               deletedFavoriteLedgerRecords: accountPreferences.deletedFavoriteLedgerRecords.flatMap((record) => {

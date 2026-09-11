@@ -3669,6 +3669,66 @@ describe('App runtime integration', () => {
     })
   })
 
+  it('clears a dismissed discovery notice only after a verified manual discovery refresh', async () => {
+    const accountMid = '100'
+    const observation = { folderId: '901', title: 'bilimi·唤醒发现', memberCount: 1 }
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
+    const patchPreferences = vi.fn(async (patch: Partial<AssistantPreferences>) => createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: createDefaultFavoriteLedgers(),
+          ...(patch.favoriteAccountPreferences?.[accountMid] ?? {})
+        }
+      }
+    }))
+    const loadPreferences = vi.fn().mockResolvedValue(createAppPreferences({
+        favoriteAccountPreferences: {
+          [accountMid]: {
+            defaultFavoriteSystemEnabled: true,
+            favoriteLedgers: createDefaultFavoriteLedgers(),
+            favoriteDiscoveryNoticeDismissed: true
+          }
+        }
+      }))
+    const { desktopApi } = renderAppWithRuntimeBridge({
+      loadPreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      retryBilibiliFavoriteSpaceRefresh,
+      patchPreferences
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (!isLedgerStatusScript(script)) throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+        return { ...emptyLedgerStatus(), remoteObservations: [observation] }
+      })
+    })
+    await waitFor(() => expect(loadPreferences).toHaveBeenCalled())
+    await act(async () => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: `https://space.bilibili.com/${accountMid}/favlist` }
+      }))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(desktopApi.loadPreferences).toHaveBeenCalled())
+
+    act(() => webview.dispatchEvent(new CustomEvent('page-title-updated', {
+      detail: {
+        title: `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid, kind: 'rename', nonce: 901 }))}`
+      }
+    })))
+
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith(accountMid))
+    await waitFor(() => expect(patchPreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        [accountMid]: expect.not.objectContaining({ favoriteDiscoveryNoticeDismissed: true })
+      })
+    })))
+  })
+
   it('keeps pending discovery when the favorite-space reload navigates and clears the cached account', async () => {
     const accountMid = '100'
     const observation = { folderId: '90', title: 'bilimi·导航后发现', memberCount: 1 }

@@ -33,6 +33,7 @@ describe('FavoriteLedgerOverview', () => {
           remoteMemberCount: 2, targetTitle: 'bilimi·游戏'
         }]
       }]}
+      onDismissRemoteDiscoveryNotice={vi.fn()}
       onSaveLedgers={save}
       onSyncLedgers={sync}
     />)
@@ -43,6 +44,7 @@ describe('FavoriteLedgerOverview', () => {
       .toHaveClass('favorite-ledger-panel__list-toggle')
     expect(screen.queryByText('部分 Bilimi 收藏夹尚未备册。')).not.toBeInTheDocument()
     const details = screen.getByRole('button', { name: '查看详情' })
+    expect(screen.getByRole('button', { name: '暂不提醒' })).toBeInTheDocument()
     expect(screen.queryByText('bilimi·远端观察')).not.toBeInTheDocument()
 
     fireEvent.click(details)
@@ -2388,6 +2390,32 @@ describe('FavoriteLedgerOverview', () => {
     expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'music', enabled: true, bindingState: 'unbound' })
     ], { backupTargetLedgerIds: ['music'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true })
+  })
+
+  it('hides the discovery notice when dismissed and invokes only the dismissal callback', () => {
+    const onDismiss = vi.fn()
+    const view = render(<FavoriteLedgerOverview
+      remoteDiscoveryNoticeDismissed={false}
+      onDismissRemoteDiscoveryNotice={onDismiss}
+      observedRemoteObservations={[{ folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }]}
+      ledgers={[]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: '暂不提醒' }))
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+    expect(screen.getByText(/检测到 1 个疑似 bilimi 收藏夹/)).toBeInTheDocument()
+
+    view.rerender(<FavoriteLedgerOverview
+      remoteDiscoveryNoticeDismissed
+      onDismissRemoteDiscoveryNotice={onDismiss}
+      observedRemoteObservations={[{ folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }]}
+      ledgers={[]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+    />)
+    expect(screen.queryByText(/检测到 1 个疑似 bilimi 收藏夹/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '查看详情' })).not.toBeInTheDocument()
   })
 
   it('hides only this backup batch unbound notices until the request finishes', async () => {

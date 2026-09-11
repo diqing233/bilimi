@@ -29,6 +29,8 @@ type ControlledFavoriteLedgerPanelProps = {
   remoteOnlyDraftLedgerIds?: string[]
   observedRemoteObservations?: readonly RemoteFavoriteLedgerObservation[]
   observedBoundRenameCandidates?: readonly FavoriteLedgerBoundRenameCandidate[]
+  remoteDiscoveryNoticeDismissed?: boolean
+  onDismissRemoteDiscoveryNotice?: () => void
   onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderId: string) => Promise<void> | void
   defaultFavoriteSystemEnabled?: boolean
   onEnsureLedgers: () => Promise<unknown>
@@ -216,6 +218,8 @@ export function ControlledFavoriteLedgerPanel({
   remoteOnlyDraftLedgerIds = [],
   observedRemoteObservations,
   observedBoundRenameCandidates,
+  remoteDiscoveryNoticeDismissed,
+  onDismissRemoteDiscoveryNotice,
   onDismissRemoteDraftReminder,
   defaultFavoriteSystemEnabled,
   onEnsureLedgers,
@@ -1476,6 +1480,8 @@ export function ControlledFavoriteLedgerPanel({
         remoteOnlyDraftLedgerIds={remoteOnlyDraftLedgerIds}
         observedRemoteObservations={observedRemoteObservations}
         observedBoundRenameCandidates={observedBoundRenameCandidates}
+        remoteDiscoveryNoticeDismissed={remoteDiscoveryNoticeDismissed}
+        onDismissRemoteDiscoveryNotice={onDismissRemoteDiscoveryNotice}
         onDismissRemoteDraftReminder={onDismissRemoteDraftReminder}
         backupPreparationLedgerIds={backupPreparationLedgerIds}
         organizationActive={Boolean(activeSnapshot && !['frozen', 'executing', 'reconciling'].includes(activeSnapshot.status))}

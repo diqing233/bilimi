@@ -402,6 +402,8 @@ export type AssistantPreferences = {
 export type FavoriteAccountPreferences = {
   defaultFavoriteSystemEnabled: boolean
   favoriteLedgers: FavoriteLedger[]
+  /** Hide the read-only remote discovery summary until the next verified refresh. */
+  favoriteDiscoveryNoticeDismissed?: boolean
   deletedFavoriteLedgerRecords?: DeletedFavoriteLedgerRecord[]
   /** UI-only navigation state, keyed by stable group ID and isolated per Bilibili UID. */
   favoriteLibraryCollapsedGroups?: Record<string, boolean>

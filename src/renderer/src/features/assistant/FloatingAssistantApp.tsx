@@ -703,6 +703,8 @@ type LedgerWorkspacePanelProps = {
   remoteOnlyDraftLedgerIds?: string[]
   observedRemoteObservations?: FavoriteLedgerStatus['remoteObservations']
   observedBoundRenameCandidates?: FavoriteLedgerStatus['boundRenameCandidates']
+  remoteDiscoveryNoticeDismissed?: boolean
+  onDismissRemoteDiscoveryNotice?: () => void
   onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderIds: string[]) => Promise<void> | void
 }
 
@@ -3188,6 +3190,24 @@ export function FloatingAssistantApp({
     if (remoteFolderIds.length) void dismissRemoteDraftReminder(ledgerId, remoteFolderIds)
   }, [dismissRemoteDraftReminder, preferences.favoriteAccountPreferences, preferences.favoriteLedgers, snapshot?.accountMid])
 
+  const dismissRemoteDiscoveryNotice = useCallback(() => {
+    const accountMid = snapshot?.accountMid?.trim()
+    if (!accountMid) return
+    const current = preferencesRef.current.favoriteAccountPreferences?.[accountMid]
+    if (current?.favoriteDiscoveryNoticeDismissed === true) return
+    persistPreferencePatch({
+      favoriteAccountPreferences: {
+        ...(preferencesRef.current.favoriteAccountPreferences ?? {}),
+        [accountMid]: {
+          ...(current ?? {}),
+          defaultFavoriteSystemEnabled: current?.defaultFavoriteSystemEnabled ?? true,
+          favoriteLedgers: current?.favoriteLedgers ?? preferencesRef.current.favoriteLedgers,
+          favoriteDiscoveryNoticeDismissed: true
+        }
+      }
+    })
+  }, [snapshot?.accountMid])
+
   const globalLedgerStatus = useMemo<GlobalStatusItem>(() => {
     const accountMid = snapshot?.accountMid ?? ''
     return resolveFavoriteOrganizationLamp({
@@ -5597,6 +5617,8 @@ export function FloatingAssistantApp({
             remoteOnlyDraftLedgerIds={editorRemoteOnlyDraftLedgerIds}
             observedRemoteObservations={favoriteLedgerStatus?.remoteObservations}
             observedBoundRenameCandidates={favoriteLedgerStatus?.boundRenameCandidates}
+            remoteDiscoveryNoticeDismissed={Boolean(preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.favoriteDiscoveryNoticeDismissed)}
+            onDismissRemoteDiscoveryNotice={dismissRemoteDiscoveryNotice}
             onDismissRemoteDraftReminder={dismissRemoteDraftReminder}
             defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
             onEnsureLedgers={ensureFavoriteLedgersForPanel}
