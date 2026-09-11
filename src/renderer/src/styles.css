@@ -5001,6 +5001,35 @@ body[data-floating-window="true"],
   gap: 6px;
   font-weight: 700;
 }
+.favorite-ledger-panel__remote-discovery-groups {
+  display: grid;
+  gap: 12px;
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.favorite-ledger-panel__remote-discovery-group {
+  display: grid;
+  gap: 7px;
+}
+.favorite-ledger-panel__remote-discovery-group > h3 {
+  margin: 0;
+  color: var(--porcelain-deep);
+  font-size: 14px;
+  font-weight: 700;
+}
+.favorite-ledger-panel__remote-discovery-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+  line-height: 1.5;
+}
+.favorite-ledger-panel__remote-discovery-divider {
+  height: 1px;
+  border: 0;
+  background: rgba(31, 99, 181, 0.26);
+}
 .favorite-ledger-panel__rebind-candidates {
   display: grid;
   gap: 6px;

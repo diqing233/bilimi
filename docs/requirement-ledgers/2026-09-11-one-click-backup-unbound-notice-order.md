@@ -842,3 +842,74 @@ Distinguish instructions in attached documents from the user's request.
 | 原文编号 | 精确目标 | 目标界面/数据位置 | 显示与隐藏条件 | 交互与状态变化 | 持久化/迁移/B 站副作用 | 明确不改的边界 | 上下游依赖 | 状态 | 验收证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | R028 | 确认审阅并通过 `2026-09-11-favorite-discovery-unified-processing-design.md` 设计规格，进入实施计划编写阶段；仍未授权生产代码实施。 | 设计规格与实施计划。 | 不适用。 | 允许编写实施计划；用户后续明确说“开始”后才可修改生产代码。 | 不产生 B 站或应用数据副作用。 | 不实施未写入已确认规格的功能。 | R019-R027、设计规格、实施计划。 | 已确认。 | 当前对话与设计规格提交 `d8afa2f4`。 |
+
+## R019-R028 实施前核对与计划（2026-09-12）
+
+用户在 R028 后明确说“开始”，已重新从头通读本账本全部原文区、逐项索引及设计规格 `docs/superpowers/specs/2026-09-11-favorite-discovery-unified-processing-design.md`。实施前工作树为 `main...origin/main [ahead 1180, behind 1]`，最近提交为 `8b26f923 feat: support confirmed favorite rename without backup`。工作树中有本轮五个实现/测试/样式文件的改动；另有未跟踪 `%SystemDrive%/`，这是无关用户文件，不读取、不修改、不暂存。允许修改范围为本账本、`FavoriteLedgerOverview.tsx`、`FavoriteLedgerOverview.test.tsx`、`ControlledFavoriteLedgerPanel.tsx`、`ControlledFavoriteLedgerPanel.test.tsx`、`styles.css`；不得修改发现触发、账号级“暂不提醒”持久化、精确 ID 绑定规则或增加未经确认的 B 站操作。
+
+### 已确认条目（按讨论顺序）
+
+1. `R019`：将发现和处理收敛为统一弹窗，移除右侧长的疑似工作夹提示；保留精简发现摘要、“查看详情”和“暂不提醒”；查看详情与备册的职责分开。
+2. `R020`：不生成额外视觉 mockup。
+3. `R021`：两类条目默认全选，顶部全选跨全部条目并支持部分选择。
+4. `R022`：查看详情为同时容纳疑似项和已绑定改名项的一次性统一处理弹窗，不设置两套分离的处理操作。
+5. `R023`：查看详情入口主按钮为“开始处理”；备册预检入口主按钮为“确认处理并继续备册”。
+6. `R024`：备册预检打开的弹窗点关闭，完整取消该次备册且无本地或 B 站副作用。
+7. `R025`：两类都有时上下分组并以水平线隔开；单类不显示空组或线。
+8. `R026`：底部不放取消，仅通过右上角 `×` 关闭；两个入口保持各自关闭语义。
+9. `R027`：确认上述布局和入口按钮规则。
+10. `R028`：确认设计规格；随后“开始”已授权本轮生产代码实施和本地提交。
+
+### 待用户决定
+
+无。
+
+### 被明确替代 / 明确不做
+
+- `R020` 明确不制作 visual mockup；本轮以组件测试和后续真实 Electron 界面验收代替。
+- `R022-R027` 明确替代旧有分离的“继续备册”“确认改名并继续备册”弹窗和底部取消布局；不再保留这些旧入口。
+
+### 实施步骤（按原文讨论顺序）
+
+1. `R019-R022`：修改 `FavoriteLedgerOverview.tsx` 及其测试，将旧“检测详情”“疑似收藏夹”“确认改名”对话框合并为一份状态和一个弹窗；预期为默认勾选、跨组全选、疑似仅保存本地草稿、精确已绑定分册才调用仅改名路径。风险：误把未选条目写入、查看详情误启动备册；测试查看详情双类型、部分选择及无备册副作用。
+2. `R023-R024`：在 `FavoriteLedgerOverview.tsx`、`ControlledFavoriteLedgerPanel.tsx` 及测试中让备册预检延后原备册，确认处理成功后才恢复原目标；关闭时不继续且不打开收藏夹页。风险：过早打开 B 站页或把草稿纳入该批备册；测试回调顺序、关闭和原目标集合。
+3. `R025-R027`：在 `FavoriteLedgerOverview.tsx`、`styles.css` 和测试中实现双组/分隔线、单组无空态、无底部取消及两个唯一主按钮。风险：部分选择的全选状态不准确、布局缺少分隔线；测试 DOM、复选框不确定态和按钮文字。
+4. `R019-R028`：运行五文件定向回归、全量 `npm test -- --reporter=dot --maxWorkers=1 --minWorkers=1`、`npm run build`、`git diff --check`；真实 Electron/B 站操作保留给用户验收，不能以单测代替。
+
+## R019-R028 实施验证记录（2026-09-12）
+
+### 代码与行为
+
+- `FavoriteLedgerOverview.tsx`：以 `RemoteDiscoveryProcessingState` 统一“详情”和“备册预检”两个入口；`openRemoteDiscoveryProcessing` 初始化两类条目全选，`processRemoteDiscoverySelection` 只保存已选疑似项为 `pendingRemoteBinding` 本地草稿，并以 `renameBoundOnly: true` 对已选、精确 ID 的已绑定分册改名。查看详情模式不调用 `requestBackup`；备册模式只在处理成功后以原 `backupTargetLedgerIds` 调用既有备册，草稿不进入该批目标。失败时保留弹窗和错误；关闭不会触发处理或备册。
+- `FavoriteLedgerOverview.tsx`：右侧移除旧“检测到 B 站中有……疑似 bilimi 工作夹”的长提示，保留精简发现摘要、“查看详情”和“暂不提醒”；统一弹窗标题为“发现待处理的 bilimi 收藏夹”，按入口显示“开始处理”或“确认处理并继续备册”。
+- `FavoriteLedgerOverview.tsx` 与 `styles.css`：顶部“全选（共 N 项）”跨疑似/改名两类；同时存在时上方疑似、下方改名，使用 `.favorite-ledger-panel__remote-discovery-divider` 水平线；单类不渲染空组或线；未传入额外操作，因此底部只保留唯一主按钮，关闭走既有 `BilimiModal` 右上角 `×`。
+- `ControlledFavoriteLedgerPanel.tsx`：备册预检返回延后标记时不会提前打开 B 站收藏夹页；只有确认后续备册返回成功时通过回调打开，关闭弹窗不会打开页面。
+
+### 自动化证据
+
+- `FavoriteLedgerOverview.test.tsx` 覆盖双类型默认全选、顶部跨组全选和复选框不确定态、部分取消、单类型无分隔线、查看详情只处理已选草稿/精确改名且不备册、旧长提示移除、备册预检关闭无副作用、处理失败保留弹窗、处理后只继续原备册目标以及草稿不加入该批备册。
+- `ControlledFavoriteLedgerPanel.test.tsx` 覆盖延后发现处理期间不提前打开收藏夹页，确认后的成功备册才打开。
+- 定向回归：`npm test -- src/renderer/src/features/assistant/FavoriteLedgerOverview.test.tsx src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.test.tsx src/renderer/src/features/assistant/FloatingAssistantApp.renderIsolation.test.tsx src/renderer/src/App.test.tsx src/renderer/src/features/browser/BiliWebview.test.tsx --reporter=dot --maxWorkers=1 --minWorkers=1`：5 个文件、566 项通过。
+- 全量回归：`npm test -- --reporter=dot --maxWorkers=1 --minWorkers=1`：251 个文件、4587 项通过。输出包含仓库既有的模拟远端错误日志和 React `act(...)` 警告，但无失败。
+- 构建：`npm run build` 退出码 0；仅已有 `FloatingAssistantApp` 动态/静态导入分包提示。
+- 静态检查：`git diff --check` 通过。
+- 补充复验：在记录上述全量结果后，新增统一弹窗顶部全选的“部分选择 → `indeterminate` → 恢复全选”断言；`npm test -- src/renderer/src/features/assistant/FavoriteLedgerOverview.test.tsx --reporter=dot --maxWorkers=1 --minWorkers=1`：1 个文件、161 项通过。该最小测试变更不影响其他已通过的全量结果。
+
+### 逐项状态修订
+
+| 原文编号 | 状态 | 实际代码位置 | 自动化/界面验收 |
+| --- | --- | --- | --- |
+| R019 | 已实施待真实界面验收 | `FavoriteLedgerOverview.tsx` 统一状态、发现摘要和弹窗；`styles.css` | 统一弹窗、旧长提示移除、详情/备册职责分离的组件回归；真实 Electron 待验收。 |
+| R020 | 已实施 | 无视觉 mockup 工件 | 按原文不生成 mockup。 |
+| R021 | 已实施待真实界面验收 | `FavoriteLedgerOverview.tsx` 顶部与逐项复选框 | 默认勾选、全选和部分选择组件回归；真实键鼠验收待完成。 |
+| R022 | 已实施待真实界面验收 | `FavoriteLedgerOverview.tsx:processRemoteDiscoverySelection` | 两类同弹窗、一次处理及未选项无副作用回归；真实 Electron 待验收。 |
+| R023 | 已实施待真实界面验收 | `FavoriteLedgerOverview.tsx` 入口模式与主按钮；`ControlledFavoriteLedgerPanel.tsx` 延后页面打开 | 两种按钮文案、详情无备册、备册确认后继续回归；真实 B 站待验收。 |
+| R024 | 已实施待真实界面验收 | `FavoriteLedgerOverview.tsx:closeRemoteDiscoveryProcessing` | 备册预检 `×` 不保存、不改名、不继续备册回归；真实 Electron 待验收。 |
+| R025 | 已实施待真实界面验收 | `FavoriteLedgerOverview.tsx` 分组渲染；`styles.css` 分隔线 | 双组分隔、单组无空态/无分隔线回归；真实布局待验收。 |
+| R026 | 已实施待真实界面验收 | `OldFavoriteModal` 既有右上角关闭、统一弹窗未传 `extraActions` | 两入口无底部取消且关闭语义回归；真实点击 `×` 待验收。 |
+| R027 | 已实施待真实界面验收 | 同 R019-R026 | 上述定向、全量及构建证据；真实 Electron 待验收。 |
+| R028 | 已实施 | 本节计划、实现和验收记录；本轮本地提交 `d8d45901` | 用户后续“开始”已授权实施；本地提交已创建。 |
+
+### 真实 Electron / B 站界面验收待办
+
+自动化不能代替真实账户的 B 站写入与 Electron 交互验收。请在开发版同一账号分别构造仅疑似、仅已绑定改名、两类同时存在三种情况：检查中文文案、默认勾选、全选半选、双组分隔、单组空态和右上角 `×`；从查看详情确认只生成草稿/改名而不备册；从备册入口确认处理后才继续原备册且关闭没有任何处理或 B 站页跳转；最后确认右侧只有精简摘要、“查看详情”“暂不提醒”，旧长提示不存在。

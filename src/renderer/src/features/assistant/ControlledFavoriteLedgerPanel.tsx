@@ -1433,9 +1433,15 @@ export function ControlledFavoriteLedgerPanel({
     try {
       await waitForVisiblePaint()
       const result = (onSyncLedgers
-        ? await favoriteLedgerOverviewRef.current?.requestBackup()
+        ? await favoriteLedgerOverviewRef.current?.requestBackup({
+          onDeferredRemoteDiscoveryBackupFinished: async (deferredResult) => {
+            if (deferredResult?.ok !== false) await onOpenFavoritePage?.()
+          }
+        })
         : await onEnsureLedgers()) as { ok?: boolean } | undefined
-      if (result?.ok !== false) await onOpenFavoritePage?.()
+      if (result?.ok !== false && !(result as { remoteDiscoveryProcessingDeferred?: boolean } | undefined)?.remoteDiscoveryProcessingDeferred) {
+        await onOpenFavoritePage?.()
+      }
     } finally {
       ensuringLedgersRef.current = false
       setBackupPreparationLedgerIds([])

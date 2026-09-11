@@ -136,6 +136,31 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(ensure).not.toHaveBeenCalled()
   })
 
+  it('keeps the toolbar backup pending until unified discovery processing is confirmed', async () => {
+    const openFavoritePage = vi.fn().mockResolvedValue({ ok: true })
+    const sync = vi.fn().mockResolvedValue({
+      ok: true,
+      remoteObservations: [{ folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }]
+    })
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100"
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]}
+      missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()}
+      onSyncLedgers={sync}
+      onSaveLedgers={vi.fn().mockResolvedValue({ ok: true })}
+      onOpenFavoritePage={openFavoritePage}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册' }))
+    const dialog = await screen.findByRole('dialog', { name: '发现待处理的 bilimi 收藏夹' })
+    expect(openFavoritePage).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认处理并继续备册' }))
+
+    await waitFor(() => expect(openFavoritePage).toHaveBeenCalledTimes(1))
+    expect(sync).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps the independent deletion mode open after its temporary selection reaches the parent', async () => {
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100"
