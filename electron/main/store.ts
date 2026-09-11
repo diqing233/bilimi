@@ -187,6 +187,9 @@ function normalizeFavoriteAccountPreferences(value: unknown): FavoriteAccountPre
   return {
     defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled !== false,
     favoriteLedgers: normalizeFavoriteLedgers(candidate.favoriteLedgers),
+    ...(candidate.favoriteDiscoveryNoticeDismissed === true
+      ? { favoriteDiscoveryNoticeDismissed: true }
+      : {}),
     ...(Array.isArray(candidate.deletedFavoriteLedgerRecords)
       ? { deletedFavoriteLedgerRecords: candidate.deletedFavoriteLedgerRecords.flatMap((record) => {
           if (!record || typeof record !== 'object' || Array.isArray(record)) return []

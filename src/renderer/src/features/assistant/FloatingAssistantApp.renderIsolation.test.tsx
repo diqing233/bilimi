@@ -11,10 +11,20 @@ const deepSeekTaskSignal = vi.hoisted(() => ({
 }))
 
 vi.mock('./ControlledFavoriteLedgerPanel', () => ({
-  ControlledFavoriteLedgerPanel: ({ onFavoriteLibraryOpened }: { onFavoriteLibraryOpened?: () => void }) => {
+  ControlledFavoriteLedgerPanel: ({
+    onFavoriteLibraryOpened,
+    remoteDiscoveryNoticeDismissed,
+    onDismissRemoteDiscoveryNotice
+  }: {
+    onFavoriteLibraryOpened?: () => void
+    remoteDiscoveryNoticeDismissed?: boolean
+    onDismissRemoteDiscoveryNotice?: () => void
+  }) => {
     ledgerRenderCount += 1
     return <div aria-label="掌库渲染探针">
       <button type="button" onClick={onFavoriteLibraryOpened}>模拟打开收藏库</button>
+      <span data-testid="remote-discovery-dismissed">{remoteDiscoveryNoticeDismissed ? 'hidden' : 'visible'}</span>
+      <button type="button" onClick={onDismissRemoteDiscoveryNotice}>暂不提醒</button>
     </div>
   }
 }))
@@ -357,6 +367,34 @@ describe('FloatingAssistantApp render isolation', () => {
     })
 
     await waitFor(() => expect(screen.getByText('DeepSeek 待测试')).toBeInTheDocument())
+  })
+
+  it('hides the discovery notice immediately when dismissed from the ledger workspace', async () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: createInitialAssistantPreferences().favoriteLedgers
+        }
+      }
+    })
+    const patchPreferences = vi.fn(async (patch: Record<string, unknown>) =>
+      createInitialAssistantPreferences({ ...preferences, ...patch })
+    )
+    installDesktopApi(preferences, { patchPreferences })
+
+    render(<FloatingAssistantApp mode="sidebar" />)
+    fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
+
+    expect(await screen.findByTestId('remote-discovery-dismissed')).toHaveTextContent('visible')
+    fireEvent.click(screen.getByRole('button', { name: '暂不提醒' }))
+
+    await waitFor(() => expect(screen.getByTestId('remote-discovery-dismissed')).toHaveTextContent('hidden'))
+    await waitFor(() => expect(patchPreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteAccountPreferences: expect.objectContaining({
+        '100': expect.objectContaining({ favoriteDiscoveryNoticeDismissed: true })
+      })
+    })))
   })
 
   it('reconciles the global DeepSeek status with the persisted key status on startup', async () => {

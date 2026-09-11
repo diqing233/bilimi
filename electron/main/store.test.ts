@@ -370,6 +370,30 @@ describe('assistant preference store helpers', () => {
     expect(store.setCalls.at(-1)).toEqual(written)
   })
 
+  it('preserves the per-account favorite discovery snooze when preferences are patched and reloaded', () => {
+    const store = createFakeStore({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
+          favoriteDiscoveryNoticeDismissed: false
+        }
+      }
+    })
+
+    patchAssistantPreferences(store, {
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
+          favoriteDiscoveryNoticeDismissed: true
+        }
+      }
+    })
+
+    expect(loadAssistantPreferences(store).favoriteAccountPreferences['100']?.favoriteDiscoveryNoticeDismissed).toBe(true)
+  })
+
   it('writes pet hover shortcuts through the narrow patch without rewriting preferences', () => {
     const store = createFakeStore()
 
