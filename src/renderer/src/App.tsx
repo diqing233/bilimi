@@ -1237,7 +1237,11 @@ export default function App() {
       )
 
       if (tabId === activeTabIdRef.current) {
-        assistantSnapshotCacheRef.current.accountMid = ''
+        const nextFavoriteAccountMid = favoriteSpaceAccountMid(url)
+        const observedAccountMid = assistantSnapshotCacheRef.current.accountMid
+        if (!nextFavoriteAccountMid || nextFavoriteAccountMid !== observedAccountMid) {
+          assistantSnapshotCacheRef.current.accountMid = ''
+        }
         videoNoteSourceCacheRef.current = {}
         assistantSnapshotCacheRef.current.videoContextUrl = url
         assistantSnapshotCacheRef.current.videoContentContext = {
