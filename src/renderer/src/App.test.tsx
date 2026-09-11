@@ -4282,7 +4282,7 @@ describe('App runtime integration', () => {
     expect(adoptFavoriteRepositoryLedgerBinding.mock.calls.at(-1)?.[1]).not.toHaveProperty('allowRemoteRename')
   })
 
-  it('directly renames an already formal bound shard during explicit backup without reopening rebind confirmation', async () => {
+  it('renames an already formal bound shard without running a backup when renameBoundOnly is confirmed', async () => {
     const accountMid = '100'
     const game = {
       ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
@@ -4320,8 +4320,7 @@ describe('App runtime integration', () => {
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
-    Object.assign(webview, {
-      executeJavaScript: vi.fn(async (script: string) => {
+    const executeJavaScript = vi.fn(async (script: string) => {
         if (script.includes('已绑定收藏夹改名预检')) {
           return {
             ok: true,
@@ -4339,13 +4338,14 @@ describe('App runtime integration', () => {
           steps: ['api:ledger:list'], missingTargets: [], message: '已备册'
         }
       })
-    })
+    Object.assign(webview, { executeJavaScript })
 
     await expect(requestRuntime({
       id: 'rename-existing-bound-game', type: 'save-ledgers', ledgers: [game],
       options: {
         backupTargetLedgerIds: ['game'],
         rediscoverDeletedRemoteDrafts: true,
+        renameBoundOnly: true,
         confirmBoundRename: true,
         boundRenameShards: { game: [{ remoteFolderId: '4106106611', shardNumber: 1 }] }
       }
@@ -4362,6 +4362,7 @@ describe('App runtime integration', () => {
       currentRemoteTitle: 'bilimi·游戏专区', targetTitle: 'bilimi·游戏专区哈哈'
     })
     expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+    expect(executeJavaScript.mock.calls.some(([script]) => String(script).includes(LEDGER_SAVE_SCRIPT_MARKER))).toBe(false)
     expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
       favoriteAccountPreferences: expect.objectContaining({
         [accountMid]: expect.objectContaining({

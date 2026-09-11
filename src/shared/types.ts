@@ -117,6 +117,8 @@ export type FavoriteLedgerSaveOptions = {
   rebindRemoteFolders?: Record<FavoriteLedgerId, Array<{ id: string; title: string; memberCount?: number }>>
   /** The owner explicitly approved renaming already formal bound shards listed by the read-only preflight. */
   confirmBoundRename?: boolean
+  /** Process only explicitly confirmed formal bound-shard renames; do not create, bind, back up, or synchronize videos. */
+  renameBoundOnly?: boolean
   /** Exact formal Bilibili shard tuples displayed by the bound-rename preflight; confirmation fails closed if they change. */
   boundRenameShards?: Record<FavoriteLedgerId, Array<{
     remoteFolderId: string

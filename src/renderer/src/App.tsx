@@ -3496,6 +3496,7 @@ export default function App() {
       options?.lightweightBackup ||
       options?.confirmCreateAndBind ||
       options?.confirmBoundRename ||
+      options?.renameBoundOnly ||
       Object.keys(options?.rebindRemoteFolderIds ?? {}).length ||
       Object.keys(options?.rebindRemoteFolders ?? {}).length
     )
@@ -3703,6 +3704,41 @@ export default function App() {
       }
     }
     const ledgersAfterDirectRename = directRename.ledgers
+    if (options?.renameBoundOnly === true) {
+      const renamedById = new Map(ledgersAfterDirectRename.map((ledger) => [ledger.id, ledger]))
+      const renamedLedgers = withoutDeletedLedgers(accountMid, allAccountLedgers.map((ledger) =>
+        renamedById.get(ledger.id) ?? ledger
+      ))
+      const nextPreferences = createInitialAssistantPreferences({
+        ...preferencesWithFavoriteLedgers(preferencesRef.current, accountMid, renamedLedgers)
+      })
+      try {
+        const savedPreferences = createInitialAssistantPreferences(
+          window.bilimiDesktop?.savePreferences
+            ? await window.bilimiDesktop.savePreferences(nextPreferences)
+            : nextPreferences
+        )
+        preferencesRef.current = savedPreferences
+        setPreferences(savedPreferences)
+        favoriteLedgerStatusCacheRef.current = null
+        assistantSnapshotCacheRef.current.favoriteLedgerStatus = null
+        window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+        return {
+          ok: true,
+          steps: ['favorite:bound-shard-rename'],
+          missingTargets: [],
+          message: '已按掌库当前名称完成已绑定收藏夹改名。',
+          ledgers: favoriteLedgersForAccount(savedPreferences, accountMid)
+        }
+      } catch {
+        return {
+          ok: false,
+          steps: ['favorite:bound-shard-rename'],
+          missingTargets: Object.keys(options.boundRenameShards ?? {}),
+          message: '已绑定收藏夹改名已完成，但本地状态未能保存，请稍后重试。'
+        }
+      }
+    }
     const ledgersForRemoteDiscovery = [...new Map([
       ...allAccountLedgers,
       ...ledgersAfterDirectRename
