@@ -830,6 +830,10 @@ export default function App() {
     includesRemoteOnlyDrafts: boolean
     status: FavoriteLedgerStatus
   } | null>(null)
+  const favoriteLedgerDiscoveryCacheRef = useRef(new Map<string, {
+    remoteObservations: NonNullable<FavoriteLedgerStatus['remoteObservations']>
+    boundRenameCandidates: NonNullable<FavoriteLedgerStatus['boundRenameCandidates']>
+  }>())
   const favoriteLedgerStatusRefreshPromisesRef = useRef(new Map<string, Promise<FavoriteLedgerStatus | undefined>>())
   const pendingManualFavoriteDiscoveryAccountMidsRef = useRef(new Set<string>())
   const favoriteLedgerRemoteDiscoveryPromisesRef = useRef(new Map<string, Promise<FavoriteLedgerStatus>>())
@@ -847,6 +851,26 @@ export default function App() {
   const petHiddenForVideoFullscreen = useRef(false)
   const videoFullscreenActiveRef = useRef(false)
   const videoFullscreenPetCloseTimer = useRef<number | null>(null)
+
+  function cacheVerifiedFavoriteDiscovery(
+    accountMid: string,
+    patch: {
+      remoteObservations?: FavoriteLedgerStatus['remoteObservations']
+      boundRenameCandidates?: FavoriteLedgerStatus['boundRenameCandidates']
+    }
+  ) {
+    const normalizedAccountMid = accountMid.trim()
+    if (!normalizedAccountMid) return
+    const current = favoriteLedgerDiscoveryCacheRef.current.get(normalizedAccountMid)
+    favoriteLedgerDiscoveryCacheRef.current.set(normalizedAccountMid, {
+      remoteObservations: patch.remoteObservations
+        ? [...patch.remoteObservations]
+        : current?.remoteObservations ?? [],
+      boundRenameCandidates: patch.boundRenameCandidates
+        ? [...patch.boundRenameCandidates]
+        : current?.boundRenameCandidates ?? []
+    })
+  }
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences(
       IS_TEST_RUNTIME ? { permissionOnboardingCompleted: true } : undefined
@@ -1354,6 +1378,10 @@ export default function App() {
       // rename read cannot be completed. This branch is read-only.
     }
     const nextStatus: FavoriteLedgerStatus = { ...observationStatus, boundRenameCandidates }
+    cacheVerifiedFavoriteDiscovery(accountMid, {
+      remoteObservations: nextStatus.remoteObservations,
+      boundRenameCandidates: nextStatus.boundRenameCandidates
+    })
     assistantSnapshotCacheRef.current.favoriteLedgerStatus = nextStatus
     const cachedStatus = favoriteLedgerStatusCacheRef.current
     if (cachedStatus?.accountMid === accountMid) {
@@ -2982,6 +3010,14 @@ export default function App() {
       force: true,
       preserveBoundLedgerIds: options.preserveBoundLedgerIds,
       includeRemoteOnlyDrafts: true
+    }).then((status) => {
+      if (status.verified === true) {
+        cacheVerifiedFavoriteDiscovery(accountMid, {
+          remoteObservations: status.remoteObservations,
+          boundRenameCandidates: status.boundRenameCandidates
+        })
+      }
+      return status
     }).finally(() => {
       if (favoriteLedgerRemoteDiscoveryPromisesRef.current.get(accountMid) === pending) {
         favoriteLedgerRemoteDiscoveryPromisesRef.current.delete(accountMid)
@@ -3704,6 +3740,10 @@ export default function App() {
           if (assistantSnapshotCacheRef.current.accountMid !== accountMid || status.verified !== true) {
             return undefined
           }
+          cacheVerifiedFavoriteDiscovery(accountMid, {
+            remoteObservations: status.remoteObservations,
+            boundRenameCandidates: status.boundRenameCandidates
+          })
           void clearFavoriteDiscoveryNoticeDismissal(accountMid)
           return status
         })
@@ -4105,6 +4145,17 @@ export default function App() {
     favoriteLedgerStatus = assistantSnapshotCacheRef.current.favoriteLedgerStatus
   ): AssistantSnapshot {
     const activeTabSnapshot = getActiveTabSnapshot()
+    const accountMid = assistantSnapshotCacheRef.current.accountMid
+    const cachedDiscovery = accountMid
+      ? favoriteLedgerDiscoveryCacheRef.current.get(accountMid)
+      : undefined
+    const snapshotFavoriteLedgerStatus = favoriteLedgerStatus && cachedDiscovery
+      ? {
+          ...favoriteLedgerStatus,
+          remoteObservations: cachedDiscovery.remoteObservations,
+          boundRenameCandidates: cachedDiscovery.boundRenameCandidates
+        }
+      : favoriteLedgerStatus
     const activeTabVideoTitle = normalizeActiveTabVideoTitle(activeTabSnapshot)
     const cachedContext = assistantSnapshotCacheRef.current.videoContextUrl === activeTabSnapshot?.url
       ? assistantSnapshotCacheRef.current.videoContentContext
@@ -4114,12 +4165,12 @@ export default function App() {
       : cachedContext
 
     return {
-      accountMid: assistantSnapshotCacheRef.current.accountMid,
-      localFavoriteToggleAccountMid: assistantSnapshotCacheRef.current.accountMid
+      accountMid,
+      localFavoriteToggleAccountMid: accountMid
         ? undefined
         : findSoleFavoriteAccountMid(preferencesRef.current.favoriteAccountPreferences),
       preferences: preferencesRef.current,
-      favoriteLedgerStatus,
+      favoriteLedgerStatus: snapshotFavoriteLedgerStatus,
       videoContentContext,
       activeTabUrl: activeTabSnapshot?.url,
       runtimeFeedback: assistantRuntimeFeedbackRef.current?.message,
@@ -5091,7 +5142,9 @@ export default function App() {
           {
             const accountMid = assistantSnapshotCacheRef.current.accountMid
             const cachedRemoteDiscovery = favoriteLedgerStatusCacheRef.current
+            const activeFavoriteAccountMid = favoriteSpaceAccountMid(getActiveTabSnapshot()?.url)
             const shouldDiscover = Boolean(accountMid &&
+              activeFavoriteAccountMid === accountMid &&
               !favoriteLedgerStartupRemoteDiscoveryAccountMidsRef.current.has(accountMid) &&
               !(cachedRemoteDiscovery?.accountMid === accountMid && cachedRemoteDiscovery.includesRemoteOnlyDrafts))
             const favoriteLedgerStatus = accountMid

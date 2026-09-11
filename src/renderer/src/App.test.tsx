@@ -3774,6 +3774,50 @@ describe('App runtime integration', () => {
     })
   })
 
+  it('keeps the latest verified discovery notice when switching away from the favorite page', async () => {
+    const accountMid = '100'
+    const observation = { folderId: '902', title: 'bilimi·跨网页发现', memberCount: 1 }
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      retryBilibiliFavoriteSpaceRefresh
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    let onFavoritePage = true
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (!isLedgerStatusScript(script)) throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      return onFavoritePage ? { ...emptyLedgerStatus(), remoteObservations: [observation] } : emptyLedgerStatus()
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await act(async () => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: `https://space.bilibili.com/${accountMid}/favlist` }
+      }))
+      await Promise.resolve()
+    })
+    act(() => webview.dispatchEvent(new CustomEvent('page-title-updated', {
+      detail: {
+        title: `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid, kind: 'rename', nonce: 902 }))}`
+      }
+    })))
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith(accountMid))
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('"includeRemoteOnlyDrafts":true')))
+    await expect(requestRuntime({ id: 'favorite-page-discovery-before-switch', type: 'snapshot' })).resolves.toMatchObject({
+      favoriteLedgerStatus: expect.objectContaining({ remoteObservations: [observation] })
+    })
+
+    onFavoritePage = false
+    act(() => webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+      detail: { url: `https://www.bilibili.com/video/BV1crosspage` }
+    })))
+    await expect(requestRuntime({ id: 'ordinary-page-discovery-after-switch', type: 'snapshot' })).resolves.toMatchObject({
+      favoriteLedgerStatus: expect.objectContaining({ remoteObservations: [observation] })
+    })
+  })
+
   it('does not publish manual favorite discovery for an ordinary non-favorite refresh', async () => {
     const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
     const { desktopApi } = renderAppWithRuntimeBridge({
