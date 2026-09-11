@@ -609,6 +609,8 @@ export class FavoriteRepositoryService {
 
   async getLibrarySummary(accountMid: string, options?: {
     localDraftLedgerIds?: readonly string[]
+    /** Remote mirrors retained as source facts but hidden after local managed-folder deletion. */
+    suppressedRemoteFolderIds?: readonly string[]
   }): Promise<FavoriteRepositoryLibrarySummary> {
     const account = normalizeAccountMid(accountMid)
     const cached = await this.load(account)
@@ -624,6 +626,7 @@ export class FavoriteRepositoryService {
     const pendingAidCount = this.actionablePendingAids(snapshot).length
     const index = this.libraryIndex(cached, snapshot)
     const localDraftLedgerIds = new Set((options?.localDraftLedgerIds ?? []).map((id) => id.trim()).filter(Boolean))
+    const suppressedRemoteFolderIds = new Set((options?.suppressedRemoteFolderIds ?? []).map((id) => id.trim()).filter(Boolean))
     const trustedRemoteFolderIdByLedger = new Map<string, string>()
     for (const shard of snapshot.physicalShards) {
       if (shard.bindingState !== 'bound' || !shard.remoteFolderId) continue
@@ -638,6 +641,7 @@ export class FavoriteRepositoryService {
     ])
     const projectedFolders = index.folders
       .filter((folder) => !(hasLogicalInbox && folder.id === 'local:inbox'))
+      .filter((folder) => !(folder.kind === 'bilibili' && folder.remoteFolderId && suppressedRemoteFolderIds.has(folder.remoteFolderId)))
       .map((folder) => {
       if (folder.kind === 'bilimi-logical' && folder.logicalLedgerId) {
         const remoteFolderId = trustedRemoteFolderIdByLedger.get(folder.logicalLedgerId)

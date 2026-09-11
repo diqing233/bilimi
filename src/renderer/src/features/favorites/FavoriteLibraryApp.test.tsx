@@ -2168,6 +2168,25 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.queryByRole('button', { name: 'bilimi·哈哈 菜单' })).not.toBeInTheDocument()
   })
 
+  it('does not render a locally deleted retained remote mirror after the summary filters it', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-09-12T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [
+        { id: 'bilibili:9002', title: '普通收藏夹', kind: 'bilibili', remoteFolderId: '9002', syncState: 'synced' }
+      ], folderCounts: { 'bilibili:9002': 1 }, workspaceVideoCount: 0, otherFavoriteVideoCount: 1,
+      scopeCounts: { all: 1, pending: 0, protected: 0, unsynced: 0, recycle: 0 }, physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, totalCount: 1, items: [{ video: { aid: 1, title: '保留来源视频', tags: [], updatedAt: '2026-09-12T00:00:00.000Z' }, folderIds: [], pendingStates: [] }] }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+
+    expect(await screen.findByRole('button', { name: '普通收藏夹' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'bilimi·音乐' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'bilimi·音乐 菜单' })).not.toBeInTheDocument()
+    expect(screen.getByText('保留来源视频')).toBeInTheDocument()
+  })
+
   it('keeps ordinary folders viewable without local-hide or bulk-delete controls', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),

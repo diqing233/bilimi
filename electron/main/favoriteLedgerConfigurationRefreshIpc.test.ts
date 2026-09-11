@@ -101,6 +101,14 @@ describe('favorite ledger configuration refresh IPC', () => {
 
   })
 
+  it('hides only locally deleted retained remote mirrors until explicit backup', () => {
+    const managedStart = mainSource.indexOf('favoriteRepositoryManagedFolderService = new FavoriteRepositoryManagedFolderService({')
+    const managedEnd = mainSource.indexOf('\n  })', managedStart)
+    const managed = mainSource.slice(managedStart, managedEnd)
+    expect(managed).toContain('.filter((deletion) => !deletion.remoteDeleted)')
+    expect(managed).toContain('markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, retainedRemoteFolderIds)')
+  })
+
   it('uses the same single-flight local projection after automatic capacity provisioning', () => {
     const syncServiceStart = mainSource.indexOf('favoriteRepositorySyncService = new FavoriteRepositorySyncService({')
     const syncServiceEnd = mainSource.indexOf('\n  })', syncServiceStart)

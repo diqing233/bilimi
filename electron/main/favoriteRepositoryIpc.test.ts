@@ -200,6 +200,24 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(getSnapshot).not.toHaveBeenCalled()
   })
 
+  it('passes locally deleted remote mirror ids into both account summary reads', async () => {
+    const ipcMain = new FakeIpcMain()
+    const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 3 })
+    const getSuppressedRemoteFolderIds = vi.fn(() => ['9001'])
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: { getLibrarySummary } as never,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      getSuppressedRemoteFolderIds
+    })
+
+    await ipcMain.invoke('favorite-repository:open-account', 7, '100')
+    await ipcMain.invoke('favorite-repository:get-snapshot', 7, '100')
+
+    expect(getSuppressedRemoteFolderIds).toHaveBeenCalledTimes(2)
+    expect(getLibrarySummary).toHaveBeenNthCalledWith(1, '100', { suppressedRemoteFolderIds: ['9001'] })
+    expect(getLibrarySummary).toHaveBeenNthCalledWith(2, '100', { suppressedRemoteFolderIds: ['9001'] })
+  })
+
   it('repairs confirmed legacy review half-records before returning an account-open summary', async () => {
     const ipcMain = new FakeIpcMain()
     const repairLegacyConfirmedReviewFavorites = vi.fn().mockResolvedValue(1)

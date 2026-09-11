@@ -1905,6 +1905,37 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
+  it('hides a locally deleted managed remote mirror from the library summary without deleting its source fact', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-09-12T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'retained-remote-mirror', accountMid: '100', issuedAt: '2026-09-12T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1',
+        folders: [
+          { id: 'bilibili:9001', title: 'bilimi·音乐', remoteFolderId: '9001' },
+          { id: 'bilibili:9002', title: '普通收藏夹', remoteFolderId: '9002' }
+        ],
+        memberAidsByFolderId: { 'bilibili:9001': [1], 'bilibili:9002': [2] },
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-09-12T00:00:00.000Z' }))
+      }
+    })
+
+    const summary = await service.getLibrarySummary('100', { suppressedRemoteFolderIds: ['9001'] })
+
+    expect(summary.folders).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilibili:9001' })
+    ]))
+    expect(summary.folderCounts).not.toHaveProperty('bilibili:9001')
+    expect(summary.folderCount).toBe(1)
+    expect(summary.workspaceVideoCount).toBe(0)
+    expect(summary.otherFavoriteVideoCount).toBe(1)
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      folders: expect.arrayContaining([expect.objectContaining({ id: 'bilibili:9001', remoteFolderId: '9001' })]),
+      memberships: { 'bilibili:9001': [1] }
+    })
+  })
+
   it('projects orphaned custom local folders as drafts without projecting ordinary local folders', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-08-05T00:00:00.000Z' })

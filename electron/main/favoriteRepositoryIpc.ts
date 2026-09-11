@@ -434,6 +434,8 @@ export function registerFavoriteRepositoryIpc(options: {
   onAccountOpen?: (accountMid: string) => Promise<void>
   /** Returns persisted local ledger identities that are still unbound drafts. */
   getLocalDraftLedgerIds?: (accountMid: string) => readonly string[]
+  /** Returns retained Bilibili mirror IDs that local managed-folder deletion hides until explicit backup. */
+  getSuppressedRemoteFolderIds?: (accountMid: string) => readonly string[]
   /** Suppresses only the remote-only Bilimi draft reminder for this account and remote folder. */
   getRemoteDraftReminderDismissed?: (accountMid: string) => readonly string[]
   dismissRemoteDraftReminder?: (accountMid: string, remoteFolderId: string) => Promise<unknown> | unknown
@@ -651,6 +653,20 @@ export function registerFavoriteRepositoryIpc(options: {
     })
     accountOpenRecoveries.set(accountMid, recovery)
   }
+  const librarySummaryOptions = (accountMid: string) => {
+    const localDraftLedgerIds = options.getLocalDraftLedgerIds?.(accountMid)
+    const suppressedRemoteFolderIds = options.getSuppressedRemoteFolderIds?.(accountMid)
+    return {
+      ...(localDraftLedgerIds?.length ? { localDraftLedgerIds } : {}),
+      ...(suppressedRemoteFolderIds?.length ? { suppressedRemoteFolderIds } : {})
+    }
+  }
+  const readLibrarySummary = (accountMid: string) => {
+    const summaryOptions = librarySummaryOptions(accountMid)
+    return Object.keys(summaryOptions).length
+      ? options.service.getLibrarySummary(accountMid, summaryOptions)
+      : options.service.getLibrarySummary(accountMid)
+  }
 
   options.ipcMain.handle('favorite-repository:open-account', async (event, requestedAccountMid: string) => {
     assertReader(event)
@@ -673,19 +689,13 @@ export function registerFavoriteRepositoryIpc(options: {
     // Reconciliation enriches the local projection but must not block reading
     // an already usable library when the page runtime is unavailable.
     recoverAccountInBackground(accountMid)
-    const localDraftLedgerIds = options.getLocalDraftLedgerIds?.(accountMid)
-    return localDraftLedgerIds
-      ? options.service.getLibrarySummary(accountMid, { localDraftLedgerIds })
-      : options.service.getLibrarySummary(accountMid)
+    return readLibrarySummary(accountMid)
   })
   options.ipcMain.handle('favorite-repository:get-snapshot', async (event, requestedAccountMid: string) => {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
-    const localDraftLedgerIds = options.getLocalDraftLedgerIds?.(accountMid)
-    return localDraftLedgerIds
-      ? options.service.getLibrarySummary(accountMid, { localDraftLedgerIds })
-      : options.service.getLibrarySummary(accountMid)
+    return readLibrarySummary(accountMid)
   })
   options.ipcMain.handle('favorite-repository:get-remote-draft-reminder-dismissals', async (event, requestedAccountMid: string) => {
     assertTrusted(event)

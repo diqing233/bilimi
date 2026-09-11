@@ -2664,6 +2664,15 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     repository: favoriteRepositoryService,
     remoteArbiter: favoriteRepositoryRemoteOperations,
     onManagedFolderDeleted: async (accountMid, deletions) => {
+      const retainedRemoteFolderIds = [...new Set(deletions
+        .filter((deletion) => !deletion.remoteDeleted)
+        .flatMap((deletion) => deletion.remoteFolderIds)
+        .map((remoteFolderId) => remoteFolderId.trim())
+        .filter(Boolean))]
+      // A local-only deletion retains Bilibili source facts but must not turn
+      // their mirrors back into an unmanageable library work-folder entry.
+      // Explicit backup already consumes this account-scoped rediscovery gate.
+      markFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid, retainedRemoteFolderIds)
       await persistConfirmedManagedFolderDeletion(accountMid, deletions, {
         load: (targetAccountMid) => loadFavoriteAccountPreferences(getDesktopStore(), targetAccountMid),
         save: (targetAccountMid, preferences) => saveFavoriteAccountPreferences(getDesktopStore(), targetAccountMid, preferences),
@@ -3205,6 +3214,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getLocalDraftLedgerIds: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
       .filter((ledger) => ledger.syncState === 'local-draft' && !ledger.bilibiliFolderId)
       .map((ledger) => ledger.id),
+    getSuppressedRemoteFolderIds: (accountMid) =>
+      loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid),
     send: (senderId, channel, payload) => {
       const target = webContents.fromId(senderId)
       if (target && !target.isDestroyed()) target.send(channel, payload)
