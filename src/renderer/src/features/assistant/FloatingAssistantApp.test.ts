@@ -1058,6 +1058,34 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(statusLightTooltip(status)).toContain('视频转写模型：faster-whisper large-v3-turbo · GPU 已就绪')
   })
 
+  it('shows the queued model and concise CPU fallback in running status details', () => {
+    const status = FloatingAssistantAppModule.resolveGlobalTranscriptionStatus(
+      {
+        activeItemId: 'fallback-running',
+        sessionCompletedCount: 0,
+        items: [{
+          id: 'fallback-running',
+          url: 'https://www.bilibili.com/video/BV1fallback',
+          title: 'GPU 回退视频',
+          transcriptionModelId: 'faster-whisper-large-v3',
+          actualDevice: 'cpu',
+          actualComputeType: 'int8',
+          runtimeFallbackMessage: 'CUDA 推理自检失败，可能是显存不足、驱动或 CUDA 运行库不兼容；已自动回退 CPU。',
+          status: 'running',
+          progress: { step: 'transcribing-segment', message: '转写中', segmentIndex: 1, segmentCount: 1 },
+          createdAt: '2026-09-12T00:00:00.000Z',
+          updatedAt: '2026-09-12T00:00:01.000Z'
+        }]
+      },
+      'whisper-small'
+    )
+
+    expect(status.detail).toContain('视频转写模型：faster-whisper large-v3 · CPU（int8） · GPU 不可用，已回退 CPU')
+    expect(status.detail).not.toContain('CUDA 推理自检失败')
+    expect(status.label).toBe('转写中')
+    expect(status.label).not.toContain('68%')
+  })
+
   it('shows the selected transcription model and only a matching available GPU probe as ready', () => {
     const queue: VideoAudioTranscriptionQueueSnapshot = { items: [], sessionCompletedCount: 1 }
     const matching = FloatingAssistantAppModule.resolveGlobalTranscriptionStatus(

@@ -20,6 +20,7 @@ import {
   createPolishedTranscriptText
 } from '@shared/videoNoteArchive'
 import { AssistantActionButton } from '../assistant/AssistantActionButton'
+import { transcriptionModelLabel } from '../assistant/assistantGlobalStatusCenter'
 import { CopySplitButton, ExportButton, type DownloadFormat } from './CopySplitButton'
 import { VideoNoteBatchExportDialog } from './VideoNoteBatchExportDialog'
 import { VideoSummaryMenu } from './VideoSummaryMenu'
@@ -136,7 +137,8 @@ const progressLabelByStep: Record<VideoAudioTranscriptionProgress['step'], strin
 
 type FormattedProgress = {
   label: string
-  percent: number
+  percent?: number
+  indeterminate?: boolean
   ariaLabel: string
 }
 
@@ -150,16 +152,6 @@ function formatTimestamp(seconds: number | null): string {
   const minutes = Math.floor(normalizedSeconds / 60)
   const remainder = normalizedSeconds % 60
   return minutes.toString().padStart(2, '0') + ':' + remainder.toString().padStart(2, '0')
-}
-
-function clampPercent(value: number): number {
-  return Math.min(100, Math.max(0, Math.round(value)))
-}
-
-function interpolatePercent(start: number, end: number, index: number, count: number): number {
-  if (count <= 0) return start
-  const completedShare = Math.min(1, Math.max(0, index / count))
-  return clampPercent(start + (end - start) * completedShare)
 }
 
 function formatProgress(
@@ -184,9 +176,7 @@ function formatProgress(
   ) {
     return {
       label: '正在转写第 ' + progress.segmentIndex + ' / ' + progress.segmentCount + ' 段',
-      percent: summarizeWithDeepSeek
-        ? interpolatePercent(30, 78, progress.segmentIndex, progress.segmentCount)
-        : interpolatePercent(30, 68, progress.segmentIndex, progress.segmentCount),
+      indeterminate: true,
       ariaLabel
     }
   }
@@ -212,6 +202,19 @@ function formatProgress(
     percent: progressFallbackByStep[progress.step],
     ariaLabel
   }
+}
+
+function formatActiveQueueRuntime(item: VideoAudioTranscriptionQueueItem): string | undefined {
+  const model = item.transcriptionModelId ? `模型：${transcriptionModelLabel(item.transcriptionModelId)}` : ''
+  const actualDevice = item.actualDevice ?? item.progress?.actualDevice
+  const actualComputeType = item.actualComputeType ?? item.progress?.actualComputeType
+  const fallbackMessage = item.runtimeFallbackMessage ?? item.progress?.runtimeFallbackMessage
+  const runtime = actualDevice
+    ? `${actualDevice === 'cuda' ? 'NVIDIA GPU' : 'CPU'}${actualComputeType ? `（${actualComputeType}）` : ''}`
+    : ''
+  const fallback = actualDevice === 'cpu' && fallbackMessage ? 'GPU 不可用，已回退 CPU' : ''
+  const detail = [model, runtime, fallback].filter(Boolean).join(' · ')
+  return detail || undefined
 }
 
 function createTimedTranscriptText(segments: TranscriptSegment[]): string {
@@ -917,10 +920,14 @@ export function VideoNotesPanel({
       <div className="video-notes__queue-progress" role="status" aria-live="polite">
         <div>
           <span>{progressLabel}</span>
-          <span>{progress.percent}%</span>
+          {progress.percent !== undefined ? <span>{progress.percent}%</span> : null}
           {action}
         </div>
-        <progress max={100} value={progress.percent} aria-label={progress.ariaLabel} />
+        <progress
+          max={100}
+          {...(progress.indeterminate ? {} : { value: progress.percent })}
+          aria-label={progress.ariaLabel}
+        />
         {itemProgress.step === 'transcribing-segment' ? (
           <small>
             正在本地转写，CPU 占用升高是正常现象。
@@ -951,10 +958,7 @@ export function VideoNotesPanel({
                   <span className="video-notes__queue-current-accessible-label">{(activeQueueItem.cancelRequested ? '正在取消…：' : '正在转写：') + activeQueueItem.title}</span>
                   <span className="video-notes__queue-current-prefix">{activeQueueItem.cancelRequested ? '正在取消…：' : '正在转写：'}</span>
                   <span className="video-notes__queue-record-title">{activeQueueItem.title}</span>
-                  {activeQueueItem.actualDevice ? <span className="video-notes__queue-runtime">
-                    {`正在使用${activeQueueItem.actualDevice === 'cuda' ? ' NVIDIA GPU' : ' CPU'} 转写${activeQueueItem.actualComputeType ? ` · ${activeQueueItem.actualComputeType}` : ''}`}
-                    {activeQueueItem.runtimeFallbackMessage ? ` · ${activeQueueItem.runtimeFallbackMessage}` : ''}
-                  </span> : null}
+                  {formatActiveQueueRuntime(activeQueueItem) ? <span className="video-notes__queue-runtime">{formatActiveQueueRuntime(activeQueueItem)}</span> : null}
                 </button>
                 {renderQueueItemProgress(activeQueueItem, renderQueueItemAction(activeQueueItem))}
               </div>

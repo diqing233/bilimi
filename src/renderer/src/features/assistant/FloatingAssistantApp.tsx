@@ -1324,9 +1324,18 @@ function transcriptionGpuReady(
 
 function formatTranscriptionModelStatus(
   modelId: TranscriptionModelId,
-  gpuReady: boolean
+  item: VideoAudioTranscriptionQueueItem | undefined,
+  gpuProbe: TranscriptionGpuProbe | undefined
 ): string {
-  return `视频转写模型：${transcriptionModelLabel(modelId)}${gpuReady ? ' · GPU 已就绪' : ''}`
+  const actualDevice = item?.actualDevice ?? item?.progress?.actualDevice
+  const actualComputeType = item?.actualComputeType ?? item?.progress?.actualComputeType
+  const fallbackMessage = item?.runtimeFallbackMessage ?? item?.progress?.runtimeFallbackMessage
+  if (actualDevice === 'cpu') {
+    const runtime = `CPU${actualComputeType ? `（${actualComputeType}）` : ''}`
+    return `视频转写模型：${transcriptionModelLabel(modelId)} · ${runtime}${fallbackMessage ? ' · GPU 不可用，已回退 CPU' : ''}`
+  }
+
+  return `视频转写模型：${transcriptionModelLabel(modelId)}${transcriptionGpuReady(modelId, item, gpuProbe) ? ' · GPU 已就绪' : ''}`
 }
 
 export function resolveGlobalDeepSeekStatus(
@@ -1413,7 +1422,7 @@ export function resolveGlobalTranscriptionStatus(
 ): GlobalStatusItem {
   const modelDetail = (item?: VideoAudioTranscriptionQueueItem) => {
     const modelId = item?.transcriptionModelId ?? selectedModelId
-    return formatTranscriptionModelStatus(modelId, transcriptionGpuReady(modelId, item, gpuProbe))
+    return formatTranscriptionModelStatus(modelId, item, gpuProbe)
   }
   const detailWithModel = (detail: string, item?: VideoAudioTranscriptionQueueItem) => `${modelDetail(item)}\n\n${detail}`
   const runningItem = transcriptionQueue.items.find((item) => item.status === 'running')
@@ -1552,7 +1561,7 @@ function formatGlobalProgressPercent(progress?: VideoAudioTranscriptionProgress)
     typeof progress.segmentCount === 'number' &&
     progress.segmentCount > 0
   ) {
-    return Math.min(100, Math.max(0, Math.round(30 + 38 * (progress.segmentIndex / progress.segmentCount))))
+    return null
   }
 
   const fallbackByStep: Record<VideoAudioTranscriptionProgress['step'], number> = {

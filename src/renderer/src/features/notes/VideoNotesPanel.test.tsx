@@ -277,6 +277,32 @@ describe('VideoNotesPanel', () => {
     expect(screen.queryByText(/whisper\.cpp 正在本地转写/)).not.toBeInTheDocument()
   })
 
+  it('shows the active model and concise CPU fallback while keeping segment progress indeterminate', () => {
+    renderPanel({
+      note: null,
+      transcriptionQueue: {
+        activeItemId: 'fallback-running',
+        sessionCompletedCount: 0,
+        items: [{
+          id: 'fallback-running', accountMid: '100', aid: 7, cid: 70, bvid: 'BV1fallback',
+          url: 'https://www.bilibili.com/video/BV1fallback', title: 'GPU 回退视频', status: 'running',
+          transcriptionModelId: 'faster-whisper-large-v3', actualDevice: 'cpu', actualComputeType: 'int8',
+          runtimeFallbackMessage: 'CUDA 推理自检失败，可能是显存不足、驱动或 CUDA 运行库不兼容；已自动回退 CPU。',
+          progress: { step: 'transcribing-segment', message: 'transcribing', segmentIndex: 1, segmentCount: 1 },
+          createdAt: '2026-09-12T00:00:00.000Z', updatedAt: '2026-09-12T00:00:01.000Z'
+        }]
+      }
+    })
+
+    const current = screen.getByRole('button', { name: /正在转写：GPU 回退视频/ })
+    expect(current).toHaveTextContent('模型：faster-whisper large-v3')
+    expect(current).toHaveTextContent('CPU（int8）')
+    expect(current).toHaveTextContent('GPU 不可用，已回退 CPU')
+    expect(current).not.toHaveTextContent('CUDA 推理自检失败')
+    expect(screen.getByRole('status')).toHaveTextContent('正在转写第 1 / 1 段')
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute('value')
+  })
+
   it('does not render an old-account queue record after the active account changes', () => {
     renderPanel({
       note: null,
@@ -843,7 +869,7 @@ describe('VideoNotesPanel', () => {
     expect(screen.queryByText('正在转写「正在跑的视频」，「当前视频」已加入队列。')).not.toBeInTheDocument()
   })
 
-  it('shows queue snapshot progress with a visual percentage', () => {
+  it('shows queue snapshot progress as indeterminate while a segment is being transcribed', () => {
     renderPanel({
       note: null,
       onTranscribeAudio: vi.fn(),
@@ -868,8 +894,8 @@ describe('VideoNotesPanel', () => {
       }
     })
     expect(screen.getByText('正在转写第 1 / 2 段')).toBeInTheDocument()
-    expect(screen.getByText('49%')).toBeInTheDocument()
-    expect(screen.getByLabelText('转写音频到文稿生成整体进度')).toHaveAttribute('value', '49')
+    expect(screen.queryByText('49%')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('转写音频到文稿生成整体进度')).not.toHaveAttribute('value')
     expect(screen.queryByText('Transcribing segment 1/2.')).not.toBeInTheDocument()
     const queueStatus = screen.getByRole('region', { name: '转写状态' })
     const progressIndex = Array.from(queueStatus.children).findIndex((element) => element.classList.contains('video-notes__queue-progress'))
