@@ -664,8 +664,8 @@ describe('VideoNotesPanel transcription queue', () => {
     expect(screen.getByRole('button', { name: '正在转写：Running video' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '转写失败：Failed video' })).toBeInTheDocument()
     expect(screen.getByText('正在转写第 2 / 4 段')).toBeInTheDocument()
-    expect(screen.queryByText('49%')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('转写音频到文稿生成整体进度')).not.toHaveAttribute('value')
+    expect(screen.getByText('49%')).toBeInTheDocument()
+    expect(screen.getByLabelText('转写音频到文稿生成整体进度')).toHaveAttribute('value', '49')
     expect(screen.queryByRole('button', { name: '加入队列' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: '转写操作' })).toHaveLength(1)
     expect(screen.getByText('音频下载失败，请检查网络后重试。')).toBeInTheDocument()
@@ -775,6 +775,106 @@ describe('VideoNotesPanel transcription queue', () => {
     expect(screen.getByText('正在生成 DeepSeek 总结')).toBeInTheDocument()
     expect(screen.getByText('96%')).toBeInTheDocument()
     expect(screen.getByLabelText('转写音频到 DeepSeek 总结整体进度')).toHaveAttribute('value', '96')
+  })
+
+  it('reserves the final progress range for DeepSeek while transcribing segments', () => {
+    renderQueuePanel({
+      activeItemId: 'deepseek-segment',
+      sessionCompletedCount: 0,
+      items: [{
+        id: 'deepseek-segment',
+        url: 'https://www.bilibili.com/video/BV1deepseek-segment',
+        title: 'DeepSeek segment video',
+        bvid: 'BV1deepseek-segment',
+        status: 'running',
+        summarizeWithDeepSeek: true,
+        createdAt: '2026-09-13T00:00:00.000Z',
+        updatedAt: '2026-09-13T00:01:00.000Z',
+        progress: {
+          step: 'transcribing-segment',
+          message: 'Transcribing segment 2/4.',
+          segmentIndex: 2,
+          segmentCount: 4
+        }
+      }]
+    })
+
+    expect(screen.getByText('正在转写第 2 / 4 段')).toBeInTheDocument()
+    expect(screen.getByText('54%')).toBeInTheDocument()
+    expect(screen.getByLabelText('转写音频到 DeepSeek 总结整体进度')).toHaveAttribute('value', '54')
+  })
+
+  it('shows an independent DeepSeek summary at 96% beside the next transcription in the expanded queue', () => {
+    const queue: VideoAudioTranscriptionQueueSnapshot = {
+      activeItemId: 'transcribing-next',
+      sessionCompletedCount: 1,
+      items: [
+        {
+          id: 'summarizing-previous',
+          url: 'https://www.bilibili.com/video/BV1summary',
+          title: 'Previous video',
+          bvid: 'BV1summary',
+          status: 'completed',
+          summarizeWithDeepSeek: true,
+          summaryStatus: 'generating',
+          archiveRegistrationStatus: 'registered',
+          createdAt: '2026-09-13T00:00:00.000Z',
+          updatedAt: '2026-09-13T00:01:00.000Z'
+        },
+        {
+          id: 'transcribing-next',
+          url: 'https://www.bilibili.com/video/BV1transcribing',
+          title: 'Next video',
+          bvid: 'BV1transcribing',
+          status: 'running',
+          createdAt: '2026-09-13T00:01:00.000Z',
+          updatedAt: '2026-09-13T00:02:00.000Z',
+          progress: {
+            step: 'transcribing-segment',
+            message: 'Transcribing segment 2/4.',
+            segmentIndex: 2,
+            segmentCount: 4
+          }
+        }
+      ]
+    }
+
+    renderQueuePanel(queue)
+
+    expect(screen.getByRole('button', { name: '正在转写：Next video' })).toBeInTheDocument()
+    expect(screen.getByText('49%')).toBeInTheDocument()
+    expect(screen.queryByText('文稿已生成，正在生成 DeepSeek 总结')).not.toBeInTheDocument()
+
+    expandQueue()
+
+    expect(screen.getByRole('button', { name: '排队已完成：Previous video' })).toBeInTheDocument()
+    expect(screen.getByText('文稿已生成，正在生成 DeepSeek 总结')).toBeInTheDocument()
+    expect(screen.getByText('96%')).toBeInTheDocument()
+    expect(screen.getByLabelText('转写音频到 DeepSeek 总结整体进度')).toHaveAttribute('value', '96')
+  })
+
+  it('shows 100% only after an independent DeepSeek summary is saved', () => {
+    renderQueuePanel({
+      sessionCompletedCount: 1,
+      items: [{
+        id: 'summary-saved',
+        url: 'https://www.bilibili.com/video/BV1saved',
+        title: 'Saved summary video',
+        bvid: 'BV1saved',
+        status: 'completed',
+        summarizeWithDeepSeek: true,
+        summaryStatus: 'saved',
+        archiveRegistrationStatus: 'registered',
+        createdAt: '2026-09-13T00:00:00.000Z',
+        updatedAt: '2026-09-13T00:01:00.000Z'
+      }]
+    })
+
+    expandQueue()
+
+    expect(screen.getByText('DeepSeek 总结已完成')).toBeInTheDocument()
+    expect(screen.getByText('100%')).toBeInTheDocument()
+    expect(screen.getByLabelText('转写音频到 DeepSeek 总结整体进度')).toHaveAttribute('value', '100')
   })
 
   it('keeps only transcription cancellation while a queued item is in the DeepSeek stage', () => {
@@ -960,7 +1060,7 @@ describe('VideoNotesPanel transcription queue', () => {
 
   })
 
-  it('normalizes stale progress on completed queue items after restart', () => {
+  it('normalizes stale progress on completed queue items to 100% after restart', () => {
     const queue: VideoAudioTranscriptionQueueSnapshot = {
       sessionCompletedCount: 0,
       items: [
@@ -986,7 +1086,8 @@ describe('VideoNotesPanel transcription queue', () => {
     expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent('本次完成：0 个')
     expandQueue()
     expect(screen.getByRole('button', { name: '排队已完成：Completed video' })).toBeInTheDocument()
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '100')
+    expect(screen.getByText('100%')).toBeInTheDocument()
     expect(screen.queryByText('94%')).not.toBeInTheDocument()
   })
 

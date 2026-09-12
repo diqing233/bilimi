@@ -277,7 +277,7 @@ describe('VideoNotesPanel', () => {
     expect(screen.queryByText(/whisper\.cpp 正在本地转写/)).not.toBeInTheDocument()
   })
 
-  it('shows the active model and concise CPU fallback while keeping segment progress indeterminate', () => {
+  it('shows the active model, concise CPU fallback, and estimated segment progress', () => {
     renderPanel({
       note: null,
       transcriptionQueue: {
@@ -300,7 +300,8 @@ describe('VideoNotesPanel', () => {
     expect(current).toHaveTextContent('GPU 不可用，已回退 CPU')
     expect(current).not.toHaveTextContent('CUDA 推理自检失败')
     expect(screen.getByRole('status')).toHaveTextContent('正在转写第 1 / 1 段')
-    expect(screen.getByRole('progressbar')).not.toHaveAttribute('value')
+    expect(screen.getByText('68%')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '68')
   })
 
   it('does not render an old-account queue record after the active account changes', () => {
@@ -869,7 +870,7 @@ describe('VideoNotesPanel', () => {
     expect(screen.queryByText('正在转写「正在跑的视频」，「当前视频」已加入队列。')).not.toBeInTheDocument()
   })
 
-  it('shows queue snapshot progress as indeterminate while a segment is being transcribed', () => {
+  it('shows estimated queue snapshot progress while a segment is being transcribed', () => {
     renderPanel({
       note: null,
       onTranscribeAudio: vi.fn(),
@@ -894,8 +895,8 @@ describe('VideoNotesPanel', () => {
       }
     })
     expect(screen.getByText('正在转写第 1 / 2 段')).toBeInTheDocument()
-    expect(screen.queryByText('49%')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('转写音频到文稿生成整体进度')).not.toHaveAttribute('value')
+    expect(screen.getByText('49%')).toBeInTheDocument()
+    expect(screen.getByLabelText('转写音频到文稿生成整体进度')).toHaveAttribute('value', '49')
     expect(screen.queryByText('Transcribing segment 1/2.')).not.toBeInTheDocument()
     const queueStatus = screen.getByRole('region', { name: '转写状态' })
     const progressIndex = Array.from(queueStatus.children).findIndex((element) => element.classList.contains('video-notes__queue-progress'))
@@ -960,6 +961,7 @@ describe('VideoNotesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '展开转写队列' }))
 
     expect(screen.getByText('DeepSeek 总结内容不完整：缺少详细内容提要。')).toBeInTheDocument()
+    expect(screen.queryByText('100%')).not.toBeInTheDocument()
   })
 
   it('uses the standard retry action for a failed CUDA out-of-memory queue item', () => {

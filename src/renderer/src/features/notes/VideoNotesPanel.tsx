@@ -154,6 +154,16 @@ function formatTimestamp(seconds: number | null): string {
   return minutes.toString().padStart(2, '0') + ':' + remainder.toString().padStart(2, '0')
 }
 
+function clampPercent(value: number): number {
+  return Math.min(100, Math.max(0, Math.round(value)))
+}
+
+function interpolatePercent(start: number, end: number, index: number, count: number): number {
+  if (count <= 0) return start
+  const completedShare = Math.min(1, Math.max(0, index / count))
+  return clampPercent(start + (end - start) * completedShare)
+}
+
 function formatProgress(
   progress: VideoAudioTranscriptionProgress,
   summarizeWithDeepSeek = false
@@ -176,7 +186,9 @@ function formatProgress(
   ) {
     return {
       label: '正在转写第 ' + progress.segmentIndex + ' / ' + progress.segmentCount + ' 段',
-      indeterminate: true,
+      percent: summarizeWithDeepSeek
+        ? interpolatePercent(30, 78, progress.segmentIndex, progress.segmentCount)
+        : interpolatePercent(30, 68, progress.segmentIndex, progress.segmentCount),
       ariaLabel
     }
   }
@@ -880,11 +892,27 @@ export function VideoNotesPanel({
             : item.summaryStatus === 'queued' ? '文稿已生成，等待 DeepSeek 总结'
               : '文稿已生成，总结未完成'
         : '文稿已生成'
+      const completionPercent = item.archiveRegistrationStatus === 'failed' || item.summaryStatus === 'failed'
+        ? undefined
+        : item.summarizeWithDeepSeek
+          ? item.summaryStatus === 'queued' || item.summaryStatus === 'generating'
+            ? 96
+            : item.summaryStatus === 'saved' || item.transcriptOutcome === 'no-speech'
+              ? 100
+              : undefined
+          : 100
+      const completionAriaLabel = item.summarizeWithDeepSeek
+        ? '转写音频到 DeepSeek 总结整体进度'
+        : '转写音频到文稿生成整体进度'
       const runtimeLabel = item.actualDevice
         ? `实际使用：${item.actualDevice === 'cuda' ? 'NVIDIA GPU' : 'CPU'}${item.actualComputeType ? `（${item.actualComputeType}）` : ''}`
         : undefined
       return <div className="video-notes__queue-progress" role="status">
-        <div>{completionLabel}</div>
+        <div>
+          <span>{completionLabel}</span>
+          {completionPercent !== undefined ? <span>{completionPercent}%</span> : null}
+        </div>
+        {completionPercent !== undefined ? <progress max={100} value={completionPercent} aria-label={completionAriaLabel} /> : null}
         {runtimeLabel ? <div>{runtimeLabel}</div> : null}
         {item.runtimeFallbackMessage ? <div>{item.runtimeFallbackMessage}</div> : null}
       </div>
