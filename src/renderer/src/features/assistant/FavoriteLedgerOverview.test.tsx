@@ -3,10 +3,10 @@ import { within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useState } from 'react'
+import { createRef, useState } from 'react'
 import { createDefaultFavoriteLedgers } from '../../../../shared/favoriteLedgers'
 import { createRemoteObservationFavoriteLedgerId } from '@shared/favoriteLedgers'
-import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
+import { FavoriteLedgerOverview, type FavoriteLedgerOverviewHandle } from './FavoriteLedgerOverview'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -2476,7 +2476,59 @@ describe('FavoriteLedgerOverview', () => {
 
     expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'music', enabled: true, bindingState: 'unbound' })
-    ], { backupTargetLedgerIds: ['music'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true })
+    ], {
+      backupTargetLedgerIds: ['music'],
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true,
+      includeRemoteOnlyDrafts: true,
+      haltOnRemoteObservations: true
+    })
+  })
+
+  it('keeps explicit remote observation preflight available for direct backup', async () => {
+    const music = {
+      id: 'music', displayName: 'bilimi·音乐舞台', keywords: [], enabled: true, priority: 10,
+      isDefault: false, bindingState: 'bound' as const, bilibiliFolderId: '4100', bilibiliFolderIds: ['4100']
+    }
+    const sync = vi.fn().mockResolvedValue({ ok: true, remoteObservations: [] })
+    const overviewRef = createRef<FavoriteLedgerOverviewHandle>()
+    render(<FavoriteLedgerOverview ref={overviewRef} ledgers={[music]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    await act(async () => {
+      await overviewRef.current?.requestBackup({ skipRemoteObservationPreflight: false })
+    })
+
+    expect(sync).toHaveBeenCalledTimes(2)
+    expect(sync.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      backupTargetLedgerIds: ['music'],
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true,
+      remoteObservationPreflight: true
+    }))
+    expect(sync.mock.calls[1]?.[1]).not.toHaveProperty('remoteObservationPreflight')
+  })
+
+  it('uses one fresh inventory path for a normal direct backup', async () => {
+    const music = {
+      id: 'music', displayName: 'bilimi·音乐舞台', keywords: [], enabled: true, priority: 10,
+      isDefault: false, bindingState: 'bound' as const, bilibiliFolderId: '4100', bilibiliFolderIds: ['4100']
+    }
+    const sync = vi.fn().mockResolvedValue({
+      ok: true, ledgers: [music], missingTargets: [], remoteObservations: []
+    })
+    render(<FavoriteLedgerOverview ledgers={[music]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
+    expect(sync.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      backupTargetLedgerIds: ['music'],
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true,
+      includeRemoteOnlyDrafts: true,
+      haltOnRemoteObservations: true
+    }))
+    expect(sync.mock.calls[0]?.[1]).not.toHaveProperty('remoteObservationPreflight')
   })
 
   it('hides the discovery notice when dismissed and invokes only the dismissal callback', () => {
@@ -2594,7 +2646,13 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'saved-custom', enabled: true })
-    ], { backupTargetLedgerIds: ['saved-custom'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true }))
+    ], {
+      backupTargetLedgerIds: ['saved-custom'],
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true,
+      includeRemoteOnlyDrafts: true,
+      haltOnRemoteObservations: true
+    }))
     expect(screen.getByRole('alert')).toHaveTextContent('音乐尚未保存，已跳过本次备册，请先保存后再备册。')
   })
 
@@ -2699,7 +2757,13 @@ describe('FavoriteLedgerOverview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(1))
-    expect(sync.mock.calls[0]?.[1]).toEqual({ backupTargetLedgerIds: ['knowledge', 'game'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true })
+    expect(sync.mock.calls[0]?.[1]).toEqual({
+      backupTargetLedgerIds: ['knowledge', 'game'],
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true,
+      includeRemoteOnlyDrafts: true,
+      haltOnRemoteObservations: true
+    })
     await screen.findByText('确认绑定 bilimi 收藏夹')
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     expect(screen.getByText('知识学习（共 310 个视频）')).toBeInTheDocument()
@@ -2841,10 +2905,11 @@ describe('FavoriteLedgerOverview', () => {
       backupTargetLedgerIds: ['music', 'film'],
       deleteDisabled: false,
       rediscoverDeletedRemoteDrafts: true,
-      remoteObservationPreflight: true
+      includeRemoteOnlyDrafts: true,
+      haltOnRemoteObservations: true
     }))
     expect(screen.queryByRole('dialog', { name: /确认.*绑定 bilimi 收藏夹/ })).not.toBeInTheDocument()
-    expect(sync).toHaveBeenCalledTimes(2)
+    expect(sync).toHaveBeenCalledTimes(1)
   })
 
   it('asks before continuing a backup when it observes a remote-only bilimi folder', async () => {
@@ -2863,7 +2928,8 @@ describe('FavoriteLedgerOverview', () => {
       backupTargetLedgerIds: ['music'],
       deleteDisabled: false,
       rediscoverDeletedRemoteDrafts: true,
-      remoteObservationPreflight: true
+      includeRemoteOnlyDrafts: true,
+      haltOnRemoteObservations: true
     })
     expect(await screen.findByRole('dialog', { name: '发现待处理的 bilimi 收藏夹' })).toBeInTheDocument()
     expect(save).not.toHaveBeenCalled()
@@ -3185,7 +3251,13 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'music', enabled: true })
-    ], { backupTargetLedgerIds: ['music'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true }))
+    ], {
+      backupTargetLedgerIds: ['music'],
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true,
+      includeRemoteOnlyDrafts: true,
+      haltOnRemoteObservations: true
+    }))
     expect(previewManagedFavoriteFolderDeletion).not.toHaveBeenCalled()
     expect(screen.queryByText('本次同步有 1 个 bilimi 管理的收藏夹需要删除。')).not.toBeInTheDocument()
   })
@@ -3557,7 +3629,13 @@ describe('FavoriteLedgerOverview', () => {
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'enabled', enabled: true })
-    ], { backupTargetLedgerIds: ['enabled'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true, remoteObservationPreflight: true }))
+    ], {
+      backupTargetLedgerIds: ['enabled'],
+      deleteDisabled: false,
+      rediscoverDeletedRemoteDrafts: true,
+      includeRemoteOnlyDrafts: true,
+      haltOnRemoteObservations: true
+    }))
   })
 
   it('keeps a selected default card while deleting its actual Bilibili folder', async () => {

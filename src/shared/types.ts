@@ -105,6 +105,8 @@ export type FavoriteLedgerSaveOptions = {
   remoteDraftKnownFolderIds?: string[]
   /** Whether this operation is an explicit stable directory discovery that may return remote-only observation drafts. */
   includeRemoteOnlyDrafts?: boolean
+  /** Stop a direct backup after its first fresh directory read when an unknown remote Bilimi folder needs confirmation. */
+  haltOnRemoteObservations?: boolean
   /** Read-only directory preflight for an explicit backup; it must not create, bind, rename, or persist remote observations. */
   remoteObservationPreflight?: boolean
   /** Restricts backup to create-or-confirm-bind for explicit library targets. */
@@ -426,6 +428,8 @@ export type AssistantAutomationResult = {
   remoteOnlyDraftLedgerIds?: FavoriteLedgerId[]
   /** Read-only Bilibili-only folders from this operation's fresh directory snapshot. */
   remoteObservations?: RemoteFavoriteLedgerObservation[]
+  /** The first save inventory found remote-only folders and stopped before any create, bind, or local persistence. */
+  remoteObservationConfirmationRequired?: boolean
   /** Remote Bilibili folder ids confirmed by a successful favorite API call. */
   favoriteFolderIdsByLedgerId?: Record<string, string>
   /** Read-only exact-ID preflight for title-different formal bound shards. */

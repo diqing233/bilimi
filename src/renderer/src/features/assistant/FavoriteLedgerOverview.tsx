@@ -99,6 +99,7 @@ export type FavoriteLedgerOverviewHandle = {
     targetLedgerIds?: readonly string[]
     confirmedBackupOptions?: Pick<FavoriteLedgerSaveOptions, 'confirmCreateAndBind' | 'rebindRemoteFolderIds' | 'rebindRemoteFolders'>
     suppressConfirmationDialog?: boolean
+    /** Omit/true for the normal direct path; false explicitly requests a preflight. */
     skipRemoteObservationPreflight?: boolean
     onDeferredRemoteDiscoveryBackupFinished?: (result: { ok?: boolean; message?: string } | undefined) => void | Promise<void>
   }) => Promise<unknown>
@@ -1120,6 +1121,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     targetLedgerIds?: readonly string[]
     confirmedBackupOptions?: Pick<FavoriteLedgerSaveOptions, 'confirmCreateAndBind' | 'rebindRemoteFolderIds' | 'rebindRemoteFolders'>
     suppressConfirmationDialog?: boolean
+    /** Omit/true for the normal direct path; false explicitly requests a preflight. */
     skipRemoteObservationPreflight?: boolean
     onDeferredRemoteDiscoveryBackupFinished?: (result: { ok?: boolean; message?: string } | undefined) => void | Promise<void>
   }) => {
@@ -1147,11 +1149,22 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       }
       setBackupInFlightLedgerIds(new Set(eligibleLedgers.map((ledger) => ledger.id)))
       try {
+        // Keep ordinary backup on the name-first save path. Its first fresh
+        // inventory also stops for remote-only confirmation before write.
+        // Follow-up/organizer calls already own that confirmation surface.
+        const runRemoteObservationPreflight = options?.skipRemoteObservationPreflight === false
+        const useCombinedRemoteObservationGate = !runRemoteObservationPreflight &&
+          options?.skipRemoteObservationPreflight !== true &&
+          !options?.suppressConfirmationDialog
         const result = await onSyncLedgers(eligibleLedgers, {
           deleteDisabled: false,
           backupTargetLedgerIds: eligibleLedgers.map((ledger) => ledger.id),
           rediscoverDeletedRemoteDrafts: true,
-          ...(options?.skipRemoteObservationPreflight ? {} : { remoteObservationPreflight: true }),
+          ...(runRemoteObservationPreflight ? { remoteObservationPreflight: true } : {}),
+          ...(useCombinedRemoteObservationGate ? {
+            includeRemoteOnlyDrafts: true,
+            haltOnRemoteObservations: true
+          } : {}),
           ...options?.confirmedBackupOptions
         }) as FavoriteLedgerRemoteDiscoveryResult | undefined
         const freshRemoteObservations = Array.isArray(result?.remoteObservations) ? result.remoteObservations : []
@@ -1182,7 +1195,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
           setBackupSkipNotice(result.message ?? '收藏夹状态核验失败，请刷新 B 站收藏夹后重试。')
           return result
         }
-        if (options?.skipRemoteObservationPreflight) return result
+        if (!runRemoteObservationPreflight) return result
         return onSyncLedgers(eligibleLedgers, {
           deleteDisabled: false,
           backupTargetLedgerIds: eligibleLedgers.map((ledger) => ledger.id),
@@ -1838,6 +1851,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       if (processing.mode === 'backup') {
         const backupResult = await requestBackup({
           targetLedgerIds: processing.backupTargetLedgerIds,
+          // The owner has just completed this dialog's one-window remote
+          // observation decision. Preserve the established continuation
+          // semantics: continue the original backup once instead of opening
+          // the same confirmation again for observations intentionally left
+          // out of this decision.
           skipRemoteObservationPreflight: true
         })
         if (backupResult && typeof backupResult === 'object' &&

@@ -1079,6 +1079,41 @@ describe('favorite ledger API scripts', () => {
     ]))
   })
 
+  it('halts a direct backup before creating when its first fresh inventory finds an unknown bilimi folder', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'meilin', displayName: 'bilimi·梅林FIT', keywords: ['梅林'], enabled: true, priority: 1,
+      ruleOrigin: 'saved-rule', isDefault: false, bindingState: 'unbacked'
+    }
+    const createTitles: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 'xiaomi', title: 'bilimi·小咪的收藏夹', media_count: 3 }] } })
+      }
+      if (url.includes('/x/v3/fav/folder/add')) {
+        createTitles.push(new URLSearchParams(String(init?.body ?? '')).get('title') ?? '')
+        return Response.json({ code: 0, data: { id: 'created-meilin' } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger], {
+      backupTargetLedgerIds: ['meilin'],
+      includeRemoteOnlyDrafts: true,
+      haltOnRemoteObservations: true
+    } as never))
+
+    expect(result).toMatchObject({
+      ok: true,
+      steps: ['api:ledger:list'],
+      remoteObservations: [{ folderId: 'xiaomi', title: 'bilimi·小咪的收藏夹', memberCount: 3 }]
+    })
+    expect(createTitles).toEqual([])
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      id: 'meilin', bindingState: 'unbacked'
+    })])
+  })
+
   it('creates the Merlin FIT target with its own title when an unrelated bilimi小咪 folder is observed', async () => {
     installCookies()
     const meilin: FavoriteLedger = {

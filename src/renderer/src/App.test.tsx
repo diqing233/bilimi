@@ -4094,6 +4094,69 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('stops the combined direct-backup observation gate before binding, persistence, or final discovery', async () => {
+    const accountMid = '100'
+    const meilin = {
+      id: 'meilin', displayName: 'bilimi·梅林FIT', keywords: ['梅林'], enabled: true, priority: 1,
+      isDefault: false, ruleOrigin: 'saved-rule' as const, bindingState: 'unbacked' as const
+    }
+    const observation = { folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const adoptFavoriteRepositoryLedgerBinding = vi.fn().mockResolvedValue(undefined)
+    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      savePreferences,
+      adoptFavoriteRepositoryLedgerBinding
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (!script.includes(LEDGER_SAVE_SCRIPT_MARKER)) throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      expect(script).toContain('"includeRemoteOnlyDrafts":true')
+      expect(script).toContain('"haltOnRemoteObservations":true')
+      return {
+        ok: true,
+        verified: true,
+        ledgers: [meilin],
+        steps: ['api:ledger:list'],
+        missingTargets: [],
+        remoteOnlyDraftLedgerIds: [],
+        remoteObservations: [observation],
+        remoteObservationConfirmationRequired: true,
+        message: '发现待确认的 bilimi 收藏夹，尚未执行备册。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await waitFor(() => expect(desktopApi.loadPreferences).toHaveBeenCalled())
+    savePreferences.mockClear()
+    executeJavaScript.mockClear()
+    adoptFavoriteRepositoryLedgerBinding.mockClear()
+
+    await expect(requestRuntime({
+      id: 'combined-direct-observation-gate', type: 'save-ledgers', ledgers: [meilin],
+      options: {
+        backupTargetLedgerIds: ['meilin'],
+        deleteDisabled: false,
+        rediscoverDeletedRemoteDrafts: true,
+        includeRemoteOnlyDrafts: true,
+        haltOnRemoteObservations: true
+      }
+    })).resolves.toMatchObject({
+      ok: true,
+      remoteObservations: [observation],
+      remoteObservationConfirmationRequired: true,
+      steps: ['api:ledger:list']
+    })
+
+    expect(adoptFavoriteRepositoryLedgerBinding).not.toHaveBeenCalled()
+    expect(savePreferences).not.toHaveBeenCalled()
+    expect(executeJavaScript.mock.calls.filter(([script]) => isLedgerStatusScript(String(script)))).toHaveLength(0)
+    expect(executeJavaScript.mock.calls.filter(([script]) => String(script).includes(LEDGER_SAVE_SCRIPT_MARKER))).toHaveLength(1)
+  })
+
   it('does not turn an unbacked backup target into a create-confirmation candidate', async () => {
     const accountMid = '100'
     const meilin = {

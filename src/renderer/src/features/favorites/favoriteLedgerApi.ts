@@ -1051,6 +1051,19 @@ export function buildSaveFavoriteLedgersScript(
       let nextLedgers = remoteDraftProjection.ledgers;
       let remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
       let remoteObservations = remoteDraftProjection.remoteObservations;
+      if (payload.options?.haltOnRemoteObservations === true && remoteObservations.length) {
+        return {
+          ok: true,
+          verified: true,
+          ledgers: nextLedgers,
+          steps,
+          missingTargets: [],
+          remoteOnlyDraftLedgerIds,
+          remoteObservations,
+          remoteObservationConfirmationRequired: true,
+          message: '发现待确认的 bilimi 收藏夹，尚未执行备册。'
+        };
+      }
       const createdLedgerBindings = new Map();
       const unboundLedgerIds = nextLedgers
         .filter((ledger) => isBackupTarget(ledger) && ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)

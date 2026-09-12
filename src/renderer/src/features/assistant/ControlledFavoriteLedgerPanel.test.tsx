@@ -1238,7 +1238,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
       backupTargetLedgerIds: ['music'],
       deleteDisabled: false,
       rediscoverDeletedRemoteDrafts: true,
-      remoteObservationPreflight: true
+      includeRemoteOnlyDrafts: true,
+      haltOnRemoteObservations: true
     }))
 
     fireEvent.click(screen.getByRole('button', { name: '重置' }))
@@ -1259,7 +1260,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
       ],
       deleteDisabled: false,
       rediscoverDeletedRemoteDrafts: true,
-      remoteObservationPreflight: true
+      includeRemoteOnlyDrafts: true,
+      haltOnRemoteObservations: true
     })
   })
 

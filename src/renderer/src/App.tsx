@@ -3873,12 +3873,19 @@ export default function App() {
             ...options,
             dismissedRemoteFolderIds,
             remoteDraftKnownFolderIds,
-            // Only the user-triggered backup preflight exposes B 站-only
-            // observations. They remain in this result and never enter
-            // preferences as local rules.
-          includeRemoteOnlyDrafts: options?.includeRemoteOnlyDrafts === true
+            // The direct backup's first inventory can stop for user consent
+            // before any create/bind work. Observations remain transient and
+            // never enter preferences as local rules.
+          includeRemoteOnlyDrafts: options?.includeRemoteOnlyDrafts === true,
+          haltOnRemoteObservations: options?.haltOnRemoteObservations === true
         }, effectiveRemoteDraftBoundFolderIds)
       ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
+    if (result.remoteObservationConfirmationRequired === true) {
+      // The combined first-inventory gate is deliberately side-effect free:
+      // do not register bindings, persist preferences, or run post-save
+      // discovery until the renderer has collected the owner's decision.
+      return result
+    }
     const mergedResult = mergeBoundRenameIntoAutomationResult(result, ledgersForRemoteDiscovery, directRename.renamedLedgerIds)
     const visibleMergedResult = mergedResult
     const refreshFavoriteLedgerStatusAfterBackup = async (preserveBoundLedgerIds: readonly string[] = []) => {
