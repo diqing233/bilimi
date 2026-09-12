@@ -1348,6 +1348,30 @@ describe('favorite ledger API scripts', () => {
     expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
 
+  it('classifies a missing exact formal shard as a verified missing remote id', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 99, title: 'bilimi·新游戏', media_count: 4 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(favoriteLedgerApiModule.buildFormalBoundFavoriteRenamePreflightScript([{
+      logicalLedgerId: 'game',
+      shardNumber: 1,
+      remoteFolderId: 'missing-old-game',
+      targetTitle: 'bilimi·新游戏'
+    }]))
+
+    expect(result).toMatchObject({
+      ok: false,
+      verified: true,
+      observedShards: [],
+      missingRemoteFolderIds: ['missing-old-game']
+    })
+  })
+
   it('does not recreate a dismissed remote-only draft reminder for the same remote folder', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -1589,6 +1613,31 @@ describe('favorite ledger API scripts', () => {
     expect(result).toMatchObject({ ok: true, missingTargets: [] })
     expect(result.ledgers).toEqual([expect.objectContaining({
       id: 'custom-music', bilibiliFolderId: '4065561111', bindingState: 'bound'
+    })])
+  })
+
+  it('replaces a missing formal remote id after an explicit rebind selection', async () => {
+    installCookies()
+    const ledger: FavoriteLedger = {
+      id: 'custom-stale-music', displayName: 'bilimi·音乐舞台', keywords: ['音乐'], enabled: true,
+      priority: 90, isDefault: false, bindingState: 'bound',
+      bilibiliFolderId: 'missing-old', bilibiliFolderIds: ['missing-old'], bilibiliFolderTitle: 'bilimi·音乐舞台'
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 'replacement', title: 'bilimi·音乐舞台', media_count: 7 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([ledger], [ledger], {
+      rebindRemoteFolderIds: { 'custom-stale-music': 'replacement' },
+      rebindRemoteFolders: { 'custom-stale-music': [{ id: 'replacement', title: 'bilimi·音乐舞台', memberCount: 7 }] }
+    }, ['missing-old']))
+
+    expect(result).toMatchObject({ ok: true, missingTargets: [] })
+    expect(result.ledgers).toEqual([expect.objectContaining({
+      id: 'custom-stale-music', bilibiliFolderId: 'replacement', bindingState: 'bound'
     })])
   })
 

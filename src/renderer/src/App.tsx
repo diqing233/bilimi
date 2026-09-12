@@ -1934,6 +1934,16 @@ export default function App() {
     return declaredBoundFolderIds
   }
 
+  function removeMissingRemoteFolderIdsFromDeclaredBindings(
+    declaredBindings: ReadonlyMap<string, readonly string[]>,
+    missingRemoteFolderIds: ReadonlySet<string>
+  ) {
+    return new Map([...declaredBindings].flatMap(([ledgerId, folderIds]) => {
+      const remainingFolderIds = folderIds.filter((folderId) => !missingRemoteFolderIds.has(folderId))
+      return remainingFolderIds.length ? [[ledgerId, remainingFolderIds] as const] : []
+    }))
+  }
+
   function favoriteLedgerBoundRenameFailure(error: unknown) {
     const detail = error instanceof Error ? error.message : String(error ?? '').trim()
     if (/formal binding is absent/i.test(detail)) {
@@ -2145,7 +2155,7 @@ export default function App() {
     ledgers: readonly FavoriteLedger[],
     formalShards: readonly FormalBoundFavoriteShard[],
     targetLedgerIds: ReadonlySet<string>
-  ): Promise<{ formalShards: FormalBoundFavoriteShard[] } | undefined> {
+  ): Promise<{ formalShards: FormalBoundFavoriteShard[]; missingRemoteFolderIds: string[] } | undefined> {
     const ledgersById = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
     const targets = formalShards.flatMap((shard) => {
       if (!targetLedgerIds.has(shard.logicalLedgerId)) return []
@@ -2158,16 +2168,24 @@ export default function App() {
         targetTitle: favoriteLedgerCapacityShardName(ledger.displayName, shard.shardNumber)
       }]
     })
-    if (!targets.length) return { formalShards: [...formalShards] }
-    let result: { ok?: unknown; verified?: unknown; observedShards?: unknown }
+    if (!targets.length) return { formalShards: [...formalShards], missingRemoteFolderIds: [] }
+    let result: { ok?: unknown; verified?: unknown; observedShards?: unknown; missingRemoteFolderIds?: unknown }
     try {
       result = await runScript(buildFormalBoundFavoriteRenamePreflightScript(targets)) as typeof result
     } catch {
       return undefined
     }
-    if (result?.ok !== true || result.verified !== true || !Array.isArray(result.observedShards)) {
+    if (result?.verified !== true || !Array.isArray(result.observedShards)) {
       return undefined
     }
+    if (result.ok !== true && (!Array.isArray(result.missingRemoteFolderIds) || result.missingRemoteFolderIds.length === 0)) {
+      return undefined
+    }
+    const missingRemoteFolderIds = Array.isArray(result.missingRemoteFolderIds)
+      ? [...new Set(result.missingRemoteFolderIds.filter((folderId): folderId is string => typeof folderId === 'string').map((folderId) => folderId.trim()).filter(Boolean))]
+      : []
+    const targetRemoteFolderIds = new Set(targets.map((target) => target.remoteFolderId))
+    if (missingRemoteFolderIds.some((folderId) => !targetRemoteFolderIds.has(folderId))) return undefined
     const observedTitleByTuple = new Map(result.observedShards.flatMap((candidate) => {
       if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return []
       const value = candidate as Record<string, unknown>
@@ -2180,12 +2198,15 @@ export default function App() {
         !Number.isSafeInteger(remoteMemberCount) || remoteMemberCount < 0) return []
       return [[`${logicalLedgerId}:${shardNumber}:${remoteFolderId}`, { currentRemoteTitle, remoteMemberCount }] as const]
     }))
-    if (observedTitleByTuple.size !== targets.length) return undefined
+    if (observedTitleByTuple.size + missingRemoteFolderIds.length !== targets.length) return undefined
+    if (targets.some((target) => !missingRemoteFolderIds.includes(target.remoteFolderId) &&
+      !observedTitleByTuple.has(`${target.logicalLedgerId}:${target.shardNumber}:${target.remoteFolderId}`))) return undefined
     return {
       formalShards: formalShards.map((shard) => {
         const observed = observedTitleByTuple.get(`${shard.logicalLedgerId}:${shard.shardNumber}:${shard.remoteFolderId}`)
         return observed ? { ...shard, remoteTitle: observed.currentRemoteTitle, remoteMemberCount: observed.remoteMemberCount } : shard
-      })
+      }).filter((shard) => !missingRemoteFolderIds.includes(shard.remoteFolderId)),
+      missingRemoteFolderIds
     }
   }
 
@@ -3283,11 +3304,12 @@ export default function App() {
       ...(options?.backupTargetLedgerIds ?? []),
       ...(options?.lightweightBackup === true ? [ledgerId] : [])
     ])
-    const declaredBoundRemoteFolderIds = declaredBoundRemoteFolderIdsForTargets(
+    let declaredBoundRemoteFolderIds = declaredBoundRemoteFolderIdsForTargets(
       currentLedgers.filter((ledger) => explicitBackupTargetIds.has(ledger.id)),
       currentLedgers,
       [targetLedger]
     )
+    let effectiveRemoteDraftBoundFolderIds = remoteDraftBoundFolderIds
     const potentialRenameTargetLedgerIds = boundRenameTargetLedgerIdsForBackupStatus(
       ledgersWithFormalBindings,
       formalBoundShards,
@@ -3316,6 +3338,14 @@ export default function App() {
         }
       } else {
         observedFormalShards = observedFormalBindings.formalShards
+        if (observedFormalBindings.missingRemoteFolderIds.length) {
+          const missingRemoteFolderIds = new Set(observedFormalBindings.missingRemoteFolderIds)
+          declaredBoundRemoteFolderIds = removeMissingRemoteFolderIdsFromDeclaredBindings(
+            declaredBoundRemoteFolderIds,
+            missingRemoteFolderIds
+          )
+          effectiveRemoteDraftBoundFolderIds = remoteDraftBoundFolderIds.filter((folderId) => !missingRemoteFolderIds.has(folderId))
+        }
         boundRenameCandidates = boundRenameCandidatesForTargets(
           ledgersWithFormalBindings,
           observedFormalShards,
@@ -3339,6 +3369,14 @@ export default function App() {
         }
       }
       observedFormalShards = observedConfirmedBindings.formalShards
+      if (observedConfirmedBindings.missingRemoteFolderIds.length) {
+        const missingRemoteFolderIds = new Set(observedConfirmedBindings.missingRemoteFolderIds)
+        declaredBoundRemoteFolderIds = removeMissingRemoteFolderIdsFromDeclaredBindings(
+          declaredBoundRemoteFolderIds,
+          missingRemoteFolderIds
+        )
+        effectiveRemoteDraftBoundFolderIds = remoteDraftBoundFolderIds.filter((folderId) => !missingRemoteFolderIds.has(folderId))
+      }
       boundRenameCandidates = boundRenameCandidatesForTargets(
         ledgersWithFormalBindings,
         observedFormalShards,
@@ -3388,7 +3426,7 @@ export default function App() {
               ...remoteDraftKnownFolderIds
             ])]
           },
-          remoteDraftBoundFolderIds
+          effectiveRemoteDraftBoundFolderIds
         )
       ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
     const mergedResult = mergeBoundRenameIntoAutomationResult(result, ledgersAfterDirectRename, directRename.renamedLedgerIds)
@@ -3586,11 +3624,12 @@ export default function App() {
       remoteDraftBoundFolderIds,
       formalBoundShards
     } = formalBindings
-    const declaredBoundRemoteFolderIds = declaredBoundRemoteFolderIdsForTargets(
+    let declaredBoundRemoteFolderIds = declaredBoundRemoteFolderIdsForTargets(
       requestedLedgers.filter((ledger) => backupTargetLedgerIdSet.has(ledger.id)),
       previousLedgers,
       requestedLedgers
     )
+    let effectiveRemoteDraftBoundFolderIds = remoteDraftBoundFolderIds
     if (options?.remoteObservationPreflight) {
       const observationStatus = await readRemoteFavoriteDiscovery(accountMid)
       const targetLedgerIds = new Set(options.backupTargetLedgerIds ?? [])
@@ -3626,6 +3665,14 @@ export default function App() {
             }
           }
         } else {
+          if (observedFormalBindings.missingRemoteFolderIds.length) {
+            const missingRemoteFolderIds = new Set(observedFormalBindings.missingRemoteFolderIds)
+            declaredBoundRemoteFolderIds = removeMissingRemoteFolderIdsFromDeclaredBindings(
+              declaredBoundRemoteFolderIds,
+              missingRemoteFolderIds
+            )
+            effectiveRemoteDraftBoundFolderIds = remoteDraftBoundFolderIds.filter((folderId) => !missingRemoteFolderIds.has(folderId))
+          }
           boundRenameCandidates = boundRenameCandidatesForTargets(
             ledgersWithFormalBindings,
             observedFormalBindings.formalShards,
@@ -3675,6 +3722,14 @@ export default function App() {
         }
       } else {
         observedFormalShards = observedFormalBindings.formalShards
+        if (observedFormalBindings.missingRemoteFolderIds.length) {
+          const missingRemoteFolderIds = new Set(observedFormalBindings.missingRemoteFolderIds)
+          declaredBoundRemoteFolderIds = removeMissingRemoteFolderIdsFromDeclaredBindings(
+            declaredBoundRemoteFolderIds,
+            missingRemoteFolderIds
+          )
+          effectiveRemoteDraftBoundFolderIds = remoteDraftBoundFolderIds.filter((folderId) => !missingRemoteFolderIds.has(folderId))
+        }
         boundRenameCandidates = boundRenameCandidatesForTargets(
           ledgersWithFormalBindings,
           observedFormalShards,
@@ -3755,7 +3810,7 @@ export default function App() {
             // observations. They remain in this result and never enter
             // preferences as local rules.
           includeRemoteOnlyDrafts: options?.includeRemoteOnlyDrafts === true
-        }, remoteDraftBoundFolderIds)
+        }, effectiveRemoteDraftBoundFolderIds)
       ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
     const mergedResult = mergeBoundRenameIntoAutomationResult(result, ledgersForRemoteDiscovery, directRename.renamedLedgerIds)
     const visibleMergedResult = mergedResult

@@ -4813,6 +4813,76 @@ describe('App runtime integration', () => {
     expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
 
+  it('routes a missing formal id back to the existing unbound rebind flow', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      bilibiliFolderId: 'old-game',
+      bilibiliFolderIds: ['old-game'],
+      bilibiliFolderTitle: 'bilimi·游戏专区',
+      bindingState: 'bound' as const
+    }
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-12T00:00:00.000Z',
+        videoCount: 0, folderCount: 1, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 1,
+        physicalShards: [{
+          logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1,
+          remoteFolderId: 'old-game', remoteTitle: 'bilimi·游戏专区', remoteMemberCount: 0, bindingState: 'bound'
+        }],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (script.includes('已绑定收藏夹改名预检')) {
+        return {
+          ok: false,
+          verified: true,
+          observedShards: [],
+          missingRemoteFolderIds: ['old-game'],
+          message: '已绑定的 B 站收藏夹未出现在当前清单中，请刷新后重试。'
+        }
+      }
+      if (isLedgerStatusScript(script)) {
+        return {
+          ok: false,
+          verified: true,
+          ledgers: [{ ...game, bilibiliFolderId: 'new-game', bilibiliFolderIds: ['new-game'], bindingState: 'unbound' as const }],
+          missingLedgerIds: ['game'],
+          unboundLedgerIds: ['game'],
+          unboundCandidates: [{ ledgerId: 'game', candidates: [{ id: 'new-game', title: 'bilimi·游戏专区', memberCount: 4 }] }],
+          remoteOnlyDraftLedgerIds: [],
+          remoteObservations: [],
+          message: '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的候选收藏夹。'
+        }
+      }
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(requestRuntime({
+      id: 'missing-formal-id-rebind-flow',
+      type: 'save-ledgers',
+      ledgers: [game],
+      options: { backupTargetLedgerIds: ['game'], remoteObservationPreflight: true }
+    })).resolves.toMatchObject({
+      ok: false,
+      verified: true,
+      steps: ['favorite:remote-observation-preflight'],
+      unboundLedgerIds: ['game'],
+      unboundCandidates: [{ ledgerId: 'game', candidates: [{ id: 'new-game' }] }],
+      message: '发现未绑定的 bilimi 收藏夹，请确认要重新绑定的候选收藏夹。'
+    })
+
+    expect(executeJavaScript.mock.calls.some(([script]) => typeof script === 'string' && script.includes('/x/v3/fav/folder/add'))).toBe(false)
+  })
+
   it('preflights a Bilibili-renamed formal shard for one confirmed backup rename', async () => {
     const accountMid = '100'
     const game = {

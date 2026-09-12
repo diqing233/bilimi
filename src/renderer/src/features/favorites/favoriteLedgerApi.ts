@@ -581,9 +581,13 @@ export function buildFormalBoundFavoriteRenamePreflightScript(
       const folders = readFavoriteFolderList(json);
       const folderById = new Map(folders.map((folder) => [String(findFolderId(folder) || '').trim(), folder]));
       const observedShards = [];
+      const missingRemoteFolderIds = [];
       for (const shard of requestedShards) {
         const folder = folderById.get(shard.remoteFolderId);
-        if (!folder) return { ok: false, verified: true, observedShards: [], message: '已绑定的 B 站收藏夹未出现在当前清单中，请刷新后重试。' };
+        if (!folder) {
+          missingRemoteFolderIds.push(shard.remoteFolderId);
+          continue;
+        }
         const currentRemoteTitle = String(folder.title || '').trim();
         const remoteMemberCount = Math.max(0, Number(folder.media_count ?? folder.count ?? 0) || 0);
         if (!currentRemoteTitle || !Number.isSafeInteger(remoteMemberCount)) {
@@ -597,7 +601,15 @@ export function buildFormalBoundFavoriteRenamePreflightScript(
           remoteMemberCount
         });
       }
-      return { ok: true, verified: true, observedShards };
+      return missingRemoteFolderIds.length
+        ? {
+            ok: false,
+            verified: true,
+            observedShards,
+            missingRemoteFolderIds,
+            message: '已绑定的 B 站收藏夹未出现在当前清单中，请按未绑定流程重新确认。'
+          }
+        : { ok: true, verified: true, observedShards };
     })();
   `
 }
@@ -713,7 +725,7 @@ export function buildCreateFavoriteLedgerPhysicalShardScript(ledger: FavoriteLed
 
 export function buildEnsureFavoriteLedgersScript(
   ledgers: FavoriteLedger[],
-  options: Pick<FavoriteLedgerSaveOptions, 'rebindRemoteFolderIds' | 'lightweightBackup' | 'confirmCreateAndBind' | 'dismissedRemoteFolderIds' | 'remoteDraftKnownFolderIds' | 'includeRemoteOnlyDrafts'> = {},
+  options: Pick<FavoriteLedgerSaveOptions, 'rebindRemoteFolderIds' | 'rebindRemoteFolders' | 'lightweightBackup' | 'confirmCreateAndBind' | 'dismissedRemoteFolderIds' | 'remoteDraftKnownFolderIds' | 'includeRemoteOnlyDrafts'> = {},
   remoteDraftBoundFolderIds: string[] = []
 ): string {
   const { remoteDraftKnownFolderIds = [], ...remoteOptions } = options
@@ -721,6 +733,7 @@ export function buildEnsureFavoriteLedgersScript(
     ledgers: normalizeLedgerPayload(ledgers),
     options: {
       rebindRemoteFolderIds: remoteOptions.rebindRemoteFolderIds,
+      rebindRemoteFolders: remoteOptions.rebindRemoteFolders,
       lightweightBackup: remoteOptions.lightweightBackup,
       confirmCreateAndBind: remoteOptions.confirmCreateAndBind,
       dismissedRemoteFolderIds: remoteOptions.dismissedRemoteFolderIds,
@@ -779,8 +792,15 @@ export function buildEnsureFavoriteLedgersScript(
       const currentRemoteFolderIds = new Set(folders.map((folder) => String(findFolderId(folder) || '').trim()).filter(Boolean));
       const formalRemoteFolderIds = new Set((Array.isArray(payload.remoteDraftBoundFolderIds) ? payload.remoteDraftBoundFolderIds : [])
         .map((folderId) => String(folderId || '').trim()).filter(Boolean));
+      const hasExplicitRebindSelection = (ledgerId) => {
+        const selectedFolderId = String(payload.options?.rebindRemoteFolderIds?.[ledgerId] || '').trim();
+        const selectedFolders = Array.isArray(payload.options?.rebindRemoteFolders?.[ledgerId])
+          ? payload.options.rebindRemoteFolders[ledgerId].filter((folder) => String(folder?.id || '').trim())
+          : [];
+        return Boolean(selectedFolderId || selectedFolders.length);
+      };
       const staleFormalBindingLedgerIds = payload.ledgers
-        .filter((ledger) => ledger.bindingState === 'bound' && ledgerRemoteFolderIds(ledger)
+        .filter((ledger) => !hasExplicitRebindSelection(ledger.id) && ledger.bindingState === 'bound' && ledgerRemoteFolderIds(ledger)
           .some((folderId) => formalRemoteFolderIds.has(folderId) && !currentRemoteFolderIds.has(folderId)))
         .map((ledger) => ledger.id);
       if (staleFormalBindingLedgerIds.length) {
@@ -982,8 +1002,15 @@ export function buildSaveFavoriteLedgersScript(
       const currentRemoteFolderIds = new Set(folders.map((folder) => String(findFolderId(folder) || '').trim()).filter(Boolean));
       const formalRemoteFolderIds = new Set((Array.isArray(payload.remoteDraftBoundFolderIds) ? payload.remoteDraftBoundFolderIds : [])
         .map((folderId) => String(folderId || '').trim()).filter(Boolean));
+      const hasExplicitRebindSelection = (ledgerId) => {
+        const selectedFolderId = String(payload.options?.rebindRemoteFolderIds?.[ledgerId] || '').trim();
+        const selectedFolders = Array.isArray(payload.options?.rebindRemoteFolders?.[ledgerId])
+          ? payload.options.rebindRemoteFolders[ledgerId].filter((folder) => String(folder?.id || '').trim())
+          : [];
+        return Boolean(selectedFolderId || selectedFolders.length);
+      };
       const staleFormalBindingLedgerIds = payload.nextLedgers
-        .filter((ledger) => isBackupTarget(ledger) && ledger.bindingState === 'bound' && ledgerRemoteFolderIds(ledger)
+        .filter((ledger) => isBackupTarget(ledger) && !hasExplicitRebindSelection(ledger.id) && ledger.bindingState === 'bound' && ledgerRemoteFolderIds(ledger)
           .some((folderId) => formalRemoteFolderIds.has(folderId) && !currentRemoteFolderIds.has(folderId)))
         .map((ledger) => ledger.id);
       if (staleFormalBindingLedgerIds.length) {
