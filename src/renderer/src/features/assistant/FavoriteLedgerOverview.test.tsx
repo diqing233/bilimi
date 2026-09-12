@@ -1218,10 +1218,11 @@ describe('FavoriteLedgerOverview', () => {
         deleteManagedRemoteFolders
       }
     })
-    render(<FavoriteLedgerOverview ledgers={[{
+    const initialLedger = {
       id: 'game', displayName: 'bilimi·游戏', keywords: ['游戏'], enabled: true, priority: 10,
       bindingState: 'unbound', isDefault: true
-    }]} missingLedgerIds={[]} unboundLedgerIds={['game']} onSaveLedgers={vi.fn()} />)
+    } as const
+    const view = render(<FavoriteLedgerOverview ledgers={[initialLedger]} missingLedgerIds={[]} unboundLedgerIds={['game']} onSaveLedgers={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
     fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·游戏' }))
@@ -1238,6 +1239,14 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '游戏专区' }))
     expect(screen.getByRole('region', { name: '当前收藏夹' })
       .querySelector('.favorite-ledger-panel__binding-status')).toHaveTextContent('未备册')
+
+    view.rerender(<FavoriteLedgerOverview ledgers={[{
+      ...initialLedger,
+      bindingState: 'bound', bilibiliFolderId: 'rebound-game', bilibiliFolderIds: ['rebound-game']
+    }]} missingLedgerIds={[]} unboundLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    await waitFor(() => expect(screen.getByTestId('favorite-ledger-chip-game')).toHaveTextContent('已备册'))
+    expect(screen.getByTestId('favorite-ledger-chip-game')).not.toHaveTextContent('未备册')
   })
 
   it('does not keep a stale deletion checkpoint when the post-cleanup refresh callback fails', async () => {
@@ -2646,13 +2655,13 @@ describe('FavoriteLedgerOverview', () => {
     expect(editor.querySelector('.favorite-ledger-panel__ledger-name-label .favorite-ledger-panel__binding-status')).toHaveTextContent('未备册')
   })
 
-  it('shows an explicitly bound logical ledger as backed even when a sibling shard remains unresolved', () => {
+  it('shows a partly bound logical ledger as still awaiting binding', () => {
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'game', displayName: 'bilimi·游戏专区', keywords: [], enabled: true, priority: 10,
       bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound', isDefault: true
     }]} missingLedgerIds={['game']} unboundLedgerIds={['game']} onSaveLedgers={vi.fn()} />)
 
-    expect(screen.getByRole('button', { name: '游戏专区' })).toHaveTextContent('已备册')
+    expect(screen.getByRole('button', { name: '游戏专区' })).toHaveTextContent('部分已备册 · 仍待绑定')
   })
 
   it('shows the combined unsaved and pending recovery state for a recovered remote draft', () => {
@@ -3147,7 +3156,7 @@ describe('FavoriteLedgerOverview', () => {
     ], { deleteDisabled: false })
     expect(Array.from(screen.getByRole('region', { name: '收藏夹' })
       .querySelectorAll('.favorite-ledger-panel__chip-item > button:first-child'))
-      .map((button) => button.textContent)).toEqual(['Second', 'Third', 'First', 'Fourth'])
+      .map((button) => button.querySelector('.favorite-ledger-panel__chip-label')?.textContent)).toEqual(['Second', 'Third', 'First', 'Fourth'])
     expect(fourthChip).not.toHaveAttribute('data-drop-position')
     fireEvent.dragEnd(screen.getByTestId('favorite-ledger-chip-first'))
     expect(screen.getByTestId('favorite-ledger-chip-first')).not.toHaveAttribute('data-dragging')

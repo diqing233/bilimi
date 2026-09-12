@@ -83,12 +83,12 @@ describe('registerFavoriteRepositoryIpc', () => {
     const ipcMain = new FakeIpcMain()
     const renameBoundPhysicalShard = vi.fn().mockResolvedValue({ logicalLedgerId: 'game' })
     const adoptExistingPhysicalShard = vi.fn()
-    const onLedgerBindingAdopted = vi.fn().mockResolvedValue(undefined)
+    const onLedgerBindingSettled = vi.fn().mockResolvedValue(undefined)
     registerFavoriteRepositoryIpc({
       ipcMain,
       service: { getLibrarySummary: vi.fn() } as never,
       bindingService: { adoptExistingPhysicalShard, renameBoundPhysicalShard },
-      onLedgerBindingAdopted,
+      onLedgerBindingSettled,
       isTrustedSender: () => true,
       getCurrentAccountMid: vi.fn().mockResolvedValue('100')
     })
@@ -103,18 +103,20 @@ describe('registerFavoriteRepositoryIpc', () => {
       currentRemoteTitle: 'bilimi·游戏专区', targetTitle: 'bilimi·游戏专区哈哈'
     })
     expect(adoptExistingPhysicalShard).not.toHaveBeenCalled()
-    expect(onLedgerBindingAdopted).toHaveBeenCalledWith('100', 'game')
+    expect(onLedgerBindingSettled).toHaveBeenCalledWith('100', {
+      kind: 'rename', logicalLedgerId: 'game', remoteFolderId: '4106106611'
+    })
   })
 
   it('rejects an invalid or failed bound-shard rename before preference projection', async () => {
     const ipcMain = new FakeIpcMain()
     const renameBoundPhysicalShard = vi.fn().mockRejectedValue(new Error('bound shard is absent'))
-    const onLedgerBindingAdopted = vi.fn()
+    const onLedgerBindingSettled = vi.fn()
     registerFavoriteRepositoryIpc({
       ipcMain,
       service: { getLibrarySummary: vi.fn() } as never,
       bindingService: { adoptExistingPhysicalShard: vi.fn(), renameBoundPhysicalShard },
-      onLedgerBindingAdopted,
+      onLedgerBindingSettled,
       isTrustedSender: () => true,
       getCurrentAccountMid: vi.fn().mockResolvedValue('100')
     })
@@ -127,18 +129,18 @@ describe('registerFavoriteRepositoryIpc', () => {
     await expect(ipcMain.invoke('favorite-repository:rename-bound-ledger-shard', 7, '100', {
       logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', remoteFolderId: '4106106611', shardNumber: 1
     })).rejects.toThrow('bound shard is absent')
-    expect(onLedgerBindingAdopted).not.toHaveBeenCalled()
+    expect(onLedgerBindingSettled).not.toHaveBeenCalled()
   })
 
   it('notifies preference persistence only after formal ledger adoption succeeds', async () => {
     const ipcMain = new FakeIpcMain()
     const adoptExistingPhysicalShard = vi.fn().mockResolvedValue({ logicalLedgerId: 'music' })
-    const onLedgerBindingAdopted = vi.fn().mockResolvedValue(undefined)
+    const onLedgerBindingSettled = vi.fn().mockResolvedValue(undefined)
     registerFavoriteRepositoryIpc({
       ipcMain,
       service: { getLibrarySummary: vi.fn() } as never,
       bindingService: { adoptExistingPhysicalShard },
-      onLedgerBindingAdopted,
+      onLedgerBindingSettled,
       isTrustedSender: () => true,
       getCurrentAccountMid: vi.fn().mockResolvedValue('100')
     })
@@ -147,34 +149,68 @@ describe('registerFavoriteRepositoryIpc', () => {
       logicalLedgerId: 'music', logicalTitle: 'bilimi路闊充箰', remoteFolderId: '41', remoteTitle: 'bilimi路闊充箰'
     })
 
-    expect(onLedgerBindingAdopted).toHaveBeenCalledWith('100', 'music')
+    expect(onLedgerBindingSettled).toHaveBeenCalledWith('100', {
+      kind: 'adoption', logicalLedgerId: 'music', remoteFolderId: '41'
+    })
     adoptExistingPhysicalShard.mockRejectedValueOnce(new Error('remote shard is absent'))
     await expect(ipcMain.invoke('favorite-repository:adopt-ledger-binding', 7, '100', {
       logicalLedgerId: 'music', logicalTitle: 'bilimi路闊充箰', remoteFolderId: '41', remoteTitle: 'bilimi路闊充箰'
     })).rejects.toThrow('remote shard is absent')
-    expect(onLedgerBindingAdopted).toHaveBeenCalledTimes(1)
+    expect(onLedgerBindingSettled).toHaveBeenCalledTimes(1)
   })
 
-  it('returns a committed exact-id adoption when the later projection notification fails', async () => {
+  it('returns the main-process authoritative binding projection after an exact-id adoption', async () => {
     const ipcMain = new FakeIpcMain()
-    const adoption = { logicalLedgerId: 'music' }
-    const adoptExistingPhysicalShard = vi.fn().mockResolvedValue(adoption)
-    const onLedgerBindingAdopted = vi.fn().mockRejectedValueOnce(new Error('projection refresh unavailable'))
+    const adoption = { logicalLedgers: [], shards: [{ logicalLedgerId: 'music', remoteFolderId: '41', shardNumber: 1 }] }
+    const authoritativeFavoriteLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+      isDefault: true, bilibiliFolderId: '41', bilibiliFolderIds: ['41'], bindingState: 'bound' as const
+    }
     registerFavoriteRepositoryIpc({
       ipcMain,
       service: { getLibrarySummary: vi.fn() } as never,
-      bindingService: { adoptExistingPhysicalShard },
-      onLedgerBindingAdopted,
+      bindingService: { adoptExistingPhysicalShard: vi.fn().mockResolvedValue(adoption) },
+      onLedgerBindingSettled: vi.fn().mockResolvedValue(authoritativeFavoriteLedger),
       isTrustedSender: () => true,
       getCurrentAccountMid: vi.fn().mockResolvedValue('100')
     })
 
     await expect(ipcMain.invoke('favorite-repository:adopt-ledger-binding', 7, '100', {
       logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', remoteFolderId: '41', remoteTitle: 'bilimi·音乐'
-    })).resolves.toEqual(adoption)
+    })).resolves.toEqual({ ...adoption, authoritativeFavoriteLedger })
+  })
 
-    expect(adoptExistingPhysicalShard).toHaveBeenCalledOnce()
-    expect(onLedgerBindingAdopted).toHaveBeenCalledWith('100', 'music')
+  it('returns a committed exact-id adoption when the later projection notification fails', async () => {
+    const ipcMain = new FakeIpcMain()
+    const adoption = { logicalLedgerId: 'music' }
+    const adoptExistingPhysicalShard = vi.fn().mockResolvedValue(adoption)
+    const onLedgerBindingSettled = vi.fn().mockRejectedValueOnce(new Error('projection refresh unavailable'))
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    registerFavoriteRepositoryIpc({
+      ipcMain,
+      service: { getLibrarySummary: vi.fn() } as never,
+      bindingService: { adoptExistingPhysicalShard },
+      onLedgerBindingSettled,
+      isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    try {
+      await expect(ipcMain.invoke('favorite-repository:adopt-ledger-binding', 7, '100', {
+        logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', remoteFolderId: '41', remoteTitle: 'bilimi·音乐'
+      })).resolves.toEqual(adoption)
+
+      expect(adoptExistingPhysicalShard).toHaveBeenCalledOnce()
+      expect(onLedgerBindingSettled).toHaveBeenCalledWith('100', {
+        kind: 'adoption', logicalLedgerId: 'music', remoteFolderId: '41'
+      })
+      expect(error).toHaveBeenCalledWith(
+        'Favorite repository binding projection refresh failed after adoption:',
+        expect.any(Error)
+      )
+    } finally {
+      error.mockRestore()
+    }
   })
 
   it('returns the same complete library summary contract from snapshot and account-open reads', async () => {
@@ -216,6 +252,22 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(getSuppressedRemoteFolderIds).toHaveBeenCalledTimes(2)
     expect(getLibrarySummary).toHaveBeenNthCalledWith(1, '100', { suppressedRemoteFolderIds: ['9001'] })
     expect(getLibrarySummary).toHaveBeenNthCalledWith(2, '100', { suppressedRemoteFolderIds: ['9001'] })
+  })
+
+  it('includes the main-process backup state in each library summary instead of making the drawer infer it from physical shards', async () => {
+    const ipcMain = new FakeIpcMain()
+    const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 3, physicalShards: [] })
+    const getFavoriteLedgerBackupStates = vi.fn(() => ({ music: 'unbound' as const }))
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: { getLibrarySummary } as never,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      getFavoriteLedgerBackupStates
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:get-snapshot', 7, '100')).resolves.toEqual({
+      accountMid: '100', revision: 3, physicalShards: [], favoriteLedgerBackupStates: { music: 'unbound' }
+    })
+    expect(getFavoriteLedgerBackupStates).toHaveBeenCalledWith('100', expect.objectContaining({ revision: 3 }))
   })
 
   it('repairs confirmed legacy review half-records before returning an account-open summary', async () => {

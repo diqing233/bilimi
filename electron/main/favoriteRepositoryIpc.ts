@@ -12,6 +12,8 @@ import type {
   FavoriteRepositoryPage,
   FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
+import type { FavoriteLedger } from '../../src/shared/types'
+import type { FavoriteLedgerBackupState } from '../../src/shared/favoriteLedgerBackupState'
 import type {
   FavoriteRepositoryLibraryDetail,
   FavoriteRepositoryLibraryFilter,
@@ -81,6 +83,8 @@ export type FavoriteRepositorySnapshotSummary = {
   folderCount: number
   folders: FavoriteRepositoryFolder[]
   physicalShards: Array<import('../../src/shared/favoriteRepository').FavoriteRepositoryPhysicalShard & { localMemberCount?: number }>
+  /** Account-rule and physical-shard facts resolved by the main process for every logical ledger. */
+  favoriteLedgerBackupStates?: Record<string, FavoriteLedgerBackupState>
   folderCounts: Record<string, number>
   /** Distinct videos in displayed Bilimi work folders, including read-only ambiguous remote drafts. */
   workspaceVideoCount?: number
@@ -426,8 +430,16 @@ export function registerFavoriteRepositoryIpc(options: {
       candidates: Array<{ id: string; title: string; memberCount: number }>
     }>>
   }
-  /** Clears a default user-deleted marker only after formal repository adoption commits. */
-  onLedgerBindingAdopted?: (accountMid: string, logicalLedgerId: string) => Promise<unknown> | unknown
+  /**
+   * Notifies the main-process preference projection after an exact remote
+   * mutation has committed. Adoption and rename are distinct because only an
+   * explicitly confirmed adoption may recover a user-deleted default rule.
+   */
+  onLedgerBindingSettled?: (accountMid: string, event: {
+    kind: 'adoption' | 'rename'
+    logicalLedgerId: string
+    remoteFolderId: string
+  }) => Promise<FavoriteLedger | undefined> | FavoriteLedger | undefined
   /** Performs safe main-process reconciliation before the drawer reads a summary. */
   onAccountOpenLocal?: (accountMid: string) => Promise<void>
   /** Performs optional remote/account recovery after the first local summary is readable. */
@@ -436,6 +448,11 @@ export function registerFavoriteRepositoryIpc(options: {
   getLocalDraftLedgerIds?: (accountMid: string) => readonly string[]
   /** Returns retained Bilibili mirror IDs that local managed-folder deletion hides until explicit backup. */
   getSuppressedRemoteFolderIds?: (accountMid: string) => readonly string[]
+  /** Supplies the account-rule-aware status that the library cannot infer from repository shards alone. */
+  getFavoriteLedgerBackupStates?: (
+    accountMid: string,
+    summary: FavoriteRepositorySnapshotSummary
+  ) => Record<string, FavoriteLedgerBackupState>
   /** Suppresses only the remote-only Bilimi draft reminder for this account and remote folder. */
   getRemoteDraftReminderDismissed?: (accountMid: string) => readonly string[]
   dismissRemoteDraftReminder?: (accountMid: string, remoteFolderId: string) => Promise<unknown> | unknown
@@ -545,15 +562,25 @@ export function registerFavoriteRepositoryIpc(options: {
       logicalLedgerId, logicalTitle, remoteDisplayTitle: remoteTitle, expectedRemoteTitle: remoteTitle,
       remoteFolderId, shardNumber, memberAids: [], ...(replaceExistingRemoteBinding ? { replaceExistingRemoteBinding: true } : {})
     })
+    let authoritativeFavoriteLedger: FavoriteLedger | undefined
     try {
-      await options.onLedgerBindingAdopted?.(accountMid, logicalLedgerId)
-    } catch {
+      authoritativeFavoriteLedger = await options.onLedgerBindingSettled?.(accountMid, {
+        kind: 'adoption', logicalLedgerId, remoteFolderId
+      })
+    } catch (error) {
       // The authoritative physical-shard binding has already committed. A
       // follow-up preference projection can retry on the next account refresh
       // but must not turn this completed exact-ID adoption into a false remote
       // binding failure for the confirmation dialog.
+      console.error('Favorite repository binding projection refresh failed after adoption:', error)
     }
-    return result
+    // The repository mutation is durable before this point.  Return the
+    // account preference projection only when the main process successfully
+    // produced it, so a renderer cannot clear a deletion marker optimistically
+    // and then write that stale decision back over the authoritative store.
+    return authoritativeFavoriteLedger && result && typeof result === 'object' && !Array.isArray(result)
+      ? { ...result as Record<string, unknown>, authoritativeFavoriteLedger }
+      : result
   })
   options.ipcMain.handle('favorite-repository:rename-bound-ledger-shard', async (event, requestedAccountMid: string, requestedInput: unknown) => {
     assertTrusted(event)
@@ -577,10 +604,13 @@ export function registerFavoriteRepositoryIpc(options: {
       logicalLedgerId, logicalTitle, remoteFolderId, shardNumber, currentRemoteTitle, targetTitle
     })
     try {
-      await options.onLedgerBindingAdopted?.(accountMid, logicalLedgerId)
-    } catch {
+      await options.onLedgerBindingSettled?.(accountMid, {
+        kind: 'rename', logicalLedgerId, remoteFolderId
+      })
+    } catch (error) {
       // The authoritative exact-ID title update already committed. Preference
       // projection can safely catch up during a later account refresh.
+      console.error('Favorite repository binding projection refresh failed after rename:', error)
     }
     return result
   })
@@ -661,11 +691,15 @@ export function registerFavoriteRepositoryIpc(options: {
       ...(suppressedRemoteFolderIds?.length ? { suppressedRemoteFolderIds } : {})
     }
   }
-  const readLibrarySummary = (accountMid: string) => {
+  const readLibrarySummary = async (accountMid: string) => {
     const summaryOptions = librarySummaryOptions(accountMid)
-    return Object.keys(summaryOptions).length
+    const summary = await (Object.keys(summaryOptions).length
       ? options.service.getLibrarySummary(accountMid, summaryOptions)
-      : options.service.getLibrarySummary(accountMid)
+      : options.service.getLibrarySummary(accountMid))
+    const favoriteLedgerBackupStates = options.getFavoriteLedgerBackupStates?.(accountMid, summary)
+    return favoriteLedgerBackupStates
+      ? { ...summary, favoriteLedgerBackupStates }
+      : summary
   }
 
   options.ipcMain.handle('favorite-repository:open-account', async (event, requestedAccountMid: string) => {

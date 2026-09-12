@@ -125,6 +125,7 @@ import {
   removeUnsavedFavoriteLedgerDraft
 } from '../../src/shared/favoriteLedgerDraftDeletion'
 import { projectFavoriteLedgersFromPhysicalShards } from '../../src/shared/favoriteLedgerBindingProjection'
+import { favoriteLedgerBackupState } from '../../src/shared/favoriteLedgerBackupState'
 import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 import { fetchFavoriteVideoMetadata } from './favoriteVideoMetadata'
 import {
@@ -1090,18 +1091,51 @@ function notifyFloatingAssistantSnapshotChanged() {
   sendAssistantSnapshotChangedToTargets([mainWindow, assistant])
 }
 
-async function reconcileFavoriteLedgerBindingProjection(accountMid: string) {
+async function reconcileFavoriteLedgerBindingProjection(
+  accountMid: string,
+  options: { recoverUserConfirmedAdoptions?: boolean } = {}
+) {
   const store = getDesktopStore()
   const current = loadFavoriteAccountPreferences(store, accountMid)
   const repositorySnapshot = await favoriteRepositoryService?.getSnapshot(accountMid).catch(() => null)
-  if (!repositorySnapshot) return false
-  const projectedLedgers = projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, repositorySnapshot.physicalShards)
+  if (!repositorySnapshot) return null
+  const projectedLedgers = projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, repositorySnapshot.physicalShards, options)
   const favoriteLedgers = projectedLedgers
-  if (JSON.stringify(favoriteLedgers) === JSON.stringify(current.favoriteLedgers)) return false
-  saveFavoriteAccountPreferences(store, accountMid, { ...current, favoriteLedgers })
-  sendAssistantPreferencesChanged(loadAssistantPreferences(store))
-  notifyFloatingAssistantSnapshotChanged()
-  return true
+  if (JSON.stringify(favoriteLedgers) !== JSON.stringify(current.favoriteLedgers)) {
+    saveFavoriteAccountPreferences(store, accountMid, { ...current, favoriteLedgers })
+    sendAssistantPreferencesChanged(loadAssistantPreferences(store))
+    notifyFloatingAssistantSnapshotChanged()
+  }
+  return favoriteLedgers
+}
+
+/** The drawer receives this account-rule-aware result instead of inferring status from shards alone. */
+function favoriteLedgerBackupStatesForLibrary(
+  accountMid: string,
+  summary: {
+    physicalShardCount?: number
+    physicalShards: Array<{ logicalLedgerId: string; bindingState: string; remoteFolderId?: string }>
+    folders?: Array<{ kind: string; logicalLedgerId?: string }>
+  }
+) {
+  const ledgers = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+  const physicalShardDetailsIncomplete = Number(summary.physicalShardCount ?? 0) !== summary.physicalShards.length
+  return Object.fromEntries(ledgers.map((ledger) => {
+    const shards = summary.physicalShards.filter((shard) => shard.logicalLedgerId === ledger.id)
+    const hasFormalPhysicalBinding = shards.length > 0 && shards.every((shard) =>
+      shard.bindingState === 'bound' && Boolean(shard.remoteFolderId?.trim()))
+    const hasPartialPhysicalBinding = !hasFormalPhysicalBinding && shards.some((shard) =>
+      shard.bindingState === 'bound' && Boolean(shard.remoteFolderId?.trim()))
+    const hasUnresolvedPhysicalBinding = (!hasFormalPhysicalBinding && shards.length > 0) ||
+      ledger.bindingState === 'unbound' ||
+      (physicalShardDetailsIncomplete && (shards.length > 0 || summary.folders?.some((folder) =>
+        folder.kind === 'bilimi-logical' && folder.logicalLedgerId === ledger.id)))
+    return [ledger.id, favoriteLedgerBackupState(ledger, {
+      hasFormalPhysicalBinding,
+      hasPartialPhysicalBinding,
+      ...(hasUnresolvedPhysicalBinding ? { unboundLedgerIds: [ledger.id] } : {})
+    })]
+  }))
 }
 
 /** Refreshes the account rule projection after any automatic shard mutation. */
@@ -3201,10 +3235,15 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     ipcMain,
     service: favoriteRepositoryService,
     bindingService: favoriteRepositoryBindingService,
-    onLedgerBindingAdopted: async (accountMid, logicalLedgerId) => {
+    onLedgerBindingSettled: async (accountMid, event) => {
       // Binding success changes the authoritative repository even when the
       // account preference shape was already current; always invalidate the
       // assistant snapshot so the right-side count reads every formal shard.
+      if (event.kind === 'adoption') {
+        const favoriteLedgers = await reconcileFavoriteLedgerBindingProjection(accountMid, { recoverUserConfirmedAdoptions: true })
+        notifyFloatingAssistantSnapshotChanged()
+        return favoriteLedgers?.find((ledger) => ledger.id === event.logicalLedgerId)
+      }
       await refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid)
     },
     isTrustedSender: isTrustedOldFavoriteSessionSender,
@@ -3215,6 +3254,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       .map((ledger) => ledger.id),
     getSuppressedRemoteFolderIds: (accountMid) =>
       loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid),
+    getFavoriteLedgerBackupStates: favoriteLedgerBackupStatesForLibrary,
     send: (senderId, channel, payload) => {
       const target = webContents.fromId(senderId)
       if (target && !target.isDestroyed()) target.send(channel, payload)
@@ -3226,7 +3266,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     // summary. Remote inventory is read only by an explicit backup workflow;
     // account opening must never turn an observation into a library shard.
     onAccountOpenLocal: async (accountMid) => {
-      await reconcileFavoriteLedgerBindingProjection(accountMid)
+      await reconcileFavoriteLedgerBindingProjection(accountMid, { recoverUserConfirmedAdoptions: true })
     },
     // A user-local deletion is not the same as choosing “不再提醒”. The
     // former must not hide a still-existing remote bilimi folder from the

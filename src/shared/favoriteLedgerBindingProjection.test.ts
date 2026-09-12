@@ -56,4 +56,36 @@ describe('projectFavoriteLedgersFromPhysicalShards', () => {
       priority: 10, isDefault: true, bindingState: 'unbacked'
     })
   })
+
+  it('recovers a deleted default ledger only from its user-confirmed replacement id', () => {
+    const ledgers = [{
+      id: 'music', displayName: 'bilimi·音乐', keywords: ['音乐'], enabled: true,
+      priority: 10, isDefault: true, bindingState: 'unbound' as const,
+      managedFolderDeletedByUser: true,
+      confirmedDeletedRemoteFolderIds: ['old-music', 'new-music'],
+      pendingRemoteBinding: true,
+      pendingRemoteFolderId: 'new-music'
+    }]
+    const shards = [{
+      logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1,
+      remoteFolderId: 'new-music', remoteTitle: 'bilimi·音乐', bindingState: 'bound' as const,
+      userConfirmedAdoption: true
+    }]
+
+    expect(projectFavoriteLedgersFromPhysicalShards(ledgers, shards)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'music', managedFolderDeletedByUser: true,
+        confirmedDeletedRemoteFolderIds: ['old-music', 'new-music']
+      })
+    ]))
+    expect(projectFavoriteLedgersFromPhysicalShards(ledgers, shards, {
+      recoverUserConfirmedAdoptions: true
+    })).toEqual([expect.objectContaining({
+      id: 'music', bindingState: 'bound', bilibiliFolderId: 'new-music',
+      bilibiliFolderIds: ['new-music'], confirmedDeletedRemoteFolderIds: ['old-music']
+    })])
+    expect(projectFavoriteLedgersFromPhysicalShards(ledgers, shards, {
+      recoverUserConfirmedAdoptions: true
+    })[0]).not.toHaveProperty('managedFolderDeletedByUser')
+  })
 })

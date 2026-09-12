@@ -42,13 +42,15 @@ describe('favorite ledger configuration refresh IPC', () => {
     expect(handler).toContain('A missing/unreadable workspace is not evidence of an active preview')
   })
 
-  it('reprojects all formal physical shards after a binding adoption', () => {
-    const callbackStart = mainSource.indexOf('onLedgerBindingAdopted: async (accountMid, logicalLedgerId) => {')
+  it('runs deletion-protection recovery only after an explicitly adopted exact ID', () => {
+    const callbackStart = mainSource.indexOf('onLedgerBindingSettled: async (accountMid, event) => {')
     const callbackEnd = mainSource.indexOf('\n    },', callbackStart)
     const callback = mainSource.slice(callbackStart, callbackEnd)
-    expect(mainSource).toContain('async function reconcileFavoriteLedgerBindingProjection(accountMid: string)')
+    expect(mainSource).toContain('async function reconcileFavoriteLedgerBindingProjection(\n  accountMid: string,\n  options: { recoverUserConfirmedAdoptions?: boolean } = {}\n)')
     expect(mainSource).toContain('async function refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid: string)')
-    expect(mainSource).toContain('projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, repositorySnapshot.physicalShards)')
+    expect(mainSource).toContain('projectFavoriteLedgersFromPhysicalShards(current.favoriteLedgers, repositorySnapshot.physicalShards, options)')
+    expect(callback).toContain("event.kind === 'adoption'")
+    expect(callback).toContain('reconcileFavoriteLedgerBindingProjection(accountMid, { recoverUserConfirmedAdoptions: true })')
     expect(callback).toContain('refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid)')
     expect(callback).not.toContain('reclassifyFavoriteWorkspaceIfPreviewing(accountMid)')
   })
@@ -58,6 +60,32 @@ describe('favorite ledger configuration refresh IPC', () => {
     const reconcileEnd = mainSource.indexOf('\n}\n\n/** Refreshes the account rule projection', reconcileStart)
     const reconcile = mainSource.slice(reconcileStart, reconcileEnd)
     expect(reconcile).not.toContain('managedFolderDeletedByUser: _deletedByUser')
+  })
+
+  it('restores a durable confirmed adoption on account open without remote inventory', () => {
+    const accountOpenStart = mainSource.indexOf('onAccountOpenLocal: async (accountMid) => {')
+    const accountOpenEnd = mainSource.indexOf('\n    },', accountOpenStart)
+    const accountOpen = mainSource.slice(accountOpenStart, accountOpenEnd)
+    expect(accountOpen).toContain('reconcileFavoriteLedgerBindingProjection(accountMid, { recoverUserConfirmedAdoptions: true })')
+    expect(accountOpen).not.toContain('readFolderInventory')
+  })
+
+  it('derives library backup states from both account-rule protection and every physical shard', () => {
+    const stateStart = mainSource.indexOf('function favoriteLedgerBackupStatesForLibrary(')
+    const stateEnd = mainSource.indexOf('\n}\n\n/** Refreshes the account rule projection', stateStart)
+    const state = mainSource.slice(stateStart, stateEnd)
+    expect(state).toContain("ledger.bindingState === 'unbound'")
+    expect(state).toContain('hasPartialPhysicalBinding')
+    expect(mainSource).toContain('getFavoriteLedgerBackupStates: favoriteLedgerBackupStatesForLibrary')
+  })
+
+  it('fails closed for the library when a physical shard count omits detail rows', () => {
+    const stateStart = mainSource.indexOf('function favoriteLedgerBackupStatesForLibrary(')
+    const stateEnd = mainSource.indexOf('\n}\n\n/** Refreshes the account rule projection', stateStart)
+    const state = mainSource.slice(stateStart, stateEnd)
+    expect(state).toContain('physicalShardDetailsIncomplete')
+    expect(state).toContain('summary.physicalShardCount')
+    expect(state).toContain("folder.kind === 'bilimi-logical'")
   })
 
   it('routes each confirmed Bilibili folder mutation through the account-scoped projection and favorite-page refresh', () => {

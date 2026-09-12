@@ -2397,9 +2397,17 @@ export function FavoriteLibraryApp({
     : [], [currentFolder?.logicalLedgerId, summary?.physicalShards])
   const currentHasFormalPhysicalBinding = currentPhysicalShards.length > 0 && currentPhysicalShards
     .every((shard) => shard.bindingState === 'bound' && Boolean(shard.remoteFolderId))
+  const currentHasPartialPhysicalBinding = currentPhysicalShards.some((shard) =>
+    shard.bindingState === 'bound' && Boolean(shard.remoteFolderId)) && !currentHasFormalPhysicalBinding
   const currentLedgerBindingStatus = currentDeletedRecord
     ? { kind: 'missing' as const, label: '收藏夹已删除' as const, actionLabel: '恢复当前收藏夹' as const }
-    : favoriteLibraryLedgerBindingStatus(currentFolder, { hasFormalPhysicalBinding: currentHasFormalPhysicalBinding })
+    : favoriteLibraryLedgerBindingStatus(currentFolder, {
+      hasFormalPhysicalBinding: currentHasFormalPhysicalBinding,
+      hasPartialPhysicalBinding: currentHasPartialPhysicalBinding,
+      backupState: currentFolder?.logicalLedgerId
+        ? summary?.favoriteLedgerBackupStates?.[currentFolder.logicalLedgerId]
+        : undefined
+    })
   useEffect(() => {
     if (!currentPhysicalShards.some((shard) => shard.shardNumber === selectedShardNumber)) setSelectedShardNumber('all')
   }, [currentPhysicalShards, selectedShardNumber])

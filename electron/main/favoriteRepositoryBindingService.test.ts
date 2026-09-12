@@ -856,6 +856,7 @@ describe('FavoriteRepositoryBindingService', () => {
 
   it('adopts one exact existing remote shard without mutating the remote folder', async () => {
     const repository = await createRepository()
+    const commit = vi.spyOn(repository, 'commit')
     const bind = vi.fn().mockResolvedValue(undefined)
     const release = vi.fn()
     const createFolder = vi.fn()
@@ -897,6 +898,13 @@ describe('FavoriteRepositoryBindingService', () => {
     // Folder inventory proves only its aggregate count. Stale mirror rows
     // cannot become physical-shard facts during an ID-only adoption.
     expect((await repository.getSnapshot('100')).memberships['bilimi:inbox:001']).toEqual([])
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'upsert-physical-shard-binding',
+      payload: expect.objectContaining({
+        remoteFolderId: '4070414411',
+        userConfirmedAdoption: true
+      })
+    }))
   })
 
   it('rechecks the exact returned folder id when a newly created folder is absent from the first inventory', async () => {
@@ -1759,6 +1767,36 @@ describe('FavoriteRepositoryBindingService', () => {
     })
     expect((await service.getBindings('100')).shards).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ remoteFolderId: 'old-inbox' })
+    ]))
+  })
+
+  it('replaces a confirmed stale second-shard id without requiring a renderer-only flag', async () => {
+    const repository = await createRepository()
+    const service = new FavoriteRepositoryBindingService({
+      repository, newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn((_accountMid, _runId) => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100', folders: [{ id: 'new-inbox-2', title: 'Inbox②', memberCount: 7 }]
+          }),
+          createFolder: vi.fn(), append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), deleteFolder: vi.fn()
+        }))
+      }
+    })
+    await service.preparePhysicalShard('100', {
+      logicalLedgerId: 'inbox', logicalTitle: 'Inbox', shardNumber: 2, memberAids: [], remoteFolderId: 'old-inbox-2',
+      observedAccountMid: '100', inventory: [{ id: 'old-inbox-2', title: 'B-inbox-002-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+
+    await expect(service.adoptExistingPhysicalShard('100', {
+      logicalLedgerId: 'inbox', logicalTitle: 'Inbox', remoteDisplayTitle: 'Inbox②', expectedRemoteTitle: 'Inbox②',
+      remoteFolderId: 'new-inbox-2', shardNumber: 2, memberAids: []
+    })).resolves.toMatchObject({
+      shards: [expect.objectContaining({ logicalLedgerId: 'inbox', shardNumber: 2, remoteFolderId: 'new-inbox-2' })]
+    })
+    expect((await service.getBindings('100')).shards).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ remoteFolderId: 'old-inbox-2' })
     ]))
   })
 })

@@ -1592,6 +1592,31 @@ describe('account favorite repository contracts', () => {
     ]))
   })
 
+  it('marks a legacy explicit adoption as the durable source of a replaced remote id', () => {
+    const now = '2026-09-12T10:00:00.000Z'
+    const initiallyBound = applyFavoriteRepositoryCommand(createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }), {
+      id: 'bound-old-music', accountMid: '100', issuedAt: now, type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: 'old-music'
+      }
+    }, now)
+
+    const result = applyFavoriteRepositoryCommand(initiallyBound, {
+      id: 'favorite-adoption:music:1:new-music', accountMid: '100', issuedAt: '2026-09-12T10:00:01.000Z',
+      type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: 'new-music',
+        replaceExistingRemoteBinding: true
+      }
+    }, '2026-09-12T10:00:01.000Z')
+
+    expect(result.physicalShards).toEqual([expect.objectContaining({
+      logicalLedgerId: 'music', shardNumber: 1, remoteFolderId: 'new-music', userConfirmedAdoption: true
+    })])
+  })
+
   it('preserves existing logical members and their local intent when binding the first physical shard', () => {
     const now = '2026-09-05T00:00:00.000Z'
     const snapshot = {

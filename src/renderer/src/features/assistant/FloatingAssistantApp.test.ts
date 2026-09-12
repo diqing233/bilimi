@@ -33,6 +33,18 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
+  it('reports a partial backup state when formal and unbound evidence conflict', () => {
+    const status = resolveFavoriteOrganizationLamp({
+      snapshot: null,
+      defaultFavoriteSystemEnabled: true,
+      ledgers: [{ ...defaultLedger, bindingState: 'bound', bilibiliFolderId: 'game-1' }],
+      favoriteLedgerStatus: {
+        ok: false, ledgers: [], missingLedgerIds: [], unboundLedgerIds: [defaultLedger.id], message: 'binding pending'
+      }
+    })
+
+    expect(status).toMatchObject({ label: '部分已备册 · 仍待绑定', tone: 'error' })
+  })
   it('projects newly bound first and capacity shards without overwriting local rule edits', () => {
     const projected = reconcileFavoriteLedgerBindingProjection([
       {

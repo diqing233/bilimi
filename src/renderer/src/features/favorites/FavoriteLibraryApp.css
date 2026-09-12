@@ -169,6 +169,7 @@
 .favorite-library__ledger-binding-status { display: inline-flex; flex: 1 1 auto; align-items: baseline; gap: 6px; min-width: 0; color: #456784; font-size: 12px; }
 .favorite-library__ledger-binding-status strong { flex: 0 0 auto; color: #18715f; font-weight: 700; }
 .favorite-library__ledger-binding-status[data-state='unbound'] strong { color: #9f3d3d; }
+.favorite-library__ledger-binding-status[data-state='partial'] strong { color: #9f3d3d; }
 .favorite-library__ledger-binding-status[data-state='missing'] strong,
 .favorite-library__ledger-binding-status[data-state='draft'] strong { color: #a45d15; }
 .favorite-library__ledger-binding-status button { min-width: 0; overflow: hidden; border: 0; background: transparent; padding: 0; color: #1f63b5; font: inherit; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }

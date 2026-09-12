@@ -93,6 +93,7 @@ import { createDefaultLayoutRestoreController } from './defaultLayoutRestoreCont
 import { acknowledgeOldFavoriteWorkspace, loadAcknowledgedOldFavoriteWorkspaces, saveAcknowledgedOldFavoriteWorkspaces } from './acknowledgedOldFavoriteWorkspace'
 import { formatAssistantFeedbackMessage, formatDeepSeekErrorMessage } from './deepSeekErrorMessage'
 import { projectFavoriteLedgerDraft } from './favoriteLedgerDraftProjection'
+import { favoriteLedgerBackupState } from '@shared/favoriteLedgerBackupState'
 import { buildMultipartPartUrl, type MultipartVideoPart, type MultipartVideoSnapshot } from '../notes/videoNoteMultipart'
 
 export function transcriptionSpeedSettingDescription(): string {
@@ -484,6 +485,7 @@ type FavoriteLedgerStatusSummary = {
   backedCount: number
   unbackedCount: number
   unboundCount: number
+  partialCount: number
   localDraftCount: number
 }
 
@@ -497,6 +499,7 @@ function favoriteLedgerStatusSummary(
   let backedCount = 0
   let unbackedCount = 0
   let unboundCount = 0
+  let partialCount = 0
   let localDraftCount = 0
 
   for (const ledger of ledgers) {
@@ -505,17 +508,17 @@ function favoriteLedgerStatusSummary(
     if (!ledger.enabled) continue
 
     enabledCount += 1
-    const isUnbound = ledger.bindingState === 'unbound' || unboundLedgerIds.has(ledger.id)
-    if (isUnbound) {
+    const backupState = favoriteLedgerBackupState(ledger, { missingLedgerIds, unboundLedgerIds })
+    if (backupState === 'partial') {
+      partialCount += 1
+      continue
+    }
+    if (backupState === 'unbound') {
       unboundCount += 1
       continue
     }
 
-    const isUnbacked = isLocalDraft ||
-      ledger.bindingState === 'unbacked' ||
-      missingLedgerIds.has(ledger.id) ||
-      !ledger.bilibiliFolderId?.trim()
-    if (isUnbacked) {
+    if (backupState === 'unbacked') {
       unbackedCount += 1
       continue
     }
@@ -530,6 +533,7 @@ function favoriteLedgerStatusSummary(
     backedCount,
     unbackedCount,
     unboundCount,
+    partialCount,
     localDraftCount
   }
 }
@@ -542,7 +546,8 @@ function favoriteBackupDetail(summary: FavoriteLedgerStatusSummary): string {
       : `当前启用 ${summary.enabledCount} 个 bilimi 收藏夹，其中 ${[
         summary.backedCount > 0 ? `${summary.backedCount} 个已备册` : '',
         summary.unbackedCount > 0 ? `${summary.unbackedCount} 个未备册` : '',
-        summary.unboundCount > 0 ? `${summary.unboundCount} 个未绑定` : ''
+        summary.unboundCount > 0 ? `${summary.unboundCount} 个未绑定` : '',
+        summary.partialCount > 0 ? `${summary.partialCount} 个部分已备册 · 仍待绑定` : ''
       ].filter(Boolean).join('、')}。`
   return summary.backedCount === 0
     ? `${detail}备册是批阅分类和同步 B 站收藏的核心，请尽快勾选启用收藏夹并备册哦～`
@@ -927,7 +932,14 @@ export function resolveFavoriteOrganizationLamp(args: {
   }
 
   const backupGap = favoriteLedgerBackupGap(args.ledgers)
-  if (args.favoriteLedgerStatus?.unboundLedgerIds?.length) {
+  if (summary.partialCount > 0) {
+    return {
+      label: '部分已备册 · 仍待绑定',
+      detail: detail('当前未整理。'),
+      tone: 'error'
+    }
+  }
+  if (summary.unboundCount > 0) {
     return {
       label: '未绑定',
       detail: detail('当前未整理。'),

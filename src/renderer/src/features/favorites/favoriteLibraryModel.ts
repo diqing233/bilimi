@@ -6,6 +6,7 @@ import type {
   FavoriteRepositoryVideo
 } from '../../../../shared/favoriteRepository'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+import type { FavoriteLedgerBackupState } from '@shared/favoriteLedgerBackupState'
 
 export type FavoriteLibrarySearchEntry = {
   video: FavoriteRepositoryVideo
@@ -121,14 +122,18 @@ function displayFolderTitle(folder: FavoriteRepositoryFolder) {
 }
 
 export type FavoriteLibraryLedgerBindingStatus = {
-  kind: 'backed' | 'missing' | 'unbound' | 'draft'
-  label: '已备册' | '未备册' | '未绑定' | '已生成草稿' | '收藏夹已删除'
+  kind: 'backed' | 'missing' | 'unbound' | 'partial' | 'draft'
+  label: '已备册' | '未备册' | '未绑定' | '部分已备册 · 仍待绑定' | '已生成草稿' | '收藏夹已删除'
   actionLabel?: '去掌库收藏夹设置保存后绑定' | '恢复当前收藏夹'
 }
 
 export function favoriteLibraryLedgerBindingStatus(
   folder: FavoriteRepositoryFolder | undefined,
-  evidence: { hasFormalPhysicalBinding?: boolean } = {}
+  evidence: {
+    hasFormalPhysicalBinding?: boolean
+    hasPartialPhysicalBinding?: boolean
+    backupState?: FavoriteLedgerBackupState
+  } = {}
 ): FavoriteLibraryLedgerBindingStatus | undefined {
   if (!folder?.logicalLedgerId) return undefined
   if (folder.kind === 'local') {
@@ -137,8 +142,21 @@ export function favoriteLibraryLedgerBindingStatus(
       : undefined
   }
   if (folder.kind !== 'bilimi-logical') return undefined
+  if (evidence.backupState === 'unbound') {
+    return { kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }
+  }
+  if (evidence.backupState === 'partial') {
+    return { kind: 'partial', label: '部分已备册 · 仍待绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }
+  }
+  if (evidence.backupState === 'unbacked') {
+    return { kind: 'missing', label: '未备册', actionLabel: '去掌库收藏夹设置保存后绑定' }
+  }
   if (folder.syncState === 'local-only') {
     return { kind: 'missing', label: '未备册', actionLabel: '去掌库收藏夹设置保存后绑定' }
+  }
+  if (evidence.hasPartialPhysicalBinding === true ||
+    (folder.syncState === 'pending-reconcile' && evidence.hasFormalPhysicalBinding === true)) {
+    return { kind: 'partial', label: '部分已备册 · 仍待绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }
   }
   if (folder.syncState === 'pending-reconcile' || evidence.hasFormalPhysicalBinding === false) {
     return { kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }

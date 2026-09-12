@@ -8,7 +8,8 @@ import type { FavoriteRepositoryPhysicalShard } from './favoriteRepository'
  */
 export function projectFavoriteLedgersFromPhysicalShards(
   ledgers: readonly FavoriteLedger[],
-  physicalShards: readonly FavoriteRepositoryPhysicalShard[]
+  physicalShards: readonly FavoriteRepositoryPhysicalShard[],
+  options: { recoverUserConfirmedAdoptions?: boolean } = {}
 ): FavoriteLedger[] {
   const boundIdsByLedger = new Map<string, string[]>()
   const shardsByLedger = new Map<string, FavoriteRepositoryPhysicalShard[]>()
@@ -45,6 +46,34 @@ export function projectFavoriteLedgersFromPhysicalShards(
         ...unboundLedger
       } = ledger
       return { ...unboundLedger, bindingState: 'unbacked' as const }
+    }
+    const confirmedAdoptionIds = options.recoverUserConfirmedAdoptions
+      ? (shardsByLedger.get(ledger.id) ?? [])
+          .filter((shard) => shard.userConfirmedAdoption === true && shard.remoteFolderId?.trim())
+          .map((shard) => shard.remoteFolderId!.trim())
+      : []
+    if (ledger.managedFolderDeletedByUser && confirmedAdoptionIds.length) {
+      const confirmedAdoptionIdSet = new Set(confirmedAdoptionIds)
+      const {
+        managedFolderDeletedByUser: _managedFolderDeletedByUser,
+        confirmedDeletedRemoteFolderIds: _confirmedDeletedRemoteFolderIds,
+        pendingRemoteBinding: _pendingRemoteBinding,
+        pendingRemoteBindingCreatedByBackup: _pendingRemoteBindingCreatedByBackup,
+        pendingRemoteFolderId: _pendingRemoteFolderId,
+        pendingRemoteFolderTitle: _pendingRemoteFolderTitle,
+        ...recoveredLedger
+      } = ledger
+      const remainingDeletedRemoteFolderIds = (ledger.confirmedDeletedRemoteFolderIds ?? [])
+        .filter((remoteFolderId) => !confirmedAdoptionIdSet.has(remoteFolderId.trim()))
+      return {
+        ...recoveredLedger,
+        bilibiliFolderId: remoteFolderIds[0],
+        bilibiliFolderIds: remoteFolderIds,
+        bindingState: 'bound' as const,
+        ...(remainingDeletedRemoteFolderIds.length
+          ? { confirmedDeletedRemoteFolderIds: remainingDeletedRemoteFolderIds }
+          : {})
+      }
     }
     return {
       ...ledger,

@@ -558,6 +558,8 @@ export type FavoriteRepositoryPhysicalShard = {
   bindingState: 'bound' | 'pending-reconcile'
   knownRemoteFolderIds?: string[]
   remoteMemberCount?: number
+  /** This exact remote ID was adopted after an explicit user confirmation. */
+  userConfirmedAdoption?: true
 }
 
 export type FavoriteRepositoryFrozenSyncOperation = {
@@ -827,6 +829,8 @@ export type FavoriteRepositoryCommand =
         remoteMemberCount?: number
         /** Explicit user-confirmed recovery may replace only this logical shard's stale remote ID. */
         replaceExistingRemoteBinding?: boolean
+        /** Durable provenance for an exact remote ID chosen in the confirmation dialog. */
+        userConfirmedAdoption?: true
       }
     }
   | {
@@ -1476,6 +1480,7 @@ function isPhysicalShardBindingPayload(payload: Record<string, unknown>) {
       payload.knownRemoteFolderIds.every((id) => typeof id === 'string' && !!id.trim()))) &&
     (payload.remoteMemberCount === undefined || (Number.isSafeInteger(payload.remoteMemberCount) && Number(payload.remoteMemberCount) >= 0)) &&
     (payload.replaceExistingRemoteBinding === undefined || typeof payload.replaceExistingRemoteBinding === 'boolean') &&
+    (payload.userConfirmedAdoption === undefined || payload.userConfirmedAdoption === true) &&
     (payload.bindingState !== 'bound' || (typeof payload.remoteFolderId === 'string' && !!payload.remoteFolderId.trim()))
 }
 
@@ -1903,6 +1908,9 @@ export function applyFavoriteRepositoryCommand(
     }
     let shardNumber = payload.shardNumber
     let existingShard = physicalShards.find((shard) => shard.logicalLedgerId === logicalLedgerId && shard.shardNumber === shardNumber)
+    const userConfirmedAdoption = payload.userConfirmedAdoption === true ||
+      command.id.startsWith('favorite-adoption:') ||
+      (existingShard?.remoteFolderId === remoteFolderId && existingShard?.userConfirmedAdoption === true)
     const hasExistingPhysicalShard = physicalShards.some((shard) => shard.logicalLedgerId === logicalLedgerId)
     if (command.id.startsWith('favorite-library:restore-managed:') &&
       existingShard?.bindingState === 'bound' && bindingState === 'pending-reconcile') {
@@ -1925,7 +1933,8 @@ export function applyFavoriteRepositoryCommand(
         logicalLedgerId, folderId, shardNumber, remoteTitle: payload.remoteTitle.trim(), bindingState,
         ...(remoteFolderId ? { remoteFolderId } : {}),
         ...(bindingState === 'pending-reconcile' ? { knownRemoteFolderIds } : {}),
-        ...(payload.remoteMemberCount !== undefined ? { remoteMemberCount: payload.remoteMemberCount } : {})
+        ...(payload.remoteMemberCount !== undefined ? { remoteMemberCount: payload.remoteMemberCount } : {}),
+        ...(bindingState === 'bound' && userConfirmedAdoption ? { userConfirmedAdoption: true as const } : {})
       }
     ].sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber)
     const logicalShards = physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)

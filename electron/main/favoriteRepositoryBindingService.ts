@@ -380,9 +380,11 @@ export class FavoriteRepositoryBindingService {
       const targetConflict = snapshot.physicalShards.find((shard) =>
         shard.logicalLedgerId === normalized.logicalLedgerId && shard.shardNumber === input.shardNumber &&
         shard.remoteFolderId && shard.remoteFolderId !== normalized.remoteFolderId)
-      if (targetConflict && input.replaceExistingRemoteBinding !== true) {
-        throw new Error('Favorite repository logical shard conflicts with another remote id.')
-      }
+      // This IPC is reached only after the renderer's explicit candidate
+      // confirmation. Requiring an additional renderer-owned boolean here
+      // made a confirmed non-main shard unable to replace its own stale ID.
+      // The exact-ID conflict above still prevents a different logical shard
+      // or physical shard from being claimed.
       const exactExisting = snapshot.physicalShards.find((shard) =>
         shard.logicalLedgerId === normalized.logicalLedgerId && shard.shardNumber === input.shardNumber &&
         shard.remoteFolderId === normalized.remoteFolderId && shard.bindingState === 'bound')
@@ -393,7 +395,7 @@ export class FavoriteRepositoryBindingService {
       // rename, but a formally bound shard may still carry an older title in
       // the local ledger. Commit that repair once so deletion preflight and
       // future idempotent adoptions observe the same authoritative title.
-      if (exactExisting &&
+      if (exactExisting && exactExisting.userConfirmedAdoption === true &&
         comparableManagedShardTitle(exactExisting.remoteTitle) === comparableManagedShardTitle(remote.title)) {
         return this.getBindings(account)
       }
@@ -415,6 +417,7 @@ export class FavoriteRepositoryBindingService {
           bindingState: 'bound',
           remoteFolderId: normalized.remoteFolderId,
           remoteMemberCount: remote.memberCount,
+          userConfirmedAdoption: true,
           ...(targetConflict ? { replaceExistingRemoteBinding: true } : {})
         }
       })

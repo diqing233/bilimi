@@ -13,6 +13,7 @@ import {
   restoreDefaultFavoriteLedgerAfterLocalDeletion
 } from '@shared/favoriteLedgerDeletion'
 import { isUnsavedFavoriteLedgerDraft } from '@shared/favoriteLedgerDraftDeletion'
+import { favoriteLedgerBackupState, favoriteLedgerBackupStateLabel } from '@shared/favoriteLedgerBackupState'
 import type {
   FavoriteLedger,
   AssistantAutomationResult,
@@ -351,32 +352,22 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const isDefaultSystemLocked = (ledger: FavoriteLedger) => defaultSystemPreferenceExplicit && defaultFavoriteSystemEnabled && ledger.isDefault
   const isForcedEnabled = (ledger: FavoriteLedger) => ledger.id === 'inbox' || isDefaultSystemLocked(ledger)
   const [backupInFlightLedgerIds, setBackupInFlightLedgerIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [confirmedUnbackedLedgerIds, setConfirmedUnbackedLedgerIds] = useState<ReadonlySet<string>>(() => new Set())
   const shouldHideUnboundNotice = (ledgerId: string) => backupPreparationLedgerIds.includes(ledgerId) || backupInFlightLedgerIds.has(ledgerId)
   const bindingLabelForLedger = (ledger: FavoriteLedger) => {
     const label = ledger.pendingRemoteBindingCreatedByBackup
       ? '已创建 · 待正式确认'
-      : ledger.bindingState === 'bound'
-        ? '已备册'
-        // A confirmed deletion can update the local authoritative rule before
-        // the parent account snapshot drops its stale unbound id.  Prefer the
-        // explicit unbacked state (and missing snapshot) so that stale metadata
-        // cannot keep rendering “未绑定” after the remote folder is gone.
-         : ledger.bindingState === 'unbacked'
-             ? '未备册'
-           : (ledger.bindingState === 'unbound' || unboundLedgerIds.includes(ledger.id)) &&
-               (!missingLedgerIds.includes(ledger.id) || Boolean(ledger.bilibiliFolderId || ledger.bilibiliFolderIds?.length))
-             ? '未绑定'
-            : missingLedgerIds.includes(ledger.id)
-              ? '未备册'
-            : ledger.bilibiliFolderId
-              ? '已备册'
-              : ''
+      : confirmedUnbackedLedgerIds.has(ledger.id)
+        ? '未备册'
+        : favoriteLedgerBackupStateLabel(ledger, { missingLedgerIds, unboundLedgerIds })
     return label === '未绑定' && shouldHideUnboundNotice(ledger.id) ? '' : label
   }
   const bindingStateForLedger = (ledger: FavoriteLedger, label: string) => label.includes('未保存')
     ? 'local-draft'
     : label.includes('未备册')
       ? 'unbacked'
+      : label.includes('部分已备册')
+        ? 'partial'
       : label.includes('未绑定')
         ? 'unbound'
         : ledger.bindingState ?? (label === '已备册' ? 'bound' : 'unbacked')
@@ -568,6 +559,23 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setNewLedger(false)
     setDeletionModeActive(false)
     setDraftDeletionError(null)
+  }, [externalLedgerSignature])
+  useEffect(() => {
+    if (!confirmedUnbackedLedgerIds.size) return
+    // Keep the deletion result visible until the parent has supplied a new
+    // authoritative ledger snapshot. Once that snapshot represents a formal
+    // binding again, discard the short-lived local override so it cannot hide
+    // the recovered “已备册” state.
+    const currentLedgerById = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
+    const next = new Set([...confirmedUnbackedLedgerIds].filter((ledgerId) => {
+      const ledger = currentLedgerById.get(ledgerId)
+      if (!ledger) return false
+      const state = favoriteLedgerBackupState(ledger, { missingLedgerIds, unboundLedgerIds })
+      return state === 'unbacked' || state === 'unbound' || state === 'partial'
+    }))
+    if (next.size === confirmedUnbackedLedgerIds.size &&
+      [...next].every((ledgerId) => confirmedUnbackedLedgerIds.has(ledgerId))) return
+    setConfirmedUnbackedLedgerIds(next)
   }, [externalLedgerSignature])
   useEffect(() => () => {
     const scrollRestore = ledgerScrollRestoreRef.current
@@ -1527,6 +1535,19 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
       return false
     }
     setDraftLedgers(next)
+    // The parent snapshot can still contain an old `unboundLedgerIds` entry
+    // during this render. A Bilibili deletion with a confirmed response is
+    // the only locally authoritative case that establishes “unbacked”.
+    // Keep this short-lived display projection scoped to the finalized plan.
+    setConfirmedUnbackedLedgerIds((current) => new Set([
+      ...current,
+      ...(deletionScope === 'bilibili' ? defaultIdsToReset : []),
+      ...(plan.confirmedRemoteFolderIds ?? []).flatMap((remoteFolderId) =>
+        plan.candidates
+          .filter((candidate) => candidate.remoteFolderId === remoteFolderId)
+          .map((candidate) => candidate.logicalLedgerId)
+      )
+    ]))
     enableStore.reset(enableEntries(next, false))
     deletionStore.reset(enableEntries(next, true))
     setSavedLedgerSnapshots(Object.fromEntries(next.filter((ledger) => !isRecoveredRemoteDraft(ledger)).map((ledger) => [ledger.id, ledgerEditorSnapshot(ledger)])))

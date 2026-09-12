@@ -845,6 +845,28 @@ describe('FavoriteLibraryApp', () => {
     expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'ledger', sidebar: true, ledgerId: 'custom-genshin' })
   })
 
+  it('uses the main-process backup state when a user released a rule with an old physical shard', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-09-12T00:00:00.000Z', videoCount: 0, folderCount: 1,
+        folders: [{ id: 'bilimi-logical:music', title: '音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound' }],
+        physicalShardCount: 1,
+        physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '81', remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteMemberCount: 0 }],
+        favoriteLedgerBackupStates: { music: 'unbound' },
+        syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '音乐' }))
+
+    expect(await screen.findByText('未绑定')).toBeInTheDocument()
+    expect(screen.queryByText('已备册')).not.toBeInTheDocument()
+  })
+
   it('does not display or reuse a stale bound logical state when no physical shard exists', async () => {
     const ensureFavoriteLedger = vi.fn()
     const previewFavoriteRepositoryLedgerBindingCandidates = vi.fn().mockResolvedValue([{ ledgerId: 'music', candidates: [] }])

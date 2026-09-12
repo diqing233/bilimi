@@ -136,7 +136,15 @@ type FavoriteLedgerBindingFailureCandidate = {
 
 type FavoriteLedgerBindingRegistrationResult = {
   failures: Array<{ ledgerId: string; candidates: FavoriteLedgerBindingFailureCandidate[] }>
-  successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; memberCount: number; shardNumber: number }>
+  successfulBindings: Array<{
+    ledgerId: string
+    remoteFolderId: string
+    remoteTitle: string
+    memberCount: number
+    shardNumber: number
+    replacesExistingRemoteBinding: boolean
+    authoritativeFavoriteLedger?: FavoriteLedger
+  }>
 }
 
 function createConfirmedReviewFavoriteInput(args: {
@@ -2370,6 +2378,29 @@ export default function App() {
       shardNumbers.set(shard.remoteFolderId, shard.shardNumber)
       trustedRemoteShardNumbers.set(shard.logicalLedgerId, shardNumbers)
     }
+    // A logical folder is fully backed only when every physical shard that
+    // belongs to it has completed an exact formal binding.  Keep this
+    // repository-derived evidence separate from the page inventory result:
+    // the page may observe the first bound shard while a second shard is
+    // still awaiting reconciliation.  In that case all surfaces must retain
+    // the same partial/unbound signal instead of promoting the rule to
+    // "已备册" from the first shard alone.
+    const reportedPhysicalShardCount = Number(repositorySummary?.physicalShardCount ?? 0)
+    const physicalShardDetailsIncomplete = reportedPhysicalShardCount !== repositoryShards.length
+    const unresolvedPhysicalShardLedgerIds = [...new Set([
+      ...repositoryShards
+      .filter((shard) => !managedFolderDeletedLedgerIds.has(shard.logicalLedgerId))
+      .filter((shard) => shard.bindingState !== 'bound' || !shard.remoteFolderId?.trim())
+      .map((shard) => shard.logicalLedgerId),
+      ...(physicalShardDetailsIncomplete
+        ? [...new Set([
+            ...repositoryShards.map((shard) => shard.logicalLedgerId),
+            ...(repositorySummary?.folders ?? [])
+              .filter((folder) => folder.kind === 'bilimi-logical' && Boolean(folder.logicalLedgerId))
+              .map((folder) => folder.logicalLedgerId!)
+          ])]
+        : [])
+    ])]
     const formalBoundShards: FormalBoundFavoriteShard[] = repositoryShards
       .filter((shard) => shard.bindingState === 'bound' && shard.remoteFolderId?.trim() && !managedFolderDeletedLedgerIds.has(shard.logicalLedgerId))
       .map((shard) => ({
@@ -2381,35 +2412,18 @@ export default function App() {
           ? { remoteMemberCount: shard.remoteMemberCount }
           : {})
       }))
-    // Older summaries may omit shard details, but an explicit zero means the
-    // logical folder has no formal binding.  Never recover authority from a
-    // stale logical-folder remote ID in that case.
-    if (!repositoryShards.length && Number(repositorySummary?.physicalShardCount ?? 0) > 0) {
-      for (const folder of repositorySummary?.folders ?? []) {
-        if (folder.kind !== 'bilimi-logical' || folder.syncState !== 'bound' || !folder.logicalLedgerId || !folder.remoteFolderId) continue
-        if (!managedFolderDeletedLedgerIds.has(folder.logicalLedgerId)) {
-          remoteDraftKnownFolderIds.add(folder.remoteFolderId)
-          remoteDraftBoundFolderIds.add(folder.remoteFolderId)
-        }
-        trustedRemoteFolderIds.set(folder.logicalLedgerId, [folder.remoteFolderId])
-        trustedRemoteShardNumbers.set(folder.logicalLedgerId, new Map([[folder.remoteFolderId, 1]]))
-        formalBoundShards.push({
-          logicalLedgerId: folder.logicalLedgerId,
-          shardNumber: 1,
-          remoteFolderId: folder.remoteFolderId,
-          remoteTitle: folder.title,
-          ...(Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0
-            ? { remoteMemberCount: folder.memberCount }
-            : {})
-        })
-      }
-    }
+    // A count without physical-shard details is an incomplete repository
+    // snapshot, not a formal binding.  Do not revive authority from the
+    // logical-folder mirror: it cannot prove which exact IDs or capacity
+    // shards are bound. The subsequent page read remains fail-closed until a
+    // complete repository summary arrives.
 
     return {
       trustedRemoteFolderIds,
       trustedRemoteShardNumbers,
       remoteDraftKnownFolderIds: [...remoteDraftKnownFolderIds].sort(),
       remoteDraftBoundFolderIds: [...remoteDraftBoundFolderIds].sort(),
+      unresolvedPhysicalShardLedgerIds,
       formalBoundShards,
       repositoryRevision: typeof repositorySummary?.revision === 'number' ? repositorySummary.revision : undefined,
       ledgers: favoriteLedgers.map((ledger) => {
@@ -2613,13 +2627,12 @@ export default function App() {
           let shardNumber = existingShardNumber ?? folder.shardNumber ?? titledShardNumber ?? 1
           // A duplicate-looking main title normally becomes the next shard so
           // discovery cannot silently overwrite an existing main binding.
-          // The one exception is the folder explicitly chosen in the rebind
-          // dialog: that confirmation means "replace this logical main
-          // shard", not "append another shard".
+          // A candidate explicitly chosen in the rebind dialog instead
+          // replaces its matching logical shard, including a capacity shard.
           const replacesConfirmedExistingShard = Boolean(
             explicitlySelectedFolderId === folderId &&
             formalShards?.some((formalShard) => formalShard.logicalLedgerId === ledger.id &&
-              formalShard.shardNumber === 1 && formalShard.remoteFolderId !== folderId)
+              formalShard.shardNumber === shardNumber && formalShard.remoteFolderId !== folderId)
           )
           if (titledShardNumber === 1 && !existingShardNumber && !folder.shardNumber && occupiedShardNumbers.has(1) &&
             !replacesConfirmedExistingShard) {
@@ -2639,7 +2652,7 @@ export default function App() {
       }
     }
 
-    const successfulBindings: Array<{ ledgerId: string; remoteFolderId: string; remoteTitle: string; memberCount: number; shardNumber: number; replacesExistingRemoteBinding: boolean }> = []
+    const successfulBindings: FavoriteLedgerBindingRegistrationResult['successfulBindings'] = []
     for (const {
       ledger,
       remoteFolderId,
@@ -2680,7 +2693,21 @@ export default function App() {
         const committedMemberCount = Number.isSafeInteger(adoptedShard?.remoteMemberCount) && Number(adoptedShard.remoteMemberCount) >= 0
           ? Number(adoptedShard.remoteMemberCount)
           : memberCount
-        successfulBindings.push({ ledgerId: ledger.id, remoteFolderId, remoteTitle: committedRemoteTitle, memberCount: committedMemberCount, shardNumber, replacesExistingRemoteBinding })
+        const authoritativeFavoriteLedger = adoptionResult && typeof adoptionResult === 'object' && !Array.isArray(adoptionResult)
+          ? (adoptionResult as { authoritativeFavoriteLedger?: unknown }).authoritativeFavoriteLedger
+          : undefined
+        const confirmedAuthority = authoritativeFavoriteLedger && typeof authoritativeFavoriteLedger === 'object' && !Array.isArray(authoritativeFavoriteLedger)
+          ? authoritativeFavoriteLedger as FavoriteLedger
+          : undefined
+        successfulBindings.push({
+          ledgerId: ledger.id,
+          remoteFolderId,
+          remoteTitle: committedRemoteTitle,
+          memberCount: committedMemberCount,
+          shardNumber,
+          replacesExistingRemoteBinding,
+          ...(confirmedAuthority?.id === ledger.id ? { authoritativeFavoriteLedger: confirmedAuthority } : {})
+        })
       } catch (error) {
         const failure = favoriteLedgerBindingFailure(error)
         failures.push({
@@ -2710,6 +2737,37 @@ export default function App() {
       const current = successfulBindingsByLedger.get(binding.ledgerId) ?? []
       current.push(binding)
       successfulBindingsByLedger.set(binding.ledgerId, current)
+    }
+    const applyAuthoritativeBindingProjection = (ledger: FavoriteLedger, authority: FavoriteLedger) => {
+      const {
+        bilibiliFolderId: _bilibiliFolderId,
+        bilibiliFolderIds: _bilibiliFolderIds,
+        bilibiliFolderTitle: _bilibiliFolderTitle,
+        bilibiliFolderVideoCount: _bilibiliFolderVideoCount,
+        bindingState: _bindingState,
+        managedFolderDeletedByUser: _managedFolderDeletedByUser,
+        confirmedDeletedRemoteFolderIds: _confirmedDeletedRemoteFolderIds,
+        historicalBilibiliFolderIds: _historicalBilibiliFolderIds,
+        historicalBilibiliFolderTitle: _historicalBilibiliFolderTitle,
+        pendingRemoteBinding: _pendingRemoteBinding,
+        pendingRemoteBindingCreatedByBackup: _pendingRemoteBindingCreatedByBackup,
+        pendingRemoteFolderId: _pendingRemoteFolderId,
+        pendingRemoteFolderTitle: _pendingRemoteFolderTitle,
+        ...localRuleFields
+      } = ledger
+      const {
+        id: _id,
+        displayName: _displayName,
+        keywords: _keywords,
+        ruleType: _ruleType,
+        enabled: _enabled,
+        priority: _priority,
+        isDefault: _isDefault,
+        syncState: _syncState,
+        ruleOrigin: _ruleOrigin,
+        ...authoritativeBindingFields
+      } = authority
+      return { ...localRuleFields, ...authoritativeBindingFields }
     }
     return resultLedgers.map((ledger) => {
       const successful = successfulBindingsByLedger.get(ledger.id)
@@ -2753,6 +2811,11 @@ export default function App() {
           bindingState: 'unbound' as const
         }
       }
+      const authoritativeFavoriteLedger = [...successful]
+        .reverse()
+        .map((binding) => binding.authoritativeFavoriteLedger)
+        .find((candidate): candidate is FavoriteLedger => Boolean(candidate && candidate.id === ledger.id))
+      if (authoritativeFavoriteLedger) return applyAuthoritativeBindingProjection(ledger, authoritativeFavoriteLedger)
       const successfulIds = successful.map((binding) => binding.remoteFolderId)
       const formalLedger = formalLedgerById.get(ledger.id)
       const successfulReplacementPreviousIds = new Set(successful
@@ -2773,20 +2836,14 @@ export default function App() {
           ].filter((folderId): folderId is string => Boolean(folderId) && !successfulIds.includes(folderId) &&
             !successfulReplacementPreviousIds.has(folderId)))]
       const folderIds = [...existingIds, ...successfulIds]
-      // The main process clears this durable default-deletion marker after the
-      // same formal adoption. Keep the renderer's subsequent preference save
-      // from restoring the stale marker.
-      const {
-        managedFolderDeletedByUser: _managedFolderDeletedByUser,
-        confirmedDeletedRemoteFolderIds: _confirmedDeletedRemoteFolderIds,
-        pendingRemoteBinding: _pendingRemoteBinding,
-        pendingRemoteBindingCreatedByBackup: _pendingRemoteBindingCreatedByBackup,
-        pendingRemoteFolderId: _pendingRemoteFolderId,
-        pendingRemoteFolderTitle: _pendingRemoteFolderTitle,
-        ...ledgerWithoutDeletionMarker
-      } = ledger
+      // Only the explicit main-process projection may lift a user-deletion
+      // protection. A durable adoption with a later projection failure remains
+      // retryable on account open, but this renderer must preserve the marker.
+      if (ledger.managedFolderDeletedByUser || formalLedger?.managedFolderDeletedByUser) {
+        return { ...ledger, bindingState: 'unbound' as const }
+      }
       return {
-        ...ledgerWithoutDeletionMarker,
+        ...ledger,
         bilibiliFolderId: folderIds[0],
         bilibiliFolderIds: folderIds,
         bilibiliFolderTitle: existingIds.length ? formalLedger?.bilibiliFolderTitle : successful[0].remoteTitle,
@@ -2875,7 +2932,8 @@ export default function App() {
       ledgers: ledgersWithRepositoryCandidates,
       repositoryRevision,
       remoteDraftKnownFolderIds,
-      remoteDraftBoundFolderIds
+      remoteDraftBoundFolderIds,
+      unresolvedPhysicalShardLedgerIds
     } = formalBindings
     const [dismissedRemoteDraftReminderIds, pendingRemoteDraftRediscoveryIds] = await Promise.all([
       window.bilimiDesktop?.getFavoriteLedgerRemoteDraftReminderDismissals?.(accountMid).catch(() => []) ?? [],
@@ -2954,14 +3012,23 @@ export default function App() {
             }
           : ledger
       })
+      // The one-refresh preservation window applies only to a lagging Bilibili
+      // inventory response. A repository physical shard is the authoritative
+      // local record and may not be hidden by that window: a newly confirmed
+      // shard still has to show its logical ledger as incomplete while any
+      // sibling remains pending reconciliation.
       const missingLedgerIds = status.missingLedgerIds.filter((ledgerId) => !preservedBoundLedgerIds.has(ledgerId))
+      const unboundLedgerIds = [...new Set([
+        ...(status.unboundLedgerIds ?? []).filter((ledgerId) => !preservedBoundLedgerIds.has(ledgerId)),
+        ...unresolvedPhysicalShardLedgerIds
+      ])]
       const recoveredStatus: FavoriteLedgerStatus = {
-        ok: missingLedgerIds.length === 0 && !(status.unboundLedgerIds?.some((ledgerId) => !preservedBoundLedgerIds.has(ledgerId))),
+        ok: missingLedgerIds.length === 0 && unboundLedgerIds.length === 0,
         verified: true,
         ledgers: recoveredLedgers,
         missingLedgerIds,
         backupConflictLedgerIds: (status.backupConflictLedgerIds ?? []).filter((ledgerId) => !preservedBoundLedgerIds.has(ledgerId)),
-        unboundLedgerIds: (status.unboundLedgerIds ?? []).filter((ledgerId) => !preservedBoundLedgerIds.has(ledgerId)),
+        unboundLedgerIds,
         unboundCandidates: (status.unboundCandidates ?? []).filter((candidate) => !preservedBoundLedgerIds.has(candidate.ledgerId)),
         remoteOnlyDraftLedgerIds: status.remoteOnlyDraftLedgerIds ?? [],
         remoteObservations: options.includeRemoteOnlyDrafts === true ? status.remoteObservations ?? [] : [],
