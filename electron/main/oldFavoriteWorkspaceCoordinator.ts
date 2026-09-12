@@ -39,6 +39,7 @@ import {
   isFavoriteRepositoryMetadataStale,
   isFavoriteRepositoryScanVisible,
   type FavoriteRepositoryClassificationSource,
+  type AccountFavoriteRepositorySnapshot,
   type FavoriteRepositoryVideo,
   type FavoriteRepositoryWorkspace
 } from '../../src/shared/favoriteRepository'
@@ -1042,6 +1043,12 @@ function recoveredCustomLedgerId(remoteFolderId: string) {
   return createRemoteObservationFavoriteLedgerId(remoteFolderId)
 }
 
+function localBilimiProtectionAids(repository: AccountFavoriteRepositorySnapshot) {
+  return new Set(Object.entries(repository.memberships)
+    .filter(([folderId]) => folderId.startsWith('bilimi-logical:'))
+    .flatMap(([, aids]) => aids))
+}
+
 function normalizedRecoveredCustomTitle(title: string) {
   return title.trim().normalize('NFKC').replace(/\s+/gu, ' ').toLocaleLowerCase('zh-Hans-CN')
 }
@@ -1964,8 +1971,7 @@ export class OldFavoriteWorkspaceCoordinator {
         assignedAids: new Set(),
         observedAids: new Set(),
         openItems: new Map(),
-        protectedAids: new Set((await this.options.repository.getSnapshot(workspace.accountMid)).organizationRecords
-          .map((record) => record.aid))
+        protectedAids: localBilimiProtectionAids(await this.options.repository.getSnapshot(workspace.accountMid))
       })
       await this.options.workspaceStore.checkpointStreamingScan(workspace.accountMid, workspace.id, {
         runId: scanRunId,
@@ -2072,7 +2078,7 @@ export class OldFavoriteWorkspaceCoordinator {
         assignedAids: new Set<number>(),
         observedAids: new Set<number>(),
         openItems: new Map<number, CurrentSegmentItem>(),
-        protectedAids: new Set(repository.organizationRecords.map((record) => record.aid))
+        protectedAids: localBilimiProtectionAids(repository)
       }
       const changedSegmentIds = new Set<string>()
       const newSegmentIds = new Set<string>()
@@ -3198,9 +3204,8 @@ export class OldFavoriteWorkspaceCoordinator {
       // Protection is a local-library fact. Remote Bilimi members are still
       // observed above for lifecycle and binding workflows, but they must not
       // create or revoke a local organization record during a scan.
-      const successfulAids = repository.organizationRecords
-        .filter((record) => organizableItemsByAid.has(record.aid))
-        .map((record) => record.aid)
+      const successfulAids = [...localBilimiProtectionAids(repository)]
+        .filter((aid) => organizableItemsByAid.has(aid))
       const protectedAidSet = new Set(successfulAids)
       const plannedAidSet = new Set([...organizableItemsByAid.keys()].filter((aid) => !protectedAidSet.has(aid)))
       const streaming = this.streamingScans.get(workspace.accountMid)
@@ -6365,6 +6370,7 @@ export class OldFavoriteWorkspaceCoordinator {
         ...scanningBase,
         mode: recovered.scan.mode,
         plannedAids: scanningSegments.flatMap((segment) => segment.aids),
+        protectedAids: recovered.scan.mode === 'incremental' ? [...localBilimiProtectionAids(repositorySnapshot)] : [],
         segments: scanningSegments,
         hasMultipleSegments: scanningSegments.length > 1
       }
@@ -6379,8 +6385,11 @@ export class OldFavoriteWorkspaceCoordinator {
           scanMetadata: { sourceFolders: restoredSourceFolders, ...restoredScan }
         })
       }
-      if (recovered.inventoryMetrics) this.inventoryMetrics.set(marker.accountMid, clone(recovered.inventoryMetrics))
-      else this.inventoryMetrics.delete(marker.accountMid)
+      this.inventoryMetrics.set(marker.accountMid, this.projectInventoryMetrics(
+        restoredSourceFolders,
+        repositorySnapshot,
+        'incomplete'
+      ))
       this.recommendations.set(marker.accountMid, clone(recovered.recommendations))
       if (recovered.scanRunId) {
         const scannedAids = new Set<number>(streamingState?.observedAids ?? [])
@@ -6397,9 +6406,6 @@ export class OldFavoriteWorkspaceCoordinator {
         this.scanRuns.set(marker.accountMid, recovered.scanRunId)
         this.scannedAids.set(marker.accountMid, scannedAids)
         this.scannedTagStates.set(marker.accountMid, scannedTagStates)
-        const managedProtectedAids = recovered.scan.mode === 'incremental'
-          ? await this.options.workspaceStore.readManagedMemberAids(marker.accountMid, marker.id)
-          : []
         const openItems = new Map((streamingState?.openItems ?? []).map((item) => [item.aid, clone(item)]))
         this.streamingScans.set(marker.accountMid, {
           segmentSize: streamingState?.segmentSize ?? scanning.segmentSize,
@@ -6413,10 +6419,7 @@ export class OldFavoriteWorkspaceCoordinator {
           ]),
           observedAids: scannedAids,
           openItems,
-          protectedAids: new Set([
-            ...repositorySnapshot.organizationRecords.map((record) => record.aid),
-            ...managedProtectedAids
-          ])
+          protectedAids: localBilimiProtectionAids(repositorySnapshot)
         })
       } else {
         this.scanRuns.delete(marker.accountMid)
@@ -6511,7 +6514,9 @@ export class OldFavoriteWorkspaceCoordinator {
         .map(([aid, classification]) => [String(aid), clone(classification)])
     )
     const baselineCompletedAids = normalizeAids(scan.baselineCompletedAids).filter((aid) => activeAidSet.has(aid))
-    const protectedSet = new Set(scan.mode === 'incremental' ? baselineCompletedAids : [])
+    const protectedSet = new Set(scan.mode === 'incremental'
+      ? [...localBilimiProtectionAids(repositorySnapshot)].filter((aid) => activeAidSet.has(aid))
+      : [])
     const continuationAids = normalizeAids(events.flatMap((event) => event.type === 'discover' ? event.aids : []))
     const scanning = createOldFavoriteWorkspace({
       accountMid: marker.accountMid,
@@ -6554,9 +6559,11 @@ export class OldFavoriteWorkspaceCoordinator {
       // of rebuilding a status-only summary after an application restart.
       scan: { ...recovered.scan, phase: 'complete', failureCount: 0, mode: scan.mode }
     })
-    this.inventoryMetrics.set(marker.accountMid, recovered.inventoryMetrics
-      ? clone(recovered.inventoryMetrics)
-      : this.projectInventoryMetrics(restoredSourceFolders, repositorySnapshot, 'complete'))
+    this.inventoryMetrics.set(marker.accountMid, this.projectInventoryMetrics(
+      restoredSourceFolders,
+      repositorySnapshot,
+      'complete'
+    ))
     const recommendations = await this.restoreRecommendationIndexes(
       marker.accountMid,
       marker.id,
@@ -7818,7 +7825,7 @@ export class OldFavoriteWorkspaceCoordinator {
     repository: Awaited<ReturnType<FavoriteRepositoryService['getSnapshot']>>,
     authority: 'complete' | 'incomplete'
   ) {
-    const protectedAids = new Set(repository.organizationRecords.map((record) => record.aid))
+    const protectedAids = localBilimiProtectionAids(repository)
     const itemsByAid = new Map<number, { aid: number; sourceFolderIds: string[]; protected: boolean; unavailable: boolean }>()
     for (const folder of sourceFolders) {
       for (const aid of repository.memberships[`bilibili:${folder.id}`] ?? []) {

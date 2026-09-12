@@ -652,8 +652,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['managed-old'], remoteObservedLogicalFolderIds: ['bilimi-logical:music'], updatedAt: '2026-08-04T00:00:00.000Z' }
     })
     await repository.commit('100', {
-      id: 'saved-protection', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'record-organization-protections',
-      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:music'], completedAt: '2026-08-04T00:00:00.000Z' }] }
+      id: 'saved-protection', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'saved-protection',
+        folders: [{ id: 'bilimi-logical:music', title: 'bilimi·音乐', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'local-only' }],
+        memberAidsByFolderId: { 'bilimi-logical:music': [1] },
+        organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:music'], completedAt: '2026-08-04T00:00:00.000Z' }]
+      }
     })
     await coordinator.beginScan('100', 'incremental')
     await coordinator.recordScanInventory('100', {
@@ -988,10 +993,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       id: 'protected-video', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'commit-local-plan',
       payload: {
         workspaceId: 'prior',
-        folders: [{ id: 'local:knowledge', title: 'Knowledge', kind: 'local', syncState: 'local-only' }],
-        memberAidsByFolderId: { 'local:knowledge': [2] },
+        folders: [{ id: 'bilimi-logical:knowledge', title: 'bilimi·Knowledge', kind: 'bilimi-logical', logicalLedgerId: 'knowledge', syncState: 'local-only' }],
+        memberAidsByFolderId: { 'bilimi-logical:knowledge': [2] },
         videos: [{ aid: 2, title: 'Protected', tags: ['saved'], updatedAt: '2026-07-20T00:00:00.000Z' }],
-        organizationRecords: [{ accountMid: '100', aid: 2, targetFolderIds: ['local:knowledge'], completedAt: '2026-07-20T00:00:00.000Z' }]
+        organizationRecords: [{ accountMid: '100', aid: 2, targetFolderIds: ['bilimi-logical:knowledge'], completedAt: '2026-07-20T00:00:00.000Z' }]
       }
     })
     const store = new OldFavoriteWorkspaceStore({ root })
@@ -5211,6 +5216,155 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('protects only actual local Bilimi members after an incremental scan restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-09-13T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'seed-mixed-protection-sources', accountMid: '100', issuedAt: '2026-09-13T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'prior',
+        folders: [
+          { id: 'bilimi-logical:kept', title: 'bilimi·保留', kind: 'bilimi-logical', logicalLedgerId: 'kept', syncState: 'local-only' },
+          { id: 'local:archive', title: '普通本地夹', kind: 'local', syncState: 'local-only' },
+          { id: 'local:inbox', title: '本地收件箱', kind: 'local', syncState: 'local-only' }
+        ],
+        memberAidsByFolderId: {
+          'bilimi-logical:kept': [1],
+          'local:archive': [2],
+          'local:inbox': [3]
+        },
+        organizationRecords: [1, 2, 3, 4].map((aid) => ({
+          accountMid: '100', aid, targetFolderIds: ['local:archive'], completedAt: '2026-09-13T00:00:00.000Z'
+        }))
+      }
+    })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: {
+        'bilimi-logical:kept': [1],
+        'local:archive': [2]
+      }
+    })
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      initializeOnOpen: false
+    })
+    await first.beginScan('100', 'incremental')
+    await first.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'source', title: '普通 B 站来源', itemCount: 5, isBilimiWorkFolder: false },
+        { id: 'managed', title: 'bilimi·远端工作夹', itemCount: 1, isBilimiWorkFolder: true }
+      ]
+    })
+    await first.recordManagedMembers('100', { managed: [5] })
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 1, hasMore: false,
+      items: [1, 2, 3, 4, 5].map((aid) => ({ aid, title: `Video ${aid}`, sourceFolderIds: ['source'] }))
+    })
+
+    const restarted = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-09-13T00:00:01.000Z' }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false }
+    )
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      protectedAidCount: 1
+    })
+    await expect(restarted.finishScan('100')).resolves.toMatchObject({
+      protectedAids: [1], plannedAids: [2, 3, 4, 5]
+    })
+  })
+
+  it('rebuilds a restored scanning inventory from current local Bilimi membership instead of stale protection counts', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-09-13T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await repository.commit('100', {
+      id: 'seed-current-protection-for-scanning-recovery', accountMid: '100', issuedAt: '2026-09-13T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'prior',
+        folders: [{ id: 'bilimi-logical:kept', title: 'bilimi·保留', kind: 'bilimi-logical', logicalLedgerId: 'kept', syncState: 'local-only' }],
+        memberAidsByFolderId: { 'bilimi-logical:kept': [1], 'bilibili:source': [1, 2] }
+      }
+    })
+    const first = createCoordinator(repository, store, { initializeOnOpen: false })
+    const started = await first.beginScan('100', 'incremental')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: '普通 B 站来源', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await store.appendOverlay('100', started.workspaceId, {
+      currentSegmentId: '', classifications: [], history: [],
+      scanMetadata: {
+        inventoryMetrics: {
+          authority: 'incomplete', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 2, unavailableAidCount: 0,
+          sourceFolders: [{
+            id: 'source', title: '普通 B 站来源', relationshipCount: 2,
+            plannedAidCount: null, protectedAidCount: null, unavailableAidCount: null,
+            selected: true, isBilimiWorkFolder: false, confirmed: false
+          }]
+        }
+      }
+    })
+
+    const restarted = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-09-13T00:00:01.000Z' }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false }
+    )
+
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      status: 'scanning',
+      inventoryMetrics: { authority: 'incomplete', relationshipCount: 2, protectedAidCount: 1, plannedAidCount: 1 }
+    })
+  })
+
+  it('rebuilds a restored preview protection set from current local Bilimi membership instead of historical scan baselines', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-09-13T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await repository.commit('100', {
+      id: 'seed-original-preview-protection', accountMid: '100', issuedAt: '2026-09-13T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'prior',
+        folders: [{ id: 'bilimi-logical:original', title: 'bilimi·原保护', kind: 'bilimi-logical', logicalLedgerId: 'original', syncState: 'local-only' }],
+        memberAidsByFolderId: { 'bilimi-logical:original': [1] }
+      }
+    })
+    const first = createCoordinator(repository, store, { initializeOnOpen: false })
+    await first.beginScan('100', 'incremental')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: '普通 B 站来源', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 1, hasMore: false,
+      items: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, sourceFolderIds: ['source'] }))
+    })
+    await first.finishScan('100')
+    await repository.commit('100', {
+      id: 'remove-original-preview-protection', accountMid: '100', issuedAt: '2026-09-13T00:00:01.000Z', type: 'delete-favorite-from-library',
+      payload: { aid: 1, deletedAt: '2026-09-13T00:00:01.000Z' }
+    })
+    await repository.commit('100', {
+      id: 'add-current-preview-protection', accountMid: '100', issuedAt: '2026-09-13T00:00:02.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'after-scan',
+        folders: [{ id: 'bilimi-logical:current', title: 'bilimi·当前保护', kind: 'bilimi-logical', logicalLedgerId: 'current', syncState: 'local-only' }],
+        memberAidsByFolderId: { 'bilimi-logical:current': [2] }
+      }
+    })
+
+    const restarted = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-09-13T00:00:03.000Z' }),
+      new OldFavoriteWorkspaceStore({ root }),
+      { initializeOnOpen: false }
+    )
+
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      status: 'previewing', protectedAidCount: 1, currentSegment: { aids: [2] }
+    })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      inventoryMetrics: { protectedAidCount: 1, plannedAidCount: 1 }
+    })
+  })
+
   it('removes prior successful protections when a user explicitly starts a full reorganization', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -5965,8 +6119,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const protectedAids = Array.from({ length: 221 }, (_, index) => index + 1)
     const sourceAids = Array.from({ length: 247 }, (_, index) => index + 1)
     await repository.commit('100', {
-      id: 'existing-protections', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-organization-protections',
-      payload: { records: protectedAids.map((aid) => ({ accountMid: '100', aid, targetFolderIds: ['local:archive'], completedAt: '2026-07-20T00:00:00.000Z' })), replace: false }
+      id: 'existing-protections', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'existing-protections',
+        folders: [{ id: 'bilimi-logical:archive', title: 'bilimi·Archive', kind: 'bilimi-logical', logicalLedgerId: 'archive', syncState: 'local-only' }],
+        memberAidsByFolderId: { 'bilimi-logical:archive': protectedAids },
+        organizationRecords: protectedAids.map((aid) => ({ accountMid: '100', aid, targetFolderIds: ['bilimi-logical:archive'], completedAt: '2026-07-20T00:00:00.000Z' }))
+      }
     })
     await coordinator.open('100')
     await coordinator.beginScan('100', 'incremental')

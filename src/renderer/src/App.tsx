@@ -3689,7 +3689,9 @@ export default function App() {
       trustedRemoteShardNumbers,
       remoteDraftKnownFolderIds,
       remoteDraftBoundFolderIds,
-      formalBoundShards
+      formalBoundShards,
+      unresolvedPhysicalShardLedgerIds,
+      repositoryRevision
     } = formalBindings
     let declaredBoundRemoteFolderIds = declaredBoundRemoteFolderIdsForTargets(
       requestedLedgers.filter((ledger) => backupTargetLedgerIdSet.has(ledger.id)),
@@ -4058,6 +4060,70 @@ export default function App() {
       // Release only after that observation; a failure before the inventory
       // leaves the temporary suppression intact for the next explicit backup.
       await releaseObservedRemoteDraftRediscovery()
+
+      const createdRemoteFolder = result.steps.some((step) => /^api:ledger:create:[^:]+$/u.test(step.trim()))
+      const requiresPostSaveDiscovery =
+        visibleMergedResult.ok !== true ||
+        visibleMergedResult.resultUnknown === true ||
+        directRename.renamedLedgerIds.size > 0 ||
+        bindingResult.successfulBindings.length > 0 ||
+        bindingResult.failures.length > 0 ||
+        createdRemoteFolder ||
+        observedRemoteOnlyDrafts ||
+        Boolean(options?.rediscoverDeletedRemoteDrafts) ||
+        Boolean(visibleMergedResult.remoteObservations?.length) ||
+        Boolean(visibleMergedResult.backupConflictLedgerIds?.length) ||
+        Boolean(visibleMergedResult.unboundLedgerIds?.length) ||
+        Boolean(visibleMergedResult.missingTargets?.length)
+
+      const allBackupTargetsRemainFormallyBound = remoteOperationLedgers.length > 0 &&
+        remoteOperationLedgers.every((target) => {
+          const persisted = persistedLedgersWithHistory.find((ledger) => ledger.id === target.id)
+          return persisted?.bindingState === 'bound' && !unresolvedPhysicalShardLedgerIds.includes(target.id)
+        })
+
+      if (!requiresPostSaveDiscovery && allBackupTargetsRemainFormallyBound) {
+        const stableLedgers = backupLedgersWithoutRemoteObservations
+        const stableStatus: FavoriteLedgerStatus = {
+          ok: true,
+          verified: true,
+          ledgers: stableLedgers,
+          missingLedgerIds: [],
+          unboundLedgerIds: [],
+          backupConflictLedgerIds: [],
+          remoteOnlyDraftLedgerIds: [],
+          remoteObservations: [],
+          boundRenameCandidates: [],
+          message: visibleMergedResult.message
+        }
+        assistantSnapshotCacheRef.current.favoriteLedgerStatus = stableStatus
+        favoriteLedgerStatusCacheRef.current = {
+          accountMid,
+          ledgerSignature: JSON.stringify(stableLedgers.map((ledger) => ({
+            id: ledger.id,
+            displayName: ledger.displayName,
+            enabled: ledger.enabled,
+            syncState: ledger.syncState,
+            bindingState: ledger.bindingState,
+            bilibiliFolderId: ledger.bilibiliFolderId
+          }))),
+          repositoryRevision,
+          checkedAt: Date.now(),
+          includesRemoteOnlyDrafts: true,
+          status: stableStatus
+        }
+        cacheVerifiedFavoriteDiscovery(accountMid, {
+          remoteObservations: [],
+          boundRenameCandidates: []
+        })
+        window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+        return {
+          ...visibleMergedResult,
+          ledgers: stableLedgers,
+          remoteOnlyDraftLedgerIds: [],
+          remoteObservations: []
+        }
+      }
       await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)
       window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
       const finalDiscoveryStatus = assistantSnapshotCacheRef.current.accountMid === accountMid

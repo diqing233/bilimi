@@ -4277,14 +4277,16 @@ describe('App runtime integration', () => {
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
-    Object.assign(webview, {
-      executeJavaScript: vi.fn(async () => ({
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) return { ...emptyLedgerStatus(), ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' }] }
+      return {
         ok: true,
         verified: true,
         ledgers: [{ ...game, bilibiliFolderId: '88', bilibiliFolderIds: ['88'], bindingState: 'bound' }],
         steps: ['api:ledger:list'], missingTargets: [], message: 'ok'
-      }))
+      }
     })
+    Object.assign(webview, { executeJavaScript })
 
     await expect(requestRuntime({
       id: 'rebind-out-of-order', type: 'save-ledgers', ledgers: [game],
@@ -4303,6 +4305,7 @@ describe('App runtime integration', () => {
     expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenNthCalledWith(2, accountMid, expect.objectContaining({
       remoteFolderId: '88', shardNumber: 1
     }))
+    expect(executeJavaScript.mock.calls.filter(([script]) => isLedgerStatusScript(String(script)))).toHaveLength(1)
   })
 
   it('registers manual circled rebind shards with their shared physical numbers', async () => {
@@ -6536,6 +6539,56 @@ describe('App runtime integration', () => {
       .resolves.toMatchObject({ ok: true })
 
     expect(patchPreferences).not.toHaveBeenCalled()
+  })
+
+  it('uses the first directory inventory as the final result for an unchanged formally bound direct backup', async () => {
+    const accountMid = '100'
+    const music = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!,
+      bilibiliFolderId: 'music-1',
+      bilibiliFolderIds: ['music-1'],
+      bindingState: 'bound' as const
+    }
+    const preferences = createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [music] }
+      }
+    })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-13T00:00:00.000Z',
+        videoCount: 0, folderCount: 1,
+        folders: [{ id: 'bilimi-logical:music', title: music.displayName, kind: 'bilimi-logical', logicalLedgerId: 'music', remoteFolderId: 'music-1', syncState: 'bound' as const }],
+        folderCounts: { 'bilimi-logical:music': 0 }, scopeCounts: {},
+        physicalShardCount: 1,
+        physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: 'music-1', remoteTitle: music.displayName, bindingState: 'bound' as const }],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (script.includes(LEDGER_SAVE_SCRIPT_MARKER)) {
+        return { ok: true, verified: true, ledgers: [music], steps: ['api:ledger:list'], missingTargets: [], message: '收藏夹已备册。' }
+      }
+      if (isLedgerStatusScript(script)) return { ...emptyLedgerStatus(), ledgers: [music] }
+      throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    await waitFor(() => expect(window.bilimiDesktop.loadPreferences).toHaveBeenCalled())
+    executeJavaScript.mockClear()
+    await expect(requestRuntime({
+      id: 'unchanged-bound-direct-backup', type: 'save-ledgers', ledgers: [music],
+      options: { backupTargetLedgerIds: [music.id], lightweightBackup: true }
+    })).resolves.toMatchObject({ ok: true, ledgers: [expect.objectContaining({ id: music.id })] })
+
+    expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && script.includes(LEDGER_STATUS_SCRIPT_MARKER))).toHaveLength(1)
+    expect(executeJavaScript.mock.calls.filter(([script]) => isLedgerStatusScript(String(script)))).toHaveLength(0)
   })
 
   it('refreshes and persists unique existing Bilibili folder bindings when an assistant snapshot is requested', async () => {
