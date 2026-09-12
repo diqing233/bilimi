@@ -2543,9 +2543,6 @@ export function applyFavoriteRepositoryCommand(
             accountMid: snapshot.accountMid, aid: observation.aid, deletedAt: normalizedTimestamp(command.issuedAt),
             reason: 'complete-scan-no-source', allowRediscovery: true, kind: 'recycled'
           }
-          organizationRecords = organizationRecords.filter((record) => record.aid !== observation.aid)
-        } else if (lifecycleState === 'organization-conflict') {
-          organizationRecords = organizationRecords.filter((record) => record.aid !== observation.aid)
         } else if (tombstones[key]?.kind === 'recycled') {
           delete tombstones[key]
         }

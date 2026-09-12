@@ -445,7 +445,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     }])
   })
 
-  it('publishes one canonical inventory projection for duplicate sources, protected managed members, and unavailable videos', async () => {
+  it('publishes one canonical inventory projection for duplicate sources, remote-only managed members, and unavailable videos', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     await repository.commit('100', {
@@ -488,13 +488,13 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       inventoryMetrics: {
         authority: 'complete',
         relationshipCount: 7,
-        plannedAidCount: 2,
-        protectedAidCount: 2,
+        plannedAidCount: 4,
+        protectedAidCount: 0,
         unavailableAidCount: 1,
         sourceFolders: [
-          { id: 'ordinary-a', relationshipCount: 3, plannedAidCount: 1, protectedAidCount: 1, unavailableAidCount: 1, confirmed: true },
+          { id: 'ordinary-a', relationshipCount: 3, plannedAidCount: 2, protectedAidCount: 0, unavailableAidCount: 1, confirmed: true },
           { id: 'ordinary-b', relationshipCount: 2, plannedAidCount: 2, protectedAidCount: 0, unavailableAidCount: 0, confirmed: true },
-          { id: 'managed', relationshipCount: 2, plannedAidCount: 0, protectedAidCount: 2, unavailableAidCount: 0, confirmed: true }
+          { id: 'managed', relationshipCount: 2, plannedAidCount: 2, protectedAidCount: 0, unavailableAidCount: 0, confirmed: true }
         ]
       }
     })
@@ -639,7 +639,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('returns a moved saved video to organization when an ordinary source remains', async () => {
+  it('keeps a locally recorded video protected when its remote work-folder member is absent', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-08-04T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { initializeOnOpen: false })
@@ -665,11 +665,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     const workspace = await coordinator.finishScan('100')
 
-    expect(workspace.plannedAids).toContain(1)
+    expect(workspace.plannedAids).not.toContain(1)
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       videos: { '1': { title: 'Saved metadata', tags: ['known'] } },
-      positions: { '100:1': { lifecycleState: 'organization-conflict', sourceAuthority: 'complete' } },
-      organizationRecords: []
+      organizationRecords: [{ aid: 1, targetFolderIds: ['bilimi-logical:music'] }]
     })
   })
 
@@ -5175,7 +5174,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.finishScan('100')).resolves.toMatchObject({ plannedAids, protectedAids })
   })
 
-  it('conservatively records formal Bilimi membership once while leaving staging aids active', async () => {
+  it('does not turn formally bound Bilibili members into local protection records', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     await repository.commit('100', {
@@ -5200,7 +5199,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       items: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, sourceFolderIds: ['source-a'] }))
     })
 
-    await expect(coordinator.finishScan('100')).resolves.toMatchObject({ plannedAids: [2, 3], protectedAids: [1] })
+    await expect(coordinator.finishScan('100')).resolves.toMatchObject({ plannedAids: [1, 2, 3], protectedAids: [] })
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       // Folder inventory has two Bilimi relationships; four unique videos
       // were discovered because managed-member recovery can include items
@@ -5208,11 +5207,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       scan: { totalItemCount: 2, scannedItemCount: 4 }
     })
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      organizationMigrationInitialized: true,
-      organizationRecords: [
-        expect.objectContaining({ aid: 1, targetFolderIds: ['bilimi-music'] }),
-        expect.objectContaining({ aid: 4, targetFolderIds: ['bilimi-music'] })
-      ]
+      organizationRecords: []
     })
   })
 

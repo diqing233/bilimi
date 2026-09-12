@@ -2250,15 +2250,6 @@ export class OldFavoriteWorkspaceCoordinator {
       const runId = this.scanRuns.get(workspace.accountMid)
       if (!runId) throw new Error('Old favorite workspace scan run is not active.')
       await this.options.workspaceStore.appendManagedMembers(workspace.accountMid, workspace.id, { runId, members })
-      if (workspace.mode === 'incremental') {
-        const managedFolderIds = new Set((this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
-          .filter((folder) => scanSourceRelationship(folder) === 'bound' && !isStagingBilimiFolder(folder.title))
-          .map((folder) => folder.id))
-        const streaming = this.streamingScans.get(workspace.accountMid)
-        if (streaming) for (const [folderId, aids] of Object.entries(members)) {
-          if (managedFolderIds.has(folderId)) for (const aid of aids) streaming.protectedAids.add(aid)
-        }
-      }
       return true
     })
   }
@@ -3204,40 +3195,13 @@ export class OldFavoriteWorkspaceCoordinator {
           payload: { aids: unavailableAids }
         })
       }
-      // A scanned bilimi title is only a candidate. Protect a remote member
-      // only after an explicit bind has established that this exact physical
-      // Bilibili folder belongs to one logical working folder.
-      const formalManagedFolderIds = new Set(mirroredSnapshot.physicalShards.flatMap((shard) =>
-        shard.bindingState === 'bound' && shard.remoteFolderId &&
-          !isStagingBilimiFolder(shard.remoteTitle)
-          ? [shard.remoteFolderId]
-          : []
-      ))
-      const formallyArchivedAids = new Set([...formalManagedFolderIds].flatMap((folderId) => managedMembers[folderId] ?? []))
+      // Protection is a local-library fact. Remote Bilimi members are still
+      // observed above for lifecycle and binding workflows, but they must not
+      // create or revoke a local organization record during a scan.
       const successfulAids = repository.organizationRecords
-        .filter((record) => {
-          if (!organizableItemsByAid.has(record.aid)) return false
-          if (record.targetFolderIds.some((folderId) => folderId.startsWith('local:'))) return true
-          // A complete inventory is authoritative: remote records only protect
-          // videos that remain in a currently observed formal Bilimi folder.
-          return sourceFolders.length === 0 || formallyArchivedAids.has(record.aid)
-        })
+        .filter((record) => organizableItemsByAid.has(record.aid))
         .map((record) => record.aid)
-      const initializedRecords = sourceFolders
-        .filter((folder) => formalManagedFolderIds.has(folder.id))
-        .flatMap((folder) => (managedMembers[folder.id] ?? []).map((aid) => ({
-          accountMid: workspace.accountMid, aid, targetFolderIds: [folder.id], completedAt: this.now()
-        })))
-      if (initializedRecords.length || !repository.organizationMigrationInitialized) {
-        await this.options.repository.commit(workspace.accountMid, {
-          id: `old-favorite-workspace:migrate-protection:${workspace.id}`,
-          accountMid: workspace.accountMid,
-          issuedAt: this.now(),
-          type: 'record-organization-protections',
-          payload: { records: initializedRecords, markMigrationInitialized: true }
-        })
-      }
-      const protectedAidSet = new Set([...successfulAids, ...initializedRecords.map((record) => record.aid)])
+      const protectedAidSet = new Set(successfulAids)
       const plannedAidSet = new Set([...organizableItemsByAid.keys()].filter((aid) => !protectedAidSet.has(aid)))
       const streaming = this.streamingScans.get(workspace.accountMid)
       let sealedSegments: CompleteWorkspaceScanOptions['sealedSegments'] | undefined
@@ -3266,7 +3230,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const completed = completeWorkspaceScan(workspace, {
         revision: (workspace.baseline?.revision ?? 0) + 1,
         aids: [...organizableItemsByAid.keys()],
-        successfullyClassifiedAids: [...successfulAids, ...initializedRecords.map((record) => record.aid)],
+        successfullyClassifiedAids: successfulAids,
         mode: workspace.mode,
         ...(sealedSegments?.length ? { sealedSegments } : {})
       })

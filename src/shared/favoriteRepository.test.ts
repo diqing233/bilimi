@@ -824,7 +824,9 @@ describe('account favorite repository contracts', () => {
     expect(recycled.memberships['bilimi-logical:music']).toEqual([1])
     expect(recycled.tombstones['100:1']).toMatchObject({ kind: 'recycled', allowRediscovery: true })
     expect(recycled.positions['100:1']).toMatchObject({ lifecycleState: 'recycled', observationEpoch: 'scan-2', sourceAuthority: 'complete' })
-    expect(recycled.organizationRecords).toEqual([])
+    expect(recycled.organizationRecords).toEqual([{
+      accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:music'], completedAt: '2026-08-04T00:00:00.000Z'
+    }])
     expect(isFavoriteRepositoryScanVisible(recycled, 1)).toBe(true)
   })
 
