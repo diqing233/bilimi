@@ -76,6 +76,7 @@ describe('NSIS uninstaller user data removal option', () => {
     expect(installerScript).toContain('登录状态和浏览器会话')
     expect(installerScript).toContain('bilimi 设置、启动权限引导状态')
     expect(installerScript).toContain('视频笔记、本地缓存、诊断缓存')
+    expect(installerScript).toContain('已下载的转写模型和运行时')
     expect(installerScript).toContain('已保存的 API Key 等本机配置')
   })
 
@@ -85,5 +86,11 @@ describe('NSIS uninstaller user data removal option', () => {
     expect(installerScript).toContain('SetShellVarContext current')
     expect(installerScript).toContain('RMDir /r "$APPDATA\\bilimi"')
     expect(installerScript).toContain('SetShellVarContext all')
+  })
+
+  it('removes downloaded transcription models only with the selected user data cleanup', () => {
+    expect(installerScript).toMatch(
+      /\$\{If\} \$bilimiDeleteUserData == "1"[\s\S]*?RMDir \/r "\$LOCALAPPDATA\\bilimi\\transcription-models"[\s\S]*?\$\{EndIf\}/u
+    )
   })
 })

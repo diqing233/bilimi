@@ -264,6 +264,8 @@ Var bilimiUserDataDialog
     ${EndIf}
     DetailPrint "Removing bilimi user data from $APPDATA\bilimi"
     RMDir /r "$APPDATA\bilimi"
+    DetailPrint "Removing downloaded transcription models from $LOCALAPPDATA\bilimi\transcription-models"
+    RMDir /r "$LOCALAPPDATA\bilimi\transcription-models"
     ${If} $installMode == "all"
       SetShellVarContext all
     ${EndIf}
@@ -286,7 +288,7 @@ Function un.bilimiUserDataPageCreate
   ${NSD_CreateCheckbox} 0 34u 100% 12u "同时删除 bilimi 用户数据"
   Pop $bilimiDeleteUserDataCheckbox
 
-  ${NSD_CreateLabel} 12u 54u 96% 58u "会删除：登录状态和浏览器会话、bilimi 设置、启动权限引导状态、B 站收藏夹/分类相关缓存、视频笔记、本地缓存、诊断缓存、已保存的 API Key 等本机配置。"
+  ${NSD_CreateLabel} 12u 54u 96% 58u "会删除：登录状态和浏览器会话、bilimi 设置、启动权限引导状态、B 站收藏夹/分类相关缓存、视频笔记、本地缓存、诊断缓存、已下载的转写模型和运行时、已保存的 API Key 等本机配置。"
   Pop $R0
 
   ${NSD_CreateLabel} 12u 116u 96% 24u "不勾选则只卸载程序本体，之后重装会继续沿用原来的登录状态、设置和缓存。"
