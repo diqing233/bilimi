@@ -2964,7 +2964,6 @@ export function FloatingAssistantApp({
   const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
   const [temporaryGlobalFeedbackMessage, setTemporaryGlobalFeedbackMessage] = useState('')
   const [globalFeedbackExpanded, setGlobalFeedbackExpanded] = useState(false)
-  const [globalFeedbackContinuationVisible, setGlobalFeedbackContinuationVisible] = useState(false)
   const [globalFeedbackVisiblePrefix, setGlobalFeedbackVisiblePrefix] = useState('')
   const [globalFeedbackContinuation, setGlobalFeedbackContinuation] = useState('')
   const [globalFeedbackHistory, setGlobalFeedbackHistory] = useState<GlobalFeedbackHistoryItem[]>([])
@@ -5540,12 +5539,6 @@ export function FloatingAssistantApp({
               aria-label="全局提示"
               aria-live="polite"
               data-expanded={globalFeedbackExpanded ? 'true' : 'false'}
-              data-continuation-visible={globalFeedbackContinuationVisible && Boolean(globalFeedbackContinuation) ? 'true' : 'false'}
-              onMouseEnter={() => {
-                if (globalFeedbackExpanded) return
-                setGlobalFeedbackContinuationVisible(true)
-              }}
-              onMouseLeave={() => setGlobalFeedbackContinuationVisible(false)}
             >
               <button
                 type="button"
@@ -5555,11 +5548,10 @@ export function FloatingAssistantApp({
                 onClick={() => {
                   const nextExpanded = !globalFeedbackExpanded
                   setGlobalFeedbackExpanded(nextExpanded)
-                  setGlobalFeedbackContinuationVisible(!nextExpanded)
                 }}
               >
                 <span ref={globalFeedbackMessageRef} className="floating-assistant-global-status__feedback-message">
-                  {(globalFeedbackExpanded || globalFeedbackContinuationVisible) && globalFeedbackContinuation
+                  {globalFeedbackExpanded && globalFeedbackContinuation
                     ? <><span>{globalFeedbackVisiblePrefix}</span><span className="floating-assistant-global-status__feedback-full-continuation">{globalFeedbackContinuation}</span></>
                     : displayedGlobalFeedbackMessage}
                 </span>

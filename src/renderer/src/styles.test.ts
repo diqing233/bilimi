@@ -1220,10 +1220,11 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.video-summary-menu__options { position: absolute; z-index: 110; top: calc(100% + 4px); left: 0; display: grid; min-width: 132px;')
   })
 
-  it('renders feedback continuation as a seamless second line instead of a separate card', () => {
+  it('renders feedback continuation only for an explicitly expanded prompt', () => {
     expect(normalizedStyles).not.toContain('.floating-assistant-global-status__feedback-continuation')
-    expectStyleSnippet('.floating-assistant-global-status__feedback[data-continuation-visible="true"] .floating-assistant-global-status__feedback-message { display: block; overflow: visible; -webkit-line-clamp: unset; line-clamp: unset; text-overflow: clip;')
+    expect(normalizedStyles).not.toContain('[data-continuation-visible="true"]')
     expectStyleSnippet('.floating-assistant-global-status__feedback-full-continuation { display: inline; white-space: pre-wrap; font: inherit; color: inherit;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback[data-expanded="true"] .floating-assistant-global-status__feedback-message { display: block; overflow: visible; -webkit-line-clamp: unset; line-clamp: unset;')
   })
 
   it('uses distinct compact colors for saved, draft, unbacked, and unbound folder states', () => {

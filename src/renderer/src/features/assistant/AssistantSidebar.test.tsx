@@ -1071,6 +1071,23 @@ describe('AssistantSidebar', () => {
     expect(feedback).toHaveAttribute('data-expanded', 'false')
   })
 
+  it('keeps a truncated global message collapsed while the pointer passes over it', async () => {
+    installDesktopApi({
+      snapshot: {
+        ...assistantSnapshot('100'),
+        activeTabUrl: 'https://www.bilibili.com/video/BV1status'
+      }
+    })
+    render(<AssistantSidebar />)
+    const feedback = await screen.findByLabelText('全局提示')
+
+    fireEvent.mouseEnter(feedback)
+
+    expect(feedback).toHaveAttribute('data-expanded', 'false')
+    expect(feedback).not.toHaveAttribute('data-continuation-visible', 'true')
+    expect(screen.getByRole('button', { name: '展开全局提示' })).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('lets XiaoMi ask what to do when the sidebar expands', async () => {
     const api = installDesktopApi()
 

@@ -513,20 +513,19 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(runAction).not.toContain('persistFeedback(')
   })
 
-  it('keeps the two-line prefix and puts the remaining text before expanded background tasks', () => {
+  it('keeps the two-line prefix and reveals the remaining text only after a click expands it', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
 
-    expect(source).toContain('globalFeedbackContinuationVisible')
     expect(source).toContain('globalFeedbackContinuation')
-    expect(source).toContain('data-continuation-visible')
     expect(source).toContain('const layoutFrame = window.requestAnimationFrame(updateContinuation)')
     expect(source).toContain('resizeObserver?.observe(globalFeedbackMessageRef.current)')
     expect(source).not.toContain('className="floating-assistant-global-status__feedback-continuation"')
-    expect(source).toContain('globalFeedbackExpanded || globalFeedbackContinuationVisible')
+    expect(source).toContain('globalFeedbackExpanded && globalFeedbackContinuation')
     expect(source).toContain('splitFeedbackContinuationByLines')
     expect(source).toContain('if (!split.suffix)')
-    expect(source).toContain('setGlobalFeedbackContinuationVisible(false)')
-    expect(source).toContain('setGlobalFeedbackContinuationVisible(!nextExpanded)')
+    expect(source).not.toContain('globalFeedbackContinuationVisible')
+    expect(source).not.toContain('data-continuation-visible')
+    expect(source).not.toContain('setGlobalFeedbackContinuationVisible')
     expect(source).not.toContain('title={globalFeedbackExpanded ? undefined : displayedGlobalFeedbackMessage}')
   })
 
