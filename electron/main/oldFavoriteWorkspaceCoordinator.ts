@@ -5142,16 +5142,23 @@ export class OldFavoriteWorkspaceCoordinator {
         }, {})
         if (JSON.stringify(currentAssignments) !== JSON.stringify(preparation.assignmentAids)) return null
         const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
+        const managedMembers = await this.options.workspaceStore.readManagedMembers(workspace.accountMid, workspace.id)
+        const currentSourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
+        const scannedBoundRemoteFolderIds = currentSourceFolders
+          .filter((folder) => scanSourceRelationship(folder) === 'bound')
+          .map((folder) => folder.id)
         const observedMemberCountByRemoteFolderId = new Map((preflight.observedBoundPhysicalShards ?? [])
           .map((shard) => [shard.remoteFolderId, shard.memberCount] as const))
         const boundShards = snapshot.physicalShards.flatMap((shard) => {
           if (shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
           if (preflight.observedBoundPhysicalShards && !observedMemberCountByRemoteFolderId.has(shard.remoteFolderId)) return []
-          const localMemberAids = snapshot.memberships[shard.folderId] ?? []
+          const scannedMemberAids = scannedBoundRemoteFolderIds.includes(shard.remoteFolderId)
+            ? managedMembers[shard.remoteFolderId] ?? []
+            : []
           const observedMemberCount = observedMemberCountByRemoteFolderId.get(shard.remoteFolderId)
-          const memberAids = observedMemberCount !== undefined && localMemberAids.length > observedMemberCount
+          const memberAids = observedMemberCount !== undefined && scannedMemberAids.length > observedMemberCount
             ? []
-            : localMemberAids
+            : scannedMemberAids
           return [{
             logicalLedgerId: shard.logicalLedgerId,
             remoteFolderId: shard.remoteFolderId,

@@ -34,7 +34,7 @@ describe('compileFrozenFavoriteSyncPlan', () => {
     ])
   })
 
-  it('captures the frozen trusted remote membership before any write is attempted', () => {
+  it('does not append a membership confirmed in the scanned target', () => {
     const result = compileFrozenFavoriteSyncPlan({
       accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 2,
       createdAt: '2026-07-20T00:00:00.000Z',
@@ -42,8 +42,27 @@ describe('compileFrozenFavoriteSyncPlan', () => {
       shards: [{ logicalLedgerId: 'music', remoteFolderId: 'remote-music', memberAids: [1] }]
     })
 
+    expect(result.plan?.operations).toEqual([])
+  })
+
+  it('appends only a target missing from the trusted scanned membership', () => {
+    const result = compileFrozenFavoriteSyncPlan({
+      accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 2,
+      createdAt: '2026-07-20T00:00:00.000Z',
+      classifications: [{ aid: 1, targetLedgerIds: ['music', 'game'] }],
+      shards: [
+        { logicalLedgerId: 'music', remoteFolderId: 'remote-music', memberAids: [1] },
+        { logicalLedgerId: 'game', remoteFolderId: 'remote-game', memberAids: [] }
+      ]
+    })
+
     expect(result.plan?.operations).toEqual([
-      expect.objectContaining({ aid: 1, beforeFolderIds: ['remote-music'] })
+      expect.objectContaining({
+        aid: 1,
+        kind: 'append',
+        folderIds: ['remote-game'],
+        beforeFolderIds: ['remote-music']
+      })
     ])
   })
 

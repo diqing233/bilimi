@@ -11211,7 +11211,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(ensurePhysicalShard).not.toHaveBeenCalled()
   })
 
-  it('uses local membership when it exceeds an older persisted remote count during freeze compilation', async () => {
+  it('does not trust local membership when it exceeds an older persisted remote count during freeze compilation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -11233,7 +11233,81 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('does not create a shard for a classified aid already present in a nearly full bound remote folder', async () => {
+  it('skips only a member confirmed by this scan in its exact bound Bilibili folder', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, workspaceStore)
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 1, memberAids: [] }]
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{
+        id: 'remote-music-1', title: 'B-music-001-a1b2c3', itemCount: 1,
+        isBilimiWorkFolder: true, remoteRelationship: 'bound'
+      }, {
+        id: 'ordinary-favorites', title: 'Ordinary favorites', itemCount: 1,
+        isBilimiWorkFolder: false, remoteRelationship: 'none'
+      }]
+    })
+    await coordinator.recordManagedMembers('100', {
+      'remote-music-1': [1],
+      'ordinary-favorites': [2]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'ordinary-favorites', page: 1, hasMore: false,
+      items: [{ aid: 1, title: 'Already remote', tags: [], sourceFolderIds: ['ordinary-favorites'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen', frozenSyncPlan: { operations: [] }
+    })
+  })
+
+  it('does not mistake the local archive projection for a scanned Bilibili member', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{
+        id: 'ordinary-favorites', title: 'Ordinary favorites', itemCount: 1,
+        isBilimiWorkFolder: false, remoteRelationship: 'none'
+      }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'ordinary-favorites', page: 1, hasMore: false,
+      items: [{ aid: 1, title: 'Needs remote append', tags: [], sourceFolderIds: ['ordinary-favorites'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen', frozenSyncPlan: {
+        operations: [{ aid: 1, kind: 'append', folderIds: ['remote-music-1'] }]
+      }
+    })
+  })
+
+  it('uses current scan evidence instead of historical local membership near remote capacity', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
     const ensurePhysicalShard = vi.fn()
@@ -11252,11 +11326,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }, { aid: 2, targetLedgerIds: ['music'] }]
     })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
-      status: 'frozen', frozenSyncPlan: {
-        operations: [{ aid: 1, folderIds: ['remote-music-1'] }, { aid: 2, folderIds: ['remote-music-1'] }]
-      }
-    })
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('physical-shard-capacity-exceeded')
     expect(ensurePhysicalShard).not.toHaveBeenCalled()
   })
 

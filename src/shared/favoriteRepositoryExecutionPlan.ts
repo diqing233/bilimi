@@ -130,14 +130,15 @@ export function compileFrozenFavoriteSyncPlan(
     const beforeFolderIds = [...(beforeFoldersByAid.get(aid) ?? [])].sort()
     const classificationAdjustmentId = classificationAdjustmentIds.get(aid)
     if (!input.replaceManagedMemberships) {
-      return [{
-        operationKey: `append:${aid}:${desiredFolderIds.join(',')}`,
+      const appendedFolderIds = desiredFolderIds.filter((folderId) => !beforeFoldersByAid.get(aid)?.has(folderId))
+      return appendedFolderIds.length ? [{
+        operationKey: `append:${aid}:${appendedFolderIds.join(',')}`,
         aid,
         kind: 'append' as const,
-        folderIds: desiredFolderIds,
+        folderIds: appendedFolderIds,
         beforeFolderIds,
         ...(classificationAdjustmentId ? { classificationAdjustmentId } : {})
-      }]
+      }] : []
     }
     const removedFolderIds = beforeFolderIds.filter((folderId) => !folderIds.has(folderId))
     const retainedFolderIds = beforeFolderIds.filter((folderId) => folderIds.has(folderId))

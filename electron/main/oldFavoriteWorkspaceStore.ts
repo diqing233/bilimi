@@ -293,6 +293,8 @@ export class OldFavoriteWorkspaceStore {
     currentSegmentId: string
     segments: Segment[]
     sourceFolders?: SourceFolder[]
+    scanRunId?: string
+    managedMemberChunks?: Array<{ file: string; checksum: string }>
   }) {
     const accountMid = normalizedAccountMid(input.accountMid)
     const directory = this.workspaceDirectory(accountMid, input.workspaceId)
@@ -314,6 +316,10 @@ export class OldFavoriteWorkspaceStore {
       version: 1, workspaceId: input.workspaceId, accountMid, status: input.status,
       baselineRevision: input.baselineRevision, currentSegmentId: input.currentSegmentId,
       segments, scanPages: [], sourceFolders: input.sourceFolders?.map(clone) ?? [],
+      ...(input.scanRunId ?? priorManifest?.scanRunId ? { scanRunId: input.scanRunId ?? priorManifest?.scanRunId } : {}),
+      ...(input.managedMemberChunks ?? priorManifest?.managedMemberChunks
+        ? { managedMemberChunks: (input.managedMemberChunks ?? priorManifest?.managedMemberChunks ?? []).map(clone) }
+        : {}),
       scan: { phase: 'inventory', failureCount: 0, mode: 'incremental' },
       overlayRevision: 0, journalCursor: 0, journalChecksum: initialJournalChecksum,
       journalChecksumMode: 'chain-sha256-v1', journalFile: 'overlay.journal.jsonl'
