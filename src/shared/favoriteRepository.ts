@@ -2647,8 +2647,16 @@ export function applyFavoriteRepositoryCommand(
       const deletingInbox = logicalFolders.some((logicalFolder) => logicalFolder.logicalLedgerId === 'inbox')
       const logicalLedgerIds = new Set(logicalFolders.map((logicalFolder) => logicalFolder.logicalLedgerId!))
       const removedShards = physicalShards.filter((shard) => logicalLedgerIds.has(shard.logicalLedgerId))
-      const removedFolderIds = new Set([...logicalFolderIds, ...removedShards.map((shard) => shard.folderId)])
       const confirmedRemoteFolderIds = new Set((command.payload.confirmedRemoteFolderIds ?? []).map((remoteFolderId) => remoteFolderId.trim()))
+      // Local-only deletion hides the library work-folder projection but must
+      // retain the formal shard. That shard is the exact Bilibili identity
+      // behind the right-side rule; dropping it would turn a retained remote
+      // folder into an unbound same-name candidate on the next refresh.
+      const removesRemoteBindings = deletingInbox || confirmedRemoteFolderIds.size > 0
+      const removedFolderIds = new Set([
+        ...logicalFolderIds,
+        ...(removesRemoteBindings ? removedShards.map((shard) => shard.folderId) : [])
+      ])
       const confirmedRemoteObservationIds = new Set([
         ...confirmedRemoteFolderIds,
         ...[...confirmedRemoteFolderIds].map((remoteFolderId) => `bilibili:${remoteFolderId}`),
@@ -2664,7 +2672,9 @@ export function applyFavoriteRepositoryCommand(
       for (const folderId of confirmedRemoteMirrorFolderIds) for (const aid of memberships[folderId] ?? []) affected.add(aid)
       if (deletingInbox) for (const aid of memberships['local:inbox'] ?? []) affected.add(aid)
       folders = folders.filter((folder) => !removedFolderIds.has(folder.id) && !confirmedRemoteMirrorFolderIds.has(folder.id))
-      physicalShards = physicalShards.filter((shard) => !logicalLedgerIds.has(shard.logicalLedgerId))
+      if (removesRemoteBindings) {
+        physicalShards = physicalShards.filter((shard) => !logicalLedgerIds.has(shard.logicalLedgerId))
+      }
       memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.has(folderId) && !confirmedRemoteMirrorFolderIds.has(folderId)))
       for (const position of Object.values(positions)) {
         const removesLocalPlacement = position.localDesiredFolderIds.some((folderId) => removedFolderIds.has(folderId))

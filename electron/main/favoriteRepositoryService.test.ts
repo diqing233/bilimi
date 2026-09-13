@@ -2350,7 +2350,7 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
-  it('projects local staging and the bound bilimi inbox as one lossless staging folder', async () => {
+  it('keeps local scan staging out of the formal bilimi inbox read model', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
     for (const aid of [1, 2]) {
@@ -2375,11 +2375,12 @@ describe('FavoriteRepositoryService', () => {
     })
 
     const summary = await service.getLibrarySummary('100')
-    expect(summary.folderCount).toBe(1)
-    expect(summary.folders.map((folder) => folder.id)).toEqual(['bilimi-logical:inbox'])
-    expect(summary.folderCounts['bilimi-logical:inbox']).toBe(2)
+    expect(summary.folderCount).toBe(2)
+    expect(summary.folders.map((folder) => folder.id).sort()).toEqual(['bilimi-logical:inbox', 'local:inbox'])
+    expect(summary.folderCounts['bilimi-logical:inbox']).toBe(1)
+    expect(summary.folderCounts['local:inbox']).toBe(1)
     await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:inbox' }, { limit: 10 }))
-      .resolves.toMatchObject({ items: [{ video: { aid: 1 } }, { video: { aid: 2 } }] })
+      .resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 2 } }] })
   })
 
   it('does not count protected videos as pending work while retaining their organization status', async () => {

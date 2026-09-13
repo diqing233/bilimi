@@ -57,6 +57,20 @@ describe('projectFavoriteLedgersFromPhysicalShards', () => {
     })
   })
 
+  it('keeps a rule formally bound when its Bilibili shard remains after its local work folder is removed', () => {
+    const [ledger] = projectFavoriteLedgersFromPhysicalShards([{
+      id: 'work', displayName: 'bilimi·工作', keywords: [], enabled: true,
+      priority: 10, isDefault: false, bindingState: 'bound' as const, bilibiliFolderId: '91'
+    }], [{
+      logicalLedgerId: 'work', folderId: 'bilimi:work:001', shardNumber: 1,
+      remoteFolderId: '91', remoteTitle: 'bilimi·工作', bindingState: 'bound' as const
+    }])
+
+    expect(ledger).toMatchObject({
+      id: 'work', bindingState: 'bound', bilibiliFolderId: '91', bilibiliFolderIds: ['91']
+    })
+  })
+
   it('recovers a deleted default ledger only from its user-confirmed replacement id', () => {
     const ledgers = [{
       id: 'music', displayName: 'bilimi·音乐', keywords: ['音乐'], enabled: true,

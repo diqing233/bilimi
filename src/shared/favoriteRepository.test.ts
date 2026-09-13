@@ -517,6 +517,10 @@ describe('account favorite repository contracts', () => {
 
     expect(deleted.memberships['local:inbox']).toEqual([])
     expect(deleted.memberships['bilimi-logical:music']).toEqual([2])
+    expect(deleted.physicalShards).toEqual([expect.objectContaining({
+      logicalLedgerId: 'work', folderId: 'bilimi:work:001', remoteFolderId: '91', bindingState: 'bound'
+    })])
+    expect(deleted.memberships['bilimi:work:001']).toEqual([1, 2, 3])
     expect(deleted.memberships['bilibili:work']).toEqual([1, 2, 3])
     expect(deleted.positions['100:1']?.localDesiredFolderIds).toEqual([])
     expect(deleted.positions['100:2']?.localDesiredFolderIds).toEqual(['bilimi-logical:music'])
