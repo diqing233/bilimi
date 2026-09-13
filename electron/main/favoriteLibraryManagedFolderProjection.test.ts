@@ -98,6 +98,25 @@ describe('favorite library managed folder projection', () => {
     }))
   })
 
+  it('does not recreate an empty work folder excluded by a persisted local hide', async () => {
+    let current = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-09-14T00:00:00.000Z' })
+    const commit = vi.fn(async (_accountMid: string, command: import('../../src/shared/favoriteRepository').FavoriteRepositoryCommand) => {
+      current = applyFavoriteRepositoryCommand(current, command, '2026-09-14T00:00:01.000Z')
+      return current
+    })
+
+    await restoreEmptyFavoriteLibraryManagedFolderProjection({
+      accountMid: '100', repository: { getSnapshot: async () => current, commit },
+      ledgers: [ledger('creative-aesthetic', 'bilimi·创意美学')],
+      excludedLogicalLedgerIds: ['creative-aesthetic']
+    } as never)
+
+    expect(commit).not.toHaveBeenCalled()
+    expect(current.folders).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:creative-aesthetic' })
+    ]))
+  })
+
   it('does not turn the default inbox rule into a managed work folder', async () => {
     const current = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-09-14T00:00:00.000Z' })
     const commit = vi.fn()

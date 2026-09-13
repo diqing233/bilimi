@@ -5,6 +5,13 @@ export { BILIMI_LEDGER_PREFIX, BILIMI_LEGACY_LEDGER_PREFIX } from './constants'
 
 export const BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH = 20
 
+/** Stable logical IDs may contain Unicode, percent-encoding and other slug
+ * punctuation; only trim/controls are unsafe for account-scoped persistence. */
+export function isPersistableFavoriteLedgerId(value: string) {
+  const normalized = value.trim()
+  return normalized.length > 0 && /^[\p{L}\p{N}._~%:-]+$/u.test(normalized)
+}
+
 export function createRemoteObservationFavoriteLedgerId(remoteFolderId: string) {
   return `custom-remote-${encodeURIComponent(String(remoteFolderId || '').trim())}`
 }

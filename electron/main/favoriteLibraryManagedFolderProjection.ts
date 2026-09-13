@@ -311,11 +311,16 @@ export async function restoreEmptyFavoriteLibraryManagedFolderProjection(input: 
   accountMid: string
   repository: ProjectionRepository
   ledgers: readonly FavoriteLedger[]
+  /** Explicit local deletion wins over technical reads until a later business action restores it. */
+  excludedLogicalLedgerIds?: Iterable<string>
   now?: () => string
 }) {
   let snapshot = await input.repository.getSnapshot(input.accountMid)
+  const excludedLogicalLedgerIds = new Set([...(input.excludedLogicalLedgerIds ?? [])]
+    .map((logicalLedgerId) => logicalLedgerId.trim())
+    .filter(Boolean))
   const enabledLedgers = new Map(input.ledgers
-    .filter((ledger) => ledger.enabled && ledger.id !== 'inbox')
+    .filter((ledger) => ledger.enabled && ledger.id !== 'inbox' && !excludedLogicalLedgerIds.has(ledger.id))
     .map((ledger) => [ledger.id, ledger]))
   const unbackedLedgers = [...enabledLedgers.values()]
     .filter((ledger) => !snapshot.folders.some((folder) =>
@@ -391,5 +396,5 @@ export async function restoreEmptyFavoriteLibraryManagedFolderProjection(input: 
     })
     restored.push(shard.logicalLedgerId)
   }
-  return [...new Set(restored)].sort()
+  return [...new Set([...unbackedLedgers.map((ledger) => ledger.id), ...restored])].sort()
 }

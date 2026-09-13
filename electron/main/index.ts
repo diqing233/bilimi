@@ -119,7 +119,11 @@ import { FavoriteRepositoryManagedFolderService } from './favoriteRepositoryMana
 import { FavoriteRepositoryEmptyManagedFolderRecovery } from './favoriteRepositoryEmptyManagedFolderRecovery'
 import { favoriteLedgerBackupStatesForLibrary } from './favoriteLibraryBackupStates'
 import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperationsIpc'
-import { persistConfirmedManagedFolderDeletion } from './managedFavoriteLedgerDeletionPersistence'
+import {
+  consumeLocalManagedFolderHiddenIds,
+  persistConfirmedManagedFolderDeletion,
+  persistLocalManagedFolderHiddenIds
+} from './managedFavoriteLedgerDeletionPersistence'
 import { resolveFavoriteLibraryOperationSource } from './favoriteLibraryOperationSource'
 import {
   isUnsavedFavoriteLedgerDraft,
@@ -1375,6 +1379,44 @@ function requestMainAssistantRuntime<TPayload>(request: AssistantRuntimeRequestI
   })
 }
 
+function hasExplicitFavoriteLedgerBackupSaveOptions(options?: FavoriteLedgerSaveOptions) {
+  return Boolean(
+    options?.backupTargetLedgerIds?.length ||
+    options?.rediscoverDeletedRemoteDrafts ||
+    options?.remoteObservationPreflight ||
+    options?.lightweightBackup ||
+    options?.confirmCreateAndBind ||
+    options?.confirmBoundRename ||
+    options?.renameBoundOnly ||
+    Object.keys(options?.rebindRemoteFolderIds ?? {}).length ||
+    Object.keys(options?.rebindRemoteFolders ?? {}).length
+  )
+}
+
+/**
+ * A completed backup can reintroduce the local-only shell a user previously
+ * deleted. This is intentionally detached from the IPC response: the backup
+ * result is already authoritative and a follow-up local repository commit
+ * must not make its button or confirmation dialog wait.
+ */
+function scheduleLocalManagedFolderRecoveryAfterExplicitBusinessAction(
+  result: AssistantAutomationResult,
+  operationAccountMid?: string
+) {
+  if (!result.ok) return
+  const accountMidPromise = operationAccountMid !== undefined
+    ? Promise.resolve(operationAccountMid)
+    : readCurrentBilibiliAccountMid()
+  void accountMidPromise
+    .then(async (accountMid) => {
+      if (!accountMid) return
+      await favoriteRepositoryEmptyManagedFolderRecovery?.restoreAfterExplicitBusinessAction(accountMid)
+    })
+    .catch((error) => {
+      console.error('Favorite Library explicit managed-folder recovery failed:', error)
+    })
+}
+
 function createMainWindow() {
   const { workAreaSize } = screen.getPrimaryDisplay()
   homeWebviewLoadSettled = false
@@ -2426,24 +2468,37 @@ function registerAssistantPreferenceHandlers() {
       type: 'read-current-video-multipart'
     })
   )
-  ipcMain.handle('floating-assistant:ensure-ledgers', (event) => {
+  ipcMain.handle('floating-assistant:ensure-ledgers', async (event) => {
     assertTrustedOldFavoriteAssistantSender(event)
-    return requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledgers' })
+    const operationAccountMid = await readCurrentBilibiliAccountMid().catch(() => undefined)
+    const result = await requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledgers' })
+    scheduleLocalManagedFolderRecoveryAfterExplicitBusinessAction(result, operationAccountMid)
+    return result
   })
-  ipcMain.handle('floating-assistant:ensure-ledger', (event, logicalFolderId: string, options?: FavoriteLedgerSaveOptions) => {
+  ipcMain.handle('floating-assistant:ensure-ledger', async (event, logicalFolderId: string, options?: FavoriteLedgerSaveOptions) => {
     assertTrustedOldFavoriteAssistantSender(event)
     if (typeof logicalFolderId !== 'string' || !logicalFolderId.trim()) throw new Error('Favorite ledger id is required.')
-    return requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledger', logicalFolderId: logicalFolderId.trim(), options })
+    const operationAccountMid = await readCurrentBilibiliAccountMid().catch(() => undefined)
+    const result = await requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledger', logicalFolderId: logicalFolderId.trim(), options })
+    scheduleLocalManagedFolderRecoveryAfterExplicitBusinessAction(result, operationAccountMid)
+    return result
   })
   ipcMain.handle(
     'floating-assistant:save-ledgers',
-    (event, ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => {
+    async (event, ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => {
       assertTrustedOldFavoriteAssistantSender(event)
-      return requestMainAssistantRuntime<AssistantAutomationResult>({
+      const operationAccountMid = hasExplicitFavoriteLedgerBackupSaveOptions(options)
+        ? await readCurrentBilibiliAccountMid().catch(() => undefined)
+        : undefined
+      const result = await requestMainAssistantRuntime<AssistantAutomationResult>({
         type: 'save-ledgers',
         ledgers,
         options
       })
+      if (hasExplicitFavoriteLedgerBackupSaveOptions(options)) {
+        scheduleLocalManagedFolderRecoveryAfterExplicitBusinessAction(result, operationAccountMid)
+      }
+      return result
     }
   )
   ipcMain.handle('floating-assistant:open-bilibili-favorites', (event) => {
@@ -2555,7 +2610,15 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   })
   favoriteRepositoryEmptyManagedFolderRecovery = new FavoriteRepositoryEmptyManagedFolderRecovery({
     repository: favoriteRepositoryService,
-    loadFavoriteLedgers: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+    loadFavoriteLedgers: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers,
+    loadHiddenFavoriteLibraryManagedLedgerIds: (accountMid) =>
+      loadFavoriteAccountPreferences(getDesktopStore(), accountMid).hiddenFavoriteLibraryManagedLedgerIds ?? [],
+    consumeHiddenFavoriteLibraryManagedLedgerIds: (accountMid, logicalLedgerIds) =>
+      consumeLocalManagedFolderHiddenIds(accountMid, logicalLedgerIds, {
+        load: (targetAccountMid) => loadFavoriteAccountPreferences(getDesktopStore(), targetAccountMid),
+        save: (targetAccountMid, preferences) => saveFavoriteAccountPreferences(getDesktopStore(), targetAccountMid, preferences),
+        publish: () => sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+      })
   })
   // Every completed local operation (scan, backup, review, local save, or
   // refresh-fed write) gets a coalesced empty-shell check. It has no Bilibili
@@ -2683,6 +2746,14 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   favoriteRepositoryManagedFolderService = new FavoriteRepositoryManagedFolderService({
     repository: favoriteRepositoryService,
     remoteArbiter: favoriteRepositoryRemoteOperations,
+    runWithLocalManagedFolderDeletion: (accountMid, operation) =>
+      favoriteRepositoryEmptyManagedFolderRecovery?.runWithLocalManagedFolderDeletion(accountMid, operation) ?? operation(),
+    markLocalManagedFoldersHidden: (accountMid, logicalLedgerIds) =>
+      persistLocalManagedFolderHiddenIds(accountMid, logicalLedgerIds, {
+        load: (targetAccountMid) => loadFavoriteAccountPreferences(getDesktopStore(), targetAccountMid),
+        save: (targetAccountMid, preferences) => saveFavoriteAccountPreferences(getDesktopStore(), targetAccountMid, preferences),
+        publish: () => sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+      }),
     onManagedFolderDeleted: async (accountMid, deletions) => {
       const retainedRemoteFolderIds = [...new Set(deletions
         .filter((deletion) => !deletion.remoteDeleted)

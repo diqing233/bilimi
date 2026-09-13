@@ -2,8 +2,88 @@ import {
   applyConfirmedManagedFavoriteRemoteFolderDeletion,
   restoreDefaultFavoriteLedgerAfterLocalDeletion
 } from '../../src/shared/favoriteLedgerDeletion'
+import { isPersistableFavoriteLedgerId } from '../../src/shared/favoriteLedgers'
 import type { FavoriteAccountPreferences } from '../../src/shared/types'
 import type { PersistedManagedFolderDeletion } from './favoriteRepositoryManagedFolderService'
+
+function normalizedHiddenLedgerIds(ids: Iterable<string>) {
+  return [...new Set([...ids]
+    .map((logicalLedgerId) => logicalLedgerId.trim())
+    .filter((logicalLedgerId) => isPersistableFavoriteLedgerId(logicalLedgerId)))].sort()
+}
+
+export async function persistLocalManagedFolderHiddenIds(
+  accountMid: string,
+  logicalLedgerIds: readonly string[],
+  options: {
+    load: (accountMid: string) => FavoriteAccountPreferences
+    save: (accountMid: string, preferences: FavoriteAccountPreferences) => unknown | Promise<unknown>
+    publish: () => unknown | Promise<unknown>
+  }
+) {
+  const current = options.load(accountMid)
+  const before = normalizedHiddenLedgerIds(current.hiddenFavoriteLibraryManagedLedgerIds ?? [])
+  const next = normalizedHiddenLedgerIds([...before, ...logicalLedgerIds])
+  const added = next.filter((logicalLedgerId) => !before.includes(logicalLedgerId))
+  if (!added.length) return undefined
+  let saved = false
+  try {
+    await options.save(accountMid, { ...current, hiddenFavoriteLibraryManagedLedgerIds: next })
+    saved = true
+    await options.publish()
+  } catch (error) {
+    if (saved) {
+      try {
+        const latest = options.load(accountMid)
+        const previous = normalizedHiddenLedgerIds(latest.hiddenFavoriteLibraryManagedLedgerIds ?? [])
+        const remaining = normalizedHiddenLedgerIds(previous.filter((logicalLedgerId) => !added.includes(logicalLedgerId)))
+        if (JSON.stringify(previous) !== JSON.stringify(remaining)) {
+          await options.save(accountMid, {
+            ...latest,
+            ...(remaining.length ? { hiddenFavoriteLibraryManagedLedgerIds: remaining } : { hiddenFavoriteLibraryManagedLedgerIds: undefined })
+          })
+        }
+      } catch {
+        // Preserve the original publication failure. The deletion command will
+        // not execute, and the next normal preference write can reconcile this.
+      }
+    }
+    throw error
+  }
+  return async () => {
+    const latest = options.load(accountMid)
+    const remaining = normalizedHiddenLedgerIds((latest.hiddenFavoriteLibraryManagedLedgerIds ?? [])
+      .filter((logicalLedgerId) => !added.includes(logicalLedgerId)))
+    if (JSON.stringify(remaining) === JSON.stringify(normalizedHiddenLedgerIds(latest.hiddenFavoriteLibraryManagedLedgerIds ?? []))) return
+    await options.save(accountMid, {
+      ...latest,
+      ...(remaining.length ? { hiddenFavoriteLibraryManagedLedgerIds: remaining } : { hiddenFavoriteLibraryManagedLedgerIds: undefined })
+    })
+    await options.publish()
+  }
+}
+
+export async function consumeLocalManagedFolderHiddenIds(
+  accountMid: string,
+  logicalLedgerIds: readonly string[],
+  options: {
+    load: (accountMid: string) => FavoriteAccountPreferences
+    save: (accountMid: string, preferences: FavoriteAccountPreferences) => unknown | Promise<unknown>
+    publish: () => unknown | Promise<unknown>
+  }
+) {
+  const current = options.load(accountMid)
+  const consumed = new Set(normalizedHiddenLedgerIds(logicalLedgerIds))
+  const before = normalizedHiddenLedgerIds(current.hiddenFavoriteLibraryManagedLedgerIds ?? [])
+  const remaining = before.filter((logicalLedgerId) => !consumed.has(logicalLedgerId))
+  if (remaining.length === before.length) return false
+  await options.save(accountMid, {
+    ...current,
+    ...(remaining.length ? { hiddenFavoriteLibraryManagedLedgerIds: remaining } : { hiddenFavoriteLibraryManagedLedgerIds: undefined })
+  })
+  await options.publish()
+  return true
+}
 
 export async function persistConfirmedManagedFolderDeletion(
   accountMid: string,

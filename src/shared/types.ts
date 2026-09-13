@@ -406,6 +406,8 @@ export type AssistantPreferences = {
 export type FavoriteAccountPreferences = {
   defaultFavoriteSystemEnabled: boolean
   favoriteLedgers: FavoriteLedger[]
+  /** Logical bilimi work folders hidden by an explicit local library deletion. */
+  hiddenFavoriteLibraryManagedLedgerIds?: string[]
   /** Hide the read-only remote discovery summary until the next verified refresh. */
   favoriteDiscoveryNoticeDismissed?: boolean
   deletedFavoriteLedgerRecords?: DeletedFavoriteLedgerRecord[]

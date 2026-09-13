@@ -93,6 +93,10 @@ export class FavoriteRepositoryManagedFolderService {
     remote?: RemoteFolderWriter
     remoteObserver?: RemoteFolderObserver
     remoteArbiter?: Pick<FavoriteRepositoryRemoteOperationArbiter, 'enqueue'>
+    /** Persists the local visibility boundary before the repository commit can publish a revision. */
+    markLocalManagedFoldersHidden?: (accountMid: string, logicalLedgerIds: string[]) => Promise<undefined | (() => Promise<void> | void)> | undefined | (() => Promise<void> | void)
+    /** Serializes local deletion against an in-flight explicit recovery for the same account. */
+    runWithLocalManagedFolderDeletion?: <T>(accountMid: string, operation: () => Promise<T> | T) => Promise<T>
     /** Updates persisted managed-rule state only after a local deletion has committed. */
     onManagedFolderDeleted?: (accountMid: string, deletions: PersistedManagedFolderDeletion[]) => Promise<void> | void
     now?: () => string
@@ -226,8 +230,24 @@ export class FavoriteRepositoryManagedFolderService {
           : { type: 'delete-local-managed-folders' as const, payload: { logicalFolderIds } })
     }
     const auditEvents = this.events(auditAids, 'managed-folder-delete-local', timestamp)
-    if (auditEvents.length) await this.options.repository.commitWithAudit(normalizedAccount, command, auditEvents)
-    else await this.options.repository.commit(normalizedAccount, command)
+    const managedLedgerIds = logicalFolderIds
+      .filter((logicalFolderId) => logicalFolderId !== 'local:inbox')
+      .map((logicalFolderId) => this.logicalLedgerId(logicalFolderId))
+    const commitLocalDeletion = async () => {
+      const rollbackLocalVisibilityHide = await this.options.markLocalManagedFoldersHidden?.(normalizedAccount, managedLedgerIds)
+      try {
+        if (auditEvents.length) await this.options.repository.commitWithAudit(normalizedAccount, command, auditEvents)
+        else await this.options.repository.commit(normalizedAccount, command)
+      } catch (error) {
+        await rollbackLocalVisibilityHide?.()
+        throw error
+      }
+    }
+    if (this.options.runWithLocalManagedFolderDeletion) {
+      await this.options.runWithLocalManagedFolderDeletion(normalizedAccount, commitLocalDeletion)
+    } else {
+      await commitLocalDeletion()
+    }
     const preferencesStatus = await this.notifyManagedFolderDeletion(normalizedAccount, operations, false)
     for (const operation of operations) operation.status = 'succeeded'
     return {

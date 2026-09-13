@@ -2,7 +2,7 @@ import Store from 'electron-store'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { appendFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
+import { createDefaultFavoriteLedgers, isPersistableFavoriteLedgerId, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
 import { normalizeOldFavoriteWorkspaceSegmentSize } from '../../src/shared/oldFavoriteWorkspace'
 import { normalizeAssistantSidebarWidthPx } from '../../src/shared/assistantSidebarWidth'
 import { DEFAULT_TRANSCRIPTION_MODEL_ID } from '../../src/shared/transcriptionModels'
@@ -187,6 +187,12 @@ function normalizeFavoriteAccountPreferences(value: unknown): FavoriteAccountPre
   return {
     defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled !== false,
     favoriteLedgers: normalizeFavoriteLedgers(candidate.favoriteLedgers),
+    ...(Array.isArray(candidate.hiddenFavoriteLibraryManagedLedgerIds)
+      ? { hiddenFavoriteLibraryManagedLedgerIds: [...new Set(candidate.hiddenFavoriteLibraryManagedLedgerIds
+          .filter((id): id is string => typeof id === 'string')
+          .map((id) => id.trim())
+          .filter((id) => isPersistableFavoriteLedgerId(id)))].sort() }
+      : {}),
     ...(candidate.favoriteDiscoveryNoticeDismissed === true
       ? { favoriteDiscoveryNoticeDismissed: true }
       : {}),

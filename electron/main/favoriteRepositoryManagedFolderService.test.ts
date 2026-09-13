@@ -578,6 +578,80 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     expect(commitWithAudit).not.toHaveBeenCalled()
   })
 
+  it('records the local visibility hide before deleting the managed folder', async () => {
+    const current = managedSnapshot()
+    const calls: string[] = []
+    const markLocalManagedFoldersHidden = vi.fn(async () => {
+      calls.push('mark')
+      return async () => { calls.push('rollback') }
+    })
+    const commitWithAudit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+      calls.push('commit')
+      return { ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }
+    })
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit },
+      markLocalManagedFoldersHidden
+    } as never)
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await expect(service.deleteLocal('100', preview.executionToken)).resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(markLocalManagedFoldersHidden).toHaveBeenCalledWith('100', ['work'])
+    expect(calls).toEqual(['mark', 'commit'])
+  })
+
+  it('holds local managed-folder deletion inside the account recovery guard', async () => {
+    const current = managedSnapshot()
+    const calls: string[] = []
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => current), commit: vi.fn(),
+        commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => {
+          calls.push(`commit:${command.type}`)
+          return { ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }
+        })
+      },
+      markLocalManagedFoldersHidden: vi.fn(async () => { calls.push('mark') }),
+      runWithLocalManagedFolderDeletion: async (_accountMid, operation) => {
+        calls.push('guard:start')
+        try {
+          return await operation()
+        } finally {
+          calls.push('guard:end')
+        }
+      }
+    } as never)
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await service.deleteLocal('100', preview.executionToken)
+
+    expect(calls).toEqual(['guard:start', 'mark', 'commit:delete-local-managed-folder', 'guard:end'])
+  })
+
+  it('rolls back only its newly recorded local visibility hide when deletion persistence fails', async () => {
+    const current = managedSnapshot()
+    const calls: string[] = []
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: {
+        getSnapshot: vi.fn(async () => current), commit: vi.fn(),
+        commitWithAudit: vi.fn(async () => {
+          calls.push('commit')
+          throw new Error('disk unavailable')
+        })
+      },
+      markLocalManagedFoldersHidden: vi.fn(async () => {
+        calls.push('mark')
+        return async () => { calls.push('rollback') }
+      })
+    } as never)
+    const preview = await service.preview('100', 'bilimi-logical:work')
+
+    await expect(service.deleteLocal('100', preview.executionToken)).rejects.toThrow('disk unavailable')
+
+    expect(calls).toEqual(['mark', 'commit', 'rollback'])
+  })
+
   it('passes retained bound and pending remote ids to local managed-folder persistence', async () => {
     const current = {
       ...managedSnapshot(),

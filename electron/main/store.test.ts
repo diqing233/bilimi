@@ -710,6 +710,24 @@ describe('assistant preference store helpers', () => {
     })
   })
 
+  it('normalizes persisted local managed-folder visibility hides per account', () => {
+    const store = createFakeStore({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [{
+            id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false
+          }],
+          hiddenFavoriteLibraryManagedLedgerIds: [' music ', 'music', '', 'invalid id']
+        }
+      }
+    } as never)
+
+    expect(loadFavoriteAccountPreferences(store, '100')).toMatchObject({
+      hiddenFavoriteLibraryManagedLedgerIds: ['music']
+    })
+  })
+
   it('loads an existing favorite account without reading unrelated persisted branches', () => {
     const store = createFakeStore({
       favoriteAccountPreferences: {

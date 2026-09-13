@@ -1,12 +1,71 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { FavoriteAccountPreferences } from '../../src/shared/types'
-import { persistConfirmedManagedFolderDeletion } from './managedFavoriteLedgerDeletionPersistence'
+import {
+  consumeLocalManagedFolderHiddenIds,
+  persistConfirmedManagedFolderDeletion,
+  persistLocalManagedFolderHiddenIds
+} from './managedFavoriteLedgerDeletionPersistence'
 
 function preferences(favoriteLedgers: FavoriteAccountPreferences['favoriteLedgers']): FavoriteAccountPreferences {
   return { defaultFavoriteSystemEnabled: true, favoriteLedgers }
 }
 
 describe('persistConfirmedManagedFolderDeletion', () => {
+  it('persists a local managed-folder visibility hide and rolls back only IDs added by this deletion', async () => {
+    let current = preferences([{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false
+    }])
+    current = { ...current, hiddenFavoriteLibraryManagedLedgerIds: ['game'] }
+    const save = vi.fn(async (_accountMid: string, saved: FavoriteAccountPreferences) => { current = saved })
+    const publish = vi.fn()
+
+    const rollback = await persistLocalManagedFolderHiddenIds('100', ['music', 'music'], {
+      load: () => current, save, publish
+    })
+
+    expect(current.hiddenFavoriteLibraryManagedLedgerIds).toEqual(['game', 'music'])
+    await rollback?.()
+    expect(current.hiddenFavoriteLibraryManagedLedgerIds).toEqual(['game'])
+  })
+
+  it('preserves Unicode and encoded logical IDs in the local visibility hide', async () => {
+    let current = preferences([{
+      id: 'custom-音乐-456', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false
+    }])
+    const save = vi.fn(async (_accountMid: string, saved: FavoriteAccountPreferences) => { current = saved })
+    await persistLocalManagedFolderHiddenIds('100', ['custom-音乐-456', 'custom-remote-404%2F1'], {
+      load: () => current, save, publish: vi.fn()
+    })
+    expect(current.hiddenFavoriteLibraryManagedLedgerIds).toEqual(['custom-remote-404%2F1', 'custom-音乐-456'])
+  })
+
+  it('rolls back a newly persisted local visibility hide when publishing the change fails', async () => {
+    let current = preferences([{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false
+    }])
+    const save = vi.fn(async (_accountMid: string, saved: FavoriteAccountPreferences) => { current = saved })
+    const publish = vi.fn(async () => { throw new Error('window broadcast unavailable') })
+
+    await expect(persistLocalManagedFolderHiddenIds('100', ['music'], { load: () => current, save, publish }))
+      .rejects.toThrow('window broadcast unavailable')
+
+    expect(current.hiddenFavoriteLibraryManagedLedgerIds).toBeUndefined()
+  })
+
+  it('consumes only the recovered local managed-folder visibility hide', async () => {
+    let current = {
+      ...preferences([{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]),
+      hiddenFavoriteLibraryManagedLedgerIds: ['game', 'music']
+    }
+    const save = vi.fn(async (_accountMid: string, saved: FavoriteAccountPreferences) => { current = saved })
+
+    await expect(consumeLocalManagedFolderHiddenIds('100', ['music'], {
+      load: () => current, save, publish: vi.fn()
+    })).resolves.toBe(true)
+
+    expect(current.hiddenFavoriteLibraryManagedLedgerIds).toEqual(['game'])
+  })
+
   it('persists the default user-deleted marker only after Bilibili was actually deleted', async () => {
     const current = preferences([{
       id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,

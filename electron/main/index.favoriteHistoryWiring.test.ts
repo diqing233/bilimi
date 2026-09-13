@@ -31,4 +31,23 @@ describe('favorite history wiring', () => {
     expect(startup.indexOf('createMainWindow()')).toBeGreaterThanOrEqual(0)
     expect(startup.indexOf('createMainWindow()')).toBeLessThan(startup.indexOf('await bilibiliSessionProxy.applyPreference'))
   })
+
+  it('restores a locally deleted work folder only after a successful explicit backup result', () => {
+    const source = readFileSync(resolve(import.meta.dirname, 'index.ts'), 'utf8')
+    const helper = source.match(/function scheduleLocalManagedFolderRecoveryAfterExplicitBusinessAction[\s\S]*?\n}\r?\n/)?.[0] ?? ''
+    const ensureLedgersHandler = source.match(/ipcMain\.handle\('floating-assistant:ensure-ledgers',[\s\S]{0,900}?\n  }\)/)?.[0] ?? ''
+    const ensureLedgerHandler = source.match(/ipcMain\.handle\('floating-assistant:ensure-ledger',[\s\S]{0,1000}?\n  }\)/)?.[0] ?? ''
+    const saveLedgersHandler = source.match(/'floating-assistant:save-ledgers',[\s\S]{0,1200}?\n    }\n  \)/)?.[0] ?? ''
+
+    expect(helper).toContain('result.ok')
+    expect(helper).toContain('readCurrentBilibiliAccountMid')
+    expect(helper).toContain('restoreAfterExplicitBusinessAction')
+    expect(ensureLedgersHandler).toContain('scheduleLocalManagedFolderRecoveryAfterExplicitBusinessAction')
+    expect(ensureLedgersHandler).toContain('operationAccountMid')
+    expect(ensureLedgerHandler).toContain('scheduleLocalManagedFolderRecoveryAfterExplicitBusinessAction')
+    expect(ensureLedgerHandler).toContain('operationAccountMid')
+    expect(saveLedgersHandler).toContain('hasExplicitFavoriteLedgerBackupSaveOptions')
+    expect(saveLedgersHandler).toContain('scheduleLocalManagedFolderRecoveryAfterExplicitBusinessAction')
+    expect(saveLedgersHandler).toContain('operationAccountMid')
+  })
 })
