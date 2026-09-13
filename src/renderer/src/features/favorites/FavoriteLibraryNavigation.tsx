@@ -98,8 +98,10 @@ export function FavoriteLibraryNavigation({
   useEffect(() => setLocalCollapsedGroups(collapsedGroups), [collapsedGroups, uid])
   useEffect(() => setLocalSelectedId(selectedId), [selectedId, uid])
   useEffect(() => {
-    if (previousUidRef.current === uid) return
+    const previousUid = previousUidRef.current
+    if (previousUid === uid) return
     previousUidRef.current = uid
+    if (!previousUid && uid) return
     closeManagedMenu()
   }, [closeManagedMenu, uid])
   const toggleGroup = useCallback((groupId: string, collapsed: boolean) => {

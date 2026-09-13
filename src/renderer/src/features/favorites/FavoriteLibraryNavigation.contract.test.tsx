@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createRoot, type Root } from 'react-dom/client'
-import { act, useLayoutEffect } from 'react'
+import { act, useLayoutEffect, useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { FavoriteLibraryNavigation } from './FavoriteLibraryNavigation'
 
@@ -596,6 +596,35 @@ describe('FavoriteLibraryNavigation contract', () => {
     rerender(<FavoriteLibraryNavigation {...props} uid="200" />)
 
     expect(screen.queryByRole('menu', { name: 'one 操作' })).not.toBeInTheDocument()
+  })
+
+  it('keeps a portal opened during first account binding before passive effects run', async () => {
+    const props = {
+      groups: [{ id: 'workspace', label: 'workspace', items: [{ id: 'folder:one', label: 'one', count: 1, managed: true }] }],
+      collapsedGroups: {},
+      selectedId: 'folder:one',
+      onCollapseChange: vi.fn(),
+      onSelect: vi.fn()
+    }
+    function NavigationOpenedOnFirstAccountBinding() {
+      const [uid, setUid] = useState('')
+      useLayoutEffect(() => {
+        if (!uid) setUid('100')
+        else screen.getByRole('button', { name: 'one 菜单' }).click()
+      }, [uid])
+      return <FavoriteLibraryNavigation {...props} uid={uid} />
+    }
+    const container = document.body.appendChild(document.createElement('div'))
+    let root: Root | undefined
+    try {
+      root = createRoot(container)
+      await act(async () => root!.render(<NavigationOpenedOnFirstAccountBinding />))
+
+      expect(screen.getByRole('menu', { name: 'one 操作' })).toBeInTheDocument()
+    } finally {
+      await act(async () => root?.unmount())
+      container.remove()
+    }
   })
 
   it('keeps a managed-folder portal opened before initial passive effects while still closing it after an account change', async () => {
