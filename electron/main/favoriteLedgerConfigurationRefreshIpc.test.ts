@@ -70,11 +70,11 @@ describe('favorite ledger configuration refresh IPC', () => {
     expect(accountOpen).not.toContain('readFolderInventory')
   })
 
-  it('derives library backup states from both account-rule protection and every physical shard', () => {
+  it('derives library backup states from current physical evidence rather than historical unbound protection', () => {
     const stateStart = mainSource.indexOf('function favoriteLedgerBackupStatesForLibrary(')
     const stateEnd = mainSource.indexOf('\n}\n\n/** Refreshes the account rule projection', stateStart)
     const state = mainSource.slice(stateStart, stateEnd)
-    expect(state).toContain("ledger.bindingState === 'unbound'")
+    expect(state).not.toContain("ledger.bindingState === 'unbound'")
     expect(state).toContain('hasPartialPhysicalBinding')
     expect(mainSource).toContain('getFavoriteLedgerBackupStates: favoriteLedgerBackupStatesForLibrary')
   })

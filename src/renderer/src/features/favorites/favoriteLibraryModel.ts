@@ -112,7 +112,6 @@ const defaultLedgerTitlesById = new Map(createDefaultFavoriteLedgers().map((ledg
 export const FAVORITE_LIBRARY_STAGING_TITLE = 'bilimi·暂存'
 
 function displayFolderTitle(folder: FavoriteRepositoryFolder) {
-  if (folder.id === 'local:inbox') return FAVORITE_LIBRARY_STAGING_TITLE
   const logicalLedgerId = folder.kind === 'local' && folder.id.startsWith('local:')
     ? folder.id.slice('local:'.length)
     : undefined
@@ -325,7 +324,8 @@ export function buildFavoriteLibraryNavigation(
     .filter((folder) => folder.kind === 'bilimi-logical' && Boolean(folder.logicalLedgerId))
     .map((folder) => folder.logicalLedgerId!))
   const folderItems = folders
-    .filter((folder) => folder.id.trim() && !(folder.kind === 'local' && Boolean(folder.logicalLedgerId) && restoredLogicalLedgerIds.has(folder.logicalLedgerId!)))
+    .filter((folder) => folder.id.trim() && folder.id !== 'local:inbox' &&
+      !(folder.kind === 'local' && Boolean(folder.logicalLedgerId) && restoredLogicalLedgerIds.has(folder.logicalLedgerId!)))
     .slice()
     .sort((left, right) => kindOrder[left.kind] - kindOrder[right.kind] ||
       (left.kind === 'bilimi-logical' && right.kind === 'bilimi-logical'

@@ -8,6 +8,7 @@ type OldFavoriteModalProps = {
   confirmLabel?: string
   confirmDisabled?: boolean
   extraActions?: ReactNode
+  className?: string
   onCancel: () => void
   onConfirm?: () => void
 }
@@ -19,13 +20,14 @@ export function OldFavoriteModal({
   confirmLabel = '确认',
   confirmDisabled = false,
   extraActions,
+  className,
   onCancel,
   onConfirm
 }: OldFavoriteModalProps) {
   return <BilimiModal
     title={title}
     tone={danger ? 'danger' : 'default'}
-    className="old-favorite-modal__dialog"
+    className={`old-favorite-modal__dialog${className ? ` ${className}` : ''}`}
     onClose={onCancel}
     actions={<>
       {extraActions}

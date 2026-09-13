@@ -84,12 +84,14 @@ describe('favoriteLibraryModel', () => {
     expect(formatFavoriteLibraryOrganizationStatus('unorganized')).toBe('未整理')
   })
 
-  it('labels the legacy local inbox as staging without changing its id', () => {
+  it('keeps the local inbox out of navigation while preserving real logical staging', () => {
     const navigation = buildFavoriteLibraryNavigation([
-      { id: 'local:inbox', title: '暂存', kind: 'local', syncState: 'local-only' }
+      { id: 'local:inbox', title: '暂存', kind: 'local', syncState: 'local-only' },
+      { id: 'bilimi-logical:inbox', title: 'bilimi·暂存', kind: 'bilimi-logical', logicalLedgerId: 'inbox', syncState: 'local-only' }
     ], 0)
 
-    expect(navigation).toContainEqual(expect.objectContaining({ folderId: 'local:inbox', title: 'bilimi·暂存' }))
+    expect(navigation).not.toContainEqual(expect.objectContaining({ folderId: 'local:inbox' }))
+    expect(navigation).toContainEqual(expect.objectContaining({ folderId: 'bilimi-logical:inbox', title: 'bilimi·暂存' }))
   })
 
   it('keeps metadata refresh, sync, and collection ownership labels separate', () => {

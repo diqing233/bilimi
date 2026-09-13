@@ -2460,14 +2460,14 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
   })
 
-  it('shows an unbound default ledger as recoverable through the ordinary backup action', () => {
+  it('shows an unbacked default ledger until current binding candidates are available', () => {
     const sync = vi.fn().mockResolvedValue({ ok: false, unboundCandidates: [] })
     render(<FavoriteLedgerOverview ledgers={[{
       id: 'music', displayName: 'bilimi·音乐舞台', keywords: [], enabled: true, priority: 10,
       isDefault: true, bindingState: 'unbound'
     }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={sync} />)
 
-    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未绑定')
+    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未备册')
     const backup = screen.getByRole('button', { name: '备册收藏夹' })
     expect(backup).toBeEnabled()
     expect(screen.queryByRole('button', { name: '恢复备册收藏夹' })).not.toBeInTheDocument()
@@ -2608,7 +2608,7 @@ describe('FavoriteLedgerOverview', () => {
       isDefault: true, bindingState: 'unbound'
     }]} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
 
-    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未绑定')
+    expect(screen.getByTestId('favorite-ledger-chip-music')).toHaveTextContent('未备册')
     const toggle = screen.getByRole('button', { name: '移出同步 bilimi·音乐' })
     expect(toggle).toHaveAttribute('data-enabled', 'true')
     expect(toggle).toBeDisabled()
@@ -2765,6 +2765,12 @@ describe('FavoriteLedgerOverview', () => {
       haltOnRemoteObservations: true
     })
     await screen.findByText('确认绑定 bilimi 收藏夹')
+    const dialog = screen.getByRole('dialog', { name: '确认绑定 bilimi 收藏夹' })
+    expect(dialog).toHaveClass('old-favorite-modal__dialog--rebind')
+    const scrollableCandidates = dialog.querySelector('.favorite-ledger-panel__rebind-scroll')
+    expect(scrollableCandidates).toContainElement(screen.getByText('知识学习（共 310 个视频）'))
+    expect(scrollableCandidates).toContainElement(screen.getByText('游戏专区（共 1006 个视频）'))
+    expect(scrollableCandidates).not.toContainElement(screen.getByRole('button', { name: '确认绑定' }))
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     expect(screen.getByText('知识学习（共 310 个视频）')).toBeInTheDocument()
     expect(screen.getByText('分册 1：bilimi·知识学习（310 个视频，确认后仅绑定，不修改 B 站名称）')).toBeInTheDocument()
@@ -3556,7 +3562,7 @@ describe('FavoriteLedgerOverview', () => {
     expect(previewManagedFavoriteFolderDeletion).toHaveBeenCalledWith('100', ['knowledge'], { knowledge: 'bilimi·知识' })
     expect(deleteManagedFavoriteFolders).not.toHaveBeenCalled()
     expect(screen.getByTestId('favorite-ledger-chip-knowledge')).toBeInTheDocument()
-    expect(screen.getByTestId('favorite-ledger-chip-knowledge')).toHaveTextContent('未绑定')
+    expect(screen.getByTestId('favorite-ledger-chip-knowledge')).toHaveTextContent('未备册')
   })
 
   it('does not offer a Bilibili deletion path for a custom configuration without a formal binding', async () => {

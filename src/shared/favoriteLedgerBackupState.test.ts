@@ -13,8 +13,20 @@ describe('favoriteLedgerBackupState', () => {
     expect(favoriteLedgerBackupStateLabel(ledger, { unboundLedgerIds: ['game'] })).toBe('部分已备册 · 仍待绑定')
   })
 
-  it('keeps a user-deleted rule unbound even when stale fields retain an old remote id', () => {
-    expect(favoriteLedgerBackupState({ ...ledger, managedFolderDeletedByUser: true })).toBe('unbound')
+  it('keeps a user-deleted rule unbacked until the current directory exposes a candidate', () => {
+    const deletedLedger = {
+      ...ledger,
+      bilibiliFolderId: undefined,
+      bilibiliFolderIds: undefined,
+      bindingState: 'unbound' as const,
+      managedFolderDeletedByUser: true
+    }
+
+    expect(favoriteLedgerBackupState(deletedLedger, { hasFormalPhysicalBinding: false })).toBe('unbacked')
+    expect(favoriteLedgerBackupState(deletedLedger, {
+      hasFormalPhysicalBinding: false,
+      unboundLedgerIds: ['game']
+    })).toBe('unbound')
   })
 
   it('reports a mixed physical-shard summary as partial', () => {

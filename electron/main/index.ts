@@ -1126,8 +1126,9 @@ function favoriteLedgerBackupStatesForLibrary(
       shard.bindingState === 'bound' && Boolean(shard.remoteFolderId?.trim()))
     const hasPartialPhysicalBinding = !hasFormalPhysicalBinding && shards.some((shard) =>
       shard.bindingState === 'bound' && Boolean(shard.remoteFolderId?.trim()))
+    // The persisted unbound/deleted marker prevents automatic adoption, but
+    // it is not current directory evidence of a folder the user can bind.
     const hasUnresolvedPhysicalBinding = (!hasFormalPhysicalBinding && shards.length > 0) ||
-      ledger.bindingState === 'unbound' ||
       (physicalShardDetailsIncomplete && (shards.length > 0 || summary.folders?.some((folder) =>
         folder.kind === 'bilimi-logical' && folder.logicalLedgerId === ledger.id)))
     return [ledger.id, favoriteLedgerBackupState(ledger, {

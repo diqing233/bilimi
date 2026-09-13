@@ -208,6 +208,9 @@ export class FavoriteRepositoryManagedFolderService {
     if (new Set(operations.map((operation) => operation.logicalFolderId)).size !== operations.length) {
       throw new Error('Managed folder deletion preview is duplicated.')
     }
+    if (operations.some((operation) => operation.logicalFolderId === 'local:inbox') && operations.length > 1) {
+      throw new Error('Local scan staging cannot be deleted with managed folders.')
+    }
     const snapshot = await this.options.repository.getSnapshot(normalizedAccount)
     if (operations.some((operation) => operation.currentRevision !== snapshot.revision)) throw new Error('Managed folder baseline is stale.')
     const logicalFolderIds = operations.map((operation) => operation.logicalFolderId).sort()

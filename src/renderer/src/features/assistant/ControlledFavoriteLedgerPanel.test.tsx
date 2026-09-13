@@ -1214,6 +1214,31 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).not.toHaveBeenCalled()
   })
 
+  it('closes the organization guide only after stopping Bilibili sync succeeds', async () => {
+    const executing = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'executing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }, executionProgress: { completedOperationCount: 1, totalOperationCount: 3 }
+    }
+    const command = vi.fn().mockResolvedValue(null)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(executing),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(screen.getByRole('button', { name: '结束本轮整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认结束本轮' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'stop-bilibili-sync-and-finish' }))
+    await waitFor(() => expect(screen.queryByRole('region', { name: '整理收藏向导' })).not.toBeInTheDocument())
+  })
+
   it('requires a changed non-default ledger to be saved and reselected before backup', async () => {
     const save = vi.fn()
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[

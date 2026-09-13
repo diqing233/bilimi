@@ -196,6 +196,20 @@ describe('FavoriteRepositoryManagedFolderService', () => {
     }), expect.any(Array))
   })
 
+  it('never mixes local scan staging into a managed-folder batch command', async () => {
+    const current = managedSnapshot()
+    const commitWithAudit = vi.fn()
+    const service = new FavoriteRepositoryManagedFolderService({
+      repository: { getSnapshot: vi.fn(async () => current), commit: vi.fn(), commitWithAudit }
+    })
+    const work = await service.preview('100', 'bilimi-logical:work')
+    const inbox = await service.preview('100', 'local:inbox')
+
+    await expect(service.deleteLocalMany('100', [work.executionToken, inbox.executionToken]))
+      .rejects.toThrow('Local scan staging cannot be deleted with managed folders.')
+    expect(commitWithAudit).not.toHaveBeenCalled()
+  })
+
   it('requires preview, confirmation, and unchanged baseline for remote deletion; unknown results need reconciliation without retry', async () => {
     const current = managedSnapshot()
     const getSnapshot = vi.fn(async () => current)

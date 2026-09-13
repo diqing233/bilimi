@@ -2088,11 +2088,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         })()}
         {remoteDiscoveryProcessingError ? <p role="alert" className="favorite-ledger-panel__notice">{remoteDiscoveryProcessingError}</p> : null}
       </OldFavoriteModal> : null}
-      {rebindCandidates ? <OldFavoriteModal title={rebindModalTitle} confirmLabel={rebindConfirmLabel} confirmDisabled={rebindCandidates.some((entry) => entry.candidates.length > 0 && !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindTargetLedgerIds([]); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
+      {rebindCandidates ? <OldFavoriteModal className="old-favorite-modal__dialog--rebind" title={rebindModalTitle} confirmLabel={rebindConfirmLabel} confirmDisabled={rebindCandidates.some((entry) => entry.candidates.length > 0 && !(rebindSelectedFolderIds[entry.ledgerId] ?? []).length)} onCancel={() => { setRebindCandidates(null); setRebindTargetLedgerIds([]); setRebindSelections({}); setRebindSelectedFolderIds({}) }} onConfirm={() => void confirmRebinding()}>
         {rebindHasCreationTarget
           ? <p>以下已选收藏夹中，未找到可复用同名 bilimi 收藏夹的项会创建并绑定新的 B 站收藏夹；不会同步视频或处理其他收藏夹。{rebindHasExistingCandidate ? '已有候选的项请确认要绑定的实际收藏夹。' : ''}</p>
           : <p>检测到 B 站已有同名 bilimi 收藏夹，请确认要绑定的实际收藏夹。确认后只记录精确绑定，不会更改 B 站收藏夹名称。系统不会按名称自动绑定。</p>}
-        {rebindCandidates.map((entry) => {
+        <div className="favorite-ledger-panel__rebind-scroll">{rebindCandidates.map((entry) => {
            const ledger = draftLedgers.find((item) => item.id === entry.ledgerId)
            const logicalTitle = displayTitle(ledger?.displayName ?? entry.ledgerId)
            const defaultCandidates = orderedRebindCandidates(entry.candidates, logicalTitle)
@@ -2143,7 +2143,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
               })}
             </div> : null}
           </div>
-        })}
+        })}</div>
       </OldFavoriteModal> : null}
     </div>
     {resetConfirmOpen ? <OldFavoriteModal title="重置收藏夹规则？" confirmLabel="确认重置" onCancel={() => setResetConfirmOpen(false)} onConfirm={() => { resetLedgers(); setResetConfirmOpen(false) }}><p>恢复默认收藏夹名称和分类规则，保留自建收藏夹但取消其勾选，不会删除已有收藏夹。</p></OldFavoriteModal> : null}

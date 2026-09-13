@@ -1345,6 +1345,11 @@ export function ControlledFavoriteLedgerPanel({
     setStep('scan')
     setScanStartFailure(null)
   }
+  const stopBilibiliSyncAndFinish = async () => {
+    const stopped = await workspace.stopBilibiliSyncAndFinish()
+    if (stopped) closeGuide()
+    return stopped
+  }
   const closeCurrentWorkspace = async () => {
     if (recoveryPreparing) return
     setRecoveryPreparing(true)
@@ -1668,7 +1673,7 @@ export function ControlledFavoriteLedgerPanel({
         onConfirmAndSync={(includeInbox) => void confirmAndSync(includeInbox)}
         onExecuteFrozenPlan={() => void workspace.executeFrozenBilibiliPlan()}
         onPauseBilibiliSync={workspace.pauseBilibiliSync}
-        onStopSyncAndFinish={workspace.stopBilibiliSyncAndFinish}
+        onStopSyncAndFinish={stopBilibiliSyncAndFinish}
         onReconcile={() => void reconcile()}
       /> : null}
     </section>

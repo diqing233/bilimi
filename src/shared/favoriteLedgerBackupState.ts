@@ -26,14 +26,18 @@ export function favoriteLedgerBackupState(
   input: FavoriteLedgerBackupStateInput = {}
 ): FavoriteLedgerBackupState {
   const missing = new Set(input.missingLedgerIds ?? []).has(ledger.id)
-  const unbound = new Set(input.unboundLedgerIds ?? []).has(ledger.id) || ledger.bindingState === 'unbound'
+  // A persisted `unbound` value (including the user-deleted safety marker)
+  // is historical evidence, not proof that a current remote candidate exists.
+  // When the authoritative directory result is present, only its explicit
+  // candidate list may surface the actionable “未绑定” state.
+  const unbound = input.unboundLedgerIds === undefined && input.hasFormalPhysicalBinding === undefined
+    ? ledger.bindingState === 'unbound'
+    : new Set(input.unboundLedgerIds ?? []).has(ledger.id)
   const formal = input.hasFormalPhysicalBinding ?? (
     ledger.bindingState === 'bound' && Boolean(ledger.bilibiliFolderId?.trim() || ledger.bilibiliFolderIds?.some((id) => id.trim()))
   )
 
-  if (ledger.managedFolderDeletedByUser) return 'unbound'
   if (input.hasPartialPhysicalBinding) return 'partial'
-  if (ledger.bindingState === 'unbound' && !formal && input.unboundLedgerIds === undefined) return 'unbacked'
   if (formal && (missing || unbound)) return 'partial'
   if (unbound) return 'unbound'
   if (ledger.syncState === 'local-draft' || ledger.bindingState === 'unbacked' || missing || !formal) return 'unbacked'

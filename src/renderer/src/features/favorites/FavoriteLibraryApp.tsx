@@ -76,17 +76,7 @@ type ManagedFavoriteFolderDeletionCandidate = {
 }
 
 function workspaceBackupFolders(folders: readonly FavoriteRepositoryFolder[]) {
-  const logicalFolders = folders.filter((folder) => folder.kind === 'bilimi-logical' && Boolean(folder.logicalLedgerId))
-  if (!logicalFolders.some((folder) => folder.logicalLedgerId === 'inbox') && folders.some((folder) => folder.id === 'local:inbox')) {
-    return [{
-      id: 'bilimi-logical:inbox',
-      title: FAVORITE_LIBRARY_STAGING_TITLE,
-      kind: 'bilimi-logical',
-      logicalLedgerId: 'inbox',
-      syncState: 'local-only'
-    }, ...logicalFolders]
-  }
-  return logicalFolders
+  return folders.filter((folder) => folder.kind === 'bilimi-logical' && Boolean(folder.logicalLedgerId))
 }
 
 function managedRemoteDeletionSummary(candidates: ManagedFavoriteFolderDeletionCandidate[]) {
@@ -2002,14 +1992,13 @@ export function FavoriteLibraryApp({
     for (const logicalLedgerId of uniqueLedgerIds) {
       const folder = managedFolderByLogicalLedgerId.get(logicalLedgerId)
       if (!folder) throw new Error(text.unavailable)
-      const localFolderId = logicalLedgerId === 'inbox' ? 'local:inbox' : folder.id
-      const localPreview = await api.previewFavoriteLibraryManagedFolderDelete(accountMid, localFolderId) as { executionToken?: string }
+      const localPreview = await api.previewFavoriteLibraryManagedFolderDelete(accountMid, folder.id) as { executionToken?: string }
       if (!localPreview?.executionToken) throw new Error(text.unavailable)
       localExecutionTokens[logicalLedgerId] = localPreview.executionToken
       localCandidates.push({
         logicalLedgerId,
         title: folder.title,
-        memberCount: summary?.folderCounts?.[localFolderId] ?? 0,
+        memberCount: summary?.folderCounts?.[folder.id] ?? 0,
         state: 'local-only',
         requiresUnboundAcknowledgement: false
       })
@@ -2743,7 +2732,10 @@ export function FavoriteLibraryApp({
       {workspaceSyncConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="备册 bilimi 工作夹" busy={workspaceSyncExecuting} onClose={() => { if (!workspaceSyncExecuting) setWorkspaceSyncConfirmationOpen(false) }}>
         <p>请选择要备册的 bilimi 工作夹。备册只会为所选工作夹创建或绑定 B 站收藏夹，不会同步视频或修改其他收藏夹。</p>
         <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceSyncSelection(backupFolders.map((folder) => folder.id))}>全选</button></div>
-        <ul className="favorite-library__managed-folder-preview">{backupFolders.map((folder) => <li key={folder.id}><label><input type="checkbox" aria-label={`选择 ${folder.title}`} checked={workspaceSyncSelection.includes(folder.id)} disabled={workspaceSyncExecuting} onChange={(event) => setWorkspaceSyncSelection((current) => event.currentTarget.checked ? [...new Set([...current, folder.id])] : current.filter((id) => id !== folder.id))} /><span>{folder.title}</span></label></li>)}</ul>
+        <ul className="favorite-library__managed-folder-preview">{backupFolders.map((folder) => <li key={folder.id}><label><input type="checkbox" aria-label={`选择 ${folder.title}`} checked={workspaceSyncSelection.includes(folder.id)} disabled={workspaceSyncExecuting} onChange={(event) => {
+          const checked = event.currentTarget.checked
+          setWorkspaceSyncSelection((current) => checked ? [...new Set([...current, folder.id])] : current.filter((id) => id !== folder.id))
+        }} /><span>{folder.title}</span></label></li>)}</ul>
         <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceSyncConfirmationOpen(false)}>取消</button><button type="button" disabled={workspaceSyncExecuting || !workspaceSyncSelection.length} onClick={() => void runAction(confirmWorkspaceSync)}>开始备册</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       {workspaceBoundRenameCandidates ? <FavoriteLibraryConfirmationDialog label="确认修改 B 站收藏夹名称" busy={workspaceSyncExecuting} onClose={() => {
@@ -2809,7 +2801,10 @@ export function FavoriteLibraryApp({
         <ul className="favorite-library__managed-folder-preview">{managedFolderDeletionDialog.candidates.map((candidate) => {
           const selectedCandidate = managedFolderDeletionDialog.mode === 'single' || managedFolderDeletionSelection.includes(candidate.logicalLedgerId)
           const label = <span>{candidate.title}（{candidate.memberCount} 个视频，{candidate.state === 'bound' ? '已备册' : candidate.state === 'unbound-name-match' || candidate.state === 'unbound-historical-id' ? '未绑定' : candidate.state === 'missing-remote' ? '远端已不存在' : '未备册'}）</span>
-          return <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>{managedFolderDeletionDialog.mode === 'single' ? label : <label><input type="checkbox" aria-label={`选择 ${candidate.title}`} checked={selectedCandidate} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionSelection((current) => event.currentTarget.checked ? [...new Set([...current, candidate.logicalLedgerId])] : current.filter((id) => id !== candidate.logicalLedgerId))} />{label}</label>}</li>
+          return <li key={`${candidate.logicalLedgerId}:${candidate.remoteFolderId ?? 'local'}`}>{managedFolderDeletionDialog.mode === 'single' ? label : <label><input type="checkbox" aria-label={`选择 ${candidate.title}`} checked={selectedCandidate} disabled={managedFolderDeletionExecuting} onChange={(event) => {
+            const checked = event.currentTarget.checked
+            setManagedFolderDeletionSelection((current) => checked ? [...new Set([...current, candidate.logicalLedgerId])] : current.filter((id) => id !== candidate.logicalLedgerId))
+          }} />{label}</label>}</li>
         })}</ul>
         {managedFolderDeletionScope === 'bilibili' && managedFolderDeletionDialog.candidates.some((candidate) => hasRemoteManagedFolderDeletionTarget(candidate) && candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={managedFolderDeletionAcknowledgedUnbound} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到 {managedFolderDeletionDialog.candidates.filter((candidate) => hasRemoteManagedFolderDeletionTarget(candidate) && candidate.requiresUnboundAcknowledgement).length} 个未绑定的 bilimi 收藏夹。它们通过历史收藏夹 ID 与本次 B 站目录核验一致，但尚未建立本地绑定；请确认后再删除。</label> : null}
         <label><input type="checkbox" aria-label="我已确认" checked={managedFolderDeletionAcknowledged} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionAcknowledged(event.currentTarget.checked)} />我已确认</label>
