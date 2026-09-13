@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createAccountFavoriteRepositorySnapshot } from '../../src/shared/favoriteRepository'
+import { applyFavoriteRepositoryCommand, createAccountFavoriteRepositorySnapshot } from '../../src/shared/favoriteRepository'
 import { createRemoteObservationFavoriteLedgerId } from '../../src/shared/favoriteLedgers'
 import type { FavoriteLedger } from '../../src/shared/types'
-import { planFavoriteLibraryManagedFolderProjection, restoreFavoriteLibraryManagedFolderProjection } from './favoriteLibraryManagedFolderProjection'
+import {
+  planFavoriteLibraryManagedFolderProjection,
+  restoreEmptyFavoriteLibraryManagedFolderProjection,
+  restoreFavoriteLibraryManagedFolderProjection
+} from './favoriteLibraryManagedFolderProjection'
 
 function ledger(id: string, displayName: string, bilibiliFolderId?: string): FavoriteLedger {
   return { id, displayName, keywords: [], enabled: true, priority: 1, isDefault: false, ...(bilibiliFolderId ? { bilibiliFolderId } : {}) }
@@ -18,6 +22,94 @@ function snapshot(folders: Array<{ id: string; title: string; aids?: number[] }>
 }
 
 describe('favorite library managed folder projection', () => {
+  it('restores an enabled retained binding as an empty managed folder without remote input', async () => {
+    const remoteFolderId = '4050295454'
+    let current = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-09-14T00:00:00.000Z' }),
+      physicalShards: [{
+        logicalLedgerId: 'creative-aesthetic', folderId: 'bilimi:creative-aesthetic:001', shardNumber: 1,
+        remoteTitle: 'bilimi·创意美学', bindingState: 'bound' as const, remoteFolderId, remoteMemberCount: 8
+      }],
+      memberships: { 'bilibili:4050295454': [1, 2, 3] }
+    }
+    const commit = vi.fn(async (_accountMid: string, command: import('../../src/shared/favoriteRepository').FavoriteRepositoryCommand) => {
+      current = applyFavoriteRepositoryCommand(current, command, '2026-09-14T00:00:01.000Z')
+      return current
+    })
+
+    await restoreEmptyFavoriteLibraryManagedFolderProjection({
+      accountMid: '100', repository: { getSnapshot: async () => current, commit },
+      ledgers: [ledger('creative-aesthetic', 'bilimi·创意美学', remoteFolderId)],
+      now: () => '2026-09-14T00:00:01.000Z'
+    })
+
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'upsert-physical-shard-binding',
+      payload: expect.objectContaining({
+        logicalLedgerId: 'creative-aesthetic', shardNumber: 1, remoteFolderId,
+        memberAids: [], remoteMemberCount: 8
+      })
+    }))
+    expect(current.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:creative-aesthetic', logicalLedgerId: 'creative-aesthetic' })
+    ]))
+    expect(current.memberships['bilimi-logical:creative-aesthetic']).toEqual([])
+    expect(current.memberships['bilimi:creative-aesthetic:001']).toEqual([])
+    expect(current.memberships['bilibili:4050295454']).toEqual([1, 2, 3])
+  })
+
+  it('does not restore an empty managed folder for a disabled rule', async () => {
+    const current = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-09-14T00:00:00.000Z' }),
+      physicalShards: [{
+        logicalLedgerId: 'creative-aesthetic', folderId: 'bilimi:creative-aesthetic:001', shardNumber: 1,
+        remoteTitle: 'bilimi·创意美学', bindingState: 'bound' as const, remoteFolderId: '4050295454'
+      }]
+    }
+    const commit = vi.fn()
+
+    await restoreEmptyFavoriteLibraryManagedFolderProjection({
+      accountMid: '100', repository: { getSnapshot: async () => current, commit },
+      ledgers: [{ ...ledger('creative-aesthetic', 'bilimi·创意美学', '4050295454'), enabled: false }]
+    })
+
+    expect(commit).not.toHaveBeenCalled()
+  })
+
+  it('creates an empty managed folder for an enabled unbacked rule', async () => {
+    let current = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-09-14T00:00:00.000Z' })
+    const commit = vi.fn(async (_accountMid: string, command: import('../../src/shared/favoriteRepository').FavoriteRepositoryCommand) => {
+      current = applyFavoriteRepositoryCommand(current, command, '2026-09-14T00:00:01.000Z')
+      return current
+    })
+
+    await restoreEmptyFavoriteLibraryManagedFolderProjection({
+      accountMid: '100', repository: { getSnapshot: async () => current, commit },
+      ledgers: [ledger('creative-aesthetic', 'bilimi·创意美学')]
+    })
+
+    expect(current.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:creative-aesthetic', logicalLedgerId: 'creative-aesthetic' })
+    ]))
+    expect(current.memberships['bilimi-logical:creative-aesthetic']).toEqual([])
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'commit-local-plan',
+      payload: expect.objectContaining({ memberAidsByFolderId: { 'bilimi-logical:creative-aesthetic': [] } })
+    }))
+  })
+
+  it('does not turn the default inbox rule into a managed work folder', async () => {
+    const current = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-09-14T00:00:00.000Z' })
+    const commit = vi.fn()
+
+    await restoreEmptyFavoriteLibraryManagedFolderProjection({
+      accountMid: '100', repository: { getSnapshot: async () => current, commit },
+      ledgers: [{ ...ledger('inbox', 'bilimi·暂存'), isDefault: true }]
+    })
+
+    expect(commit).not.toHaveBeenCalled()
+  })
+
   it('restores an exact account-configured remote id as an explicitly unbound work-folder candidate', () => {
     const result = planFavoriteLibraryManagedFolderProjection({
       snapshot: snapshot([{ id: '4050295454', title: 'bilimi\u00b7\u521b\u610f\u7f8e\u5b66', aids: [11, 12] }]),

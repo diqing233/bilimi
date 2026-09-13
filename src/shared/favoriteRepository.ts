@@ -2655,7 +2655,10 @@ export function applyFavoriteRepositoryCommand(
       const removesRemoteBindings = deletingInbox || confirmedRemoteFolderIds.size > 0
       const removedFolderIds = new Set([
         ...logicalFolderIds,
-        ...(removesRemoteBindings ? removedShards.map((shard) => shard.folderId) : [])
+        // Keep formal physical-shard identities after a local-only deletion,
+        // but remove their local memberships so a later work-folder shell
+        // cannot resurrect the deleted local collection.
+        ...removedShards.map((shard) => shard.folderId)
       ])
       const confirmedRemoteObservationIds = new Set([
         ...confirmedRemoteFolderIds,

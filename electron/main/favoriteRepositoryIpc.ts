@@ -729,6 +729,12 @@ export function registerFavoriteRepositoryIpc(options: {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
+    // A refresh is a local Favorite Library activity. Complete the bounded
+    // empty-shell projection before its summary is read, without doing any
+    // remote inventory work or touching Bilibili.
+    if (options.onAccountOpenLocal) {
+      await options.onAccountOpenLocal(accountMid)
+    }
     return readLibrarySummary(accountMid)
   })
   options.ipcMain.handle('favorite-repository:get-remote-draft-reminder-dismissals', async (event, requestedAccountMid: string) => {

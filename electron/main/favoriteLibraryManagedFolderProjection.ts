@@ -300,3 +300,96 @@ export async function restoreFavoriteLibraryManagedFolderProjection(input: {
   }
   return plan(current)
 }
+
+/**
+ * Recreates only the local work-folder shell after the owner chose “仅从收藏库删除”.
+ * The retained physical shard remains the binding identity, but its old local
+ * members have already been deliberately discarded by that deletion command.
+ * This must therefore never read Bilibili or copy a mirror's membership.
+ */
+export async function restoreEmptyFavoriteLibraryManagedFolderProjection(input: {
+  accountMid: string
+  repository: ProjectionRepository
+  ledgers: readonly FavoriteLedger[]
+  now?: () => string
+}) {
+  let snapshot = await input.repository.getSnapshot(input.accountMid)
+  const enabledLedgers = new Map(input.ledgers
+    .filter((ledger) => ledger.enabled && ledger.id !== 'inbox')
+    .map((ledger) => [ledger.id, ledger]))
+  const unbackedLedgers = [...enabledLedgers.values()]
+    .filter((ledger) => !snapshot.folders.some((folder) =>
+      folder.kind === 'bilimi-logical' && folder.logicalLedgerId === ledger.id))
+    .filter((ledger) => !snapshot.physicalShards.some((shard) => shard.logicalLedgerId === ledger.id))
+  if (unbackedLedgers.length) {
+    await input.repository.commit(input.accountMid, {
+      id: `favorite-library:restore-empty-unbacked:${unbackedLedgers.map((ledger) => ledger.id).sort().join(':')}:${snapshot.revision}`,
+      accountMid: input.accountMid,
+      issuedAt: input.now?.() ?? new Date().toISOString(),
+      type: 'commit-local-plan',
+      payload: {
+        workspaceId: `favorite-library:restore-empty:${snapshot.revision}`,
+        memberAidsByFolderId: Object.fromEntries(unbackedLedgers.map((ledger) => [`bilimi-logical:${ledger.id}`, []])),
+        folders: unbackedLedgers.map((ledger) => ({
+          id: `bilimi-logical:${ledger.id}`,
+          title: ledger.displayName,
+          kind: 'bilimi-logical' as const,
+          logicalLedgerId: ledger.id,
+          syncState: 'local-only' as const
+        }))
+      }
+    })
+    snapshot = await input.repository.getSnapshot(input.accountMid)
+  }
+  const retainedLocalShardIds = snapshot.physicalShards
+    .filter((shard) => !snapshot.folders.some((folder) =>
+      folder.kind === 'bilimi-logical' && folder.logicalLedgerId === shard.logicalLedgerId))
+    .filter((shard) => enabledLedgers.has(shard.logicalLedgerId))
+    .map((shard) => shard.folderId)
+    .filter((folderId) => (snapshot.memberships[folderId] ?? []).length > 0)
+  if (retainedLocalShardIds.length) {
+    for (const folderId of retainedLocalShardIds.sort()) {
+      await input.repository.commit(input.accountMid, {
+        id: `favorite-library:clear-retained-local-members:${folderId}:${snapshot.revision}`,
+        accountMid: input.accountMid,
+        issuedAt: input.now?.() ?? new Date().toISOString(),
+        type: 'set-folder-members',
+        payload: { folderId, aids: [] }
+      })
+    }
+    snapshot = await input.repository.getSnapshot(input.accountMid)
+  }
+  const current = snapshot
+  const missingLogicalLedgerIds = new Set(current.physicalShards
+    .map((shard) => shard.logicalLedgerId)
+    .filter((logicalLedgerId) => enabledLedgers.has(logicalLedgerId))
+    .filter((logicalLedgerId) => !current.folders.some((folder) =>
+      folder.kind === 'bilimi-logical' && folder.logicalLedgerId === logicalLedgerId)))
+  const restored: string[] = []
+
+  for (const shard of current.physicalShards) {
+    if (!missingLogicalLedgerIds.has(shard.logicalLedgerId)) continue
+    const ledger = enabledLedgers.get(shard.logicalLedgerId)
+    if (!ledger) continue
+    await input.repository.commit(input.accountMid, {
+      id: `favorite-library:restore-empty-managed:${shard.logicalLedgerId}:${shard.shardNumber}:${current.revision}`,
+      accountMid: input.accountMid,
+      issuedAt: input.now?.() ?? new Date().toISOString(),
+      type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: shard.logicalLedgerId,
+        logicalTitle: ledger.displayName,
+        shardNumber: shard.shardNumber,
+        memberAids: [],
+        remoteTitle: shard.remoteTitle,
+        bindingState: shard.bindingState,
+        ...(shard.remoteFolderId ? { remoteFolderId: shard.remoteFolderId } : {
+          knownRemoteFolderIds: shard.knownRemoteFolderIds ?? []
+        }),
+        ...(shard.remoteMemberCount === undefined ? {} : { remoteMemberCount: shard.remoteMemberCount })
+      }
+    })
+    restored.push(shard.logicalLedgerId)
+  }
+  return [...new Set(restored)].sort()
+}

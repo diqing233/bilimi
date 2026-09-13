@@ -424,6 +424,23 @@ describe('registerFavoriteRepositoryIpc', () => {
     recovery.resolve()
   })
 
+  it('runs local empty-folder recovery before a snapshot refresh summary', async () => {
+    const ipcMain = new FakeIpcMain()
+    const onAccountOpenLocal = vi.fn().mockResolvedValue(undefined)
+    const getLibrarySummary = vi.fn().mockResolvedValue({ accountMid: '100', revision: 8 })
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: { getLibrarySummary } as never,
+      isTrustedSender: (senderId) => senderId === 7,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      onAccountOpenLocal
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:get-snapshot', 7, '100')).resolves.toEqual({ accountMid: '100', revision: 8 })
+
+    expect(onAccountOpenLocal).toHaveBeenCalledWith('100')
+    expect(onAccountOpenLocal).toHaveBeenCalledBefore(getLibrarySummary)
+  })
+
   it('coalesces repeated account opens into one in-flight recovery', async () => {
     const ipcMain = new FakeIpcMain()
     const recovery = deferred<void>()

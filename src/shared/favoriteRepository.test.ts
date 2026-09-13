@@ -476,7 +476,7 @@ describe('account favorite repository contracts', () => {
     expect(restored.organizationRecords).toEqual(snapshot.organizationRecords)
   })
 
-  it('keeps a local-only managed-folder deletion out of inbox and recycle while retained Bilibili sources await the next scan', () => {
+  it('clears reusable local members when deleting a managed folder locally', () => {
     const now = '2026-08-05T00:00:00.000Z'
     const snapshot = {
       ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now }),
@@ -520,7 +520,7 @@ describe('account favorite repository contracts', () => {
     expect(deleted.physicalShards).toEqual([expect.objectContaining({
       logicalLedgerId: 'work', folderId: 'bilimi:work:001', remoteFolderId: '91', bindingState: 'bound'
     })])
-    expect(deleted.memberships['bilimi:work:001']).toEqual([1, 2, 3])
+    expect(deleted.memberships['bilimi:work:001']).toBeUndefined()
     expect(deleted.memberships['bilibili:work']).toEqual([1, 2, 3])
     expect(deleted.positions['100:1']?.localDesiredFolderIds).toEqual([])
     expect(deleted.positions['100:2']?.localDesiredFolderIds).toEqual(['bilimi-logical:music'])

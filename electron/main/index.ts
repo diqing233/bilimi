@@ -116,6 +116,7 @@ import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepository
 import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
 import { FavoriteRepositoryBatchOperationService } from './favoriteRepositoryBatchOperationService'
 import { FavoriteRepositoryManagedFolderService } from './favoriteRepositoryManagedFolderService'
+import { FavoriteRepositoryEmptyManagedFolderRecovery } from './favoriteRepositoryEmptyManagedFolderRecovery'
 import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperationsIpc'
 import { persistConfirmedManagedFolderDeletion } from './managedFavoriteLedgerDeletionPersistence'
 import { resolveFavoriteLibraryOperationSource } from './favoriteLibraryOperationSource'
@@ -836,6 +837,7 @@ let bilibiliFavoriteSpaceRefreshCoordinator: BilibiliFavoriteSpaceRefreshCoordin
 let favoriteLibraryCommandService: FavoriteLibraryCommandService | undefined
 let favoriteRepositoryBatchOperationService: FavoriteRepositoryBatchOperationService | undefined
 let favoriteRepositoryManagedFolderService: FavoriteRepositoryManagedFolderService | undefined
+let favoriteRepositoryEmptyManagedFolderRecovery: FavoriteRepositoryEmptyManagedFolderRecovery | undefined
 let localDataService: LocalDataService | undefined
 const favoriteRepositoryRemoteOperations = new FavoriteRepositoryRemoteOperationArbiter()
 let oldFavoriteWorkspaceCoordinator: OldFavoriteWorkspaceCoordinator | undefined
@@ -2580,6 +2582,19 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     getTranscriptionItems: () => getVideoTranscriptionQueue().getSnapshot().items,
     getTranscriptionArchives: () => loadVideoNoteArchives(getDesktopStore())
   })
+  favoriteRepositoryEmptyManagedFolderRecovery = new FavoriteRepositoryEmptyManagedFolderRecovery({
+    repository: favoriteRepositoryService,
+    loadFavoriteLedgers: (accountMid) => loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
+  })
+  // Every completed local operation (scan, backup, review, local save, or
+  // refresh-fed write) gets a coalesced empty-shell check. It has no Bilibili
+  // bridge and is intentionally fire-and-forget so repository publishers never
+  // make interactive renderer input wait for a second local commit.
+  favoriteRepositoryService.onChanged((result) => {
+    void favoriteRepositoryEmptyManagedFolderRecovery?.afterRepositoryActivity(result).catch((error) => {
+      console.error('Favorite Library empty managed-folder recovery failed:', error)
+    })
+  })
   traceStartupPhase('repository:create')
   const recoveredPortableImport = await favoriteRepositoryService.recoverPortableImportTransaction()
   if (recoveredPortableImport) {
@@ -3268,6 +3283,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     // account opening must never turn an observation into a library shard.
     onAccountOpenLocal: async (accountMid) => {
       await reconcileFavoriteLedgerBindingProjection(accountMid, { recoverUserConfirmedAdoptions: true })
+      await favoriteRepositoryEmptyManagedFolderRecovery?.restoreForLocalRead(accountMid)
     },
     // A user-local deletion is not the same as choosing “不再提醒”. The
     // former must not hide a still-existing remote bilimi folder from the
