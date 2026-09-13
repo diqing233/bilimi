@@ -117,6 +117,7 @@ import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
 import { FavoriteRepositoryBatchOperationService } from './favoriteRepositoryBatchOperationService'
 import { FavoriteRepositoryManagedFolderService } from './favoriteRepositoryManagedFolderService'
 import { FavoriteRepositoryEmptyManagedFolderRecovery } from './favoriteRepositoryEmptyManagedFolderRecovery'
+import { favoriteLedgerBackupStatesForLibrary } from './favoriteLibraryBackupStates'
 import { registerFavoriteLibraryOperationsIpc } from './favoriteLibraryOperationsIpc'
 import { persistConfirmedManagedFolderDeletion } from './managedFavoriteLedgerDeletionPersistence'
 import { resolveFavoriteLibraryOperationSource } from './favoriteLibraryOperationSource'
@@ -126,7 +127,6 @@ import {
   removeUnsavedFavoriteLedgerDraft
 } from '../../src/shared/favoriteLedgerDraftDeletion'
 import { projectFavoriteLedgersFromPhysicalShards } from '../../src/shared/favoriteLedgerBindingProjection'
-import { favoriteLedgerBackupState } from '../../src/shared/favoriteLedgerBackupState'
 import { createFavoriteLibraryRemoteUnfavorite, FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 import { fetchFavoriteVideoMetadata } from './favoriteVideoMetadata'
 import {
@@ -1112,35 +1112,6 @@ async function reconcileFavoriteLedgerBindingProjection(
 }
 
 /** The drawer receives this account-rule-aware result instead of inferring status from shards alone. */
-function favoriteLedgerBackupStatesForLibrary(
-  accountMid: string,
-  summary: {
-    physicalShardCount?: number
-    physicalShards: Array<{ logicalLedgerId: string; bindingState: string; remoteFolderId?: string }>
-    folders?: Array<{ kind: string; logicalLedgerId?: string }>
-  }
-) {
-  const ledgers = loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers
-  const physicalShardDetailsIncomplete = Number(summary.physicalShardCount ?? 0) !== summary.physicalShards.length
-  return Object.fromEntries(ledgers.map((ledger) => {
-    const shards = summary.physicalShards.filter((shard) => shard.logicalLedgerId === ledger.id)
-    const hasFormalPhysicalBinding = shards.length > 0 && shards.every((shard) =>
-      shard.bindingState === 'bound' && Boolean(shard.remoteFolderId?.trim()))
-    const hasPartialPhysicalBinding = !hasFormalPhysicalBinding && shards.some((shard) =>
-      shard.bindingState === 'bound' && Boolean(shard.remoteFolderId?.trim()))
-    // The persisted unbound/deleted marker prevents automatic adoption, but
-    // it is not current directory evidence of a folder the user can bind.
-    const hasUnresolvedPhysicalBinding = (!hasFormalPhysicalBinding && shards.length > 0) ||
-      (physicalShardDetailsIncomplete && (shards.length > 0 || summary.folders?.some((folder) =>
-        folder.kind === 'bilimi-logical' && folder.logicalLedgerId === ledger.id)))
-    return [ledger.id, favoriteLedgerBackupState(ledger, {
-      hasFormalPhysicalBinding,
-      hasPartialPhysicalBinding,
-      ...(hasUnresolvedPhysicalBinding ? { unboundLedgerIds: [ledger.id] } : {})
-    })]
-  }))
-}
-
 /** Refreshes the account rule projection after any automatic shard mutation. */
 async function refreshFavoriteLedgerBindingProjectionAfterPhysicalShard(accountMid: string) {
   await reconcileFavoriteLedgerBindingProjection(accountMid)
@@ -3270,7 +3241,10 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       .map((ledger) => ledger.id),
     getSuppressedRemoteFolderIds: (accountMid) =>
       loadFavoriteLedgerRemoteDraftRediscoveryPending(getDesktopStore(), accountMid),
-    getFavoriteLedgerBackupStates: favoriteLedgerBackupStatesForLibrary,
+    getFavoriteLedgerBackupStates: (accountMid, summary) => favoriteLedgerBackupStatesForLibrary(
+      loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers,
+      summary
+    ),
     send: (senderId, channel, payload) => {
       const target = webContents.fromId(senderId)
       if (target && !target.isDestroyed()) target.send(channel, payload)

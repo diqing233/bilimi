@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { favoriteLedgerBackupStatesForLibrary } from './favoriteLibraryBackupStates'
 
 const mainSource = readFileSync(resolve(process.cwd(), 'electron/main/index.ts'), 'utf8')
 
@@ -71,18 +72,19 @@ describe('favorite ledger configuration refresh IPC', () => {
   })
 
   it('derives library backup states from current physical evidence rather than historical unbound protection', () => {
-    const stateStart = mainSource.indexOf('function favoriteLedgerBackupStatesForLibrary(')
-    const stateEnd = mainSource.indexOf('\n}\n\n/** Refreshes the account rule projection', stateStart)
-    const state = mainSource.slice(stateStart, stateEnd)
-    expect(state).not.toContain("ledger.bindingState === 'unbound'")
-    expect(state).toContain('hasPartialPhysicalBinding')
-    expect(mainSource).toContain('getFavoriteLedgerBackupStates: favoriteLedgerBackupStatesForLibrary')
+    const stateSource = readFileSync(resolve(process.cwd(), 'electron/main/favoriteLibraryBackupStates.ts'), 'utf8')
+    expect(stateSource).toContain("ledger.bindingState === 'unbound'")
+    expect(stateSource).toContain('hasPartialPhysicalBinding')
+    expect(mainSource).toContain('getFavoriteLedgerBackupStates: (accountMid, summary) => favoriteLedgerBackupStatesForLibrary(')
+    expect(mainSource).toContain('loadFavoriteAccountPreferences(getDesktopStore(), accountMid).favoriteLedgers')
+    expect(favoriteLedgerBackupStatesForLibrary([{
+      id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 1,
+      isDefault: false, bindingState: 'unbound'
+    }], { physicalShardCount: 0, physicalShards: [] })).toEqual({ music: 'unbound' })
   })
 
   it('fails closed for the library when a physical shard count omits detail rows', () => {
-    const stateStart = mainSource.indexOf('function favoriteLedgerBackupStatesForLibrary(')
-    const stateEnd = mainSource.indexOf('\n}\n\n/** Refreshes the account rule projection', stateStart)
-    const state = mainSource.slice(stateStart, stateEnd)
+    const state = readFileSync(resolve(process.cwd(), 'electron/main/favoriteLibraryBackupStates.ts'), 'utf8')
     expect(state).toContain('physicalShardDetailsIncomplete')
     expect(state).toContain('summary.physicalShardCount')
     expect(state).toContain("folder.kind === 'bilimi-logical'")

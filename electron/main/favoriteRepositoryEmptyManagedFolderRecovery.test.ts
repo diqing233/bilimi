@@ -77,6 +77,29 @@ describe('favorite repository empty managed-folder recovery', () => {
     ]))
   })
 
+  it('keeps a local deletion visible through its immediate summary read, then restores an empty shell on a later read', async () => {
+    const memory = memoryRepository(deletedLocalProjection())
+    const recovery = new FavoriteRepositoryEmptyManagedFolderRecovery({
+      repository: memory.repository,
+      loadFavoriteLedgers: async () => [ledger()],
+      now: () => now
+    })
+
+    await recovery.afterRepositoryActivity({ ...memory.current, commandId: 'managed-folder:delete-local:abc', affectedAids: [], affectedFolderIds: [] } as FavoriteRepositoryCommandResult)
+    await recovery.restoreForLocalRead(accountMid)
+
+    expect(memory.current.folders).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:music' })
+    ]))
+
+    await recovery.restoreForLocalRead(accountMid)
+
+    expect(memory.current.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:music', logicalLedgerId: 'music' })
+    ]))
+    expect(memory.current.memberships['bilimi-logical:music']).toEqual([])
+  })
+
   it('keeps a disabled rule hidden during a local refresh', async () => {
     const memory = memoryRepository(deletedLocalProjection())
     memory.current.memberships['bilimi:music:001'] = [1, 2, 3, 4]

@@ -123,7 +123,7 @@ function displayFolderTitle(folder: FavoriteRepositoryFolder) {
 export type FavoriteLibraryLedgerBindingStatus = {
   kind: 'backed' | 'missing' | 'unbound' | 'partial' | 'draft'
   label: '已备册' | '未备册' | '未绑定' | '部分已备册 · 仍待绑定' | '已生成草稿' | '收藏夹已删除'
-  actionLabel?: '去掌库收藏夹设置保存后绑定' | '恢复当前收藏夹'
+  actionLabel?: '恢复当前收藏夹'
 }
 
 export function favoriteLibraryLedgerBindingStatus(
@@ -137,34 +137,33 @@ export function favoriteLibraryLedgerBindingStatus(
   if (!folder?.logicalLedgerId) return undefined
   if (folder.kind === 'local') {
     return folder.id === `local:${folder.logicalLedgerId}`
-      ? { kind: 'draft', label: '已生成草稿', actionLabel: '去掌库收藏夹设置保存后绑定' }
+      ? { kind: 'draft', label: '已生成草稿' }
       : undefined
   }
   if (folder.kind !== 'bilimi-logical') return undefined
   if (evidence.backupState === 'unbound') {
-    return { kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }
+    return { kind: 'unbound', label: '未绑定' }
   }
   if (evidence.backupState === 'partial') {
-    return { kind: 'partial', label: '部分已备册 · 仍待绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }
+    return { kind: 'partial', label: '部分已备册 · 仍待绑定' }
   }
   if (evidence.backupState === 'unbacked') {
-    return { kind: 'missing', label: '未备册', actionLabel: '去掌库收藏夹设置保存后绑定' }
+    return { kind: 'missing', label: '未备册' }
   }
   if (folder.syncState === 'local-only') {
-    return { kind: 'missing', label: '未备册', actionLabel: '去掌库收藏夹设置保存后绑定' }
+    return { kind: 'missing', label: '未备册' }
   }
   if (evidence.hasPartialPhysicalBinding === true ||
     (folder.syncState === 'pending-reconcile' && evidence.hasFormalPhysicalBinding === true)) {
-    return { kind: 'partial', label: '部分已备册 · 仍待绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }
+    return { kind: 'partial', label: '部分已备册 · 仍待绑定' }
   }
   if (folder.syncState === 'pending-reconcile' || evidence.hasFormalPhysicalBinding === false) {
-    return { kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' }
+    return { kind: 'unbound', label: '未绑定' }
   }
   if (folder.syncState === 'bound') return { kind: 'backed', label: '已备册' }
-  const actionLabel = '去掌库收藏夹设置保存后绑定' as const
   return folder.logicalLedgerId.startsWith('custom-')
-    ? { kind: 'draft', label: '已生成草稿', actionLabel }
-    : { kind: 'missing', label: '未备册', actionLabel }
+    ? { kind: 'draft', label: '已生成草稿' }
+    : { kind: 'missing', label: '未备册' }
 }
 
 /** Converts main-process snapshot states to labels without retaining state in the renderer. */

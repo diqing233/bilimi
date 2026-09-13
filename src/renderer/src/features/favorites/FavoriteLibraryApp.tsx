@@ -1476,14 +1476,14 @@ export function FavoriteLibraryApp({
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
     }
   }
-  const runAction = async (action: () => Promise<unknown>) => {
+  const runAction = async (action: () => Promise<unknown>, refreshLibrary = true) => {
     try {
       if (refreshPendingRef.current || refreshInFlightRef.current) await awaitLibraryRefresh()
       setError(undefined)
       setWorkspaceSyncResult(undefined)
       setBatchEligibilityNotice(undefined)
       await action()
-      if (accountMid) await refresh(accountMid)
+      if (refreshLibrary && accountMid) await refresh(accountMid)
     } catch (error) {
       setError(favoriteLibraryActionFailureMessage(error))
     }
@@ -2247,7 +2247,6 @@ export function FavoriteLibraryApp({
         if (!api?.deleteFavoriteLibraryManagedFoldersLocal || executionTokens.length !== logicalLedgerIds.length) throw new Error(text.unavailable)
         await api.deleteFavoriteLibraryManagedFoldersLocal(accountMid, executionTokens)
         setManagedFolderDeletionDialog(undefined)
-        await refresh(accountMid)
         return
       }
       if (!api?.deleteManagedFavoriteFolders || !remoteSelectedCandidates.length) throw new Error(text.unavailable)
@@ -2808,7 +2807,7 @@ export function FavoriteLibraryApp({
         })}</ul>
         {managedFolderDeletionScope === 'bilibili' && managedFolderDeletionDialog.candidates.some((candidate) => hasRemoteManagedFolderDeletionTarget(candidate) && candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={managedFolderDeletionAcknowledgedUnbound} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到 {managedFolderDeletionDialog.candidates.filter((candidate) => hasRemoteManagedFolderDeletionTarget(candidate) && candidate.requiresUnboundAcknowledgement).length} 个未绑定的 bilimi 收藏夹。它们通过历史收藏夹 ID 与本次 B 站目录核验一致，但尚未建立本地绑定；请确认后再删除。</label> : null}
         <label><input type="checkbox" aria-label="我已确认" checked={managedFolderDeletionAcknowledged} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionAcknowledged(event.currentTarget.checked)} />我已确认</label>
-        <div className="favorite-library__dialog-actions"><button type="button" disabled={managedFolderDeletionExecuting} onClick={() => setManagedFolderDeletionDialog(undefined)}>取消</button><button type="button" className="favorite-library__danger-action" disabled={managedFolderDeletionExecuting || (managedFolderDeletionDialog.mode === 'batch' && !managedFolderDeletionSelection.length) || !managedFolderDeletionAcknowledged || (managedFolderDeletionScope === 'bilibili' && managedFolderDeletionDialog.candidates.filter((candidate) => (managedFolderDeletionDialog.mode === 'single' || managedFolderDeletionSelection.includes(candidate.logicalLedgerId)) && hasRemoteManagedFolderDeletionTarget(candidate)).some((candidate) => candidate.requiresUnboundAcknowledgement) && !managedFolderDeletionAcknowledgedUnbound)} onClick={() => void runAction(confirmManagedFolderDeletion)}>删除</button></div>
+        <div className="favorite-library__dialog-actions"><button type="button" disabled={managedFolderDeletionExecuting} onClick={() => setManagedFolderDeletionDialog(undefined)}>取消</button><button type="button" className="favorite-library__danger-action" disabled={managedFolderDeletionExecuting || (managedFolderDeletionDialog.mode === 'batch' && !managedFolderDeletionSelection.length) || !managedFolderDeletionAcknowledged || (managedFolderDeletionScope === 'bilibili' && managedFolderDeletionDialog.candidates.filter((candidate) => (managedFolderDeletionDialog.mode === 'single' || managedFolderDeletionSelection.includes(candidate.logicalLedgerId)) && hasRemoteManagedFolderDeletionTarget(candidate)).some((candidate) => candidate.requiresUnboundAcknowledgement) && !managedFolderDeletionAcknowledgedUnbound)} onClick={() => void runAction(confirmManagedFolderDeletion, managedFolderDeletionScope !== 'local-only')}>删除</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       {conflictsOpen && summary?.folderConflicts?.length ? <FavoriteLibraryConfirmationDialog label="收藏夹问题处理" onClose={() => setConflictsOpen(false)}>
         <h2>收藏夹问题</h2>
@@ -2931,15 +2930,9 @@ export function FavoriteLibraryApp({
             <h2 {...(!page ? { role: 'status', 'aria-label': workspaceTitle } : {})}>{workspaceTitle}{workspaceVideoCount !== undefined ? <small className="favorite-library__workspace-video-count"> {workspaceVideoCount} 个视频</small> : null}</h2>
             {currentLedgerBindingStatus ? <span className="favorite-library__ledger-binding-status" data-state={currentLedgerBindingStatus.kind}>
               <strong>{currentLedgerBindingStatus.label}</strong>
-              {currentLedgerBindingStatus.actionLabel && currentFolder?.logicalLedgerId ? <button type="button" onClick={() => void runAction(async () => {
-                if (currentLedgerBindingStatus.actionLabel === '恢复当前收藏夹') {
-                  if (!accountMid || !window.bilimiDesktop?.restoreFavoriteLedgersLocal) throw new Error(text.unavailable)
-                  await window.bilimiDesktop.restoreFavoriteLedgersLocal(accountMid, [currentFolder.logicalLedgerId])
-                  return
-                }
-                await window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
-                  tab: 'ledger', sidebar: true, ledgerId: currentFolder.logicalLedgerId, ...(currentFolder.kind === 'local' ? { ledgerTitle: currentFolder.title } : {})
-                })
+              {currentLedgerBindingStatus.actionLabel === '恢复当前收藏夹' && currentFolder?.logicalLedgerId ? <button type="button" onClick={() => void runAction(async () => {
+                if (!accountMid || !window.bilimiDesktop?.restoreFavoriteLedgersLocal) throw new Error(text.unavailable)
+                await window.bilimiDesktop.restoreFavoriteLedgersLocal(accountMid, [currentFolder.logicalLedgerId])
               })}>{currentLedgerBindingStatus.actionLabel}</button> : null}
             </span> : null}
             {page && libraryLoadState === 'refreshing' ? <p className="sr-only" role="status" aria-label="正在刷新收藏库">正在刷新收藏库</p> : null}

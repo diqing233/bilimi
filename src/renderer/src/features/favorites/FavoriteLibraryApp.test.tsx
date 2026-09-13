@@ -59,6 +59,7 @@ describe('FavoriteLibraryApp', () => {
 
     expect(favoriteLibraryStyles).toMatch(/\.favorite-library__ledger-binding-status\[data-state='unbound'\]\s+strong\s*\{\s*color:\s*#9f3d3d;/)
     expect(source).toContain('未绑定 B 站收藏夹，请到右侧点击“备册”确认绑定。')
+    expect(source).not.toContain('去掌库收藏夹设置保存后绑定')
     expect(source).not.toContain('发现未绑定的 B 站收藏夹，请确认后绑定。')
     expect(source).not.toContain('当前收藏夹等待确认创建并绑定。')
   })
@@ -818,8 +819,7 @@ describe('FavoriteLibraryApp', () => {
     expect(ensureFavoriteLedger).not.toHaveBeenCalledWith('bilimi-logical:knowledge', expect.anything())
   })
 
-  it('shows the current ledger binding state beside the folder title and opens its ledger settings', async () => {
-    const openFloatingAssistantWorkspace = vi.fn().mockResolvedValue(undefined)
+  it('shows the current ledger binding state beside the folder title without a duplicate left-library binding shortcut', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-05T00:00:00.000Z', videoCount: 0, folderCount: 2,
@@ -830,7 +830,6 @@ describe('FavoriteLibraryApp', () => {
         physicalShards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '81', remoteTitle: 'bilimi·音乐舞台', bindingState: 'bound', remoteMemberCount: 0 }],
         syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
-      openFloatingAssistantWorkspace,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
@@ -841,8 +840,7 @@ describe('FavoriteLibraryApp', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'bilimi·原神' }))
     expect(await screen.findByText('未绑定')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '去掌库收藏夹设置保存后绑定' }))
-    expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'ledger', sidebar: true, ledgerId: 'custom-genshin' })
+    expect(screen.queryByRole('button', { name: '去掌库收藏夹设置保存后绑定' })).not.toBeInTheDocument()
   })
 
   it('uses the main-process backup state when a user released a rule with an old physical shard', async () => {
@@ -894,8 +892,7 @@ describe('FavoriteLibraryApp', () => {
     expect(ensureFavoriteLedger).not.toHaveBeenCalled()
   })
 
-  it('lists an explicitly projected local draft as a workspace without granting remote folder actions', async () => {
-    const openFloatingAssistantWorkspace = vi.fn().mockResolvedValue(undefined)
+  it('lists an explicitly projected local draft as a workspace without granting remote or duplicate binding actions', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
@@ -910,7 +907,6 @@ describe('FavoriteLibraryApp', () => {
         physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
       }),
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
-      openFloatingAssistantWorkspace,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as unknown as typeof window.bilimiDesktop
 
@@ -920,8 +916,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(draftFolder)
     expect(await screen.findByText('已生成草稿')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '备册当前收藏夹' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '去掌库收藏夹设置保存后绑定' }))
-    expect(openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'ledger', sidebar: true, ledgerId: 'custom-author-honker233', ledgerTitle: 'bilimi·honker233-小王爱马枪' })
+    expect(screen.queryByRole('button', { name: '去掌库收藏夹设置保存后绑定' })).not.toBeInTheDocument()
   })
 
   it('keeps a right-deleted work folder recoverable without backing it up', async () => {
@@ -951,7 +946,9 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(restore)
     await waitFor(() => expect(restoreFavoriteLedgersLocal).toHaveBeenCalledWith('100', ['music']))
     expect(ensureFavoriteLedger).not.toHaveBeenCalled()
-    preferenceListener?.({ favoriteAccountPreferences: { '100': { deletedFavoriteLedgerRecords: [] } } })
+    await act(async () => {
+      preferenceListener?.({ favoriteAccountPreferences: { '100': { deletedFavoriteLedgerRecords: [] } } })
+    })
   })
 
   it('shows no ledger binding state for an ordinary Bilibili folder', async () => {
@@ -1285,11 +1282,12 @@ describe('FavoriteLibraryApp', () => {
       { logicalLedgerId: 'ideas', title: 'Ideas', memberCount: 0, state: 'local-only', requiresUnboundAcknowledgement: false }
     ])
     const deleteFavoriteLibraryManagedFoldersLocal = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const openFavoriteRepositoryAccount = vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-09T00:00:00.000Z', videoCount: 0, folderCount: 1,
+      folders: [{ id: 'bilimi-logical:ideas', title: 'Ideas', kind: 'bilimi-logical', logicalLedgerId: 'ideas', syncState: 'local-only' }], physicalShardCount: 0, syncRecordCount: 0,
+      syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } })
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-09T00:00:00.000Z', videoCount: 0, folderCount: 1,
-        folders: [{ id: 'bilimi-logical:ideas', title: 'Ideas', kind: 'bilimi-logical', logicalLedgerId: 'ideas', syncState: 'local-only' }], physicalShardCount: 0, syncRecordCount: 0,
-        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      openFavoriteRepositoryAccount,
       getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [] }),
       previewManagedFavoriteFolderDeletion,
       previewFavoriteLibraryManagedFolderDelete: vi.fn().mockResolvedValue({ executionToken: 'ideas-local' }),
@@ -1298,7 +1296,9 @@ describe('FavoriteLibraryApp', () => {
     } as unknown as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
+    await screen.findByRole('heading', { name: '全部收藏 0 个视频' })
     fireEvent.click(await screen.findByRole('button', { name: 'bilimi \u5de5\u4f5c\u5939\u7ba1\u7406\u83dc\u5355' }))
+    const initialSummaryReads = openFavoriteRepositoryAccount.mock.calls.length
     fireEvent.click(screen.getByRole('menuitem', { name: '\u5220\u9664\u5de5\u4f5c\u5939' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '\u5220\u9664 bilimi \u6536\u85cf\u5939' })
@@ -1308,6 +1308,7 @@ describe('FavoriteLibraryApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '\u5220\u9664' }))
 
     await waitFor(() => expect(deleteFavoriteLibraryManagedFoldersLocal).toHaveBeenCalledWith('100', ['ideas-local']))
+    expect(openFavoriteRepositoryAccount).toHaveBeenCalledTimes(initialSummaryReads)
   })
 
   it('keeps local managed-folder deletion available when the optional B站 preview cannot be read', async () => {

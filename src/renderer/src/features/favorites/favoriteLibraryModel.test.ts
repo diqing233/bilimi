@@ -216,40 +216,40 @@ describe('favoriteLibraryModel', () => {
     ]))
   })
 
-  it('derives backed, missing, and generated-draft ledger binding states without marking ordinary folders', () => {
+  it('derives backed, missing, and generated-draft ledger binding labels without adding a left-library binding shortcut', () => {
     expect(favoriteLibraryLedgerBindingStatus({
       id: 'bilimi-logical:music', title: 'bilimi·音乐舞台', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'bound'
     })).toEqual({ kind: 'backed', label: '已备册' })
     expect(favoriteLibraryLedgerBindingStatus({
       id: 'bilimi-logical:stale', title: 'bilimi·历史状态', kind: 'bilimi-logical', logicalLedgerId: 'stale', syncState: 'bound'
-    }, { hasFormalPhysicalBinding: false })).toEqual({ kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' })
+    }, { hasFormalPhysicalBinding: false })).toEqual({ kind: 'unbound', label: '未绑定' })
     expect(favoriteLibraryLedgerBindingStatus({
       id: 'bilimi-logical:partial', title: 'bilimi·部分', kind: 'bilimi-logical', logicalLedgerId: 'partial', syncState: 'bound'
     }, { hasFormalPhysicalBinding: false, hasPartialPhysicalBinding: true })).toEqual({
-      kind: 'partial', label: '部分已备册 · 仍待绑定', actionLabel: '去掌库收藏夹设置保存后绑定'
+      kind: 'partial', label: '部分已备册 · 仍待绑定'
     })
     expect(favoriteLibraryLedgerBindingStatus({
       id: 'bilimi-logical:partially-reconciled', title: 'bilimi·部分对账', kind: 'bilimi-logical', logicalLedgerId: 'partially-reconciled', syncState: 'pending-reconcile'
     }, { hasFormalPhysicalBinding: true })).toEqual({
-      kind: 'partial', label: '部分已备册 · 仍待绑定', actionLabel: '去掌库收藏夹设置保存后绑定'
+      kind: 'partial', label: '部分已备册 · 仍待绑定'
     })
     expect(favoriteLibraryLedgerBindingStatus({
       id: 'bilimi-logical:user-released', title: 'bilimi·已解除', kind: 'bilimi-logical', logicalLedgerId: 'user-released', syncState: 'bound'
     }, { hasFormalPhysicalBinding: true, backupState: 'unbound' })).toEqual({
-      kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定'
+      kind: 'unbound', label: '未绑定'
     })
     expect(favoriteLibraryLedgerBindingStatus({
       id: 'bilimi-logical:game', title: 'bilimi·游戏专区', kind: 'bilimi-logical', logicalLedgerId: 'game', syncState: 'pending-reconcile'
-    })).toEqual({ kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' })
+    })).toEqual({ kind: 'unbound', label: '未绑定' })
     expect(favoriteLibraryLedgerBindingStatus({
       id: 'bilimi-logical:custom-abc', title: 'bilimi·原神', kind: 'bilimi-logical', logicalLedgerId: 'custom-abc', syncState: 'pending-reconcile'
-    })).toEqual({ kind: 'unbound', label: '未绑定', actionLabel: '去掌库收藏夹设置保存后绑定' })
+    })).toEqual({ kind: 'unbound', label: '未绑定' })
     expect(favoriteLibraryLedgerBindingStatus({
       id: 'bilimi-logical:custom-abc', title: 'bilimi·原神', kind: 'bilimi-logical', logicalLedgerId: 'custom-abc', syncState: 'local-only'
-    })).toEqual({ kind: 'missing', label: '未备册', actionLabel: '去掌库收藏夹设置保存后绑定' })
+    })).toEqual({ kind: 'missing', label: '未备册' })
     expect(favoriteLibraryLedgerBindingStatus({
       id: 'local:custom-author-honker233', title: 'bilimi·honker233', kind: 'local', logicalLedgerId: 'custom-author-honker233', syncState: 'local-only'
-    })).toEqual({ kind: 'draft', label: '已生成草稿', actionLabel: '去掌库收藏夹设置保存后绑定' })
+    })).toEqual({ kind: 'draft', label: '已生成草稿' })
     expect(favoriteLibraryLedgerBindingStatus({
       id: 'local:personal', title: 'Personal', kind: 'local', syncState: 'local-only'
     })).toBeUndefined()

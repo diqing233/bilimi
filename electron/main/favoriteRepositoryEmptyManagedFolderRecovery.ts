@@ -9,6 +9,7 @@ import { restoreEmptyFavoriteLibraryManagedFolderProjection } from './favoriteLi
  */
 export class FavoriteRepositoryEmptyManagedFolderRecovery {
   private readonly pendingByAccount = new Map<string, Promise<void>>()
+  private readonly skipNextLocalReadByAccount = new Set<string>()
 
   constructor(private readonly options: {
     repository: {
@@ -20,6 +21,7 @@ export class FavoriteRepositoryEmptyManagedFolderRecovery {
   }) {}
 
   async restoreForLocalRead(accountMid: string) {
+    if (this.skipNextLocalReadByAccount.delete(accountMid)) return
     const existing = this.pendingByAccount.get(accountMid)
     if (existing) return existing
     const pending = (async () => {
@@ -38,7 +40,11 @@ export class FavoriteRepositoryEmptyManagedFolderRecovery {
   }
 
   async afterRepositoryActivity(result: FavoriteRepositoryCommandResult) {
-    if (/^(managed-folder:delete-local:|favorite-library:restore-empty-managed:)/.test(result.commandId)) return
+    if (/^managed-folder:delete-local:/.test(result.commandId)) {
+      this.skipNextLocalReadByAccount.add(result.accountMid)
+      return
+    }
+    if (/^favorite-library:restore-empty-managed:/.test(result.commandId)) return
     await this.restoreForLocalRead(result.accountMid)
   }
 }
