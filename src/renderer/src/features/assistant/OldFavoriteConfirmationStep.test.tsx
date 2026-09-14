@@ -544,6 +544,28 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(screen.getByRole('button', { name: '\u786e\u8ba4\u5e76\u540c\u6b65\u5230 B \u7ad9' })).toBeDisabled()
   })
 
+  it('routes the single-batch round save to the complete-round local handler', () => {
+    const saveCurrentSegment = vi.fn()
+    const saveWholeRun = vi.fn()
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [{ id: 'segment-1', index: 0, status: 'previewing', itemCount: 2, readiness: 'ready', completedTagItemCount: 2, pendingTagItemCount: 0 }],
+        currentSegment: { id: 'segment-1', aids: [1, 2], items: [] }, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        tagEnrichment: { status: 'complete', totalItemCount: 2, completedItemCount: 2, pendingItemCount: 0, failedItemCount: 0 },
+        planReadiness: { selectedAidCount: 2, classifiedAidCount: 1, unclassifiedAidCount: 1 }, history: { cursor: 0, length: 0, entries: [] }
+      } as never}
+      loading={false} onSaveLocally={saveCurrentSegment} onSaveWholeRun={saveWholeRun}
+      onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '保存本轮到收藏库' }))
+
+    expect(saveWholeRun).toHaveBeenCalledOnce()
+    expect(saveCurrentSegment).not.toHaveBeenCalled()
+  })
+
   it('shows main-process execution progress while the frozen plan is syncing', () => {
     const pause = vi.fn()
     render(<OldFavoriteConfirmationStep

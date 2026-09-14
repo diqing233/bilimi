@@ -2669,6 +2669,14 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     repository: favoriteRepositoryService,
     pageBridgeManager: favoriteRepositoryPageBridgeManager,
     remoteOperations: favoriteRepositoryRemoteOperations,
+    runWithLocalManagedFolderDeletion: (accountMid, operation) =>
+      favoriteRepositoryEmptyManagedFolderRecovery?.runWithLocalManagedFolderDeletion(accountMid, operation) ?? operation(),
+    markLocalManagedFoldersHidden: (accountMid, logicalLedgerIds) =>
+      persistLocalManagedFolderHiddenIds(accountMid, logicalLedgerIds, {
+        load: (targetAccountMid) => loadFavoriteAccountPreferences(getDesktopStore(), targetAccountMid),
+        save: (targetAccountMid, preferences) => saveFavoriteAccountPreferences(getDesktopStore(), targetAccountMid, preferences),
+        publish: () => sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+      }),
     ensurePhysicalShard: (accountMid, input) => favoriteRepositoryBindingService!.ensurePhysicalShard(accountMid, input),
     onPhysicalShardProvisioned: refreshFavoriteLedgerBindingProjectionAfterPhysicalShard,
     onConfirmedRemoteFolderMutation: refreshConfirmedBilibiliFavoriteFolderMutation

@@ -382,7 +382,7 @@ export function OldFavoriteConfirmationStep({
       {(!isMultiSegment || viewScope === 'all') ? <section className="favorite-ledger-panel__confirm-action-group" role="group" aria-label="本轮操作">
         <strong>本轮操作</strong>
         <div className="favorite-ledger-panel__confirm-actions">
-          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || !wholeRunReadyForExecution || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{allSegmentsSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || !singleRunReadyForExecution || deepSeekBlocksExecution || loading} onClick={onSaveLocally}>{currentSegmentSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button>}
+          {isMultiSegment ? <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || readySegmentCount === 0 || !wholeRunReadyForExecution || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{allSegmentsSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button> : <button type="button" title={FAVORITE_LIBRARY_HELP} disabled={!canSaveLocally || !singleRunReadyForExecution || deepSeekBlocksExecution || loading} onClick={onSaveWholeRun}>{currentSegmentSaved ? '重新保存本轮到收藏库' : '保存本轮到收藏库'}</button>}
           <button type="button" disabled={!canSyncToBilibili || (isMultiSegment ? !wholeRunReadyForExecution : !singleRunReadyForExecution) || deepSeekBlocksExecution || loading} onClick={() => onConfirmAndSync(false)}>确认并同步到 B 站</button>
           <button type="button" disabled={loading} onClick={() => setEndDialogOpen(true)}>暂不同步，结束本轮整理</button>
         </div>

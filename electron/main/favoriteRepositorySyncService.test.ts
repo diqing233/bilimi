@@ -949,6 +949,42 @@ describe('FavoriteRepositorySyncService', () => {
     })
   })
 
+  it('hides successfully remote-deleted managed folders before committing their local projection under the recovery lock', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'binding-music', accountMid: '100', issuedAt: '2026-08-14T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [1], remoteTitle: 'bilimi·Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+    const events: string[] = []
+    const markLocalManagedFoldersHidden = vi.fn(async (_accountMid: string, logicalLedgerIds: string[]) => {
+      events.push(`hide:${logicalLedgerIds.join(',')}`)
+      return async () => { events.push(`rollback:${logicalLedgerIds.join(',')}`) }
+    })
+    const runWithLocalManagedFolderDeletion = vi.fn(async (_accountMid: string, operation: () => Promise<unknown>) => {
+      events.push('lock')
+      return operation()
+    })
+    const commit = vi.spyOn(repository, 'commit').mockImplementation(async (accountMid, command) => {
+      if (command.type === 'delete-local-managed-folders') events.push('delete-local')
+      return FavoriteRepositoryService.prototype.commit.call(repository, accountMid, command)
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository, markLocalManagedFoldersHidden, runWithLocalManagedFolderDeletion,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(),
+        deleteFolder: vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'ok' }),
+        readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [{ id: 'remote-music', title: 'bilimi·Music', memberCount: 1 }] })
+      }
+    })
+
+    await expect(service.deleteManagedFolders('100', ['music'])).resolves.toMatchObject({ status: 'succeeded' })
+
+    expect(runWithLocalManagedFolderDeletion).toHaveBeenCalledExactlyOnceWith('100', expect.any(Function))
+    expect(markLocalManagedFoldersHidden).toHaveBeenCalledExactlyOnceWith('100', ['music'])
+    expect(events).toEqual(['lock', 'hide:music', 'delete-local'])
+    expect(commit).toHaveBeenCalledWith('100', expect.objectContaining({ type: 'delete-local-managed-folders' }))
+  })
+
   it('deletes remote managed folders without committing a local library deletion', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

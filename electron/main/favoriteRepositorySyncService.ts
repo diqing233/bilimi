@@ -293,6 +293,10 @@ export class FavoriteRepositorySyncService {
     }) => Promise<unknown>
     onPhysicalShardProvisioned?: (accountMid: string) => Promise<unknown> | unknown
     onLibraryPlacementRunChanged?: (run: FavoriteLibraryPlacementSyncRun) => void
+    /** Persists the local visibility boundary before the deletion revision can publish. */
+    markLocalManagedFoldersHidden?: (accountMid: string, logicalLedgerIds: string[]) => Promise<undefined | (() => Promise<void> | void)> | undefined | (() => Promise<void> | void)
+    /** Serializes the local deletion projection with explicit managed-folder recovery. */
+    runWithLocalManagedFolderDeletion?: <T>(accountMid: string, operation: () => Promise<T> | T) => Promise<T>
     /** Runs once after one or more Bilibili folder deletions are confirmed. */
     onConfirmedRemoteFolderMutation?: (accountMid: string) => Promise<unknown> | unknown
     reconciliationReadTimeoutMs?: number
@@ -1436,16 +1440,31 @@ export class FavoriteRepositorySyncService {
           .map((logicalLedgerId) => `bilimi-logical:${logicalLedgerId}`)
           .sort()
         if (logicalFolderIdsToDelete.length) {
-          await this.options.repository.commit(account, {
-            id: `favorite-delete-local:${randomUUID()}`,
-            accountMid: account,
-            issuedAt: this.now(),
-            type: 'delete-local-managed-folders',
-            payload: {
-              logicalFolderIds: logicalFolderIdsToDelete,
-              ...(confirmedRemoteFolderIds.size ? { confirmedRemoteFolderIds: [...confirmedRemoteFolderIds].sort() } : {})
+          const managedLedgerIds = logicalFolderIdsToDelete
+            .map((logicalFolderId) => logicalFolderId.slice('bilimi-logical:'.length))
+          const commitLocalProjection = async () => {
+            const rollbackLocalVisibilityHide = await this.options.markLocalManagedFoldersHidden?.(account, managedLedgerIds)
+            try {
+              await this.options.repository.commit(account, {
+                id: `favorite-delete-local:${randomUUID()}`,
+                accountMid: account,
+                issuedAt: this.now(),
+                type: 'delete-local-managed-folders',
+                payload: {
+                  logicalFolderIds: logicalFolderIdsToDelete,
+                  ...(confirmedRemoteFolderIds.size ? { confirmedRemoteFolderIds: [...confirmedRemoteFolderIds].sort() } : {})
+                }
+              })
+            } catch (error) {
+              await rollbackLocalVisibilityHide?.()
+              throw error
             }
-          })
+          }
+          if (this.options.runWithLocalManagedFolderDeletion) {
+            await this.options.runWithLocalManagedFolderDeletion(account, commitLocalProjection)
+          } else {
+            await commitLocalProjection()
+          }
         }
         return remoteDeletion
       } finally {
