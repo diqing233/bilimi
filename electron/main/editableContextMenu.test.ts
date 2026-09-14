@@ -50,14 +50,14 @@ describe('installEditableContextMenu', () => {
     })
 
     expect(buildMenu).toHaveBeenCalledWith([
-      { role: 'undo', enabled: true },
-      { role: 'redo', enabled: false },
+      { role: 'undo', label: '撤销', enabled: true },
+      { role: 'redo', label: '重做', enabled: false },
       { type: 'separator' },
-      { role: 'cut', enabled: true },
-      { role: 'copy', enabled: true },
-      { role: 'paste', enabled: true },
+      { role: 'cut', label: '剪切', enabled: true },
+      { role: 'copy', label: '复制', enabled: true },
+      { role: 'paste', label: '粘贴', enabled: true },
       { type: 'separator' },
-      { role: 'selectAll', enabled: true }
+      { role: 'selectAll', label: '全选', enabled: true }
     ])
     expect(popup).toHaveBeenCalledWith({ x: 12, y: 24 })
   })

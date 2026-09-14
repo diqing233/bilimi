@@ -15,7 +15,7 @@ type EditableContextMenuParams = {
 }
 
 type EditableContextMenuItem =
-  | { role: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll'; enabled: boolean }
+  | { role: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll'; label: string; enabled: boolean }
   | { type: 'separator' }
 
 type EditableContextMenuHost = {
@@ -29,14 +29,14 @@ type EditableContextMenuDependencies = {
 
 export function createEditableContextMenuTemplate(editFlags: EditableContextMenuEditFlags = {}): EditableContextMenuItem[] {
   return [
-    { role: 'undo', enabled: Boolean(editFlags.canUndo) },
-    { role: 'redo', enabled: Boolean(editFlags.canRedo) },
+    { role: 'undo', label: '撤销', enabled: Boolean(editFlags.canUndo) },
+    { role: 'redo', label: '重做', enabled: Boolean(editFlags.canRedo) },
     { type: 'separator' },
-    { role: 'cut', enabled: Boolean(editFlags.canCut) },
-    { role: 'copy', enabled: Boolean(editFlags.canCopy) },
-    { role: 'paste', enabled: Boolean(editFlags.canPaste) },
+    { role: 'cut', label: '剪切', enabled: Boolean(editFlags.canCut) },
+    { role: 'copy', label: '复制', enabled: Boolean(editFlags.canCopy) },
+    { role: 'paste', label: '粘贴', enabled: Boolean(editFlags.canPaste) },
     { type: 'separator' },
-    { role: 'selectAll', enabled: Boolean(editFlags.canSelectAll) }
+    { role: 'selectAll', label: '全选', enabled: Boolean(editFlags.canSelectAll) }
   ]
 }
 
