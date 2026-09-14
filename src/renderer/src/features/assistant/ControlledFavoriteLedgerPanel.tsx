@@ -1664,7 +1664,7 @@ export function ControlledFavoriteLedgerPanel({
         onApplyManualClassifications={applyManualClassifications}
         onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
         onSaveCurrentSegment={() => void workspace.saveCurrentSegmentLocally()}
-        onSaveWholeRun={() => void workspace.setWholeRunExecutionIntent('local')}
+        onSaveWholeRun={() => void workspace.saveWholeRunLocally()}
         onFinishCurrentSegment={() => void finishCurrentSegment()}
         onCancelExecutionIntent={() => void workspace.cancelWholeRunExecutionIntent()}
         onCloseCurrentWorkspace={() => void closeCurrentWorkspace()}

@@ -1058,6 +1058,10 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     await waitForRecommendationQueue()
     return sendCommand({ type: 'save-current-segment-locally' })
   }, [sendCommand, waitForRecommendationQueue])
+  const saveWholeRunLocally = useCallback(async () => {
+    await waitForRecommendationQueue()
+    return sendCommand({ type: 'save-whole-run-locally' })
+  }, [sendCommand, waitForRecommendationQueue])
   const setWholeRunExecutionIntent = useCallback(async (mode: 'local' | 'bilibili', includeInbox = false) => {
     if (mode === 'local') await waitForRecommendationQueue()
     return sendCommand({
@@ -1178,7 +1182,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   return {
     snapshot, loading, backgroundRefreshing, lastError, executionError, reconciling, deepSeekFeedback, deepSeekCancelRequested, tagEnrichmentUpdating, draftRuleAnalysis, draftRuleAnalysisError, recommendedCandidateIds, recommendationSaving, recommendationError, previewPreparationRunning, previewPreparationProgress, previewPreparationError, refresh, startScan, startSelectedReorganization, resumeScan, pauseScan, prepareRecovery, sendRecoveryDecision, selectSourceFolders, selectSegment, viewSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, cancelCurrentSegmentDeepSeek, retryFailedDeepSeekChunks,
-    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, reclassifyFavoriteConfiguration, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, stageRecommendedCandidateSelection, updateRecommendedCandidates, setRoundExcludedLedgerIds, saveDraftLedgerRule, queueDraftLedgerRuleAnalysis, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan, pauseBilibiliSync, stopBilibiliSyncAndFinish,
+    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, reclassifyFavoriteConfiguration, pauseTagEnrichment, resumeTagEnrichment, retryFailedTagEnrichment, acceptCurrentTags, setRecommendedCandidates, stageRecommendedCandidateSelection, updateRecommendedCandidates, setRoundExcludedLedgerIds, saveDraftLedgerRule, queueDraftLedgerRuleAnalysis, cancelDraftLedgerRuleAnalysis, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, saveWholeRunLocally, setWholeRunExecutionIntent, cancelWholeRunExecutionIntent, useOriginalClassificationsForFailedDeepSeek, abandonCurrentWorkspace, executeFrozenBilibiliPlan, pauseBilibiliSync, stopBilibiliSyncAndFinish,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan, getLatestExecutionFailure: () => latestExecutionFailure.current,
     rebuildCorruptWorkspace, prepareRecommendationPreview, cancelRecommendationPreviewPreparation, waitForRecommendationQueue,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)

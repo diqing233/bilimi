@@ -729,16 +729,28 @@ export function saveAssistantPreferences(
   const requestedFavoriteAccountPreferences = normalizeFavoriteAccountPreferenceMap(
     preferences.favoriteAccountPreferences
   )
+  const mergedFavoriteAccountPreferences = Object.fromEntries(Object.entries({
+    ...currentFavoriteAccountPreferences,
+    ...requestedFavoriteAccountPreferences
+  }).map(([accountMid, requested]) => {
+    const current = currentFavoriteAccountPreferences[accountMid]
+    // This deletion marker belongs to the main-process deletion/recovery
+    // transaction. A renderer's complete preference projection may be stale,
+    // so it can neither erase nor restore the current marker set.
+    const hiddenFavoriteLibraryManagedLedgerIds = current?.hiddenFavoriteLibraryManagedLedgerIds ?? []
+    const { hiddenFavoriteLibraryManagedLedgerIds: _rendererHiddenIds, ...requestedWithoutHiddenIds } = requested
+    return [accountMid, {
+      ...requestedWithoutHiddenIds,
+      ...(hiddenFavoriteLibraryManagedLedgerIds.length ? { hiddenFavoriteLibraryManagedLedgerIds } : {})
+    }]
+  })) as Record<string, FavoriteAccountPreferences>
   store.set({
     theme: preferences.theme === 'light' || preferences.theme === 'dark' ? preferences.theme : 'system',
     language: typeof preferences.language === 'string' && preferences.language.trim() ? preferences.language.trim() : 'zh-CN',
     windowBounds: normalizePortableWindowBounds(preferences.windowBounds),
     favoritesFolderName: preferences.favoritesFolderName,
     favoriteLedgers: normalizeFavoriteLedgers(preferences.favoriteLedgers),
-    favoriteAccountPreferences: {
-      ...currentFavoriteAccountPreferences,
-      ...requestedFavoriteAccountPreferences
-    },
+    favoriteAccountPreferences: mergedFavoriteAccountPreferences,
     ledgerPromptDismissed: Boolean(preferences.ledgerPromptDismissed),
     petStyle: preferences.petStyle === 'classic' ? 'classic' : 'big-head',
     petHoverShortcuts: normalizePetHoverShortcuts(preferences.petHoverShortcuts),

@@ -1660,6 +1660,20 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toMatchObject({ status: 'completed' })
   })
 
+  it('saves the entire round locally without requesting a Bilibili execution intent', async () => {
+    const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'completed' as const })
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as unknown as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.saveWholeRunLocally() })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'save-whole-run-locally' })
+    expect(command).not.toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'set-whole-run-execution-intent'
+    }))
+    expect(result.current.snapshot).toMatchObject({ status: 'completed' })
+  })
+
   it('waits for a pending recommendation save before committing the local workspace', async () => {
     const recommendationSave = deferred<ReturnType<typeof recommendationWorkspace>>()
     const command = vi.fn((_: string, value: { type?: string }) => {

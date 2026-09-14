@@ -1045,6 +1045,29 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('saves an entire round locally without creating a whole-run execution intent', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      saveWholeRunToLocalLibrary: vi.fn().mockResolvedValue({}),
+      setExecutionIntent: vi.fn(),
+      continueExecutionIntent: vi.fn(),
+      getSnapshot: vi.fn().mockResolvedValue({ ...snapshot, status: 'completed' })
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'save-whole-run-locally' }))
+      .resolves.toMatchObject({ status: 'completed' })
+    expect(coordinator.saveWholeRunToLocalLibrary).toHaveBeenCalledWith('100')
+    expect(coordinator.setExecutionIntent).not.toHaveBeenCalled()
+    expect(coordinator.continueExecutionIntent).not.toHaveBeenCalled()
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'save-whole-run-locally', mode: 'local'
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('abandons a pending workspace only through an exact payload-free command', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

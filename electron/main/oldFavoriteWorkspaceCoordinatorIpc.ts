@@ -82,6 +82,7 @@ type WorkspaceCommand =
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
   | { type: 'save-current-segment-locally' }
+  | { type: 'save-whole-run-locally' }
   | { type: 'set-whole-run-execution-intent'; mode: 'local' | 'bilibili'; includeInbox?: boolean }
   | { type: 'cancel-whole-run-execution-intent' }
   | { type: 'use-original-classifications-for-failed-deepseek' }
@@ -315,6 +316,9 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'save-current-segment-locally' && Object.keys(candidate).length === 1) {
     return { type: 'save-current-segment-locally' }
   }
+  if (candidate.type === 'save-whole-run-locally' && Object.keys(candidate).length === 1) {
+    return { type: 'save-whole-run-locally' }
+  }
   if (candidate.type === 'set-whole-run-execution-intent' &&
     (candidate.mode === 'local' || candidate.mode === 'bilibili') &&
     (Object.keys(candidate).length === 2 || (Object.keys(candidate).length === 3 && typeof candidate.includeInbox === 'boolean'))) {
@@ -498,7 +502,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       'pause-tag-enrichment', 'resume-tag-enrichment', 'retry-failed-tag-enrichment', 'accept-current-tags',
       'move-history-cursor', 'auto-classify-current-segment', 'reclassify-favorite-configuration',
       'set-recommended-candidates', 'set-round-excluded-ledger-ids', 'prepare-recommendation-preview', 'create-local-ledger-and-reclassify',
-      'freeze-segment', 'save-current-segment-locally', 'freeze-bilibili-execution', 'apply-classifications'
+      'freeze-segment', 'save-current-segment-locally', 'save-whole-run-locally', 'freeze-bilibili-execution', 'apply-classifications'
     ])
     let commandPreflightSnapshot: Awaited<ReturnType<typeof options.coordinator.getSnapshot>> | undefined
     if (commandsLockedByExecutionIntent.has(requested.type)) {
@@ -626,6 +630,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     }
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'save-current-segment-locally') await options.coordinator.saveCurrentSegmentToLocalLibrary(accountMid)
+    if (requested.type === 'save-whole-run-locally') await options.coordinator.saveWholeRunToLocalLibrary(accountMid)
     if (requested.type === 'set-whole-run-execution-intent') {
       if (requested.includeInbox === true) await options.coordinator.setExecutionIntent(accountMid, requested.mode, true)
       else await options.coordinator.setExecutionIntent(accountMid, requested.mode)

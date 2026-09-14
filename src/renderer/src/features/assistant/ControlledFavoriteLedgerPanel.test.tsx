@@ -5334,6 +5334,36 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeEnabled()
   })
 
+  it('routes the whole-run local-save button to the direct local command', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 0, unclassifiedAidCount: 1 },
+      tagEnrichment: { status: 'complete' as const, totalItemCount: 1, completedItemCount: 1, pendingItemCount: 0, failedItemCount: 0 },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue({ ...preview, status: 'completed' as const })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(within(await screen.findByRole('navigation', { name: '整理收藏步骤' })).getByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存本轮到收藏库' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'save-whole-run-locally' }))
+    expect(command).not.toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'set-whole-run-execution-intent'
+    }))
+  })
+
   it('renders execution states from snapshots and routes only their controlled actions', async () => {
     const frozen = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'frozen' as const,

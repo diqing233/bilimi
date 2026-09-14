@@ -1,4 +1,4 @@
-import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '@shared/favoriteLedgers'
+import { createDefaultFavoriteLedgers, isPersistableFavoriteLedgerId, normalizeFavoriteLedgers } from '@shared/favoriteLedgers'
 import { normalizeAssistantSidebarWidthPx } from '@shared/assistantSidebarWidth'
 import { normalizePetHoverShortcuts } from '@shared/petHoverShortcuts'
 import { normalizeOldFavoriteWorkspaceSegmentSize } from '@shared/oldFavoriteWorkspace'
@@ -93,6 +93,14 @@ function normalizeFavoriteAccountPreferenceMap(
       return [[accountMid, {
         defaultFavoriteSystemEnabled: accountPreferences.defaultFavoriteSystemEnabled !== false,
         favoriteLedgers: normalizeFavoriteLedgers(accountPreferences.favoriteLedgers),
+        ...(Array.isArray(accountPreferences.hiddenFavoriteLibraryManagedLedgerIds)
+          ? {
+              hiddenFavoriteLibraryManagedLedgerIds: [...new Set(accountPreferences.hiddenFavoriteLibraryManagedLedgerIds
+                .filter((id): id is string => typeof id === 'string')
+                .map((id) => id.trim())
+                .filter((id) => isPersistableFavoriteLedgerId(id)))].sort()
+            }
+          : {}),
         ...(accountPreferences.favoriteDiscoveryNoticeDismissed === true
           ? { favoriteDiscoveryNoticeDismissed: true }
           : {}),

@@ -868,6 +868,54 @@ describe('assistant preference store helpers', () => {
     })
   })
 
+  it('does not let a stale full renderer save erase a deleted managed-folder marker', () => {
+    const accountLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: ['music'], enabled: true, priority: 10, isDefault: true
+    }
+    const store = createFakeStore({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [accountLedger],
+          hiddenFavoriteLibraryManagedLedgerIds: ['music']
+        }
+      }
+    })
+
+    saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      favoriteAccountPreferences: {
+        '100': { defaultFavoriteSystemEnabled: true, favoriteLedgers: [accountLedger] }
+      }
+    })
+
+    expect(loadFavoriteAccountPreferences(store, '100').hiddenFavoriteLibraryManagedLedgerIds).toEqual(['music'])
+  })
+
+  it('does not let a stale full renderer save restore a managed-folder marker already consumed by the main process', () => {
+    const accountLedger = {
+      id: 'music', displayName: 'bilimi·音乐', keywords: ['music'], enabled: true, priority: 10, isDefault: true
+    }
+    const store = createFakeStore({
+      favoriteAccountPreferences: {
+        '100': { defaultFavoriteSystemEnabled: true, favoriteLedgers: [accountLedger] }
+      }
+    })
+
+    saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [accountLedger],
+          hiddenFavoriteLibraryManagedLedgerIds: ['music']
+        }
+      }
+    })
+
+    expect(loadFavoriteAccountPreferences(store, '100').hiddenFavoriteLibraryManagedLedgerIds).toBeUndefined()
+  })
+
   it('saves favorites folder name and preference counts and returns the persisted shape', () => {
     const store = createFakeStore()
 

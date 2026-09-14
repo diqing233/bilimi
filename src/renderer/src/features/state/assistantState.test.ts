@@ -17,6 +17,20 @@ import { classifyVideoContent } from '../recommendation/videoClassifier'
 const LIKE_ACTION = '赞' as AssistantAction
 
 describe('assistant state', () => {
+  it('preserves valid hidden managed-folder IDs when hydrating account preferences', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [],
+          hiddenFavoriteLibraryManagedLedgerIds: [' music ', 'music', '', 'not a valid id']
+        }
+      }
+    })
+
+    expect(preferences.favoriteAccountPreferences?.['100']?.hiddenFavoriteLibraryManagedLedgerIds).toEqual(['music'])
+  })
+
   it('normalizes the per-account favorite discovery notice dismissal flag', () => {
     const legacy = createInitialAssistantPreferences({
       favoriteAccountPreferences: {
