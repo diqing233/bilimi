@@ -1,5 +1,7 @@
 import type { TranscriptSegment } from '../../../src/shared/types'
 import { runProcess as defaultRunProcess, type RunProcess } from '../audioDownload'
+import { dirname } from 'node:path'
+import { resolveSenseVoiceRuntimePaths } from './senseVoicePathSandbox'
 
 type SenseVoiceOutput = {
   segments?: Array<{ start?: number; end?: number; text?: string }>
@@ -97,12 +99,17 @@ function createAbortError(): Error {
   return error
 }
 
+function needsAsciiPathSandbox(...paths: string[]): boolean {
+  return paths.some((path) => !/^[\x00-\x7F]+$/u.test(path))
+}
+
 export async function transcribeAudioSegmentWithSenseVoice({
   path,
   offsetSeconds,
   helperPath,
   modelDirectory,
   runProcess = defaultRunProcess,
+  resolveRuntimePaths = resolveSenseVoiceRuntimePaths,
   signal
 }: {
   path: string
@@ -110,9 +117,28 @@ export async function transcribeAudioSegmentWithSenseVoice({
   helperPath: string
   modelDirectory: string
   runProcess?: RunProcess
+  resolveRuntimePaths?: typeof resolveSenseVoiceRuntimePaths
   signal?: AbortSignal
 }): Promise<TranscriptSegment[]> {
-  const result = await runProcess(helperPath, buildSenseVoiceArgs({ audioPath: path, modelDirectory }), { signal })
+  let runtimePaths: { helperPath: string; modelDirectory: string }
+  try {
+    runtimePaths = needsAsciiPathSandbox(helperPath, modelDirectory)
+      ? await resolveRuntimePaths({
+          helperPath,
+          modelDirectory,
+          workingDirectory: dirname(path)
+        })
+      : { helperPath, modelDirectory }
+  } catch (error) {
+    if (signal?.aborted) throw createAbortError()
+    throw error
+  }
+  if (signal?.aborted) throw createAbortError()
+  const result = await runProcess(
+    runtimePaths.helperPath,
+    buildSenseVoiceArgs({ audioPath: path, modelDirectory: runtimePaths.modelDirectory }),
+    { signal }
+  )
   if (signal?.aborted) throw createAbortError()
   if (result.exitCode !== 0) throw new Error('SenseVoice 转写失败，请检查音频文件和模型后重试。')
   try {

@@ -18,6 +18,92 @@ describe('SenseVoice provider', () => {
     expect(runProcess).toHaveBeenCalledWith('sherpa-onnx-offline.exe', buildSenseVoiceArgs({ audioPath: 'audio.wav', modelDirectory: 'model' }), { signal: undefined })
   })
 
+  it('uses a sandboxed ASCII helper and model path for a Unicode SenseVoice installation', async () => {
+    const runProcess = vi.fn().mockResolvedValue({ exitCode: 0, stdout: JSON.stringify({ text: '<|zh|>你好<|Speech|>', timestamps: [0, 1] }), stderr: '' })
+    const resolveRuntimePaths = vi.fn().mockResolvedValue({
+      helperPath: 'C:/Windows/Temp/bilimi-transcribe-a1b2/sensevoice-runtime/runtime/bin/sherpa-onnx-offline.exe',
+      modelDirectory: 'C:/Windows/Temp/bilimi-transcribe-a1b2/sensevoice-runtime/model'
+    })
+
+    await expect(transcribeAudioSegmentWithSenseVoice({
+      path: 'C:/Windows/Temp/bilimi-transcribe-a1b2/segment-000.wav',
+      offsetSeconds: 0,
+      helperPath: 'C:/Users/中文/AppData/Local/Programs/bilimi/resources/tools/win32/transcription-models/sensevoice-small/runtime/bin/sherpa-onnx-offline.exe',
+      modelDirectory: 'C:/Users/中文/AppData/Local/Programs/bilimi/resources/tools/win32/transcription-models/sensevoice-small/model',
+      runProcess,
+      resolveRuntimePaths
+    })).resolves.toEqual([{ start: 0, end: 1, text: '你好' }])
+
+    expect(resolveRuntimePaths).toHaveBeenCalledWith({
+      helperPath: 'C:/Users/中文/AppData/Local/Programs/bilimi/resources/tools/win32/transcription-models/sensevoice-small/runtime/bin/sherpa-onnx-offline.exe',
+      modelDirectory: 'C:/Users/中文/AppData/Local/Programs/bilimi/resources/tools/win32/transcription-models/sensevoice-small/model',
+      workingDirectory: 'C:/Windows/Temp/bilimi-transcribe-a1b2'
+    })
+    expect(runProcess).toHaveBeenCalledWith(
+      'C:/Windows/Temp/bilimi-transcribe-a1b2/sensevoice-runtime/runtime/bin/sherpa-onnx-offline.exe',
+      buildSenseVoiceArgs({
+        audioPath: 'C:/Windows/Temp/bilimi-transcribe-a1b2/segment-000.wav',
+        modelDirectory: 'C:/Windows/Temp/bilimi-transcribe-a1b2/sensevoice-runtime/model'
+      }),
+      { signal: undefined }
+    )
+  })
+
+  it('keeps a concise sandbox setup error out of native helper output', async () => {
+    const runProcess = vi.fn()
+
+    await expect(transcribeAudioSegmentWithSenseVoice({
+      path: 'C:/Windows/Temp/bilimi-transcribe-a1b2/segment-000.wav',
+      offsetSeconds: 0,
+      helperPath: 'C:/Users/中文/bilimi/runtime/bin/sherpa-onnx-offline.exe',
+      modelDirectory: 'C:/Users/中文/bilimi/model',
+      runProcess,
+      resolveRuntimePaths: vi.fn().mockRejectedValue(new Error('SenseVoiceSmall 无法创建兼容中文路径的临时运行入口，请确认系统临时目录可写后重试。'))
+    })).rejects.toThrow('SenseVoiceSmall 无法创建兼容中文路径的临时运行入口，请确认系统临时目录可写后重试。')
+
+    expect(runProcess).not.toHaveBeenCalled()
+  })
+
+  it('preserves cancellation requested while preparing a Unicode path sandbox', async () => {
+    const controller = new AbortController()
+    const runProcess = vi.fn()
+
+    await expect(transcribeAudioSegmentWithSenseVoice({
+      path: 'C:/Windows/Temp/bilimi-transcribe-a1b2/segment-000.wav',
+      offsetSeconds: 0,
+      helperPath: 'C:/Users/中文/bilimi/runtime/bin/sherpa-onnx-offline.exe',
+      modelDirectory: 'C:/Users/中文/bilimi/model',
+      runProcess,
+      resolveRuntimePaths: vi.fn().mockImplementation(async () => {
+        controller.abort()
+        return {
+          helperPath: 'C:/Windows/Temp/bilimi-transcribe-a1b2/sensevoice-runtime/runtime/bin/sherpa-onnx-offline.exe',
+          modelDirectory: 'C:/Windows/Temp/bilimi-transcribe-a1b2/sensevoice-runtime/model'
+        }
+      }),
+      signal: controller.signal
+    })).rejects.toMatchObject({ name: 'AbortError' })
+
+    expect(runProcess).not.toHaveBeenCalled()
+  })
+
+  it('prefers cancellation when a Unicode path sandbox fails after cancellation', async () => {
+    const controller = new AbortController()
+
+    await expect(transcribeAudioSegmentWithSenseVoice({
+      path: 'C:/Windows/Temp/bilimi-transcribe-a1b2/segment-000.wav',
+      offsetSeconds: 0,
+      helperPath: 'C:/Users/中文/bilimi/runtime/bin/sherpa-onnx-offline.exe',
+      modelDirectory: 'C:/Users/中文/bilimi/model',
+      runProcess: vi.fn(),
+      resolveRuntimePaths: vi.fn().mockImplementation(async () => {
+        controller.abort()
+        throw new Error('SenseVoiceSmall 无法创建兼容中文路径的临时运行入口，请确认系统临时目录可写后重试。')
+      }),
+      signal: controller.signal
+    })).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
   it('turns helper failures into a concise provider error instead of exposing native logs', async () => {
     const runProcess = vi.fn().mockResolvedValue({
       exitCode: -1,

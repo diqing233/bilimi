@@ -189,7 +189,8 @@ function formatProgress(
       percent: summarizeWithDeepSeek
         ? interpolatePercent(30, 78, progress.segmentIndex, progress.segmentCount)
         : interpolatePercent(30, 68, progress.segmentIndex, progress.segmentCount),
-      ariaLabel
+      indeterminate: true,
+      ariaLabel: '正在本地转写音频'
     }
   }
 
