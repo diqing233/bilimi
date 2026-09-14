@@ -1,6 +1,7 @@
 import type {
   AssistantAction,
   AssistantAutomationResult,
+  DeepSeekConnectionTestProgress,
   DeepSeekConnectionTestResult,
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
@@ -387,6 +388,7 @@ type BilimiDesktopApi = {
   toggleFloatingMenu?: () => Promise<void>
   wakeAssistantPet?: (options?: { restoreAfterVideoFullscreen?: boolean }) => Promise<boolean>
   testDeepSeekConnection?: () => Promise<DeepSeekConnectionTestResult>
+  onDeepSeekConnectionTestProgress?: (callback: (progress: DeepSeekConnectionTestProgress) => void) => () => void
   transcribeCurrentVideoAudio?: (
     request: VideoAudioTranscriptionRequest
   ) => Promise<VideoAudioTranscriptionResult>

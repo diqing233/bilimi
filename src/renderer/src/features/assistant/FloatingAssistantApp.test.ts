@@ -1525,3 +1525,16 @@ describe('current settings copy and feedback continuation contract', () => {
     expect(source).toContain('resizeObserver?.observe(globalFeedbackMessageRef.current)')
   })
 })
+
+describe('DeepSeek connection-test retry feedback', () => {
+  it('reports retry progress while preserving the existing save-and-test cleanup owner', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/features/assistant/FloatingAssistantApp.tsx'), 'utf8')
+    const saveStart = source.indexOf('async function saveAndTestDeepSeekConnection()')
+    const saveFunction = source.slice(saveStart, source.indexOf('\n  async function resetDeepSeekSettings()', saveStart))
+
+    expect(source).toContain('onDeepSeekConnectionTestProgress?.((progress) => {')
+    expect(source).toContain('DeepSeek 服务暂时繁忙，正在重试（${progress.attempt}/${progress.totalAttempts}）。')
+    expect(saveFunction).toContain('finally {')
+    expect(saveFunction).toContain('finishDeepSeekTask()')
+  })
+})

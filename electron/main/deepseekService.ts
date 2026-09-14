@@ -18,7 +18,7 @@ import {
   type FaithfulTranscriptCorrection,
   type FaithfulTranscriptReviewItem
 } from './faithfulTranscriptPolishing'
-import { retryTransientDeepSeekRequest, type DeepSeekRetryDelay } from './deepseekRetry'
+import { retryTransientDeepSeekRequest, type DeepSeekRetryDelay, type DeepSeekRetryProgress } from './deepseekRetry'
 
 export type DeepSeekConfig = {
   enabled: boolean
@@ -611,6 +611,8 @@ export async function generateDeepSeekResult(options: {
   requestTimeoutMs?: number
   onResponseMetadata?: (metadata: { model?: string; finishReason?: string }) => void
   retryDelay?: DeepSeekRetryDelay
+  retryDelaysMs?: readonly number[]
+  onRetry?: (progress: DeepSeekRetryProgress) => void
   notePosterCheckpoint?: {
     polishedTranscriptText?: string
     completedBatchIds?: string[]
@@ -653,20 +655,23 @@ export async function generateDeepSeekResult(options: {
       response = await retryTransientDeepSeekRequest(async () => {
         const request = createBoundedRequestSignal(options.signal, timeoutMs)
         try {
-          const next = await fetchImpl(createEndpoint(options.config.baseUrl), {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json'
-            },
-            signal: request.signal,
-            body: JSON.stringify({
-              model: options.config.model,
-              messages,
-              temperature,
-              ...(responseFormatJson ? { response_format: { type: 'json_object' } } : {})
-            })
-          })
+          const next = await Promise.race([
+            fetchImpl(createEndpoint(options.config.baseUrl), {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+              },
+              signal: request.signal,
+              body: JSON.stringify({
+                model: options.config.model,
+                messages,
+                temperature,
+                ...(responseFormatJson ? { response_format: { type: 'json_object' } } : {})
+              })
+            }),
+            request.timeout
+          ])
           if (!next.ok) {
             throw new DeepSeekServiceError(
               'api-error',
@@ -685,7 +690,12 @@ export async function generateDeepSeekResult(options: {
         } finally {
           request.dispose()
         }
-      }, { delay: options.retryDelay, signal: options.signal })
+      }, {
+        delay: options.retryDelay,
+        signal: options.signal,
+        retryDelaysMs: options.retryDelaysMs,
+        onRetry: options.onRetry
+      })
     } catch (error) {
       if (error instanceof DeepSeekServiceError) throw error
       throw new DeepSeekServiceError(
@@ -989,9 +999,17 @@ function createBoundedRequestSignal(parentSignal: AbortSignal | undefined, timeo
   const controller = new AbortController()
   let timedOut = false
   const abortFromParent = () => controller.abort()
+  let rejectTimeout: (reason: unknown) => void = () => undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    rejectTimeout = reject
+  })
   const timer = setTimeout(() => {
     timedOut = true
     controller.abort()
+    rejectTimeout(new DeepSeekServiceError(
+      'network-error',
+      `DeepSeek request timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`
+    ))
   }, timeoutMs)
 
   if (parentSignal?.aborted) abortFromParent()
@@ -1000,6 +1018,7 @@ function createBoundedRequestSignal(parentSignal: AbortSignal | undefined, timeo
   return {
     signal: controller.signal,
     timedOut: () => timedOut,
+    timeout,
     dispose: () => {
       clearTimeout(timer)
       parentSignal?.removeEventListener('abort', abortFromParent)
@@ -1016,7 +1035,10 @@ async function fetchWithBoundedTimeout(
 ): Promise<Response> {
   const request = createBoundedRequestSignal(parentSignal, timeoutMs)
   try {
-    return await fetchImpl(endpoint, { ...init, signal: request.signal })
+    return await Promise.race([
+      fetchImpl(endpoint, { ...init, signal: request.signal }),
+      request.timeout
+    ])
   } catch (error) {
     if (request.timedOut()) {
       throw new DeepSeekServiceError(

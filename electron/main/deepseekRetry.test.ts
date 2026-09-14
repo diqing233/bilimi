@@ -32,4 +32,13 @@ describe('retryTransientDeepSeekRequest', () => {
     }
     expect(delay).not.toHaveBeenCalled()
   })
+
+  it('honors a caller-provided empty retry policy', async () => {
+    const operation = vi.fn()
+      .mockRejectedValueOnce(new DeepSeekServiceError('api-error', 'DeepSeek API request failed: 503 unavailable'))
+      .mockResolvedValue('unexpected retry')
+
+    await expect(retryTransientDeepSeekRequest(operation, { retryDelaysMs: [] })).rejects.toThrow('503 unavailable')
+    expect(operation).toHaveBeenCalledOnce()
+  })
 })

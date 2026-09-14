@@ -1,4 +1,5 @@
 export type DeepSeekRetryDelay = (milliseconds: number, signal?: AbortSignal) => Promise<void>
+export type DeepSeekRetryProgress = { attempt: number; totalAttempts: number; delayMs: number }
 
 const LOCAL_DELAYS_MS = [2000, 6000]
 
@@ -31,17 +32,25 @@ export async function abortableDelay(milliseconds: number, signal?: AbortSignal)
 
 export async function retryTransientDeepSeekRequest<T>(
   operation: () => Promise<T>,
-  options: { delay?: DeepSeekRetryDelay; signal?: AbortSignal } = {}
+  options: {
+    delay?: DeepSeekRetryDelay
+    signal?: AbortSignal
+    retryDelaysMs?: readonly number[]
+    onRetry?: (progress: DeepSeekRetryProgress) => void
+  } = {}
 ): Promise<T> {
   const delay = options.delay ?? abortableDelay
+  const retryDelaysMs = options.retryDelaysMs ?? LOCAL_DELAYS_MS
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await operation()
     } catch (error) {
-      if (attempt >= LOCAL_DELAYS_MS.length || isCancellation(error, options.signal) || !isTransient(error)) {
+      if (attempt >= retryDelaysMs.length || isCancellation(error, options.signal) || !isTransient(error)) {
         throw error
       }
-      await delay(LOCAL_DELAYS_MS[attempt], options.signal)
+      const delayMs = retryDelaysMs[attempt]
+      options.onRetry?.({ attempt: attempt + 2, totalAttempts: retryDelaysMs.length + 1, delayMs })
+      await delay(delayMs, options.signal)
     }
   }
 }

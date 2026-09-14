@@ -2985,6 +2985,9 @@ export function FloatingAssistantApp({
   const mounted = useRef(false)
 
   useEffect(() => subscribeDeepSeekTasks(setRemoteDeepSeekTasks), [])
+  useEffect(() => window.bilimiDesktop?.onDeepSeekConnectionTestProgress?.((progress) => {
+    setGlobalFeedback(`DeepSeek 服务暂时繁忙，正在重试（${progress.attempt}/${progress.totalAttempts}）。`)
+  }), [])
   useEffect(() => {
     petHoverShortcutFieldStoreRef.current.set(preferences.petHoverShortcuts)
   }, [preferences.petHoverShortcuts])

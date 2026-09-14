@@ -4,6 +4,7 @@ import type {
   AssistantAutomationResult,
   AssistantPreferencePatchMeta,
   AssistantPreferences,
+  DeepSeekConnectionTestProgress,
   DeepSeekConnectionTestResult,
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
@@ -791,5 +792,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       restoreAfterVideoFullscreen: options?.restoreAfterVideoFullscreen === true
     }) as Promise<boolean>,
   testDeepSeekConnection: () =>
-    ipcRenderer.invoke('deepseek:test-connection') as Promise<DeepSeekConnectionTestResult>
+    ipcRenderer.invoke('deepseek:test-connection') as Promise<DeepSeekConnectionTestResult>,
+  onDeepSeekConnectionTestProgress: (callback: (progress: DeepSeekConnectionTestProgress) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: DeepSeekConnectionTestProgress) => callback(progress)
+    ipcRenderer.on('deepseek:connection-test-progress', listener)
+    return () => ipcRenderer.removeListener('deepseek:connection-test-progress', listener)
+  }
 })

@@ -185,6 +185,9 @@ import { validateTranscriptionModelRuntime } from './transcriptionModelRuntimeVa
 import { createVideoTranscriptionQueue, type VideoTranscriptionQueueBatchResult } from './videoTranscriptionQueue'
 import { assertCurrentAccountOwnsTranscriptionQueueItems, assertCurrentAccountOwnsTranscriptionRequest, filterTranscriptionQueueSnapshotForAccount } from './transcriptionQueueAccountGuard'
 import { DeepSeekServiceError, generateDeepSeekResult } from './deepseekService'
+import { runDeepSeekConnectionTest } from './deepseekConnectionTest'
+import type { DeepSeekRetryProgress } from './deepseekRetry'
+import { installEditableContextMenu } from './editableContextMenu'
 import { createDeepSeekTaskQueue } from './deepSeekTaskQueue'
 import { assertDeepSeekRequestEnabled } from './deepseekFeatureAccess'
 import { resolveMediaToolPaths } from './mediaToolPaths'
@@ -328,10 +331,12 @@ function routeWindowOpenToRendererTab(win: BrowserWindow, url: string) {
 
 function installWindowOpenRouting(win: BrowserWindow) {
   win.webContents.setWindowOpenHandler(({ url }) => routeWindowOpenToRendererTab(win, url))
+  installEditableContextMenu(win.webContents, { buildMenu: (template) => Menu.buildFromTemplate(template) })
   installStartupInputObservers(win)
 
   win.webContents.on('did-attach-webview', (_event, webContents) => {
     webContents.setWindowOpenHandler(({ url }) => routeWindowOpenToRendererTab(win, url))
+    installEditableContextMenu(webContents, { buildMenu: (template) => Menu.buildFromTemplate(template) })
     installStartupInputObserver(webContents)
     mainWindowGuestWebContentsIds.add(webContents.id)
     webContents.once('dom-ready', () => rememberHomeGuestLoadOutcome(webContents.id))
@@ -1286,41 +1291,19 @@ async function resolveVerifiedFasterWhisperRuntime(id: Extract<TranscriptionMode
 }
 
 async function testDeepSeekConnectionForPreferences(preferences: AssistantPreferences) {
-  let responseModel: string | undefined
-  try {
-    await generateDeepSeekResult({
-      config: {
-        enabled: preferences.deepseekEnabled,
-        apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
-        model: preferences.deepseekModel,
-        baseUrl: preferences.deepseekBaseUrl
-      },
-      request: {
-        kind: 'pet-chat',
-        messages: [{ role: 'user', content: 'Reply with OK.' }]
-      },
-      onResponseMetadata: (metadata) => {
-        responseModel = metadata.model
-      }
-    })
+  return runDeepSeekConnectionTest({
+    enabled: preferences.deepseekEnabled,
+    apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
+    model: preferences.deepseekModel,
+    baseUrl: preferences.deepseekBaseUrl
+  }, {
+    onRetry: sendDeepSeekConnectionTestProgress
+  })
+}
 
-    return {
-      ok: true,
-      message: 'DeepSeek connection succeeded.',
-      requestedModel: preferences.deepseekModel,
-      responseModel
-    }
-  } catch (error) {
-    if (error instanceof DeepSeekServiceError) {
-      return { ok: false, message: error.message, requestedModel: preferences.deepseekModel }
-    }
-
-    return {
-      ok: false,
-      message: 'DeepSeek connection failed.',
-      requestedModel: preferences.deepseekModel
-    }
-  }
+function sendDeepSeekConnectionTestProgress(progress: DeepSeekRetryProgress) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send('deepseek:connection-test-progress', progress)
 }
 
 function createAssistantRuntimeRequestId() {

@@ -722,6 +722,12 @@ export type DeepSeekConnectionTestResult = {
   responseModel?: string
 }
 
+export type DeepSeekConnectionTestProgress = {
+  attempt: number
+  totalAttempts: number
+  delayMs: number
+}
+
 export type StartupDiagnosticStatus = 'ok' | 'warning' | 'error'
 
 export type StartupDiagnosticItem = {

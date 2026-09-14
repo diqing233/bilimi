@@ -1269,6 +1269,29 @@ describe('DeepSeek main service', () => {
     expect(fetchImpl).toHaveBeenCalledOnce()
   })
 
+  it('settles at the bounded timeout even when fetch ignores AbortSignal', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchImpl = vi.fn(() => new Promise<Response>(() => undefined))
+      const result = generateDeepSeekResult({
+        config: baseConfig,
+        request: { kind: 'pet-chat', messages: [{ role: 'user', content: 'hello' }] },
+        fetchImpl,
+        requestTimeoutMs: 10
+      })
+      const rejection = expect(result).rejects.toMatchObject({
+        code: 'network-error',
+        message: 'DeepSeek request timed out after 1 seconds.'
+      })
+
+      await vi.advanceTimersByTimeAsync(10)
+      await rejection
+      expect(fetchImpl).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('uses a 180 second default timeout only for old-favorite archive organization', async () => {
     vi.useFakeTimers()
     try {
