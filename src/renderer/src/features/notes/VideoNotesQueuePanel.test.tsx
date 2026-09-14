@@ -665,7 +665,7 @@ describe('VideoNotesPanel transcription queue', () => {
     expect(screen.getByRole('button', { name: '转写失败：Failed video' })).toBeInTheDocument()
     expect(screen.getByText('正在转写第 2 / 4 段')).toBeInTheDocument()
     expect(screen.getByText('49%')).toBeInTheDocument()
-    expect(screen.getByLabelText('转写音频到文稿生成整体进度')).toHaveAttribute('value', '49')
+    expect(screen.getByLabelText('正在本地转写音频')).not.toHaveAttribute('value')
     expect(screen.queryByRole('button', { name: '加入队列' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: '转写操作' })).toHaveLength(1)
     expect(screen.getByText('音频下载失败，请检查网络后重试。')).toBeInTheDocument()
@@ -801,7 +801,7 @@ describe('VideoNotesPanel transcription queue', () => {
 
     expect(screen.getByText('正在转写第 2 / 4 段')).toBeInTheDocument()
     expect(screen.getByText('54%')).toBeInTheDocument()
-    expect(screen.getByLabelText('转写音频到 DeepSeek 总结整体进度')).toHaveAttribute('value', '54')
+    expect(screen.getByLabelText('正在本地转写音频')).not.toHaveAttribute('value')
   })
 
   it('shows an independent DeepSeek summary at 96% beside the next transcription in the expanded queue', () => {
