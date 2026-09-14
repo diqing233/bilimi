@@ -879,6 +879,20 @@ export default function App() {
         : current?.boundRenameCandidates ?? []
     })
   }
+
+  function removeResolvedBoundRenameCandidates(accountMid: string, resolvedLedgerIds: ReadonlySet<string>) {
+    const normalizedAccountMid = accountMid.trim()
+    if (!normalizedAccountMid || resolvedLedgerIds.size === 0) return
+    const current = favoriteLedgerDiscoveryCacheRef.current.get(normalizedAccountMid)
+    if (!current) return
+    const boundRenameCandidates = current.boundRenameCandidates.filter((candidate) =>
+      !resolvedLedgerIds.has(candidate.ledgerId))
+    if (boundRenameCandidates.length === current.boundRenameCandidates.length) return
+    favoriteLedgerDiscoveryCacheRef.current.set(normalizedAccountMid, {
+      ...current,
+      boundRenameCandidates
+    })
+  }
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences(
       IS_TEST_RUNTIME ? { permissionOnboardingCompleted: true } : undefined
@@ -3844,6 +3858,7 @@ export default function App() {
         )
         preferencesRef.current = savedPreferences
         setPreferences(savedPreferences)
+        removeResolvedBoundRenameCandidates(accountMid, directRename.renamedLedgerIds)
         favoriteLedgerStatusCacheRef.current = null
         assistantSnapshotCacheRef.current.favoriteLedgerStatus = null
         window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()

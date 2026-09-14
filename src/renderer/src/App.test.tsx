@@ -3532,6 +3532,122 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('removes only a successfully renamed candidate from the next assistant snapshot', async () => {
+    const accountMid = '100'
+    const game = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!,
+      displayName: 'bilimi·游戏专区哈哈',
+      bilibiliFolderId: '4106106611', bilibiliFolderIds: ['4106106611'],
+      bilibiliFolderTitle: 'bilimi·旧游戏', bindingState: 'bound' as const
+    }
+    const music = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')!,
+      displayName: 'bilimi·音乐舞台哈哈',
+      bilibiliFolderId: '4106106612', bilibiliFolderIds: ['4106106612'],
+      bilibiliFolderTitle: 'bilimi·旧音乐', bindingState: 'bound' as const
+    }
+    const observation = { folderId: '88', title: 'bilimi·远端观察', memberCount: 2 }
+    const retryBilibiliFavoriteSpaceRefresh = vi.fn().mockResolvedValue({ status: 'idle' as const })
+    const renameFavoriteRepositoryBoundLedgerShard = vi.fn().mockResolvedValue({
+      shards: [{
+        logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611',
+        remoteTitle: game.displayName, remoteMemberCount: 0, bindingState: 'bound' as const
+      }]
+    })
+    const { desktopApi, notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      readBilibiliAccountMid: vi.fn().mockResolvedValue(accountMid),
+      retryBilibiliFavoriteSpaceRefresh,
+      renameFavoriteRepositoryBoundLedgerShard,
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid, revision: 1, updatedAt: '2026-09-14T00:00:00.000Z',
+        videoCount: 0, folderCount: 2, folders: [], folderCounts: {}, scopeCounts: {},
+        physicalShardCount: 2,
+        physicalShards: [
+          { logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1, remoteFolderId: '4106106611', remoteTitle: 'bilimi·旧游戏', remoteMemberCount: 0, bindingState: 'bound' as const },
+          { logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1, remoteFolderId: '4106106612', remoteTitle: 'bilimi·旧音乐', remoteMemberCount: 0, bindingState: 'bound' as const }
+        ],
+        syncRecordCount: 0, syncCounts: {}, pendingAidCount: 0, remoteReconciliations: []
+      })
+    })
+    await waitFor(() => expect(desktopApi.loadPreferences).toHaveBeenCalled())
+    notifyPreferencesChanged(createAppPreferences({
+      favoriteAccountPreferences: {
+        [accountMid]: { defaultFavoriteSystemEnabled: true, favoriteLedgers: [game, music] }
+      }
+    }))
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string, userGesture?: boolean) => {
+      if (userGesture) return { hasUserId: true, hasCsrf: true }
+      if (isLedgerStatusScript(script)) {
+        return {
+          ...emptyLedgerStatus(), ledgers: [game, music], remoteObservations: [observation]
+        }
+      }
+      if (script.includes('已绑定收藏夹改名预检')) {
+        return {
+          ok: true, verified: true,
+          observedShards: [
+            { logicalLedgerId: 'game', shardNumber: 1, remoteFolderId: '4106106611', currentRemoteTitle: 'bilimi·旧游戏', remoteMemberCount: 0 },
+            ...(script.includes('4106106612')
+              ? [{ logicalLedgerId: 'music', shardNumber: 1, remoteFolderId: '4106106612', currentRemoteTitle: 'bilimi·旧音乐', remoteMemberCount: 0 }]
+              : [])
+          ]
+        }
+      }
+      throw new Error(`Unexpected B站 write script: ${script.slice(0, 80)}`)
+    })
+    Object.assign(webview, { executeJavaScript })
+    await act(async () => {
+      webview.dispatchEvent(new CustomEvent('did-navigate-in-page', {
+        detail: { url: `https://space.bilibili.com/${accountMid}/favlist` }
+      }))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    ;(desktopApi.notifyAssistantSnapshotChanged as ReturnType<typeof vi.fn>).mockClear()
+    act(() => webview.dispatchEvent(new CustomEvent('page-title-updated', {
+      detail: {
+        title: `__BILIMI_FAVORITE_SPACE_MUTATION__:${encodeURIComponent(JSON.stringify({ accountMid, kind: 'rename', nonce: 14 }))}`
+      }
+    })))
+    await waitFor(() => expect(retryBilibiliFavoriteSpaceRefresh).toHaveBeenCalledWith(accountMid))
+    await waitFor(() => expect(desktopApi.notifyAssistantSnapshotChanged).toHaveBeenCalled())
+    await expect(requestRuntime({ id: 'bound-rename-candidates-before-confirmation', type: 'snapshot' })).resolves.toMatchObject({
+      favoriteLedgerStatus: expect.objectContaining({
+        remoteObservations: [observation],
+        boundRenameCandidates: expect.arrayContaining([
+          expect.objectContaining({ ledgerId: 'game' }),
+          expect.objectContaining({ ledgerId: 'music' })
+        ])
+      })
+    })
+
+    const renameResult = await requestRuntime({
+      id: 'bound-rename-removes-resolved-candidate', type: 'save-ledgers', ledgers: [game, music],
+      options: {
+        backupTargetLedgerIds: ['game'], deleteDisabled: false, rediscoverDeletedRemoteDrafts: true,
+        renameBoundOnly: true, confirmBoundRename: true,
+        boundRenameShards: { game: [{
+          remoteFolderId: '4106106611', shardNumber: 1
+        }] }
+      }
+    })
+    expect(renameResult).toMatchObject({ ok: true, steps: ['favorite:bound-shard-rename'] })
+
+    await expect(requestRuntime({ id: 'bound-rename-candidates-after-confirmation', type: 'snapshot' })).resolves.toMatchObject({
+      favoriteLedgerStatus: expect.objectContaining({
+        remoteObservations: [observation],
+        boundRenameCandidates: [expect.objectContaining({ ledgerId: 'music' })]
+      })
+    })
+    expect(renameFavoriteRepositoryBoundLedgerShard).toHaveBeenCalledTimes(1)
+    expect(executeJavaScript.mock.calls.map(([script]) => String(script))).not.toContain(
+      expect.stringContaining(LEDGER_SAVE_SCRIPT_MARKER)
+    )
+  })
+
   it.each(['create', 'rename'] as const)('retries a pending manual favorite %s discovery when the same account refresh later becomes idle', async (kind) => {
     const accountMid = '100'
     const observation = { folderId: '88', title: 'bilimi·刷新后发现', memberCount: 2 }
