@@ -17,6 +17,7 @@ import { formatDeepSeekErrorMessage } from '../assistant/deepSeekErrorMessage'
 import { VideoNoteBatchExportDialog } from './VideoNoteBatchExportDialog'
 import { LocalMemoEditor } from './LocalMemoEditor'
 import { useExclusiveMenu } from '../../components/useExclusiveMenu'
+import { BilimiModal } from '../../components/BilimiModal'
 import { NoteSelectionCheckbox, NoteSelectionStore, NoteSelectionSubscriber } from './noteSelectionStore'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import './VideoNoteArchivePanel.css'
@@ -950,19 +951,20 @@ export function VideoNoteArchivePanel({
       /> : null}
 
       {pendingDelete ? (
-        <div role="dialog" aria-label="确认删除" className="video-note-archive__dialog">
-          <p>
-            {pendingDelete.type === 'entry'
-              ? '确认删除这个视频档案及全部历史版本？'
-              : '确认删除当前历史版本？'}
-          </p>
-          <button type="button" onClick={() => void confirmDelete()}>
+        <BilimiModal title="确认删除" role="dialog" tone="danger" className="video-note-archive__dialog" onClose={() => setPendingDelete(null)} actions={<>
+          <button type="button" data-variant="danger" onClick={() => void confirmDelete()}>
             确认删除
           </button>
           <button type="button" onClick={() => setPendingDelete(null)}>
             取消
           </button>
-        </div>
+        </>}>
+          <p>
+            {pendingDelete.type === 'entry'
+              ? '确认删除这个视频档案及全部历史版本？'
+              : '确认删除当前历史版本？'}
+          </p>
+        </BilimiModal>
       ) : null}
     </section>
   )

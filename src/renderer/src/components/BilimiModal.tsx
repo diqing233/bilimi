@@ -36,6 +36,7 @@ type BilimiModalProps = {
   children: ReactNode
   actions?: ReactNode
   actionsLabel?: string
+  ariaLabel?: string
   tone?: 'default' | 'danger'
   role?: 'dialog' | 'alertdialog'
   busy?: boolean
@@ -48,6 +49,7 @@ export function BilimiModal({
   children,
   actions,
   actionsLabel,
+  ariaLabel,
   tone = 'default',
   role,
   busy = false,
@@ -113,7 +115,7 @@ export function BilimiModal({
       ref={dialogRef}
       role={role ?? (tone === 'danger' ? 'alertdialog' : 'dialog')}
       aria-modal="true"
-      aria-labelledby={titleId}
+      {...(ariaLabel ? { 'aria-label': ariaLabel } : { 'aria-labelledby': titleId })}
       aria-busy={busy || undefined}
       data-tone={tone}
       className={`bilimi-modal__dialog${className ? ` ${className}` : ''}`}

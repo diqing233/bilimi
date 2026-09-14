@@ -302,14 +302,14 @@
 .favorite-library__binding-candidate-actions button:disabled { cursor: default; opacity: .45; }
 .favorite-library__dialog-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .favorite-library__dialog-actions button { min-height: 30px; padding: 5px 9px; border: 1px solid #cbdcf5; border-radius: 6px; background: #fff; color: #1e3a8a; }
-.bilimi-modal__body .favorite-library__dialog-actions button:hover:not(:disabled),
-.bilimi-modal__body .favorite-library__dialog-actions button:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, .52); background: rgba(220, 238, 255, .92); color: #173e78; outline: none; }
+.favorite-library__dialog .favorite-library__dialog-actions button:hover:not(:disabled),
+.favorite-library__dialog .favorite-library__dialog-actions button:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, .52); background: rgba(220, 238, 255, .92); color: #173e78; outline: none; }
 .favorite-library__dialog-actions .favorite-library__danger-action { border-color: #efc7c0; background: #fff8f7; color: #9d2e2e; }
-.bilimi-modal__body .favorite-library__dialog-actions .favorite-library__danger-action:hover:not(:disabled),
-.bilimi-modal__body .favorite-library__dialog-actions .favorite-library__danger-action:focus-visible:not(:disabled) { border-color: #b73e30; background: #b73e30; color: #fff; }
+.favorite-library__dialog .favorite-library__dialog-actions .favorite-library__danger-action:hover:not(:disabled),
+.favorite-library__dialog .favorite-library__dialog-actions .favorite-library__danger-action:focus-visible:not(:disabled) { border-color: #b73e30; background: #b73e30; color: #fff; }
 .favorite-library__dialog-actions .favorite-library__dialog-remote-action { border-color: #efc7c0; background: #fff8f7; color: #9d2e2e; }
-.bilimi-modal__body .favorite-library__dialog-actions .favorite-library__dialog-remote-action:hover:not(:disabled),
-.bilimi-modal__body .favorite-library__dialog-actions .favorite-library__dialog-remote-action:focus-visible:not(:disabled) { border-color: #b73e30; background: #b73e30; color: #fff; }
+.favorite-library__dialog .favorite-library__dialog-actions .favorite-library__dialog-remote-action:hover:not(:disabled),
+.favorite-library__dialog .favorite-library__dialog-actions .favorite-library__dialog-remote-action:focus-visible:not(:disabled) { border-color: #b73e30; background: #b73e30; color: #fff; }
 .favorite-library__dialog-actions button:disabled { cursor: wait; opacity: .55; }
 .favorite-library__dialog-secondary-confirmation { display: grid; gap: 8px; padding-top: 8px; border-top: 1px dashed #aac5e8; }
 .favorite-library__delete-confirmation > div { display: flex; gap: 5px; }

@@ -84,6 +84,19 @@ describe('LocalDataSettings', () => {
     expect(onDataChanged).not.toHaveBeenCalled()
   })
 
+  it('keeps local data deletion actions in the shared modal footer', () => {
+    render(<LocalDataSettings userDataPath="C:\\data" accounts={[]} calculateUsage={vi.fn()} onFullClear={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '管理数据' }))
+    fireEvent.click(screen.getByRole('button', { name: '清除全部用户数据' }))
+
+    const dialog = screen.getByRole('alertdialog', { name: '确认清除全部本地数据' })
+    const confirm = screen.getByRole('button', { name: '确认清除全部本地数据' })
+    expect(dialog).toHaveClass('bilimi-modal__dialog')
+    expect(dialog.querySelector('.bilimi-modal__actions')).toContainElement(confirm)
+    expect(dialog.querySelector('.bilimi-modal__body')).not.toContainElement(confirm)
+  })
+
   it('retains an import preview token until the user explicitly chooses merge or overwrite', async () => {
     const onImport = vi.fn().mockResolvedValue({ token: 'preview-1', accounts: [{ uid: '100', action: 'merge' }, { uid: '200', action: 'new' }] })
     const onApplyImport = vi.fn().mockResolvedValue(undefined)

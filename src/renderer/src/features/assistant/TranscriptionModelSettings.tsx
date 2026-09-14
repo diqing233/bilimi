@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { BilimiModal } from '../../components/BilimiModal'
 import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 import type { TranscriptionGpuProbe, TranscriptionModelId, TranscriptionModelInstallation, TranscriptionModelInstallProgress } from '@shared/types'
 
@@ -192,25 +193,21 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
     {!accountMid && <small>登录 B 站后可为当前账号选择模型。</small>}
     {installationError && <p className="assistant-settings__transcription-model-error" role="alert">{installationError}</p>}
     {selectedProgress?.stage === 'failed' && selectedProgress.error && <p className="assistant-settings__transcription-model-error" role="alert">{selectedProgress.error}</p>}
-    {confirmationModel ? <div className="assistant-settings__transcription-model-confirmation" role="dialog" aria-modal="true" aria-label="确认下载模型">
-      <h3>确认下载 {LABELS[confirmationModel.id]}</h3>
+    {confirmationModel ? <BilimiModal title={`确认下载 ${LABELS[confirmationModel.id]}`} ariaLabel="确认下载模型" className="assistant-settings__transcription-model-confirmation" onClose={() => setConfirmationModel(null)} actions={<>
+        <button type="button" className="assistant-settings__transcription-model-action" onClick={() => setConfirmationModel(null)}>取消</button>
+        <button type="button" data-variant="primary" className="assistant-settings__transcription-model-action assistant-settings__transcription-model-action--primary" onClick={() => { const { id, resumable } = confirmationModel; setConfirmationModel(null); startInstallation(id, resumable ? { restart: true } : undefined) }}>{confirmationModel.resumable ? '确认重新下载' : '确认下载'}</button>
+      </>}>
       <p>{confirmationModel.resumable ? '重新下载会清除已保留的部分文件，无法继续下载。' : ''}</p>
       <p>下载 {bytesLabel(confirmationModel.downloadBytes)}，安装后占用 {bytesLabel(confirmationModel.installedBytes)}。</p>
       <p>{modelSummary(confirmationModel)}。</p>
       <details><summary>来源与许可</summary><p>{confirmationModel.id.startsWith('faster-whisper') ? '当前 GPU 加速仅支持 NVIDIA CUDA，AMD/Intel 使用 CPU。CUDA 不随模型下载，由 NVIDIA 单独提供。' : ''}</p><p>许可：{confirmationModel.license}。来源与署名：{confirmationModel.attribution}</p></details>
-      <div>
-        <button type="button" className="assistant-settings__transcription-model-action" onClick={() => setConfirmationModel(null)}>取消</button>
-        <button type="button" className="assistant-settings__transcription-model-action assistant-settings__transcription-model-action--primary" onClick={() => { const { id, resumable } = confirmationModel; setConfirmationModel(null); startInstallation(id, resumable ? { restart: true } : undefined) }}>{confirmationModel.resumable ? '确认重新下载' : '确认下载'}</button>
-      </div>
-    </div> : null}
-    {deleteConfirmationModel ? <div className="assistant-settings__transcription-model-confirmation" role="dialog" aria-modal="true" aria-label="确认删除模型">
-      <h3>确认删除 {LABELS[deleteConfirmationModel.id]}</h3>
+    </BilimiModal> : null}
+    {deleteConfirmationModel ? <BilimiModal title={`确认删除 ${LABELS[deleteConfirmationModel.id]}`} ariaLabel="确认删除模型" className="assistant-settings__transcription-model-confirmation" onClose={() => setDeleteConfirmationModel(null)} actions={<>
+        <button type="button" className="assistant-settings__transcription-model-action" onClick={() => setDeleteConfirmationModel(null)}>取消</button>
+        <button type="button" data-variant="danger" className="assistant-settings__transcription-model-action assistant-settings__transcription-model-action--danger" onClick={() => { onDelete?.(deleteConfirmationModel.id); setDeleteConfirmationModel(null) }}>确认删除</button>
+      </>}>
       <p>将释放约 {bytesLabel(deleteConfirmationModel.installedBytes)}。</p>
       <p>仅删除 bilimi 管理的模型文件：{deleteConfirmationModel.managedPath}</p>
-      <div>
-        <button type="button" className="assistant-settings__transcription-model-action" onClick={() => setDeleteConfirmationModel(null)}>取消</button>
-        <button type="button" className="assistant-settings__transcription-model-action assistant-settings__transcription-model-action--danger" onClick={() => { onDelete?.(deleteConfirmationModel.id); setDeleteConfirmationModel(null) }}>确认删除</button>
-      </div>
-    </div> : null}
+    </BilimiModal> : null}
   </div>
 }

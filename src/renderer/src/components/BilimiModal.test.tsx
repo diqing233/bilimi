@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { BilimiModal } from './BilimiModal'
 
@@ -83,6 +83,19 @@ describe('BilimiModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '关闭弹窗' }))
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the visible title as the dialog heading when an explicit accessible label is required', () => {
+    render(
+      <BilimiModal title="确认下载 Whisper small" ariaLabel="确认下载模型" onClose={vi.fn()} actions={<button type="button">确认下载</button>}>
+        <p>下载说明。</p>
+      </BilimiModal>
+    )
+
+    const dialog = screen.getByRole('dialog', { name: '确认下载模型' })
+    expect(dialog).toHaveAttribute('aria-label', '确认下载模型')
+    expect(dialog).not.toHaveAttribute('aria-labelledby')
+    expect(within(dialog).getByRole('heading', { name: '确认下载 Whisper small' })).toBeInTheDocument()
   })
 
   it('disables the header close button while busy', () => {

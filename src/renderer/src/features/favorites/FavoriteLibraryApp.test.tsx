@@ -1753,12 +1753,26 @@ describe('FavoriteLibraryApp', () => {
 
     expect(screen.getByRole('alertdialog', { name: '删除 音乐' })).toHaveClass('bilimi-modal__dialog', 'favorite-library__dialog-overlay')
     expect(favoriteLibraryStyles).not.toContain('.favorite-library__dialog-backdrop { position: fixed;')
-    expect(favoriteLibraryStyles).toContain('.bilimi-modal__body .favorite-library__dialog-actions button:hover:not(:disabled)')
+    expect(favoriteLibraryStyles).toContain('.favorite-library__dialog .favorite-library__dialog-actions button:hover:not(:disabled)')
     expect(favoriteLibraryStyles).toContain('.favorite-library__dialog-actions .favorite-library__danger-action { border-color: #efc7c0; background: #fff8f7; color: #9d2e2e; }')
     expect(favoriteLibraryStyles).not.toContain('.favorite-library__dialog-actions .favorite-library__danger-action { border-color: transparent; background: transparent;')
     expect(favoriteLibraryStyles).toContain('.favorite-library__dialog-overlay .bilimi-modal__actions button[data-variant="danger"] { border-color: #efc7c0; background: #fff8f7; color: #9d2e2e; }')
     expect(favoriteLibraryStyles).toContain('.favorite-library__dialog-overlay .bilimi-modal__actions button { min-height: 30px; padding: 5px 9px;')
     expect(favoriteLibraryStyles).toContain('grid-template-columns: var(--favorite-columns);')
+  })
+
+  it('renders confirmation actions in the modal footer instead of the scrollable body', () => {
+    render(<FavoriteLibraryConfirmationDialog
+      label="删除 音乐"
+      onClose={vi.fn()}
+      actions={<button type="button">确认删除</button>}
+    ><p>确认删除。</p></FavoriteLibraryConfirmationDialog>)
+
+    const dialog = screen.getByRole('alertdialog', { name: '删除 音乐' })
+    const body = dialog.querySelector('.bilimi-modal__body')
+    const actions = dialog.querySelector('.bilimi-modal__actions')
+    expect(actions).toContainElement(screen.getByRole('button', { name: '确认删除' }))
+    expect(body).not.toContainElement(screen.getByRole('button', { name: '确认删除' }))
   })
 
   it('does not create an implicit workspace row just to draw a divider', () => {

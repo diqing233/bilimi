@@ -3295,6 +3295,46 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(preflight).toHaveBeenCalledExactlyOnceWith('100')
   })
 
+  it('keeps the sync preflight targets in the scrollable modal body and its confirmation in the footer', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 },
+      history: { cursor: 1, length: 1 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      getOldFavoriteWorkspaceBilibiliExecutionPreflightV1: vi.fn().mockResolvedValue({
+        accountMid: '100', workspaceId: 'workspace-100',
+        missingLedgers: [{ logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', reason: 'unbacked' as const }],
+        requiredPhysicalShards: []
+      }),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockRejectedValue(new Error('backup-preflight-required'))
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={[]}
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false, bilibiliFolderId: 'remote-music', bindingState: 'bound' }]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+
+    const dialog = await screen.findByRole('dialog', { name: '同步前备册确认' })
+    const targets = dialog.querySelector('.favorite-ledger-panel__sync-backup-targets')
+    const body = dialog.querySelector('.bilimi-modal__body')
+    const actions = dialog.querySelector('.bilimi-modal__actions')
+    const confirm = within(dialog).getByRole('button', { name: '确认备册并继续' })
+    expect(body).toContainElement(targets)
+    expect(actions).toContainElement(confirm)
+    expect(body).not.toContainElement(confirm)
+  })
+
   it('syncs enabled ledgers without querying or deleting disabled managed folders', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

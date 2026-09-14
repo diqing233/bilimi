@@ -2694,23 +2694,24 @@ export function FavoriteLibraryApp({
           })() : null}
         </div> : null}
       </section> : null}
-      {batchRemoteDeletionChoice ? <FavoriteLibraryConfirmationDialog label="确认批量从 B 站 bilimi 收藏夹删除" onClose={() => setBatchRemoteDeletionChoice(undefined)}>
+      {batchRemoteDeletionChoice ? <FavoriteLibraryConfirmationDialog label="确认批量从 B 站 bilimi 收藏夹删除" onClose={() => setBatchRemoteDeletionChoice(undefined)} actions={<div className="favorite-library__dialog-actions"><button type="button" onClick={() => setBatchRemoteDeletionChoice(undefined)}>取消</button><button type="button" className="favorite-library__dialog-remote-action" onClick={() => void runDetailAction(async () => {
+        const logicalFolderIds = currentLogicalFolderId
+          ? batchRemoteDeletionChoice.includeOtherWorkFolders
+            ? workspaceDestinationOptions.map((folder) => folder.id).sort()
+            : [currentLogicalFolderId]
+          : []
+        await previewBatchRemoteUnfavorite(batchRemoteDeletionChoice.selection, logicalFolderIds, batchRemoteDeletionChoice.includeOtherWorkFolders)
+        setBatchRemoteDeletionChoice(undefined)
+      }, true)}>继续</button></div>}>
         <p>{currentLogicalFolderId
           ? batchRemoteDeletionChoice.includeOtherWorkFolders ? '将从当前及其他 bilimi 工作夹移除所选视频的 B 站 bilimi 归属；普通 B 站收藏夹不会修改。' : '将只从当前 bilimi 工作夹移除所选视频的 B 站 bilimi 归属；普通 B 站收藏夹不会修改。'
           : batchRemoteDeletionChoice.includeOtherWorkFolders ? '将从所选视频已记录的全部 bilimi 工作夹移除 B 站 bilimi 归属；普通 B 站收藏夹不会修改。' : '将从所选视频已记录的一个 bilimi 工作夹移除 B 站 bilimi 归属；普通 B 站收藏夹不会修改。'}</p>
         {(currentLogicalFolderId ? workspaceDestinationOptions.some((folder) => folder.id !== currentLogicalFolderId) : workspaceDestinationOptions.length > 1) ? <label><input type="checkbox" aria-label="同时从其他 bilimi 工作夹移除" checked={batchRemoteDeletionChoice.includeOtherWorkFolders} onChange={(event) => { const checked = event.currentTarget.checked; setBatchRemoteDeletionChoice((current) => current ? { ...current, includeOtherWorkFolders: checked } : current) }} />同时从其他 bilimi 工作夹移除</label> : null}
-        <div className="favorite-library__dialog-actions"><button type="button" onClick={() => setBatchRemoteDeletionChoice(undefined)}>取消</button><button type="button" className="favorite-library__dialog-remote-action" onClick={() => void runDetailAction(async () => {
-          const logicalFolderIds = currentLogicalFolderId
-            ? batchRemoteDeletionChoice.includeOtherWorkFolders
-              ? workspaceDestinationOptions.map((folder) => folder.id).sort()
-              : [currentLogicalFolderId]
-            : []
-          await previewBatchRemoteUnfavorite(batchRemoteDeletionChoice.selection, logicalFolderIds, batchRemoteDeletionChoice.includeOtherWorkFolders)
-          setBatchRemoteDeletionChoice(undefined)
-        }, true)}>继续</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
-      {batchRemoteUnfavoritePreview ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" busy={remoteUnfavoriteExecuting} onClose={() => setBatchRemoteUnfavoritePreview(undefined)}>
-        {!batchRemoteUnfavoritePreview.hasRemoteTarget ? <><p>没有实际存入B站bilimi收藏夹</p><div className="favorite-library__dialog-actions"><button type="button" onClick={() => setBatchRemoteUnfavoritePreview(undefined)}>关闭</button></div></> : <>
+      {batchRemoteUnfavoritePreview ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" busy={remoteUnfavoriteExecuting} onClose={() => setBatchRemoteUnfavoritePreview(undefined)} actions={!batchRemoteUnfavoritePreview.hasRemoteTarget
+        ? <div className="favorite-library__dialog-actions"><button type="button" onClick={() => setBatchRemoteUnfavoritePreview(undefined)}>关闭</button></div>
+        : <div className="favorite-library__dialog-actions"><button type="button" disabled={remoteUnfavoriteExecuting} onClick={() => setBatchRemoteUnfavoritePreview(undefined)}>取消</button><button type="button" className="favorite-library__dialog-remote-action" disabled={remoteUnfavoriteExecuting} onClick={() => void runDetailAction(confirmBatchRemoteUnfavorite)}>确认删除 B 站 bilimi 归属</button></div>}>
+        {!batchRemoteUnfavoritePreview.hasRemoteTarget ? <p>没有实际存入B站bilimi收藏夹</p> : <>
         <p>将从 B 站 bilimi 收藏夹删除 {batchRemoteUnfavoritePreview.aids.length} 个视频的归属：{batchRemoteUnfavoritePreview.affectedLogicalFolders.map((folder) => folder.title).join('、') || '所选 bilimi 工作夹'}。</p>
         {batchRemoteUnfavoritePreview.skippedUnsyncedAids.length ? <p role="alert">收藏未同步：已跳过 {batchRemoteUnfavoritePreview.skippedUnsyncedAids.length} 个视频。</p> : null}
         {batchRemoteUnfavoritePreview.skippedUnmatchedAids.length ? <p role="alert">未找到 bilimi 收藏夹归属，已跳过 {batchRemoteUnfavoritePreview.skippedUnmatchedAids.length} 个视频。</p> : null}
@@ -2718,40 +2719,39 @@ export function FavoriteLibraryApp({
         {batchRemoteUnfavoritePreview.recycleAids.length ? <p role="alert">其中 {batchRemoteUnfavoritePreview.recycleAids.length} 个视频没有其他普通 B 站来源，远端确认移除后会进入回收站。</p> : null}
         <p>{batchRemoteUnfavoritePreview.baselineRevision === undefined ? '执行前会再次核对远端状态。' : `预览基线版本 ${batchRemoteUnfavoritePreview.baselineRevision}；版本变化将拒绝执行。`}</p>
         <p>本地标题、标签、转写与档案都会保留；网络异常不会自动重试，未成功时请稍后重试。</p>
-        <div className="favorite-library__dialog-actions"><button type="button" disabled={remoteUnfavoriteExecuting} onClick={() => setBatchRemoteUnfavoritePreview(undefined)}>取消</button><button type="button" className="favorite-library__dialog-remote-action" disabled={remoteUnfavoriteExecuting} onClick={() => void runDetailAction(confirmBatchRemoteUnfavorite)}>确认删除 B 站 bilimi 归属</button></div>
         </>}
       </FavoriteLibraryConfirmationDialog> : null}
-      {batchLocalDeleteConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="确认从收藏库 bilimi 收藏夹删除" onClose={() => setBatchLocalDeleteConfirmationOpen(false)}>
+      {batchLocalDeleteConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="确认从收藏库 bilimi 收藏夹删除" onClose={() => setBatchLocalDeleteConfirmationOpen(false)} actions={<div className="favorite-library__dialog-actions"><button type="button" onClick={() => { setBatchDeleteOtherWorkFolders(false); setBatchLocalDeleteConfirmationOpen(false) }}>取消</button><button type="button" className="favorite-library__danger-action" onClick={() => void runAction(deleteSelectedFromLibrary)}>确认从收藏库 bilimi 收藏夹删除所选视频</button></div>}>
         <p>{currentLogicalFolderId
           ? `将从当前 bilimi 工作夹移除 ${selectedCount} 个所选视频的收藏库归属，不会取消 B 站收藏，也不会删除已有转写、档案、保护记录或处理历史。`
           : `将按所选视频已记录的 bilimi 工作夹归属处理 ${selectedCount} 个视频；普通 B 站收藏夹不会修改，也不会删除已有转写、档案、保护记录或处理历史。`}</p>
         {(currentLogicalFolderId ? workspaceDestinationOptions.some((folder) => folder.id !== currentLogicalFolderId) : workspaceDestinationOptions.length > 1) ? <label><input type="checkbox" aria-label="同时从其他 bilimi 工作夹移除" checked={batchDeleteOtherWorkFolders} onChange={(event) => setBatchDeleteOtherWorkFolders(event.currentTarget.checked)} />同时从其他 bilimi 工作夹移除</label> : null}
-        <div className="favorite-library__dialog-actions"><button type="button" onClick={() => { setBatchDeleteOtherWorkFolders(false); setBatchLocalDeleteConfirmationOpen(false) }}>取消</button><button type="button" className="favorite-library__danger-action" onClick={() => void runAction(deleteSelectedFromLibrary)}>确认从收藏库 bilimi 收藏夹删除所选视频</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
-      {workspaceSyncConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="备册 bilimi 工作夹" busy={workspaceSyncExecuting} onClose={() => { if (!workspaceSyncExecuting) setWorkspaceSyncConfirmationOpen(false) }}>
+      {workspaceSyncConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="备册 bilimi 工作夹" busy={workspaceSyncExecuting} onClose={() => { if (!workspaceSyncExecuting) setWorkspaceSyncConfirmationOpen(false) }} actions={<div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceSyncConfirmationOpen(false)}>取消</button><button type="button" disabled={workspaceSyncExecuting || !workspaceSyncSelection.length} onClick={() => void runAction(confirmWorkspaceSync)}>开始备册</button></div>}>
         <p>请选择要备册的 bilimi 工作夹。备册只会为所选工作夹创建或绑定 B 站收藏夹，不会同步视频或修改其他收藏夹。</p>
         <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceSyncSelection(backupFolders.map((folder) => folder.id))}>全选</button></div>
         <ul className="favorite-library__managed-folder-preview">{backupFolders.map((folder) => <li key={folder.id}><label><input type="checkbox" aria-label={`选择 ${folder.title}`} checked={workspaceSyncSelection.includes(folder.id)} disabled={workspaceSyncExecuting} onChange={(event) => {
           const checked = event.currentTarget.checked
           setWorkspaceSyncSelection((current) => checked ? [...new Set([...current, folder.id])] : current.filter((id) => id !== folder.id))
         }} /><span>{folder.title}</span></label></li>)}</ul>
-        <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceSyncConfirmationOpen(false)}>取消</button><button type="button" disabled={workspaceSyncExecuting || !workspaceSyncSelection.length} onClick={() => void runAction(confirmWorkspaceSync)}>开始备册</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       {workspaceBoundRenameCandidates ? <FavoriteLibraryConfirmationDialog label="确认修改 B 站收藏夹名称" busy={workspaceSyncExecuting} onClose={() => {
         if (!workspaceSyncExecuting) setWorkspaceBoundRenameCandidates(undefined)
-      }}>
+      }} actions={<div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceBoundRenameCandidates(undefined)}>取消</button><button type="button" disabled={workspaceSyncExecuting} onClick={() => void runAction(confirmWorkspaceBoundRenames)}>确认改名并继续备册</button></div>}>
         <p>本次仅修改已绑定收藏夹的 B 站名称，并继续本次备册；不重新绑定、不创建收藏夹、不处理视频同步。</p>
         <ul className="favorite-library__managed-folder-preview">{workspaceBoundRenameCandidates.flatMap((entry) => entry.shards.map((shard) => <li key={`${entry.logicalLedgerId}:${shard.shardNumber}:${shard.remoteFolderId}`}>
           {entry.logicalTitle}：分册 {shard.shardNumber}：{shard.currentRemoteTitle}（{shard.remoteMemberCount} 个视频，确认后 B 站收藏夹名字会更改为 {shard.targetTitle}）
         </li>))}</ul>
-        <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => setWorkspaceBoundRenameCandidates(undefined)}>取消</button><button type="button" disabled={workspaceSyncExecuting} onClick={() => void runAction(confirmWorkspaceBoundRenames)}>确认改名并继续备册</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       {workspaceBindingCandidates && !workspaceBoundRenameCandidates ? <FavoriteLibraryConfirmationDialog label="确认绑定 bilimi 收藏夹" busy={workspaceSyncExecuting} onClose={() => {
         if (!workspaceSyncExecuting) {
           setWorkspaceBindingCandidates(undefined)
           setWorkspaceBindingSelections({})
         }
-      }}>
+      }} actions={<div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => {
+        setWorkspaceBindingCandidates(undefined)
+        setWorkspaceBindingSelections({})
+      }}>取消</button><button type="button" disabled={workspaceSyncExecuting || workspaceBindingCandidates.some((entry) => entry.candidates.length > 0 && !(workspaceBindingSelections[entry.logicalLedgerId] ?? []).length)} onClick={() => void runAction(confirmWorkspaceBindings)}>{workspaceBindingCandidates.some((entry) => !entry.candidates.length) ? '确认创建并绑定' : '确认绑定'}</button></div>}>
         {workspaceBindingCandidates.some((entry) => !entry.candidates.length)
           ? <p>当前 B 站没有可复用的同名 bilimi 收藏夹。确认后只会为当前收藏夹创建并绑定一个新的 B 站收藏夹；不会同步视频或处理其他收藏夹。</p>
           : <p>检测到所选工作夹在 B 站有同名、但尚未正式绑定的收藏夹。请确认要绑定的实际收藏夹；未选中的候选不会被修改。</p>}
@@ -2785,14 +2785,10 @@ export function FavoriteLibraryApp({
             </li>
           })
         })}</ul>
-        <div className="favorite-library__dialog-actions"><button type="button" disabled={workspaceSyncExecuting} onClick={() => {
-          setWorkspaceBindingCandidates(undefined)
-          setWorkspaceBindingSelections({})
-        }}>取消</button><button type="button" disabled={workspaceSyncExecuting || workspaceBindingCandidates.some((entry) => entry.candidates.length > 0 && !(workspaceBindingSelections[entry.logicalLedgerId] ?? []).length)} onClick={() => void runAction(confirmWorkspaceBindings)}>{workspaceBindingCandidates.some((entry) => !entry.candidates.length) ? '确认创建并绑定' : '确认绑定'}</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       {managedFolderDeletionDialog ? <FavoriteLibraryConfirmationDialog label="删除 bilimi 收藏夹" busy={managedFolderDeletionExecuting} onClose={() => {
         if (!managedFolderDeletionExecuting) setManagedFolderDeletionDialog(undefined)
-      }}>
+      }} actions={<div className="favorite-library__dialog-actions"><button type="button" disabled={managedFolderDeletionExecuting} onClick={() => setManagedFolderDeletionDialog(undefined)}>取消</button><button type="button" className="favorite-library__danger-action" disabled={managedFolderDeletionExecuting || (managedFolderDeletionDialog.mode === 'batch' && !managedFolderDeletionSelection.length) || !managedFolderDeletionAcknowledged || (managedFolderDeletionScope === 'bilibili' && managedFolderDeletionDialog.candidates.filter((candidate) => (managedFolderDeletionDialog.mode === 'single' || managedFolderDeletionSelection.includes(candidate.logicalLedgerId)) && hasRemoteManagedFolderDeletionTarget(candidate)).some((candidate) => candidate.requiresUnboundAcknowledgement) && !managedFolderDeletionAcknowledgedUnbound)} onClick={() => void runAction(confirmManagedFolderDeletion, managedFolderDeletionScope !== 'local-only')}>删除</button></div>}>
         <fieldset className="favorite-library__managed-folder-delete-scope"><legend>删除范围</legend><label className="favorite-library__managed-folder-delete-scope-option"><input type="radio" name="library-managed-folder-delete-scope" checked={managedFolderDeletionScope === 'local-only'} onChange={() => setManagedFolderDeletionScope('local-only')} /><span>仅从收藏库删除 bilimi 工作夹（保留右侧规则和 B 站收藏夹）</span></label>{managedFolderDeletionDialog.candidates.some(hasRemoteManagedFolderDeletionTarget) ? <label className="favorite-library__managed-folder-delete-scope-option"><input type="radio" name="library-managed-folder-delete-scope" checked={managedFolderDeletionScope === 'bilibili'} onChange={() => setManagedFolderDeletionScope('bilibili')} /><span>同时从 B 站删除收藏夹（保留右侧规则）</span></label> : null}</fieldset>
         <p>{managedFolderDeletionScope === 'local-only' ? '仅删除收藏库工作夹和分类关系；右侧规则、草稿、B 站收藏夹、视频、档案、转写和札记都会保留。' : '将删除所选收藏库工作夹及对应 B 站收藏夹；右侧规则和草稿会保留并显示未备册，可再次备册。'}</p>
         {managedFolderDeletionScope === 'bilibili' && managedRemoteDeletionSummary(managedFolderDeletionDialog.candidates) ? <p className="favorite-library__managed-folder-delete-summary">{managedRemoteDeletionSummary(managedFolderDeletionDialog.candidates)}</p> : null}
@@ -2807,9 +2803,8 @@ export function FavoriteLibraryApp({
         })}</ul>
         {managedFolderDeletionScope === 'bilibili' && managedFolderDeletionDialog.candidates.some((candidate) => hasRemoteManagedFolderDeletionTarget(candidate) && candidate.requiresUnboundAcknowledgement) ? <label><input type="checkbox" checked={managedFolderDeletionAcknowledgedUnbound} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionAcknowledgedUnbound(event.currentTarget.checked)} />已检测到 {managedFolderDeletionDialog.candidates.filter((candidate) => hasRemoteManagedFolderDeletionTarget(candidate) && candidate.requiresUnboundAcknowledgement).length} 个未绑定的 bilimi 收藏夹。它们通过历史收藏夹 ID 与本次 B 站目录核验一致，但尚未建立本地绑定；请确认后再删除。</label> : null}
         <label><input type="checkbox" aria-label="我已确认" checked={managedFolderDeletionAcknowledged} disabled={managedFolderDeletionExecuting} onChange={(event) => setManagedFolderDeletionAcknowledged(event.currentTarget.checked)} />我已确认</label>
-        <div className="favorite-library__dialog-actions"><button type="button" disabled={managedFolderDeletionExecuting} onClick={() => setManagedFolderDeletionDialog(undefined)}>取消</button><button type="button" className="favorite-library__danger-action" disabled={managedFolderDeletionExecuting || (managedFolderDeletionDialog.mode === 'batch' && !managedFolderDeletionSelection.length) || !managedFolderDeletionAcknowledged || (managedFolderDeletionScope === 'bilibili' && managedFolderDeletionDialog.candidates.filter((candidate) => (managedFolderDeletionDialog.mode === 'single' || managedFolderDeletionSelection.includes(candidate.logicalLedgerId)) && hasRemoteManagedFolderDeletionTarget(candidate)).some((candidate) => candidate.requiresUnboundAcknowledgement) && !managedFolderDeletionAcknowledgedUnbound)} onClick={() => void runAction(confirmManagedFolderDeletion, managedFolderDeletionScope !== 'local-only')}>删除</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
-      {conflictsOpen && summary?.folderConflicts?.length ? <FavoriteLibraryConfirmationDialog label="收藏夹问题处理" onClose={() => setConflictsOpen(false)}>
+      {conflictsOpen && summary?.folderConflicts?.length ? <FavoriteLibraryConfirmationDialog label="收藏夹问题处理" onClose={() => setConflictsOpen(false)} actions={<div className="favorite-library__dialog-actions"><button type="button" onClick={() => setConflictsOpen(false)}>关闭</button><button type="button" onClick={() => { setConflictsOpen(false); void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'ledger', sidebar: true }) }}>重新扫描</button></div>}>
         <h2>收藏夹问题</h2>
         <p>仅在归属证据不唯一时需要处理；关闭弹窗不会修改任何本地或 B 站数据。</p>
         <div className="favorite-library__conflict-list">
@@ -2820,7 +2815,6 @@ export function FavoriteLibraryApp({
           </section>)}
         </div>
         <p>系统不会自行移动、改名或删除 B 站收藏夹。请核对候选后重新扫描。</p>
-        <div className="favorite-library__dialog-actions"><button type="button" onClick={() => setConflictsOpen(false)}>关闭</button><button type="button" onClick={() => { setConflictsOpen(false); void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'ledger', sidebar: true }) }}>重新扫描</button></div>
       </FavoriteLibraryConfirmationDialog> : null}
       <div className="favorite-library__layout favorite-library__workspace" data-detail-state={detail && !detailOpen ? 'collapsed' : 'open'} data-embedded-layout={embedded || undefined} data-footer-split="true">
         <FavoriteLibraryNavigation
@@ -3241,27 +3235,24 @@ export function FavoriteLibraryApp({
             })()}<button type="button" className="favorite-library__inline-action" aria-expanded={classificationAdjustmentsOpen} onClick={toggleClassificationAdjustments}>{classificationAdjustmentsOpen ? '收起完整记录' : '查看完整记录'}</button>{classificationAdjustmentsOpen ? <ol className="favorite-library__classification-adjustment-list" aria-label="完整分类调整记录">{classificationAdjustments?.map((adjustment, index, items) => <li key={adjustment.id}><h3>{index === items.length - 1 && !classificationAdjustmentCursor ? '首次分类' : `第 ${(classificationAdjustmentTotalCount ?? items.length) - index} 次调整`}</h3><p>分类时间：{formatDetailTimestamp(adjustment.occurredAt)}</p><p>分类方式：{classificationAdjustmentLabel(adjustment)}</p><p>分类详情：{classificationAdjustmentDetail(adjustment)}</p></li>)}</ol> : null}
               {classificationAdjustmentsOpen && classificationAdjustmentCursor ? <button type="button" className="favorite-library__inline-action" onClick={() => void loadMoreClassificationAdjustments()}>加载更早记录</button> : null}
             </section>
-            {!isRecycleScope ? <section className="favorite-library__detail-danger"><h3>其他操作</h3><button type="button" className="favorite-library__inline-action favorite-library__danger-toggle" aria-label="其他操作" aria-expanded={detailDangerOpen} onClick={() => setDetailDangerOpen((open) => !open)}>{detailDangerOpen ? '收起' : '展开'}</button>{detailDangerOpen ? <>{detailLocalDeletionAvailable ? <><button type="button" className="favorite-library__inline-action favorite-library__danger-action" onClick={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(true) }}>从收藏库 bilimi 收藏夹删除</button>{deleteConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="确认从收藏库 bilimi 收藏夹删除" onClose={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(false) }}>{currentLogicalFolderId ? <>{(() => {
+            {!isRecycleScope ? <section className="favorite-library__detail-danger"><h3>其他操作</h3><button type="button" className="favorite-library__inline-action favorite-library__danger-toggle" aria-label="其他操作" aria-expanded={detailDangerOpen} onClick={() => setDetailDangerOpen((open) => !open)}>{detailDangerOpen ? '收起' : '展开'}</button>{detailDangerOpen ? <>{detailLocalDeletionAvailable ? <><button type="button" className="favorite-library__inline-action favorite-library__danger-action" onClick={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(true) }}>从收藏库 bilimi 收藏夹删除</button>{deleteConfirmationOpen ? <FavoriteLibraryConfirmationDialog label="确认从收藏库 bilimi 收藏夹删除" onClose={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(false) }} actions={<div className="favorite-library__dialog-actions"><button type="button" className="favorite-library__inline-action" onClick={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(false) }}>取消</button><button type="button" className="favorite-library__inline-action favorite-library__danger-action" onClick={() => void runDetailAction(deleteFromLibrary, true)}>确认从收藏库 bilimi 收藏夹删除</button></div>}>{currentLogicalFolderId ? <>{(() => {
               const otherFolderIds = (detailSnapshot?.position?.localDesiredFolderIds ?? []).filter((folderId) => folderId !== currentLogicalFolderId)
               return <><p>只会从当前工作夹“{detailFolderName(currentLogicalFolderId)}”移除；转写、档案、保护和处理记录会保留。</p>{otherFolderIds.length ? <><label><input type="checkbox" aria-label="同时从其他 bilimi 工作夹移除" checked={deleteOtherWorkFolders} onChange={(event) => setDeleteOtherWorkFolders(event.currentTarget.checked)} />同时从其他 bilimi 工作夹移除</label>{deleteOtherWorkFolders ? <p>还会从 {otherFolderIds.length} 个工作夹移除：{otherFolderIds.map(detailFolderName).join('、')}</p> : null}</> : null}{detailOrdinarySourceNames.length ? <p>普通 B 站收藏夹仍保留：{detailOrdinarySourceNames.join('、')}</p> : deleteOtherWorkFolders ? <p role="alert">该视频没有其他普通 B 站收藏夹来源；从全部 bilimi 工作夹移除后仍可从回收站恢复。</p> : null}</>
-            })()}</> : <><p>将按该视频已记录的 bilimi 工作夹归属处理；普通 B 站收藏夹不会修改，转写、档案、保护和处理记录会保留。</p>{workspaceDestinationOptions.length > 1 ? <label><input type="checkbox" aria-label="同时从其他 bilimi 工作夹移除" checked={deleteOtherWorkFolders} onChange={(event) => setDeleteOtherWorkFolders(event.currentTarget.checked)} />同时从其他 bilimi 工作夹移除</label> : null}{deleteOtherWorkFolders ? <p>还会从该视频已记录的其他 bilimi 工作夹移除。</p> : null}{detailOrdinarySourceNames.length ? <p>普通 B 站收藏夹仍保留：{detailOrdinarySourceNames.join('、')}</p> : null}</>}<div className="favorite-library__dialog-actions"><button type="button" className="favorite-library__inline-action" onClick={() => { setDeleteOtherWorkFolders(false); setDeleteConfirmationOpen(false) }}>取消</button><button type="button" className="favorite-library__inline-action favorite-library__danger-action" onClick={() => void runDetailAction(deleteFromLibrary, true)}>确认从收藏库 bilimi 收藏夹删除</button></div></FavoriteLibraryConfirmationDialog> : null}</> : null}{(() => {
+            })()}</> : <><p>将按该视频已记录的 bilimi 工作夹归属处理；普通 B 站收藏夹不会修改，转写、档案、保护和处理记录会保留。</p>{workspaceDestinationOptions.length > 1 ? <label><input type="checkbox" aria-label="同时从其他 bilimi 工作夹移除" checked={deleteOtherWorkFolders} onChange={(event) => setDeleteOtherWorkFolders(event.currentTarget.checked)} />同时从其他 bilimi 工作夹移除</label> : null}{deleteOtherWorkFolders ? <p>还会从该视频已记录的其他 bilimi 工作夹移除。</p> : null}{detailOrdinarySourceNames.length ? <p>普通 B 站收藏夹仍保留：{detailOrdinarySourceNames.join('、')}</p> : null}</>}</FavoriteLibraryConfirmationDialog> : null}</> : null}{(() => {
               return detailRemoteDeletionVisible ? <>
                 <button type="button" className="favorite-library__inline-action favorite-library__danger-action" disabled={remoteUnfavoritePreparing || remoteUnfavoriteExecuting || Boolean(remoteUnfavoritePreview)} onClick={openRemoteUnfavoriteDialog}>{remoteUnfavoritePreparing ? '正在准备确认…' : remoteUnfavoriteExecuting ? '正在删除 B 站 bilimi 收藏夹…' : '从 B 站 bilimi 收藏夹删除'}</button>
-                {remoteUnfavoriteDialog === 'missing-target' ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" onClose={closeRemoteUnfavoriteDialog}>
+                {remoteUnfavoriteDialog === 'missing-target' ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" onClose={closeRemoteUnfavoriteDialog} actions={<div className="favorite-library__dialog-actions"><button type="button" onClick={closeRemoteUnfavoriteDialog}>关闭</button></div>}>
                   <p>没有实际存入B站bilimi收藏夹</p>
-                  <div className="favorite-library__dialog-actions"><button type="button" onClick={closeRemoteUnfavoriteDialog}>关闭</button></div>
                 </FavoriteLibraryConfirmationDialog> : null}
-                {remoteUnfavoriteDialog === 'unverified' ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" onClose={closeRemoteUnfavoriteDialog}>
+                {remoteUnfavoriteDialog === 'unverified' ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" onClose={closeRemoteUnfavoriteDialog} actions={<div className="favorite-library__dialog-actions"><button type="button" onClick={closeRemoteUnfavoriteDialog}>关闭</button></div>}>
                   <p>暂时无法核验 B 站收藏夹，请稍后重试。</p>
-                  <div className="favorite-library__dialog-actions"><button type="button" onClick={closeRemoteUnfavoriteDialog}>关闭</button></div>
                 </FavoriteLibraryConfirmationDialog> : null}
-                {remoteUnfavoritePreview ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" busy={remoteUnfavoriteExecuting} onClose={closeRemoteUnfavoriteDialog}>
+                {remoteUnfavoritePreview ? <FavoriteLibraryConfirmationDialog label="确认从 B 站 bilimi 收藏夹删除" busy={remoteUnfavoriteExecuting} onClose={closeRemoteUnfavoriteDialog} actions={<div className="favorite-library__dialog-actions"><button type="button" disabled={remoteUnfavoriteExecuting} onClick={() => setRemoteUnfavoritePreview(undefined)}>取消</button><button type="button" className="favorite-library__dialog-remote-action" disabled={remoteUnfavoriteExecuting} onClick={() => void confirmRemoteUnfavorite()}>确认删除 B 站 bilimi 归属</button></div>}>
                   <p>将从 B 站 bilimi 收藏夹删除“{detail?.title ?? remoteUnfavoritePreview.aids.join('、')}”的归属：{remoteUnfavoritePreview.affectedLogicalFolders.map((folder) => folder.title).join('、') || '所选 bilimi 工作夹'}。</p>
                   {remoteUnfavoritePreview.skippedUnmatchedAids.length ? <p role="alert">未找到 bilimi 收藏夹归属，已跳过 {remoteUnfavoritePreview.skippedUnmatchedAids.length} 个视频。</p> : null}
                   {remoteUnfavoritePreview.preservedOrdinarySources.length ? <p>普通 B 站收藏夹仍保留：{remoteUnfavoritePreview.preservedOrdinarySources.map((folder) => folder.title).join('、')}</p> : null}
                   {remoteUnfavoritePreview.recycleAids.length ? <p role="alert">该视频没有其他普通 B 站收藏夹来源；远端确认移除后会进入回收站，本地标题、标签、转写、档案和历史仍保留。</p> : null}
                   <p>网络中断时不会自动重试；如未成功，请稍后重试。</p>
-                  <div className="favorite-library__dialog-actions"><button type="button" disabled={remoteUnfavoriteExecuting} onClick={() => setRemoteUnfavoritePreview(undefined)}>取消</button><button type="button" className="favorite-library__dialog-remote-action" disabled={remoteUnfavoriteExecuting} onClick={() => void confirmRemoteUnfavorite()}>确认删除 B 站 bilimi 归属</button></div>
                 </FavoriteLibraryConfirmationDialog> : null}
               </> : null
               })()}</> : null}</section> : null}

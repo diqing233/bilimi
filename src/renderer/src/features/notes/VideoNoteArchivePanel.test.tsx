@@ -917,6 +917,20 @@ describe('VideoNoteArchivePanel', () => {
     await waitFor(() => expect(onDeleteEntry).toHaveBeenCalledWith('bvid:BV1note'))
   })
 
+  it('uses the shared modal footer for archive deletion confirmation', () => {
+    renderArchivePanel()
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('button', { name: '展开历史版本' }))
+    fireEvent.click(screen.getByRole('button', { name: /删除版本 v2/ }))
+
+    const dialog = screen.getByRole('dialog', { name: '确认删除' })
+    const confirm = within(dialog).getByRole('button', { name: '确认删除' })
+    expect(dialog).toHaveClass('bilimi-modal__dialog')
+    expect(dialog.querySelector('.bilimi-modal__actions')).toContainElement(confirm)
+    expect(dialog.querySelector('.bilimi-modal__body')).not.toContainElement(confirm)
+  })
+
   it('disables shared export for a legacy archive without an account identity', () => {
     const archives = createArchives()
     const legacy = archives[0]!

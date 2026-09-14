@@ -14,7 +14,9 @@ function expectStyleSnippet(snippet: string): void {
 describe('renderer porcelain theme styles', () => {
   it('uses one themed, responsive modal surface and semantic action system', () => {
     expectStyleSnippet('.bilimi-modal__viewport { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center;')
-    expectStyleSnippet('.bilimi-modal__dialog { position: relative; z-index: 1; display: grid; width: min(460px, calc(100vw - 32px));')
+    expectStyleSnippet('.bilimi-modal__dialog { position: relative; z-index: 1; display: flex; flex-direction: column; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 32px); min-height: 0; overflow: hidden;')
+    expectStyleSnippet('.bilimi-modal__header, .bilimi-modal__actions { flex: 0 0 auto; }')
+    expectStyleSnippet('.bilimi-modal__body { display: grid; flex: 1 1 auto; min-height: 0; gap: 8px; overflow-y: auto; overscroll-behavior: contain;')
     expectStyleSnippet('background: linear-gradient(180deg, rgba(247, 251, 255, 0.99), rgba(220, 238, 255, 0.99));')
     expectStyleSnippet('.bilimi-modal__dialog[data-tone="danger"] { border-color: rgba(183, 62, 48, 0.42);')
     expectStyleSnippet('.bilimi-modal__actions button:hover:not(:disabled) { border-color: rgba(31, 99, 181, 0.52);')
@@ -22,6 +24,12 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings__reset-confirmation .bilimi-modal__actions button { min-height: 30px; padding: 5px 9px; font-size: 14px; }')
     expectStyleSnippet('.assistant-settings__reset-confirmation .bilimi-modal__actions button[data-variant="danger"] { border-color: #e7a69e; background: #fff8f7; color: #a8453b; }')
     expect(normalizedStyles).not.toContain('@media (max-width: 420px) {\n  .bilimi-modal__actions {\n    display: grid;')
+  })
+
+  it('does not let the retired local-data confirmation card override the shared modal shell', () => {
+    expect(normalizedStyles).not.toContain('.local-data-settings__usage, .local-data-settings__account-list, .local-data-settings__preview, .local-data-settings__cleanup, .local-data-settings__confirmation')
+    expect(normalizedStyles).not.toContain('.local-data-settings__confirmation {')
+    expectStyleSnippet('.bilimi-modal__actions .local-data-settings__danger-button { border-color: #b73e30 !important; background: #b73e30; color: white !important; }')
   })
 
   it('keeps old favorite recovery actions compact on one row until space genuinely runs out', () => {
@@ -147,7 +155,7 @@ describe('renderer porcelain theme styles', () => {
       '.bilimi-modal__viewport { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center;'
     )
     expectStyleSnippet(
-      '.bilimi-modal__dialog { position: relative; z-index: 1; display: grid; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 32px);'
+      '.bilimi-modal__dialog { position: relative; z-index: 1; display: flex; flex-direction: column; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 32px); min-height: 0; overflow: hidden;'
     )
     expectStyleSnippet('.old-favorite-modal__dialog { width: min(420px, calc(100vw - 32px));')
   })

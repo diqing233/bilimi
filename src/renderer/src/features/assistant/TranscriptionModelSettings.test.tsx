@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -291,6 +291,23 @@ describe('TranscriptionModelSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认下载' }))
     expect(onInstall).toHaveBeenCalledWith('whisper-small')
     expect(screen.queryByRole('button', { name: '下载 SenseVoiceSmall' })).not.toBeInTheDocument()
+  })
+
+  it('keeps model confirmation actions in the shared modal footer', () => {
+    render(<TranscriptionModelSettings
+      accountMid="100"
+      selectedModelId="whisper-small"
+      models={[{ id: 'whisper-small', bundled: false, installed: false, available: false, version: 'fixed', runtimeFamily: 'whisper.cpp', license: 'MIT', attribution: 'whisper.cpp', downloadBytes: 487601967, installedBytes: 487601967 }]}
+      onSelect={vi.fn()}
+      onInstall={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '下载' }))
+    const dialog = screen.getByRole('dialog', { name: '确认下载模型' })
+    const confirm = within(dialog).getByRole('button', { name: '确认下载' })
+    expect(dialog).toHaveClass('bilimi-modal__dialog')
+    expect(dialog.querySelector('.bilimi-modal__actions')).toContainElement(confirm)
+    expect(dialog.querySelector('.bilimi-modal__body')).not.toContainElement(confirm)
   })
 
   it('offers SenseVoiceSmall download instead of treating a missing runtime as bundled', () => {

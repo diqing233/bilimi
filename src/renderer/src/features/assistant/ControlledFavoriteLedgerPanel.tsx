@@ -1536,7 +1536,7 @@ export function ControlledFavoriteLedgerPanel({
           return true
         }}
       />
-      {bilibiliBackupPreflight ? <OldFavoriteModal title="同步前备册确认" confirmLabel={hasBilibiliBackupGaps(bilibiliBackupPreflight) ? '确认备册并继续' : '确认并同步'} confirmDisabled={confirmationPreparing || bilibiliBackupPreflight.missingLedgers.some((ledger) => bilibiliBindingCandidatesForLedger(ledger).length > 0 && !bilibiliLedgerCandidateIds[bilibiliBackupLedgerKey(ledger)]) || bilibiliBackupPreflight.requiredPhysicalShards.some((shard) => bilibiliBindingCandidatesForShard(shard).length > 0 && !bilibiliShardCandidateIds[bilibiliBackupShardKey(shard)])}
+      {bilibiliBackupPreflight ? <OldFavoriteModal title="同步前备册确认" className="old-favorite-modal__dialog--sync-preflight" confirmLabel={hasBilibiliBackupGaps(bilibiliBackupPreflight) ? '确认备册并继续' : '确认并同步'} confirmDisabled={confirmationPreparing || bilibiliBackupPreflight.missingLedgers.some((ledger) => bilibiliBindingCandidatesForLedger(ledger).length > 0 && !bilibiliLedgerCandidateIds[bilibiliBackupLedgerKey(ledger)]) || bilibiliBackupPreflight.requiredPhysicalShards.some((shard) => bilibiliBindingCandidatesForShard(shard).length > 0 && !bilibiliShardCandidateIds[bilibiliBackupShardKey(shard)])}
         onCancel={() => {
           if (confirmationPreparing) return
           setBilibiliBackupPreflight(null)
@@ -1550,7 +1550,7 @@ export function ControlledFavoriteLedgerPanel({
         <p>{hasBilibiliBackupGaps(bilibiliBackupPreflight)
           ? '确认同步到 B 站前，需要先完成以下备册。'
           : '确认后会先保存本轮分类到收藏库，再开始同步到 B 站。'} 取消或关闭不会冻结整理计划、创建/绑定收藏夹或写入视频。</p>
-        {bilibiliBackupGroups.length ? <ul>
+        {bilibiliBackupGroups.length ? <ul className="favorite-ledger-panel__sync-backup-targets">
           {bilibiliBackupGroups.map((group) => <li key={`ledger:${group.logicalLedgerId}`}>
             收藏夹：{group.logicalTitle}{group.missingLedger ? `（${group.missingLedger.reason === 'unbacked' ? '未备册' : group.missingLedger.reason === 'unbound' ? '未绑定' : '待正式确认'}）` : ''}
             {group.missingLedger && bilibiliBindingCandidatesForLedger(group.missingLedger).length ? <div><p>检测到实际未绑定的 B 站候选；请选择要绑定的精确 ID：</p>{bilibiliBindingCandidatesForLedger(group.missingLedger).map((candidate) => <label key={candidate.remoteFolderId}><input type="radio" name={`bilibili-backup-ledger:${bilibiliBackupLedgerKey(group.missingLedger!)}`} checked={bilibiliLedgerCandidateIds[bilibiliBackupLedgerKey(group.missingLedger)] === candidate.remoteFolderId} onChange={() => setBilibiliLedgerCandidateIds((current) => ({ ...current, [bilibiliBackupLedgerKey(group.missingLedger!)]: candidate.remoteFolderId }))} />{candidate.remoteTitle}（ID：{candidate.remoteFolderId}，{candidate.memberCount} 个视频）</label>)}</div> : null}
