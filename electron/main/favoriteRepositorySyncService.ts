@@ -1560,6 +1560,14 @@ export class FavoriteRepositorySyncService {
     historicalBindingTargets: Array<{ logicalLedgerId: string; remoteFolderId: string; title: string }> = []
   ): Promise<ManagedFavoriteRemoteFolderDeletionResult> {
     const candidates = await this.managedFolderDeletionCandidates(account, requestedLedgerIds, bridge, `${runId}:verify`, ledgerTitleHints, remoteDraftTargets, historicalBindingTargets)
+    const explicitlySelectedUnboundCandidate = (candidate: ManagedFavoriteFolderDeletionCandidate) => candidate.state === 'unbound-name-match' && Boolean(candidate.remoteFolderId) && (
+      remoteDraftTargets.some((target) => target.logicalLedgerId === candidate.logicalLedgerId && target.remoteFolderId === candidate.remoteFolderId) ||
+      (expectedRemoteFolderIds?.[candidate.logicalLedgerId] ?? []).some((remoteFolderId) => remoteFolderId.trim() === candidate.remoteFolderId)
+    )
+    const deletionCandidates = candidates.filter((candidate) => candidate.state !== 'unbound-name-match' || explicitlySelectedUnboundCandidate(candidate))
+    if (deletionCandidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !acknowledgeUnboundRemoteDeletion) {
+      throw new Error('unbound-managed-folder-deletion-acknowledgement-required')
+    }
     if (expectedRemoteFolderIds !== undefined) {
       const expectedLedgerIds = new Set([
         ...requestedLedgerIds,
@@ -1568,20 +1576,13 @@ export class FavoriteRepositorySyncService {
       ])
       for (const logicalLedgerId of expectedLedgerIds) {
         const expected = [...new Set((expectedRemoteFolderIds[logicalLedgerId] ?? []).map((id) => id.trim()).filter(Boolean))].sort()
-        const actual = [...new Set(candidates
-          .filter((candidate) => candidate.logicalLedgerId === logicalLedgerId && candidate.remoteFolderId &&
-            (candidate.state !== 'unbound-name-match' || remoteDraftTargets.some((target) =>
-              target.logicalLedgerId === candidate.logicalLedgerId && target.remoteFolderId === candidate.remoteFolderId)))
+        const actual = [...new Set(deletionCandidates
+          .filter((candidate) => candidate.logicalLedgerId === logicalLedgerId && candidate.remoteFolderId)
           .map((candidate) => candidate.remoteFolderId!))].sort()
         if (expected.length !== actual.length || expected.some((id, index) => id !== actual[index])) {
           throw new Error('managed-folder-deletion-preview-stale')
         }
       }
-    }
-    const deletionCandidates = candidates.filter((candidate) => candidate.state !== 'unbound-name-match' ||
-      remoteDraftTargets.some((target) => target.logicalLedgerId === candidate.logicalLedgerId && target.remoteFolderId === candidate.remoteFolderId))
-    if (deletionCandidates.some((candidate) => candidate.requiresUnboundAcknowledgement) && !acknowledgeUnboundRemoteDeletion) {
-      throw new Error('unbound-managed-folder-deletion-acknowledgement-required')
     }
     const confirmedRemoteFolderIds = new Set<string>()
     const deletedRemoteFolderIds = new Set<string>()

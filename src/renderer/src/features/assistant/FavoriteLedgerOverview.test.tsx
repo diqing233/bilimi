@@ -1401,6 +1401,38 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.getByRole('button', { name: '自建' })).toBeInTheDocument()
   })
 
+  it('explains when the remote deletion preview folder ids have changed before deletion', async () => {
+    const previewManagedFavoriteFolderDeletion = vi.fn().mockResolvedValue([
+      { logicalLedgerId: 'game', remoteFolderId: 'preview-game', title: 'bilimi·游戏', memberCount: 2, state: 'unbound-name-match', requiresUnboundAcknowledgement: true }
+    ])
+    const deleteManagedRemoteFolders = vi.fn().mockRejectedValue(new Error('managed-folder-deletion-preview-stale'))
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        previewManagedFavoriteFolderDeletion,
+        deleteManagedRemoteFolders
+      }
+    })
+    render(<FavoriteLedgerOverview ledgers={[{
+      id: 'game', displayName: 'bilimi·游戏', keywords: ['游戏'], enabled: true, priority: 10,
+      bindingState: 'unbound', isDefault: true
+    }]} missingLedgerIds={[]} unboundLedgerIds={['game']} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开删除模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·游戏' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(within(dialog).getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /已检测到未绑定的 bilimi 收藏夹/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(deleteManagedRemoteFolders).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('alert')).toHaveTextContent('B 站收藏夹目录已变化')
+    expect(screen.getByRole('button', { name: '游戏' })).toBeInTheDocument()
+  })
+
   it('shows the binding-ledger title expiry when deletion preview is blocked by stale metadata', async () => {
     const previewManagedFavoriteFolderDeletion = vi.fn().mockRejectedValue(
       new Error('favorite-repository-binding-title-stale')

@@ -1509,10 +1509,9 @@ describe('FavoriteRepositorySyncService', () => {
     ])
   })
 
-  it('rejects a same-name-only deletion instead of deleting a folder without exact identity evidence', async () => {
+  it('deletes an acknowledged unbound name candidate after its preview folder id is verified', async () => {
     const repository = await createRepository()
     const deleteFolder = vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'ok' })
-    const commit = vi.spyOn(repository, 'commit')
     const service = new FavoriteRepositorySyncService({
       repository,
       pageBridge: {
@@ -1525,12 +1524,30 @@ describe('FavoriteRepositorySyncService', () => {
 
     await expect(service.deleteManagedRemoteFolders('100', ['music'], true, { music: 'bilimi·Music' }, {
       music: ['remote-music']
+    })).resolves.toMatchObject({ status: 'succeeded', succeededRemoteFolderIds: ['remote-music'] })
+
+    expect(deleteFolder).toHaveBeenCalledTimes(1)
+    expect(deleteFolder).toHaveBeenCalledWith(expect.objectContaining({ folderId: 'remote-music' }))
+  })
+
+  it('refuses an acknowledged unbound name candidate when its verified folder id changes', async () => {
+    const repository = await createRepository()
+    const deleteFolder = vi.fn().mockResolvedValue({ observedAccountMid: '100', status: 'ok' })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn(), remove: vi.fn(), readMembers: vi.fn(), createFolder: vi.fn(), deleteFolder,
+        readFolderInventory: vi.fn().mockResolvedValue({
+          observedAccountMid: '100', folders: [{ id: 'replacement-music', title: 'bilimi·Music', memberCount: 4 }]
+        })
+      }
+    })
+
+    await expect(service.deleteManagedRemoteFolders('100', ['music'], true, { music: 'bilimi·Music' }, {
+      music: ['preview-music']
     })).rejects.toThrow('managed-folder-deletion-preview-stale')
 
     expect(deleteFolder).not.toHaveBeenCalled()
-    expect(commit).not.toHaveBeenCalledWith('100', expect.objectContaining({
-      type: 'remove-physical-shard-binding', payload: { remoteFolderId: 'remote-music' }
-    }))
   })
 
   it('previews and deletes a remote-only draft by its verified remote folder id', async () => {

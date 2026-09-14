@@ -172,6 +172,9 @@ type ManagedRemoteDeletionResult = {
 
 function managedDeletionErrorMessage(error: unknown) {
   const detail = error instanceof Error ? error.message : ''
+  if (/managed-folder-deletion-preview-stale/i.test(detail)) {
+    return 'B 站收藏夹目录已变化，已停止删除；请重新打开删除确认后再试。'
+  }
   if (/csrf-missing|account-mismatch|account changed|remote account mismatch|page target is unavailable|target-unavailable|favorite-repository-binding-title-stale|remote folder verification failed|response-category=html|network-failure|remote-timeout|invalid-response|remote-ambiguous|http-status=/i.test(detail)) {
     return managedFavoriteFolderDeletionFailureMessage(error)
   }
