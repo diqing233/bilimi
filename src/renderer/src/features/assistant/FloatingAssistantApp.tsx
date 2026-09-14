@@ -711,11 +711,19 @@ type LedgerWorkspacePanelProps = {
   remoteDiscoveryNoticeDismissed?: boolean
   onDismissRemoteDiscoveryNotice?: () => void
   onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderIds: string[]) => Promise<void> | void
+  onRemoteDraftDeleted?: (ledgerId: string) => void
 }
 
 const LedgerWorkspacePanel = memo(function LedgerWorkspacePanel({ localFavoriteToggleAccountMid, ...props }: LedgerWorkspacePanelProps) {
   return <ControlledFavoriteLedgerPanel {...props} localFavoriteToggleAccountMid={localFavoriteToggleAccountMid} />
 })
+
+export function clearRequestedFavoriteLedgerDraftTarget(
+  requestedLedgerId: string | undefined,
+  deletedLedgerId: string
+) {
+  return requestedLedgerId === deletedLedgerId ? undefined : requestedLedgerId
+}
 
 function useStableCallback<Args extends unknown[], Result>(callback: (...args: Args) => Result) {
   const callbackRef = useRef(callback)
@@ -3014,6 +3022,8 @@ export function FloatingAssistantApp({
   const [requestedLedgerId, setRequestedLedgerId] = useState<string>()
   const [requestedLedgerTitle, setRequestedLedgerTitle] = useState<string>()
   const [requestedLedgerRequestVersion, setRequestedLedgerRequestVersion] = useState(0)
+  const requestedLedgerIdRef = useRef<string>()
+  requestedLedgerIdRef.current = requestedLedgerId
   const [createLedgerRequested, setCreateLedgerRequested] = useState(false)
   const [createLedgerRequestVersion, setCreateLedgerRequestVersion] = useState(0)
   const [openOrganizationRequestVersion, setOpenOrganizationRequestVersion] = useState(0)
@@ -5374,6 +5384,14 @@ export function FloatingAssistantApp({
   const syncFavoriteLedgersForPanel = useStableCallback(syncFavoriteLedgers)
   const openFavoritePageForPanel = useStableCallback(openFavoritePage)
   const refreshOrganizationStateForPanel = useStableCallback(refreshOrganizationState)
+  const clearDeletedRemoteDraftTargetForPanel = useStableCallback((ledgerId: string) => {
+    const requestedLedgerId = requestedLedgerIdRef.current
+    const nextRequestedLedgerId = clearRequestedFavoriteLedgerDraftTarget(requestedLedgerId, ledgerId)
+    if (nextRequestedLedgerId === requestedLedgerId) return
+    setRequestedLedgerId(nextRequestedLedgerId)
+    setRequestedLedgerTitle(undefined)
+    setRequestedLedgerRequestVersion(0)
+  })
   const startLedgerDeepSeekTask = useStableCallback((detail: string) => startDeepSeekTask({
     id: `archive-organize:${resolvedSnapshot.accountMid ?? 'unknown'}:${Date.now()}:${Math.random()}`,
     kind: 'archive-organize', detail
@@ -5633,6 +5651,7 @@ export function FloatingAssistantApp({
             remoteDiscoveryNoticeDismissed={Boolean(preferences.favoriteAccountPreferences?.[resolvedSnapshot.accountMid ?? '']?.favoriteDiscoveryNoticeDismissed)}
             onDismissRemoteDiscoveryNotice={dismissRemoteDiscoveryNotice}
             onDismissRemoteDraftReminder={dismissRemoteDraftReminder}
+            onRemoteDraftDeleted={clearDeletedRemoteDraftTargetForPanel}
             defaultFavoriteSystemEnabled={defaultFavoriteSystemEnabled}
             onEnsureLedgers={ensureFavoriteLedgersForPanel}
             onSaveLedgers={saveFavoriteLedgerRulesForPanel}

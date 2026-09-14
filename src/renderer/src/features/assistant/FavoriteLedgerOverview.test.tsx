@@ -3937,6 +3937,79 @@ describe('FavoriteLedgerOverview', () => {
     expect(screen.queryByRole('button', { name: '远端草稿' })).not.toBeInTheDocument()
   })
 
+  it('reports a confirmed B站 deletion of an unsaved remote draft to its owner', async () => {
+    const onRemoteDraftDeleted = vi.fn()
+    const deleteFavoriteLedgerDraft = vi.fn().mockResolvedValue(undefined)
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
+      status: 'succeeded', succeededRemoteFolderIds: ['remote-draft-deleted'], failedRemoteFolderIds: [], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: []
+    })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgerDraft,
+        previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
+          { logicalLedgerId: 'remote-draft-deleted', remoteFolderId: 'remote-draft-deleted', title: 'bilimi·已删除草稿', memberCount: 0, state: 'unbound-name-match', requiresUnboundAcknowledgement: true }
+        ]),
+        deleteManagedRemoteFolders
+      }
+    })
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[{
+      id: 'remote-draft-deleted', displayName: 'bilimi·已删除草稿', keywords: [], enabled: true, priority: 10, isDefault: false,
+      syncState: 'local-draft', bindingState: 'unbound', bilibiliFolderId: 'remote-draft-deleted'
+    }]} remoteOnlyDraftLedgerIds={['remote-draft-deleted']} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={vi.fn()}
+      onRemoteDraftDeleted={onRemoteDraftDeleted} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·已删除草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /已检测到未绑定的 bilimi 收藏夹/ }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(onRemoteDraftDeleted).toHaveBeenCalledWith('remote-draft-deleted'))
+  })
+
+  it('reports a remote draft whose B站 deletion succeeded in a partial result', async () => {
+    const onRemoteDraftDeleted = vi.fn()
+    const deleteFavoriteLedgerDraft = vi.fn().mockResolvedValue(undefined)
+    const deleteManagedRemoteFolders = vi.fn().mockResolvedValue({
+      status: 'partial-failed', succeededRemoteFolderIds: ['remote-draft-partial'], failedRemoteFolderIds: ['remote-saved-failed'], unknownRemoteFolderIds: [], unattemptedRemoteFolderIds: [], failures: [{ remoteFolderId: 'remote-saved-failed', title: 'bilimi·失败规则', outcome: 'failed', message: 'failed' }]
+    })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+        deleteFavoriteLedgerDraft,
+        previewManagedFavoriteFolderDeletion: vi.fn().mockResolvedValue([
+          { logicalLedgerId: 'remote-draft-partial', remoteFolderId: 'remote-draft-partial', title: 'bilimi·部分删除草稿', memberCount: 0, state: 'unbound-name-match', requiresUnboundAcknowledgement: true },
+          { logicalLedgerId: 'remote-saved-failed', remoteFolderId: 'remote-saved-failed', title: 'bilimi·失败规则', memberCount: 0, state: 'bound', requiresUnboundAcknowledgement: false }
+        ]),
+        deleteManagedRemoteFolders
+      }
+    })
+    render(<FavoriteLedgerOverview defaultFavoriteSystemEnabled={false} ledgers={[
+      { id: 'remote-draft-partial', displayName: 'bilimi·部分删除草稿', keywords: [], enabled: true, priority: 10, isDefault: false, syncState: 'local-draft', bindingState: 'unbound', bilibiliFolderId: 'remote-draft-partial' },
+      { id: 'remote-saved-failed', displayName: 'bilimi·失败规则', keywords: ['失败'], enabled: true, priority: 20, isDefault: false, bindingState: 'bound', bilibiliFolderId: 'remote-saved-failed' }
+    ]} remoteOnlyDraftLedgerIds={['remote-draft-partial']} missingLedgerIds={[]} onSaveLedgers={vi.fn()} onSyncLedgers={vi.fn()}
+      onRemoteDraftDeleted={onRemoteDraftDeleted} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /展开删除模式/ }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·部分删除草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入删除 bilimi·失败规则' }))
+    fireEvent.click(screen.getByRole('button', { name: '备册收藏夹' }))
+    await screen.findByRole('alertdialog', { name: '删除 bilimi 收藏夹' })
+    fireEvent.click(screen.getByRole('radio', { name: '同时从 B 站删除收藏夹（保留收藏库）' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '我已确认' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /已检测到未绑定的 bilimi 收藏夹/ }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(onRemoteDraftDeleted).toHaveBeenCalledWith('remote-draft-partial'))
+    expect(onRemoteDraftDeleted).not.toHaveBeenCalledWith('remote-saved-failed')
+  })
+
   it('confirms a saved local-only ledger before deleting its local configuration', async () => {
     const deleteFavoriteLedgersLocal = vi.fn().mockResolvedValue({ status: 'succeeded', ledgerIds: ['local-only'] })
     const previewFavoriteLibraryManagedFolderDelete = vi.fn()

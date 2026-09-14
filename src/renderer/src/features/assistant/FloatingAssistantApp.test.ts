@@ -33,6 +33,15 @@ function workspace(status: OldFavoriteWorkspaceSnapshot['status']): OldFavoriteW
 }
 
 describe('resolveFavoriteOrganizationLamp', () => {
+  it('clears only the matching requested remote draft after its confirmed deletion', () => {
+    const clearRequestedFavoriteLedgerDraftTarget = (FloatingAssistantAppModule as unknown as {
+      clearRequestedFavoriteLedgerDraftTarget: (requestedLedgerId: string | undefined, deletedLedgerId: string) => string | undefined
+    }).clearRequestedFavoriteLedgerDraftTarget
+
+    expect(clearRequestedFavoriteLedgerDraftTarget('custom-remote-4032965311', 'custom-remote-4032965311')).toBeUndefined()
+    expect(clearRequestedFavoriteLedgerDraftTarget('saved-custom-rule', 'custom-remote-4032965311')).toBe('saved-custom-rule')
+  })
+
   it('reports a partial backup state when formal and unbound evidence conflict', () => {
     const status = resolveFavoriteOrganizationLamp({
       snapshot: null,

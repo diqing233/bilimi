@@ -78,6 +78,8 @@ type FavoriteLedgerOverviewProps = {
   onOrganizationSavedLedgerSelectionChange?: (ledgerIds: string[]) => boolean | Promise<boolean>
   organizationSavedLedgerEnabledById?: ReadonlyMap<string, boolean>
   onDeleteLedger?: (ledgerId: string) => boolean | void | Promise<boolean | void>
+  /** A remote-only draft was confirmed deleted from B站 and must not be re-projected by its owner. */
+  onRemoteDraftDeleted?: (ledgerId: string) => void
   onBeforeDeleteLedger?: (ledgerId: string) => Promise<void> | void
   onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   /** Called only after an explicit candidate-bind confirmation reaches a terminal result. */
@@ -346,7 +348,7 @@ export function preserveFavoriteLedgerOrder(
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ currentAccountMid, localFavoriteToggleAccountMid, ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], observedRemoteObservations = [], observedBoundRenameCandidates = [], remoteDiscoveryNoticeDismissed = false, onDismissRemoteDiscoveryNotice, onDismissRemoteDraftReminder, backupPreparationLedgerIds = [], organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
+export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ currentAccountMid, localFavoriteToggleAccountMid, ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], observedRemoteObservations = [], observedBoundRenameCandidates = [], remoteDiscoveryNoticeDismissed = false, onDismissRemoteDiscoveryNotice, onDismissRemoteDraftReminder, backupPreparationLedgerIds = [], organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onRemoteDraftDeleted, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
@@ -1572,6 +1574,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     setDeletionConfirmed(false)
     setDeletionAcknowledgedUnbound(false)
     setDeletionError(null)
+    if (deletionScope === 'bilibili') {
+      Object.keys(plan.remoteDraftTargets).forEach((ledgerId) => onRemoteDraftDeleted?.(ledgerId))
+    }
     return true
   }
   const confirmManagedDeletion = async () => {
@@ -1660,6 +1665,10 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
             candidates: deletionPlan.candidates.filter((candidate) => !candidate.remoteFolderId || !succeededIds.has(candidate.remoteFolderId))
           })
           setDeletionError(partialManagedRemoteDeletionMessage(remoteDeletionResult, deletionPlan.candidates))
+          // A partial response can still conclusively delete an unsaved
+          // remote draft. Tell its owner only about those exact successful
+          // remote targets, so a later refresh cannot project it again.
+          new Set(succeededDraftLedgerIds).forEach((ledgerId) => onRemoteDraftDeleted?.(ledgerId))
           return
         }
         if (!managedFavoriteFolderDeletionSucceeded(remoteDeletionResult)) throw new Error('Remote folder deletion failed.')

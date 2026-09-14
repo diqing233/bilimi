@@ -14,17 +14,23 @@ vi.mock('./ControlledFavoriteLedgerPanel', () => ({
   ControlledFavoriteLedgerPanel: ({
     onFavoriteLibraryOpened,
     remoteDiscoveryNoticeDismissed,
-    onDismissRemoteDiscoveryNotice
+    onDismissRemoteDiscoveryNotice,
+    openLedgerId,
+    onRemoteDraftDeleted
   }: {
     onFavoriteLibraryOpened?: () => void
     remoteDiscoveryNoticeDismissed?: boolean
     onDismissRemoteDiscoveryNotice?: () => void
+    openLedgerId?: string
+    onRemoteDraftDeleted?: (ledgerId: string) => void
   }) => {
     ledgerRenderCount += 1
     return <div aria-label="掌库渲染探针">
       <button type="button" onClick={onFavoriteLibraryOpened}>模拟打开收藏库</button>
       <span data-testid="remote-discovery-dismissed">{remoteDiscoveryNoticeDismissed ? 'hidden' : 'visible'}</span>
       <button type="button" onClick={onDismissRemoteDiscoveryNotice}>暂不提醒</button>
+      <span data-testid="requested-ledger-id">{openLedgerId ?? ''}</span>
+      <button type="button" onClick={() => onRemoteDraftDeleted?.('custom-remote-4032965311')}>模拟删除远端草稿</button>
     </div>
   }
 }))
@@ -156,6 +162,17 @@ describe('FloatingAssistantApp render isolation', () => {
     })
 
     expect(ledgerRenderCount).toBe(rendersBeforeSwitch)
+  })
+
+  it('clears the opened remote draft target when the ledger panel confirms its deletion', async () => {
+    render(<FloatingAssistantApp mode="sidebar" activeTab="ledger" workspaceRequest={{
+      tab: 'ledger', ledgerId: 'custom-remote-4032965311', ledgerTitle: 'bilimi·哈哈', requestId: 1
+    }} />)
+
+    expect(await screen.findByTestId('requested-ledger-id')).toHaveTextContent('custom-remote-4032965311')
+    fireEvent.click(screen.getByRole('button', { name: '模拟删除远端草稿' }))
+
+    await waitFor(() => expect(screen.getByTestId('requested-ledger-id')).toBeEmptyDOMElement())
   })
 
   it('shows automatic pet startup enabled by default and persists an explicit opt-out', async () => {

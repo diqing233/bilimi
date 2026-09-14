@@ -32,6 +32,7 @@ type ControlledFavoriteLedgerPanelProps = {
   remoteDiscoveryNoticeDismissed?: boolean
   onDismissRemoteDiscoveryNotice?: () => void
   onDismissRemoteDraftReminder?: (ledgerId: string, remoteFolderId: string) => Promise<void> | void
+  onRemoteDraftDeleted?: (ledgerId: string) => void
   defaultFavoriteSystemEnabled?: boolean
   onEnsureLedgers: () => Promise<unknown>
   onSaveLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
@@ -221,6 +222,7 @@ export function ControlledFavoriteLedgerPanel({
   remoteDiscoveryNoticeDismissed,
   onDismissRemoteDiscoveryNotice,
   onDismissRemoteDraftReminder,
+  onRemoteDraftDeleted,
   defaultFavoriteSystemEnabled,
   onEnsureLedgers,
   onSaveLedgers,
@@ -1510,6 +1512,7 @@ export function ControlledFavoriteLedgerPanel({
         onOrganizationSavedLedgerSelectionChange={handleOrganizationSavedLedgerSelectionChange}
         organizationSavedLedgerEnabledById={organizationSavedLedgerEnabledById}
         onDeleteLedger={handleDeleteLedger}
+        onRemoteDraftDeleted={onRemoteDraftDeleted}
         onSyncLedgers={onSyncLedgers}
         onBackupConfirmationFinished={(result) => {
           if (!bilibiliBackupSyncIntentRef.current) return
