@@ -2134,7 +2134,7 @@ function registerAssistantPreferenceHandlers() {
   })
   ipcMain.handle('deepseek:clear-key', () => {
     const status = clearDeepSeekApiKey(getDesktopStore())
-    sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    sendAssistantPreferencePatchChanged({ deepseekApiKeyStored: status.configured })
     return status
   })
   ipcMain.handle('deepseek:generate', (_event, request: DeepSeekGenerateRequest) => {
