@@ -4768,6 +4768,10 @@ export class OldFavoriteWorkspaceCoordinator {
       final = await this.saveCurrentSegmentToLocalLibrary(accountMid)
       await this.advanceRecoveryDecisionAfterOwnLocalCommit(accountMid)
     }
+    // Segment saves intentionally keep unmatched videos in the hidden
+    // scan/draft inbox. Once the user has saved the entire round, materialize
+    // those same eligible videos in the visible bilimi·暂存 work folder.
+    await this.commitCompleteLocalResultForRemoteExecution(accountMid)
     if (originalSegmentId) await this.selectSegment(accountMid, originalSegmentId)
     if (!final) final = await this.requireWorkspace(accountMid)
     return this.completeWholeRunLocalSave(accountMid)
@@ -5109,7 +5113,6 @@ export class OldFavoriteWorkspaceCoordinator {
     // any remote target.  The commit is idempotent, so callers that already
     // performed the local-first save simply take the fast path.
     await this.commitCompleteLocalResultForRemoteExecution(accountMid)
-    await this.stageUnclassifiedSelectedVideos(accountMid)
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const preparation = await this.queue(async () => {
         const workspace = await this.requireWorkspace(accountMid)
@@ -6086,26 +6089,24 @@ export class OldFavoriteWorkspaceCoordinator {
       // frozen as an empty no-op for the confirmation flow.
       if (!selectedItems.length) return
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
-      const localFolderIdForLedger = (logicalLedgerId: string) => logicalLedgerId === 'inbox'
-        ? 'local:inbox'
-        : `bilimi-logical:${logicalLedgerId}`
+      const localFolderIdForLedger = (logicalLedgerId: string) => `bilimi-logical:${logicalLedgerId}`
       const organizationRecordAids = new Set(repository.organizationRecords.map((record) => record.aid))
       let localResultAlreadyComplete = true
       for (let index = 0; index < selectedItems.length; index += 1) {
         await this.yieldLocalResultPreparation(index)
         const item = selectedItems[index]
         const targets = assignmentsByAid.get(item.aid)?.targetLedgerIds.filter((id) => id !== 'inbox') ?? []
-        const desired = targets.map((ledgerId) => `bilimi-logical:${ledgerId}`).sort()
+        const desired = targets.length ? targets.map(localFolderIdForLedger).sort() : ['bilimi-logical:inbox']
         const position = repository.positions[`${workspace.accountMid}:${item.aid}`]
         if (!position || JSON.stringify([...position.localDesiredFolderIds].sort()) !== JSON.stringify(desired) ||
-          (!targets.length && !(repository.memberships['local:inbox']?.includes(item.aid) ?? false)) ||
+          (!targets.length && !(repository.memberships['bilimi-logical:inbox']?.includes(item.aid) ?? false)) ||
           (targets.length > 0 && (!organizationRecordAids.has(item.aid) || !desired.every((folderId) => repository.memberships[folderId]?.includes(item.aid))))) {
           localResultAlreadyComplete = false
           break
         }
       }
       if (localResultAlreadyComplete) return
-      const memberAidsByFolderId: Record<string, number[]> = { 'local:inbox': [] }
+      const memberAidsByFolderId: Record<string, number[]> = {}
       const organizationRecords: Array<{ accountMid: string; aid: number; targetFolderIds: string[]; completedAt: string; classificationSource: FavoriteRepositoryClassificationSource }> = []
       const placements: Array<{
         aid: number
@@ -6127,7 +6128,7 @@ export class OldFavoriteWorkspaceCoordinator {
         await this.yieldLocalResultPreparation(index)
         const item = selectedItems[index]
         const targets = assignmentsByAid.get(item.aid)?.targetLedgerIds.filter((id) => id !== 'inbox') ?? []
-        if (!targets.length) memberAidsByFolderId['local:inbox'].push(item.aid)
+        if (!targets.length) (memberAidsByFolderId['bilimi-logical:inbox'] ??= []).push(item.aid)
         else {
           const targetFolderIds = targets.map(localFolderIdForLedger)
           for (const folderId of targetFolderIds) (memberAidsByFolderId[folderId] ??= []).push(item.aid)
@@ -6142,7 +6143,7 @@ export class OldFavoriteWorkspaceCoordinator {
         const prior = repository.positions[`${workspace.accountMid}:${item.aid}`]
         placements.push({
           aid: item.aid,
-          localDesiredFolderIds: targets.map((ledgerId) => `bilimi-logical:${ledgerId}`).sort(),
+          localDesiredFolderIds: targets.length ? targets.map(localFolderIdForLedger).sort() : ['bilimi-logical:inbox'],
           remoteObservedPhysicalFolderIds: [...(prior?.remoteObservedPhysicalFolderIds ?? [])],
           remoteObservedLogicalFolderIds: [...(prior?.remoteObservedLogicalFolderIds ?? [])],
           updatedAt: this.now(),
@@ -6161,11 +6162,10 @@ export class OldFavoriteWorkspaceCoordinator {
         .map((candidate) => [candidate.id, recommendationLogicalTitle(candidate)] as const))
       const defaultTitles = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
       const folders = await Promise.all(Object.keys(memberAidsByFolderId).map(async (folderId) => {
-        if (folderId === 'local:inbox') return { id: folderId, title: 'bilimi·暂存', kind: 'local' as const, syncState: 'local-only' as const }
         const ledgerId = folderId.slice('bilimi-logical:'.length)
         return {
           id: folderId,
-          title: repository.folders.find((folder) => folder.id === folderId)?.title ?? recommendationTitles.get(ledgerId) ??
+          title: ledgerId === 'inbox' ? 'bilimi·暂存' : repository.folders.find((folder) => folder.id === folderId)?.title ?? recommendationTitles.get(ledgerId) ??
             await this.options.resolveLedgerTitle?.(workspace.accountMid, ledgerId) ?? defaultTitles.get(ledgerId) ?? ledgerId,
           kind: 'bilimi-logical' as const,
           logicalLedgerId: ledgerId,

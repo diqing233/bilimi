@@ -315,7 +315,7 @@ export class FavoriteRepositoryManagedFolderService {
               throw error
             }
           }
-          preferenceOutcome.status = await this.commitLocalProjection(operation, snapshot)
+          preferenceOutcome.status = await this.commitRemoteLocalProjection(operation, snapshot)
         }
       )
     } catch (error) {
@@ -367,7 +367,7 @@ export class FavoriteRepositoryManagedFolderService {
         }
       } else {
         try {
-          await this.commitLocalProjection(operation, await this.options.repository.getSnapshot(operation.accountMid))
+          await this.commitRemoteLocalProjection(operation, await this.options.repository.getSnapshot(operation.accountMid))
           if (await this.tryRecordResult(operation, 'succeeded')) operation.status = 'succeeded'
         } catch {
           // The remote fact is known, but the durable local projection remains unresolved.
@@ -453,6 +453,29 @@ export class FavoriteRepositoryManagedFolderService {
     if (auditEvents.length) await this.options.repository.commitWithAudit(operation.accountMid, command, auditEvents)
     else await this.options.repository.commit(operation.accountMid, command)
     return this.notifyManagedFolderDeletion(operation.accountMid, [operation], true)
+  }
+
+  /**
+   * A successful Bilibili deletion must share the same persisted visibility
+   * boundary as a local deletion. Without that boundary, a later technical
+   * projection read sees an enabled rule and recreates the empty work folder.
+   */
+  private async commitRemoteLocalProjection(operation: PendingDeletion, snapshot: Awaited<ReturnType<Repository['getSnapshot']>>) {
+    const persistProjection = async () => {
+      const rollbackLocalVisibilityHide = await this.options.markLocalManagedFoldersHidden?.(
+        operation.accountMid,
+        [this.logicalLedgerId(operation.logicalFolderId)]
+      )
+      try {
+        return await this.commitLocalProjection(operation, snapshot)
+      } catch (error) {
+        await rollbackLocalVisibilityHide?.()
+        throw error
+      }
+    }
+    return this.options.runWithLocalManagedFolderDeletion
+      ? this.options.runWithLocalManagedFolderDeletion(operation.accountMid, persistProjection)
+      : persistProjection()
   }
 
   private async notifyManagedFolderDeletion(

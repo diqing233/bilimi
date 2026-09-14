@@ -2561,7 +2561,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       memberships: {
         'bilimi-logical:knowledge': [1],
-        'local:inbox': expect.arrayContaining([501])
+        'bilimi-logical:inbox': expect.arrayContaining([501]),
+        'local:inbox': []
       }
     })
   })
@@ -9669,6 +9670,34 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('materializes a final unmatched result in the visible bilimi staging folder without adding it to the default Bilibili plan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Needs classification', author: 'UP', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.acceptCurrentTags('100')
+
+    await coordinator.saveWholeRunToLocalLibrary('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      folders: [expect.objectContaining({
+        id: 'bilimi-logical:inbox', title: 'bilimi·暂存', kind: 'bilimi-logical', logicalLedgerId: 'inbox'
+      })],
+      memberships: { 'bilimi-logical:inbox': [1], 'local:inbox': [] },
+      positions: { '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:inbox'] }) },
+      organizationRecords: []
+    })
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      frozenSyncPlan: { operations: [] }
+    })
+  })
+
   it('commits local memberships before updating the repeatable saved-draft marker', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -9819,7 +9848,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan?.operations).toHaveLength(2_001)
   })
 
-  it('stages unclassified videos locally while freezing only classified videos for Bilibili', async () => {
+  it('materializes unmatched videos in visible staging while freezing only classified videos for Bilibili', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -9840,12 +9869,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       status: 'frozen', frozenSyncPlan: { operations: [expect.objectContaining({ aid: 1, folderIds: ['remote-music'] })] }
     })
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'local:inbox': [2] }
+      memberships: { 'bilimi-logical:inbox': [2], 'local:inbox': [] }
     })
     expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan?.operations).toHaveLength(1)
   })
 
-  it('keeps an explicitly staged inbox classification out of the Bilibili freeze plan', async () => {
+  it('keeps an explicitly staged inbox classification out of the default Bilibili freeze plan', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const ensurePhysicalShard = vi.fn()
@@ -9870,7 +9899,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     expect(ensurePhysicalShard).not.toHaveBeenCalled()
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'local:inbox': [1] },
+      memberships: { 'bilimi-logical:inbox': [1], 'local:inbox': [] },
       workspace: { frozenSyncPlan: { operations: [] } }
     })
   })
@@ -9977,7 +10006,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(snapshot.folders).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'bilimi-logical', logicalLedgerId: 'inbox', title: 'bilimi·暂存' })
     ]))
-    expect(snapshot.memberships).toMatchObject({ 'local:inbox': [1] })
+    expect(snapshot.memberships).toMatchObject({ 'bilimi-logical:inbox': [1], 'local:inbox': [] })
   })
 
   it('reuses an existing bilimi logical ledger when saving an old-favorite plan locally', async () => {
@@ -11437,8 +11466,11 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     expect(stopAndAbandonFrozenPlan).toHaveBeenCalledWith('100')
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'bilimi-logical:music': [1], 'local:inbox': [2] },
-      positions: { '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }) }
+      memberships: { 'bilimi-logical:music': [1], 'bilimi-logical:inbox': [2], 'local:inbox': [] },
+      positions: {
+        '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }),
+        '100:2': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:inbox'] })
+      }
     })
   })
 
@@ -11529,11 +11561,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(localSnapshotAtFirstWrite).toMatchObject({
       memberships: {
         'bilimi-logical:music': [1],
-        'local:inbox': [2]
+        'bilimi-logical:inbox': [2],
+        'local:inbox': []
       },
       positions: {
         '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }),
-        '100:2': expect.objectContaining({ localDesiredFolderIds: [] })
+        '100:2': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:inbox'] })
       }
     })
     await vi.waitFor(async () => {
@@ -11711,10 +11744,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await vi.waitFor(() => expect(append).toHaveBeenCalledOnce())
 
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      memberships: { 'bilimi-logical:music': [1], 'local:inbox': [2] },
+      memberships: { 'bilimi-logical:music': [1], 'bilimi-logical:inbox': [2], 'local:inbox': [] },
       positions: {
         '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }),
-        '100:2': expect.objectContaining({ localDesiredFolderIds: [] })
+        '100:2': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:inbox'] })
       }
     })
   })
@@ -11761,10 +11794,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await vi.waitFor(() => expect(append).toHaveBeenCalledOnce())
 
     expect(localSnapshotAtFirstWrite).toMatchObject({
-      memberships: { 'bilimi-logical:music': [1], 'local:inbox': [2] },
+      memberships: { 'bilimi-logical:music': [1], 'bilimi-logical:inbox': [2], 'local:inbox': [] },
       positions: {
         '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }),
-        '100:2': expect.objectContaining({ localDesiredFolderIds: [] })
+        '100:2': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:inbox'] })
       }
     })
     expect((await repository.getSnapshot('100')).classificationAdjustments.filter((record) =>
@@ -11801,10 +11834,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({
       workspace: undefined,
-      memberships: { 'bilimi-logical:music': [1], 'local:inbox': [2] },
+      memberships: { 'bilimi-logical:music': [1], 'bilimi-logical:inbox': [2], 'local:inbox': [] },
       positions: {
         '100:1': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:music'] }),
-        '100:2': expect.objectContaining({ localDesiredFolderIds: [] })
+        '100:2': expect.objectContaining({ localDesiredFolderIds: ['bilimi-logical:inbox'] })
       }
     })
   })

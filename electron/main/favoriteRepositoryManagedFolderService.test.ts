@@ -813,13 +813,17 @@ describe('FavoriteRepositoryManagedFolderService', () => {
   it('removes the local managed projection only after the remote delete succeeds', async () => {
     const current = managedSnapshot()
     const commit = vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
+    const markLocalManagedFoldersHidden = vi.fn(async () => undefined)
     const service = new FavoriteRepositoryManagedFolderService({
-      repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] })) }, remote: { removeRemoteFolder: vi.fn(async () => undefined) }
+      repository: { getSnapshot: vi.fn(async () => current), commit, commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] })) },
+      remote: { removeRemoteFolder: vi.fn(async () => undefined) },
+      markLocalManagedFoldersHidden
     })
     const preview = await service.preview('100', 'bilimi-logical:work')
     const confirmation = service.confirm('100', preview.executionToken)
 
     await expect(service.executeRemote('100', preview.executionToken, confirmation)).resolves.toMatchObject({ status: 'succeeded' })
+    expect(markLocalManagedFoldersHidden).toHaveBeenCalledWith('100', ['work'])
     expect(commit).not.toHaveBeenCalled()
   })
 
@@ -857,6 +861,7 @@ describe('FavoriteRepositoryManagedFolderService', () => {
   it('does not delete the local managed projection when the remote bridge reports a rejected delete result', async () => {
     const current = managedSnapshot()
     const onManagedFolderDeleted = vi.fn()
+    const markLocalManagedFoldersHidden = vi.fn(async () => undefined)
     const service = new FavoriteRepositoryManagedFolderService({
       repository: {
         getSnapshot: vi.fn(async () => current),
@@ -864,13 +869,15 @@ describe('FavoriteRepositoryManagedFolderService', () => {
         commitWithAudit: vi.fn(async (_account: string, command: FavoriteRepositoryCommand) => ({ ...current, commandId: command.id, affectedAids: [], affectedFolderIds: [] }))
       },
       remote: { removeRemoteFolder: vi.fn().mockResolvedValue({ status: 'rejected', reason: 'permission-denied' }) },
-      onManagedFolderDeleted
+      onManagedFolderDeleted,
+      markLocalManagedFoldersHidden
     })
     const preview = await service.preview('100', 'bilimi-logical:work')
 
     await expect(service.executeRemote('100', preview.executionToken, service.confirm('100', preview.executionToken)))
       .resolves.toMatchObject({ status: 'failed' })
     expect(onManagedFolderDeleted).not.toHaveBeenCalled()
+    expect(markLocalManagedFoldersHidden).not.toHaveBeenCalled()
   })
 
   it('permits a newly previewed and confirmed retry after a known remote rejection', async () => {
