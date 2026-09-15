@@ -303,9 +303,7 @@ export function buildFavoriteApiFallbackScript(
           ok: false,
           steps,
           missingTargets: missingTargets.length > 0 ? missingTargets : ['favorite-api'],
-          message:
-            'B 站收藏接口未能完成：' +
-            (error instanceof Error ? error.message : String(error || '未知错误'))
+          message: 'B 站收藏接口未能完成，请检查网络和登录状态后重试。'
         };
       }
     })();
@@ -471,7 +469,7 @@ export function buildFavoriteApiAdjustmentScript(
         for (const ledgerId of addLedgerIds) {
           const ledger = payload.favoriteLedgers.find((candidate) => candidate.id === ledgerId);
           if (!ledger) {
-            return fail('favorite-api-adjust-target:' + ledgerId, 'DeepSeek target ledger is unavailable.');
+            return fail('favorite-api-adjust-target:' + ledgerId, 'DeepSeek 目标收藏夹暂不可用。');
           }
           const folderId = findAvailableBoundFolderId(ledger);
           if (folderId) {
@@ -484,7 +482,7 @@ export function buildFavoriteApiAdjustmentScript(
         for (const ledgerId of removeLedgerIds) {
           const ledger = payload.favoriteLedgers.find((candidate) => candidate.id === ledgerId);
           if (!ledger) {
-            return fail('favorite-api-adjust-target:' + ledgerId, 'DeepSeek target ledger is unavailable.');
+            return fail('favorite-api-adjust-target:' + ledgerId, 'DeepSeek 目标收藏夹暂不可用。');
           }
           const folderId = findAvailableBoundFolderId(ledger);
           const normalizedFolderId = String(folderId);
@@ -529,9 +527,7 @@ export function buildFavoriteApiAdjustmentScript(
           ok: false,
           steps,
           missingTargets: missingTargets.length > 0 ? missingTargets : ['favorite-api-adjust'],
-          message:
-            'DeepSeek 后台归类调整未能完成：' +
-            (error instanceof Error ? error.message : String(error || '未知错误'))
+          message: 'DeepSeek 后台归类调整未能完成，请检查服务设置后重试。'
         };
       }
     })();

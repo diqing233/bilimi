@@ -17,6 +17,7 @@ import { FavoriteLibraryEntry } from './FavoriteLibraryEntry'
 import { OldFavoriteGuide, type OldFavoriteGuideStep } from './OldFavoriteGuide'
 import { OldFavoriteModal } from './OldFavoriteModal'
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
+import { formatUserVisibleErrorMessage } from './userVisibleErrorMessage'
 import type { FavoriteLibraryWorkspaceSelection } from './assistantRuntimeTypes'
 
 type ControlledFavoriteLedgerPanelProps = {
@@ -83,6 +84,14 @@ function recoveryPreparationFailureMessage(error: unknown) {
   const detail = error instanceof Error ? error.message : ''
   if (detail.includes('requires rebuild')) return '工作镜像暂时无法恢复，请重新打开整理收藏。'
   return '整理草稿准备失败，请重新尝试。'
+}
+
+function guideStepForRecoveredSnapshot(snapshot: OldFavoriteWorkspaceSnapshot): OldFavoriteGuideStep {
+  // Preserve the established recovery landing page for editable previews.
+  // Only remote execution states must bypass it, otherwise their progress UI
+  // is hidden behind the scan overview.
+  if (snapshot.status === 'scanning' || snapshot.status === 'previewing') return 'scan'
+  return 'confirm'
 }
 
 function waitForVisiblePaint() {
@@ -767,8 +776,9 @@ export function ControlledFavoriteLedgerPanel({
   const activeAccountMid = useRef(currentAccountMid)
   activeAccountMid.current = currentAccountMid
   const reportScanStartFailure = (message: string) => {
-    setScanStartFailure(message)
-    onTransientFeedback?.(message)
+    const detail = message.replace(/^扫描启动失败\s*[：:,，]?\s*/u, '').trim() || '请重新扫描。'
+    setScanStartFailure(detail)
+    onTransientFeedback?.(detail)
   }
   useEffect(() => {
     if (!scanStartFailure) return
@@ -837,7 +847,7 @@ export function ControlledFavoriteLedgerPanel({
     }).catch((error) => {
       if (!active || organizationRequestVersion.current !== requestVersion ||
         activeAccountMid.current !== requestedAccountMid) return
-      reportScanStartFailure(error instanceof Error ? error.message : '启动所选视频整理失败。')
+      reportScanStartFailure(formatUserVisibleErrorMessage(error, '启动所选视频整理失败。'))
     })
     return () => { active = false }
   }, [currentAccountMid, openOrganizationRequestVersion, openOrganizationSelectionAids, openOrganizationSelection])
@@ -864,7 +874,7 @@ export function ControlledFavoriteLedgerPanel({
       }
     } catch (error) {
       if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
-        reportScanStartFailure(error instanceof Error ? error.message : '扫描启动失败，请重新扫描。')
+        reportScanStartFailure(formatUserVisibleErrorMessage(error, '扫描启动失败，请重新扫描。'))
       }
     } finally {
       if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
@@ -890,7 +900,7 @@ export function ControlledFavoriteLedgerPanel({
       }
     } catch (error) {
       if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
-        reportScanStartFailure(error instanceof Error ? error.message : '继续扫描失败，请保持已登录的 B站页面打开后重试。')
+        reportScanStartFailure(formatUserVisibleErrorMessage(error, '继续扫描失败，请保持已登录的 B站页面打开后重试。'))
       }
     } finally {
       if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
@@ -1002,7 +1012,7 @@ export function ControlledFavoriteLedgerPanel({
       setRecoverySummary(null)
       setResumeDialogOpen(false)
       setGuideOpen(true)
-      setStep('scan')
+      setStep(guideStepForRecoveredSnapshot(restored))
     } finally {
       if (isCurrentRequest()) setRecoveryDecisionPending(null)
     }
@@ -1116,7 +1126,7 @@ export function ControlledFavoriteLedgerPanel({
       if (!refreshed || refreshed.workspaceId !== intent.workspaceId) return
       presentBilibiliBackupPreflight(refreshed)
     } catch (error) {
-      setConfirmationPreparationError(error instanceof Error ? error.message : '无法更新暂存同步范围，请重试。')
+      setConfirmationPreparationError(formatUserVisibleErrorMessage(error, '无法更新暂存同步范围，请重试。'))
     }
   }
   const continueConfirmedBilibiliBackup = async () => {
@@ -1191,7 +1201,7 @@ export function ControlledFavoriteLedgerPanel({
       setConfirmationPreparationStatus('备册已核验，正在准备同步到 B 站。')
       await executeConfirmedBilibiliSync(intent.includeInbox)
     } catch (error) {
-      setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹备册失败，请重试。')
+      setConfirmationPreparationError(formatUserVisibleErrorMessage(error, '收藏夹备册失败，请重试。'))
     } finally {
       setConfirmationPreparing(false)
       setConfirmationPreparationStatus(null)
@@ -1270,13 +1280,13 @@ export function ControlledFavoriteLedgerPanel({
           return
         }
         if (result?.ok === false) {
-          setConfirmationPreparationError(result.message || '收藏夹备册失败，请重试。')
+          setConfirmationPreparationError(formatUserVisibleErrorMessage(result.message ? new Error(result.message) : null, '收藏夹备册失败，请重试。'))
           return
         }
       }
       await continueConfirmedBilibiliBackup()
     } catch (error) {
-      setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹备册失败，请重试。')
+      setConfirmationPreparationError(formatUserVisibleErrorMessage(error, '收藏夹备册失败，请重试。'))
     } finally {
       setConfirmationPreparing(false)
       setConfirmationPreparationStatus(null)
@@ -1307,7 +1317,7 @@ export function ControlledFavoriteLedgerPanel({
         setConfirmationPreparationStatus('正在同步目标收藏夹，完成后会继续同步到 B 站。')
         const result = await onEnsureLedgers() as { ok?: boolean; message?: string } | undefined
         if (result?.ok === false) {
-          setConfirmationPreparationError(result.message || '收藏夹同步失败，请重试。')
+          setConfirmationPreparationError(formatUserVisibleErrorMessage(result.message ? new Error(result.message) : null, '收藏夹同步失败，请重试。'))
           return
         }
       }
@@ -1325,7 +1335,7 @@ export function ControlledFavoriteLedgerPanel({
         }
       }
     } catch (error) {
-      setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹同步失败，请重试。')
+      setConfirmationPreparationError(formatUserVisibleErrorMessage(error, '收藏夹同步失败，请重试。'))
     } finally {
       setConfirmationPreparing(false)
       setConfirmationPreparationStatus(null)
@@ -1362,7 +1372,7 @@ export function ControlledFavoriteLedgerPanel({
       await workspace.prepareRecovery()
       closeGuide()
     } catch (error) {
-      setConfirmationPreparationError(error instanceof Error ? error.message : '暂停并保存整理进度失败，请重试。')
+      setConfirmationPreparationError(formatUserVisibleErrorMessage(error, '暂停并保存整理进度失败，请重试。'))
     } finally {
       setRecoveryPreparing(false)
     }
@@ -1380,7 +1390,7 @@ export function ControlledFavoriteLedgerPanel({
       setResumeDialogOpen(false)
       closeGuide()
     } else {
-      setRecoveryDecisionError(result.message)
+      setRecoveryDecisionError(formatUserVisibleErrorMessage(new Error(result.message), '恢复整理草稿失败，请重试。'))
       setResumeDialogOpen(true)
     }
   }
@@ -1520,7 +1530,7 @@ export function ControlledFavoriteLedgerPanel({
         onBackupConfirmationFinished={(result) => {
           if (!bilibiliBackupSyncIntentRef.current) return
           if (result?.ok === false) {
-            setConfirmationPreparationError(result.message || '收藏夹备册失败，请重试。')
+            setConfirmationPreparationError(formatUserVisibleErrorMessage(result.message ? new Error(result.message) : null, '收藏夹备册失败，请重试。'))
             return
           }
           void continueConfirmedBilibiliBackup()

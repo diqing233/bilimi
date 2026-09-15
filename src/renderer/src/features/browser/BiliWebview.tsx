@@ -3,6 +3,7 @@ import { createBrowserSurfaceModel } from './browserSurfaceModel'
 import { buildDanmakuSeekRepaintScript } from './danmakuSeekRepaint'
 import { buildOpenLinksInAppScript } from './linkCaptureScript'
 import { buildSeekVideoTimeScript } from '../notes/videoNoteTimeAutomation'
+import { formatUserVisibleErrorMessage } from '../assistant/userVisibleErrorMessage'
 import {
   buildSelectArchivedVideoPartScript,
   hasArchivedVideoPartIdentity,
@@ -547,7 +548,7 @@ export const BiliWebview = memo(function BiliWebview({
     try {
       await window.bilimiDesktop.retryBilibiliSessionDirect()
     } catch (error) {
-      setDirectRetryError(`直连重试未能启动：${error instanceof Error ? error.message : String(error)}`)
+      setDirectRetryError(formatUserVisibleErrorMessage(error, '直连重试未能启动，请重试。'))
     } finally {
       setDirectRetrying(false)
     }
@@ -588,7 +589,10 @@ export const BiliWebview = memo(function BiliWebview({
       <section className="browser-proxy-error" role="alert" aria-label="B 站页面加载失败">
         <div className="browser-proxy-error__card">
           <h2>B 站页面加载失败</h2>
-          <p>{loadFailure.errorDescription || `错误码：${loadFailure.errorCode ?? '未知'}`}</p>
+          <p>{formatUserVisibleErrorMessage(
+            new Error(loadFailure.errorDescription ?? ''),
+            `B 站页面加载失败（错误码：${loadFailure.errorCode ?? '未知'}），请检查网络后重新加载。`
+          )}</p>
           <div className="browser-proxy-error__actions">
             <button type="button" onClick={() => ref.current?.reload?.()}>重新加载 B 站页面</button>
           </div>

@@ -14,6 +14,7 @@ import {
 } from '@shared/videoNoteArchive'
 import { CopySplitButton, ExportButton, type DownloadFormat } from './CopySplitButton'
 import { formatDeepSeekErrorMessage } from '../assistant/deepSeekErrorMessage'
+import { formatUserVisibleErrorMessage } from '../assistant/userVisibleErrorMessage'
 import { VideoNoteBatchExportDialog } from './VideoNoteBatchExportDialog'
 import { LocalMemoEditor } from './LocalMemoEditor'
 import { useExclusiveMenu } from '../../components/useExclusiveMenu'
@@ -302,7 +303,7 @@ export function VideoNoteArchivePanel({
     } catch (error) {
       onCopyFeedback?.({
         tone: 'error',
-        message: error instanceof Error ? error.message : '复制失败。'
+        message: formatUserVisibleErrorMessage(error, '复制失败，请重试。')
       })
     }
   }

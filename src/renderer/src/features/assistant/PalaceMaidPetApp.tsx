@@ -20,6 +20,7 @@ import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
 import { PET_IDLE_GREETINGS, PET_WELCOME_HOME_LINES, pickPetLine } from './petInteractionLines'
 import { publishDeepSeekTask } from './deepSeekTaskSignal'
 import type { FloatingAssistantWorkspaceRequest } from './assistantRuntimeTypes'
+import { formatUserVisibleErrorMessage } from './userVisibleErrorMessage'
 
 const DRAG_THRESHOLD_PX = 5
 const LONG_PRESS_SUPPRESSION_MS = 350
@@ -618,12 +619,12 @@ export function PalaceMaidPetApp() {
 
     try {
       const result = await action()
-      const message = result?.message?.trim() || fallbackMessage
+      const message = formatUserVisibleErrorMessage(result?.message ? new Error(result.message) : null, fallbackMessage)
       showLocalPetHint(result?.ok === false ? 'error' : 'done', message)
     } catch (error) {
       showLocalPetHint(
         'error',
-        error instanceof Error ? error.message : '小咪执行快捷操作时遇到问题。'
+        formatUserVisibleErrorMessage(error, '小咪执行快捷操作时遇到问题。')
       )
     }
   }
@@ -850,7 +851,7 @@ export function PalaceMaidPetApp() {
       ].slice(-6)
       setChatMessages(nextMessages)
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : '小咪现在还答不上来。')
+      setChatError(formatUserVisibleErrorMessage(error, '小咪现在还答不上来。'))
     } finally {
       finishDeepSeekTask()
       setChatBusy(false)

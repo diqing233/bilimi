@@ -730,9 +730,9 @@ describe('OldFavoriteConfirmationStep', () => {
       loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
     />)
 
-    expect(screen.getByRole('alert')).toHaveTextContent('HTTP 200')
-    expect(screen.getByRole('alert')).toHaveTextContent('HTML')
-    expect(screen.getByRole('alert')).toHaveTextContent('可能是嵌入页面临时验证或限制')
+    expect(screen.getByRole('alert')).toHaveTextContent('B 站返回了登录或验证页面，请确认已登录后重试。')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('HTTP 200')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('HTML')
     expect(screen.getByRole('status')).toHaveTextContent('B 站同步已暂停')
     expect(screen.getByRole('status')).toHaveTextContent('已完成 105 / 1880 条')
     expect(screen.getByRole('button', { name: /等待 .* 后重试/ })).toBeDisabled()

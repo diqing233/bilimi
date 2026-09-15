@@ -8,6 +8,7 @@ import type {
 } from '../../../../shared/oldFavoriteWorkspace'
 import type { DeepSeekArchiveMode, DeepSeekArchiveScope } from '@shared/types'
 import type { FavoriteLibraryWorkspaceSelection } from './assistantRuntimeTypes'
+import { formatUserVisibleErrorMessage } from './userVisibleErrorMessage'
 
 type WorkspaceView = OldFavoriteWorkspaceView
 
@@ -92,8 +93,7 @@ function deepSeekFailureMessage(error: unknown) {
   if (/DeepSeekServiceError|DeepSeek returned invalid JSON|authentication|model|API/i.test(detail)) {
     return 'DeepSeek 整理失败，请检查服务设置后重试。'
   }
-  const wrapped = /^Error invoking remote method '.+':\s*Error:\s*(.+)$/i.exec(detail)?.[1]
-  return wrapped || detail || 'DeepSeek 整理失败，请稍后重试。'
+  return formatUserVisibleErrorMessage(error, 'DeepSeek 整理失败，请稍后重试。')
 }
 
 function draftLedgerRuleAnalysisFailureMessage(error: unknown) {
@@ -420,7 +420,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
         ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0 && accountGeneration.current === generation
         : requestVersion.current === version && accountGeneration.current === generation
       if (isCurrent && !preserveSnapshot) setSnapshot(null)
-      if (isCurrent) setLastError(error instanceof Error ? error.message : '读取收藏整理工作区失败。')
+      if (isCurrent) setLastError(formatUserVisibleErrorMessage(error, '读取收藏整理工作区失败。'))
       return null
     } finally {
       if (preserveSnapshot) {
@@ -458,7 +458,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
       return next
     } catch (error) {
-      if (requestVersion.current === version && accountGeneration.current === generation) setLastError(error instanceof Error ? error.message : '启动收藏整理扫描失败。')
+      if (requestVersion.current === version && accountGeneration.current === generation) setLastError(formatUserVisibleErrorMessage(error, '启动收藏整理扫描失败。'))
       throw error
     } finally {
       if (accountGeneration.current === generation) {
@@ -491,7 +491,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       return next
     } catch (error) {
       if (requestVersion.current === version && accountGeneration.current === generation) {
-        setLastError(error instanceof Error ? error.message : '启动所选视频整理失败。')
+        setLastError(formatUserVisibleErrorMessage(error, '启动所选视频整理失败。'))
       }
       throw error
     } finally {
@@ -784,7 +784,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       }
       return next
     } catch (error) {
-      setLastError(error instanceof Error ? error.message : 'Old favorite workspace tag command failed.')
+      setLastError(formatUserVisibleErrorMessage(error, '标签补取操作失败，请稍后重试。'))
       return null
     } finally {
       if (accountGeneration.current === generation) setTagEnrichmentUpdating(false)
@@ -923,7 +923,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       return next
     } catch (error) {
       if (previewPreparationGenerationRef.current === generation && !/preparation canceled/i.test(error instanceof Error ? error.message : '')) {
-        setPreviewPreparationError(error instanceof Error ? error.message : '归档预览准备失败，请重试。')
+        setPreviewPreparationError(formatUserVisibleErrorMessage(error, '归档预览准备失败，请重试。'))
       }
       return null
     } finally {
@@ -1096,9 +1096,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next ?? null)
       return { status: 'succeeded' as const }
     } catch (error) {
-      const message = error instanceof Error && error.message.trim()
-        ? error.message.trim()
-        : executionFailureMessage(error)
+      const message = formatUserVisibleErrorMessage(error, '放弃整理草稿失败，草稿不会丢失。请重试。')
       if (requestVersion.current === version && accountGeneration.current === generation) setExecutionError(message)
       return { status: 'failed' as const, message }
     } finally {

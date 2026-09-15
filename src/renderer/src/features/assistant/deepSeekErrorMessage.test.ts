@@ -29,6 +29,13 @@ describe('formatDeepSeekErrorMessage', () => {
     expect(formatDeepSeekErrorMessage(null, '生成失败。')).toBe('生成失败。')
   })
 
+  it('does not expose an unknown English provider error to the user', () => {
+    expect(formatDeepSeekErrorMessage(
+      new Error('Provider sent malformed handshake payload'),
+      'DeepSeek 总结生成失败。'
+    )).toBe('DeepSeek 总结生成失败。')
+  })
+
   it('turns a bounded provider timeout into an actionable retry message', () => {
     expect(
       formatDeepSeekErrorMessage(

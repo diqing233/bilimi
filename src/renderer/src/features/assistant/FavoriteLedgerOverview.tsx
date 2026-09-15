@@ -30,6 +30,7 @@ import {
   managedFavoriteFolderDeletionFailureMessage,
   managedFavoriteFolderDeletionSucceeded
 } from './managedFavoriteFolderDeletionFeedback'
+import { formatUserVisibleErrorMessage } from './userVisibleErrorMessage'
 import {
   FavoriteLedgerEnableButton,
   FavoriteLedgerEnableStore,
@@ -1051,7 +1052,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         const restoredUnsavedLedgerIds = new Set(nextUnsavedLedgerIds)
         restoredUnsavedLedgerIds.add(savingLedgerId)
         setLocallyUnsavedLedgerIds(restoredUnsavedLedgerIds)
-        setSaveError(result.message ?? '收藏夹规则未能持久化，请稍后重试。')
+        setSaveError(formatUserVisibleErrorMessage(result.message ? new Error(result.message) : null, '收藏夹规则未能持久化，请稍后重试。'))
         return
       }
       setActiveLedgerId((current) => current === savingLedgerId ? null : current)
@@ -1808,7 +1809,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
           try {
             const saveResult = await onSaveLedgers(nextLedgers, { deleteDisabled: false }) as { ok?: boolean; message?: string } | undefined
             if (saveResult?.ok === false) {
-              setRemoteDiscoveryProcessingError(saveResult.message ?? '本地草稿未能保存，请稍后重试。')
+              setRemoteDiscoveryProcessingError(formatUserVisibleErrorMessage(saveResult.message ? new Error(saveResult.message) : null, '本地草稿未能保存，请稍后重试。'))
               return
             }
           } catch {
@@ -1856,11 +1857,11 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
           })
           setSelectedBoundRenameShardKeys(new Set(result.boundRenameCandidates.flatMap((candidate) =>
             candidate.shards.map((shard) => boundRenameShardKey(candidate.ledgerId, shard)))))
-          setRemoteDiscoveryProcessingError(result.message || 'B 站收藏夹状态已变化，请确认最新名称后继续。')
+          setRemoteDiscoveryProcessingError(formatUserVisibleErrorMessage(result.message ? new Error(result.message) : null, 'B 站收藏夹状态已变化，请确认最新名称后继续。'))
           return
         }
         if (result?.ok === false) {
-          setRemoteDiscoveryProcessingError(result.message || '已绑定收藏夹改名未完成，请稍后重试。')
+        setRemoteDiscoveryProcessingError(formatUserVisibleErrorMessage(result.message ? new Error(result.message) : null, '已绑定收藏夹改名未完成，请稍后重试。'))
           return
         }
       }
@@ -1882,7 +1883,7 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         await processing.onDeferredBackupFinished?.(backupResult as { ok?: boolean; message?: string } | undefined)
       }
     } catch (error) {
-      setRemoteDiscoveryProcessingError(error instanceof Error ? error.message : '处理未完成，请稍后重试。')
+      setRemoteDiscoveryProcessingError(formatUserVisibleErrorMessage(error, '处理未完成，请稍后重试。'))
     } finally {
       setRemoteDiscoveryProcessingBusy(false)
     }

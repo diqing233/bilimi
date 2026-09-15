@@ -657,7 +657,7 @@ describe('BiliWebview', () => {
 
     expect(screen.queryByRole('heading', { name: '系统代理连接失败' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'B 站页面加载失败' })).toBeInTheDocument()
-    expect(screen.getByText(/ERR_NAME_NOT_RESOLVED/)).toBeInTheDocument()
+    expect(screen.getByText('B 站页面加载失败（错误码：-105），请检查网络后重新加载。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '重新加载 B 站页面' }))
     expect(reload).toHaveBeenCalledOnce()
   })

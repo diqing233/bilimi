@@ -7635,7 +7635,7 @@ describe('App runtime integration', () => {
       ok: false,
       steps: ['auth:check'],
       missingTargets: ['bilibili-login'],
-      message: '请先登录 Bilibili 后再操作。'
+      message: '请先登录 B 站后再操作。'
     })
     expect(executeJavaScript).not.toHaveBeenCalledWith(
       expect.stringContaining('/x/v3/fav/resource/deal')

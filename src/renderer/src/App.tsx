@@ -85,6 +85,7 @@ import { AssistantSidebar } from './features/assistant/AssistantSidebar'
 import { FavoriteLibraryDrawer, type FavoriteLibraryDrawerHandle } from './features/favorites/FavoriteLibraryDrawer'
 import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petInteractionLines'
 import { publishDeepSeekTask } from './features/assistant/deepSeekTaskSignal'
+import { formatUserVisibleErrorMessage } from './features/assistant/userVisibleErrorMessage'
 import { composeMemorialComments } from './features/comments/commentComposer'
 import { createCorrectionDraft } from './features/recommendation/correctionLearning'
 import type { FavoriteRepositoryConfirmedReviewInput } from '@shared/favoriteRepository'
@@ -122,7 +123,7 @@ const LOGIN_REQUIRED_RESULT: AssistantAutomationResult = {
   ok: false,
   steps: ['auth:check'],
   missingTargets: ['bilibili-login'],
-  message: '请先登录 Bilibili 后再操作。'
+  message: '请先登录 B 站后再操作。'
 }
 
 type FavoriteLedgerBindingFailureCandidate = {
@@ -467,7 +468,7 @@ function buildTrustedPlayerActivationScript(): string {
 
       if (!clickPoint) {
         result.missingTargets.push('player-click-target');
-        result.message = '尚有 player-click-target 未能寻见。';
+        result.message = '未找到可操作的播放器区域。';
         return result;
       }
 
@@ -4283,7 +4284,7 @@ export default function App() {
         ok: false,
         steps: [],
         missingTargets: ['favorite-page'],
-        message: `打开 B 站收藏夹未完成：${error instanceof Error ? error.message : String(error)}`
+        message: formatUserVisibleErrorMessage(error, '打开 B 站收藏夹未完成，请检查网络和登录状态后重试。')
       }
     }
   }
@@ -4708,7 +4709,7 @@ export default function App() {
           ok: false,
           steps: ['favorite:shard-binding-retry'],
           missingTargets: [`favorite-shard-binding:${pendingTargetLedger.id}`],
-          message: `已创建的「${remoteTitle}」暂未完成正式绑定，本次不会重复创建或写入视频；请稍后重试。${error instanceof Error && error.message ? `原因：${error.message}` : ''}`
+          message: `已创建的「${remoteTitle}」暂未完成正式绑定，本次不会重复创建或写入视频；请稍后重试。`
         }
       }
       const clearedPendingLedgers = actionFavoriteLedgers.map((ledger) =>
@@ -4836,7 +4837,7 @@ export default function App() {
                 ok: false,
                 steps: [...(capacity.steps ?? []), ...(creation.steps ?? [])],
                 missingTargets: [`favorite-shard-binding:${ledgerId}`],
-                message: `新的 B 站收藏夹分区已创建，但正式绑定暂未完成；已记住该分区，下次会只重试绑定，不会重复创建。本次批阅没有写入收藏夹。${error instanceof Error && error.message ? `原因：${error.message}` : ''}`
+                message: '新的 B 站收藏夹分区已创建，但正式绑定暂未完成；已记住该分区，下次会只重试绑定，不会重复创建。本次批阅没有写入收藏夹。'
               }
             }
             if (creation.folder) {
@@ -5123,7 +5124,7 @@ export default function App() {
               missingTargets: ['favorite-api-adjust'],
               message:
                 'DeepSeek 后台归类调整未能完成：' +
-                (error instanceof Error ? error.message : String(error || '未知错误'))
+                formatUserVisibleErrorMessage(error, '请检查服务设置后重试。')
             }
           }
           if (!adjustmentResult.ok) {

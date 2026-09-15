@@ -21,6 +21,7 @@ import {
 } from '@shared/videoNoteArchive'
 import { AssistantActionButton } from '../assistant/AssistantActionButton'
 import { transcriptionModelLabel } from '../assistant/assistantGlobalStatusCenter'
+import { formatUserVisibleErrorMessage } from '../assistant/userVisibleErrorMessage'
 import { CopySplitButton, ExportButton, type DownloadFormat } from './CopySplitButton'
 import { VideoNoteBatchExportDialog } from './VideoNoteBatchExportDialog'
 import { VideoSummaryMenu } from './VideoSummaryMenu'
@@ -283,7 +284,7 @@ function hasUsableTimeline(note: VideoNote | null): boolean {
 
 function formatQueueErrorMessage(message: string | undefined): string {
   if (message?.startsWith('Audio download failed')) return '音频下载失败，请检查网络后重试。'
-  return message || '转写失败，可重试。'
+  return formatUserVisibleErrorMessage(message ? new Error(message) : null, '转写失败，可重试。')
 }
 
 function findCurrentArchiveSelection(
@@ -572,7 +573,7 @@ export function VideoNotesPanel({
       if (generatedNote) setStatusMessage('札记已整理')
     } catch (error) {
       setGenerateFailed(true)
-      setErrorMessage(error instanceof Error ? error.message : '整理札记时遇到未知错误。')
+      setErrorMessage(formatUserVisibleErrorMessage(error, '整理札记时遇到问题，请重试。'))
     } finally {
       setLocalGenerating(false)
     }
@@ -697,7 +698,7 @@ export function VideoNotesPanel({
       }
       setMultipartSnapshot(snapshot)
     } catch (error) {
-      setMultipartError(error instanceof Error ? error.message : '读取分 P 信息失败，请重试。')
+      setMultipartError(formatUserVisibleErrorMessage(error, '读取分 P 信息失败，请重试。'))
     } finally {
       setMultipartLoading(false)
     }
@@ -712,7 +713,7 @@ export function VideoNotesPanel({
       await onEnqueueMultipartTranscription(multipartSnapshot, parts, createDeepSeekOptions())
       resetMultipartMode()
     } catch (error) {
-      setMultipartError(error instanceof Error ? error.message : '加入转写队列失败，请重试。')
+      setMultipartError(formatUserVisibleErrorMessage(error, '加入转写队列失败，请重试。'))
       setMultipartSubmitting(false)
     }
   }
@@ -872,7 +873,7 @@ export function VideoNotesPanel({
     } catch (error) {
       onCopyFeedback?.({
         tone: 'error',
-        message: error instanceof Error ? error.message : '复制失败。'
+        message: formatUserVisibleErrorMessage(error, '复制失败，请重试。')
       })
     }
   }
@@ -886,7 +887,7 @@ export function VideoNotesPanel({
         : item.archiveRegistrationStatus === 'failed'
         ? item.summaryStatus === 'generated' ? '总结已生成，档案保存失败' : '文稿已生成，档案保存失败'
         : item.summaryStatus === 'failed'
-          ? item.errorMessage?.trim() || '总结生成失败'
+          ? formatQueueErrorMessage(item.errorMessage)
         : item.summarizeWithDeepSeek
         ? item.summaryStatus === 'saved' ? 'DeepSeek 总结已完成'
           : item.summaryStatus === 'generating' ? '文稿已生成，正在生成 DeepSeek 总结'

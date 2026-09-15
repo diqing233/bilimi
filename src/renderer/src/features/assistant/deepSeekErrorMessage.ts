@@ -1,3 +1,5 @@
+import { formatUserVisibleErrorMessage } from './userVisibleErrorMessage'
+
 const REMOTE_METHOD_ERROR_PREFIX = /^Error invoking remote method '[^']+':\s*(?:(?:Error|DeepSeekServiceError):\s*)?/i
 
 export function formatDeepSeekErrorMessage(error: unknown, fallback: string): string {
@@ -10,7 +12,7 @@ export function formatDeepSeekErrorMessage(error: unknown, fallback: string): st
   if (/^DeepSeek request timed out after \d+ seconds\.$/u.test(message)) {
     return 'DeepSeek 请求超时，请检查服务地址或网络后重试。'
   }
-  return message || fallback
+  return formatUserVisibleErrorMessage(new Error(message), fallback)
 }
 
 export function formatAssistantFeedbackMessage(message: string, fallback: string): string {

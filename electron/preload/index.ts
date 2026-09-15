@@ -565,7 +565,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
         ipcRenderer.send('assistant-runtime:response', {
           id: request.id,
           ok: false,
-          error: error instanceof Error ? error.message : 'Assistant runtime failed.'
+          error: '助手操作运行失败，请重试。'
         })
       }
     }

@@ -1294,6 +1294,18 @@ describe('favorite ledger API scripts', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it('returns a Chinese login prompt when an old-favorite scan has no signed-in account', async () => {
+    Object.defineProperty(document, 'cookie', { configurable: true, value: '' })
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(result).toMatchObject({
+      ok: false,
+      missingTargets: ['favorite-api-user'],
+      message: '无法读取 B 站登录账号，请保持已登录后重试。'
+    })
+  })
+
   it('keeps formal bindings unchanged when a directory suddenly omits every bound folder', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -2836,7 +2848,8 @@ describe('favorite ledger API scripts', () => {
       ok: false,
       paused: true,
       resultUnknown: true,
-      missingTargets: ['bilibili-account']
+      missingTargets: ['bilibili-account'],
+      message: '当前 B 站登录账号在同步过程中发生变化，已暂停并等待核对。'
     })
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -3123,7 +3136,12 @@ describe('favorite ledger API scripts', () => {
       selected: true
     }]))
 
-    expect(result).toMatchObject({ ok: false, paused: true, missingTargets: ['favorite-ledger-membership-incomplete'] })
+    expect(result).toMatchObject({
+      ok: false,
+      paused: true,
+      missingTargets: ['favorite-ledger-membership-incomplete'],
+      message: '正式收藏夹成员信息读取不完整，已暂停同步。'
+    })
     expect(requests.some((url) => url.includes('/resource/deal'))).toBe(false)
   })
 
@@ -3168,7 +3186,8 @@ describe('favorite ledger API scripts', () => {
       ok: false,
       paused: true,
       resultUnknown: true,
-      missingTargets: ['favorite-ledger-reconcile:123']
+      missingTargets: ['favorite-ledger-reconcile:123'],
+      message: '上一项收藏夹操作结果暂时无法确认，请先核对后再继续。'
     })
     expect(dealBodies).toHaveLength(1)
     expect(dealBodies[0].get('add_media_ids')).toBe('9001')
@@ -3385,7 +3404,7 @@ describe('favorite ledger API scripts', () => {
       failedCount: 1,
       remainingCount: 1
     })
-    expect(result.message).toContain('paused')
+    expect(result.message).toBe('B 站可能因短时间内频繁修改收藏夹而触发保护，已暂停本轮整理。请稍后继续处理剩余视频。')
     expect(requests.filter((request) => request.url.includes('/x/v3/fav/resource/deal'))).toHaveLength(1)
   })
 
@@ -3698,9 +3717,9 @@ describe('favorite ledger API scripts', () => {
       steps: ['api:ledger:append-failed:123', 'api:ledger:append:456'],
       missingTargets: ['favorite-ledger-append:123']
     })
-    expect(result.message).toContain('partially completed')
-    expect(result.message).toContain('1 appended')
-    expect(result.message).toContain('1 failed')
+    expect(result.message).toContain('旧收藏已部分归册')
+    expect(result.message).toContain('已完成 1 条')
+    expect(result.message).toContain('失败 1 条')
     expect(requests.filter((request) => request.url.includes('/x/v3/fav/resource/deal'))).toHaveLength(2)
   })
 
@@ -3756,11 +3775,11 @@ describe('favorite ledger API scripts', () => {
       steps: ['api:ledger:append-failed:123', 'api:ledger:append-failed:456'],
       missingTargets: ['favorite-ledger-append:123', 'favorite-ledger-append:456']
     })
-    expect(result.message).toContain('0 appended, 2 failed')
+    expect(result.message).toContain('已完成 0 条，失败 2 条')
     expect(result.message).toContain('旧藏甲')
     expect(result.message).toContain('旧藏乙')
-    expect(result.message.match(/Please log in to Bilibili again/g)).toBeNull()
-    expect(result.message.match(/请重新登录 Bilibili/g)).toHaveLength(1)
+    expect(result.message).not.toContain('Please log in to Bilibili again')
+    expect(result.message.match(/请重新登录 B 站/g)).toHaveLength(1)
   })
 
   it('refreshes a stale target folder id and retries an old favorite append once', async () => {
@@ -5157,7 +5176,7 @@ describe('favorite ledger API scripts', () => {
       targetMembership: {},
       missingTargets: ['favorite-ledger-api']
     })
-    expect(result.message).toContain('favorite folder list returned HTML instead of JSON')
+    expect(result.message).toBe('旧收藏扫描失败，请检查网络和登录状态后重试。')
     expect(result.message).not.toContain('Unexpected token')
   })
 
@@ -5228,7 +5247,7 @@ describe('favorite ledger API scripts', () => {
       'api:favorite:scan-source:101',
       'api:favorite:scan-source-failed:102'
     ])
-    expect(result.message).toContain('skipped 1 folder')
+    expect(result.message).toContain('跳过 1 个收藏夹')
     expect(
       vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('media_id=102'))
     ).toHaveLength(1)
@@ -5537,8 +5556,14 @@ describe('favorite ledger API scripts', () => {
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
     expect(result.scanDiagnostics.folderFailures).toEqual([
       expect.objectContaining({ folderId: '101', errorKind: 'html', riskSignal: true }),
-      expect.objectContaining({ folderId: '102', errorKind: 'global-circuit-open', attempts: 0 }),
-      expect.objectContaining({ folderId: '103', errorKind: 'global-circuit-open', attempts: 0 })
+      expect.objectContaining({
+        folderId: '102', errorKind: 'global-circuit-open', attempts: 0,
+        message: '收藏夹资源接口连续失败，已暂停后续收藏夹读取。'
+      }),
+      expect.objectContaining({
+        folderId: '103', errorKind: 'global-circuit-open', attempts: 0,
+        message: '收藏夹资源接口连续失败，已暂停后续收藏夹读取。'
+      })
     ])
     expect(result.batch).toMatchObject({ hasMore: true, nextCursor: { folderId: '101', nextPage: 1 } })
     expect(JSON.stringify(result.scanDiagnostics)).not.toContain('sensitive-body')
@@ -6050,7 +6075,7 @@ describe('favorite ledger API scripts', () => {
 
     expect(result).toMatchObject({ cancelled: true, sourceFolders: [] })
     expect(result.steps).toContain('api:favorite:scan-cancelled')
-    expect(result.message).toBe('old favorite scan cancelled')
+    expect(result.message).toBe('旧收藏扫描已取消。')
   })
 
   it('scans every unique video in one user batch without a visible 3000 item cap', async () => {

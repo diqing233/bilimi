@@ -740,7 +740,7 @@ describe('useOldFavoriteWorkspace', () => {
     await waitFor(() => expect(result.current.snapshot).toMatchObject({ status: 'previewing' }))
     await act(async () => { await result.current.acceptCurrentTags() })
 
-    await waitFor(() => expect(result.current.lastError).toBe('tag command failed'))
+    await waitFor(() => expect(result.current.lastError).toBe('标签补取操作失败，请稍后重试。'))
     expect(command).toHaveBeenCalledWith('100', { type: 'accept-current-tags' })
   })
 

@@ -963,7 +963,7 @@ export function buildEnsureFavoriteLedgersScript(
             missingTargets: [ledger.id],
             remoteOnlyDraftLedgerIds,
             remoteObservations,
-            message: error instanceof Error ? error.message : '创建 B 站收藏夹失败。'
+            message: '创建 B 站收藏夹失败，请检查网络和登录状态后重试。'
           };
         }
         steps.push('api:ledger:create:' + ledger.id);
@@ -1207,7 +1207,7 @@ export function buildSaveFavoriteLedgersScript(
             missingTargets: [ledger.id],
             remoteOnlyDraftLedgerIds,
             remoteObservations,
-            message: error instanceof Error ? error.message : '创建 B 站收藏夹失败。'
+            message: '创建 B 站收藏夹失败，请检查网络和登录状态后重试。'
           };
         }
         steps.push('api:ledger:create:' + ledger.id);
@@ -1724,7 +1724,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
             targetMembership: {},
             steps,
             missingTargets: ['favorite-api-user'],
-            message: 'favorite user is unavailable'
+            message: '无法读取 B 站登录账号，请保持已登录后重试。'
           };
         }
 
@@ -1822,7 +1822,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               targetMembership: {},
               steps: [...steps, 'api:favorite:scan-cancelled'],
               missingTargets: [],
-              message: 'old favorite scan cancelled'
+              message: '旧收藏扫描已取消。'
             };
           }
           if (!payload.aid) {
@@ -2479,7 +2479,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           targetMembership: {},
           steps: [...steps, 'api:favorite:scan-cancelled'],
           missingTargets: [],
-          message: 'old favorite scan cancelled'
+          message: '旧收藏扫描已取消。'
         });
 
         if (!payload.aid && scanWasCancelled()) return cancelledScanResult();
@@ -2543,7 +2543,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                   attempts: 0,
                   status: 'failed',
                   operation: 'resource-list',
-                  message: 'skipped because a global favorite resource interface failure opened the circuit',
+                  message: '收藏夹资源接口连续失败，已暂停后续收藏夹读取。',
                   errorKind: 'global-circuit-open',
                   durationMs: 0,
                   httpStatus: 0,
@@ -2902,8 +2902,8 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           missingTargets: [],
           message:
             skippedSourceFolderTitles.length === 0
-              ? (payload.aid ? 'old favorite video refreshed' : 'old favorites scanned')
-              : 'old favorites scanned; skipped ' + skippedSourceFolderTitles.length + ' folder' + (skippedSourceFolderTitles.length === 1 ? '' : 's') + ': ' + skippedSourceFolderTitles.slice(0, 3).join(', ')
+              ? (payload.aid ? '旧收藏视频已刷新。' : '旧收藏已扫描完成。')
+              : '旧收藏已扫描完成；跳过 ' + skippedSourceFolderTitles.length + ' 个收藏夹：' + skippedSourceFolderTitles.slice(0, 3).join('、')
         };
       } catch (error) {
         return {
@@ -2913,7 +2913,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           targetMembership: {},
           steps,
           missingTargets: ['favorite-ledger-api'],
-          message: 'old favorite scan failed: ' + (error instanceof Error ? error.message : String(error || 'unknown error'))
+          message: '旧收藏扫描失败，请检查网络和登录状态后重试。'
         };
       }
     })();
@@ -2945,7 +2945,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
       const completedItems = [];
       let syncRequired = false;
       const syncRequiredMessage = '掌库和 B 站收藏夹不一致，请先同步掌库后再确认执行。';
-      const protectionMessage = 'Bilibili may be protecting your account from high-frequency favorite changes. Old favorite organization is paused; wait a while, then continue with the remaining items.';
+      const protectionMessage = 'B 站可能因短时间内频繁修改收藏夹而触发保护，已暂停本轮整理。请稍后继续处理剩余视频。';
       const wait = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs));
       const randomDelay = (range) => {
         const min = Math.max(0, Number(range?.min ?? 0));
@@ -2963,7 +2963,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
       const isUnknownWriteResult = (error) =>
         error?.name === 'AbortError' ||
         /abort|interrupted|networkerror|failed to fetch|load failed/i.test(String(error?.message || error || ''));
-      const accountMismatchResult = (message = 'The signed-in Bilibili account changed during execution.') => ({
+      const accountMismatchResult = (message = '当前 B 站登录账号在同步过程中发生变化，已暂停并等待核对。') => ({
         ok: false,
         paused: true,
         resultUnknown: true,
@@ -3235,7 +3235,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
           completedCount: completedItems.length,
           failedCount: 0,
           remainingCount: executableItems.length - index,
-          message: 'The last favorite request has an unknown result. Reconcile before continuing: ' + message
+          message: '上一项收藏夹操作结果暂时无法确认，请先核对后再继续。'
         });
         const refreshTargetFolderId = async (targetDisplayName) => {
           const { mid } = readCredentials();
@@ -3279,10 +3279,10 @@ export function buildExecuteFavoriteLedgerPlanScript(
               if (desiredFolderIds.length === 1) {
                 const resolution = await resolvePhysicalTarget(item);
                 if (resolution.state === 'membership-incomplete') {
-                  return physicalTargetPausedResult(item, index, 'favorite-ledger-membership-incomplete', 'Formal favorite membership is incomplete; execution is paused.');
+                  return physicalTargetPausedResult(item, index, 'favorite-ledger-membership-incomplete', '正式收藏夹成员信息读取不完整，已暂停同步。');
                 }
                 if (resolution.state === 'create-failed') {
-                  return physicalTargetPausedResult(item, index, 'favorite-ledger-shard:' + item.targetLedgerId, 'Creating the next favorite shard failed; this target is paused.');
+                  return physicalTargetPausedResult(item, index, 'favorite-ledger-shard:' + item.targetLedgerId, '创建下一分册失败，已暂停该目标的同步。');
                 }
                 if (!resolution.folderId) throw new Error(syncRequiredMessage);
                 resolvedDesiredFolderIds = [String(resolution.folderId)];
@@ -3329,7 +3329,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
           ));
           const stagingResolution = await resolveAllStagingFolderIds(item, stagingFolderIds);
           if (stagingResolution.state === 'membership-incomplete') {
-            return unknownWritePausedResult(item, index, 'Staging favorite membership is incomplete.');
+            return unknownWritePausedResult(item, index, '暂存收藏夹成员信息读取不完整。');
           }
           stagingFolderIds = stagingResolution.folderIds;
           if (stagingFolderIds.length > 0) {
@@ -3338,10 +3338,10 @@ export function buildExecuteFavoriteLedgerPlanScript(
               try {
                 const resolution = await resolvePhysicalTarget(groupedItem);
                 if (resolution.state === 'membership-incomplete') {
-                  return physicalTargetPausedResult(item, index, 'favorite-ledger-membership-incomplete', 'Formal favorite membership is incomplete; execution is paused.');
+                  return physicalTargetPausedResult(item, index, 'favorite-ledger-membership-incomplete', '正式收藏夹成员信息读取不完整，已暂停同步。');
                 }
                 if (resolution.state === 'create-failed') {
-                  return physicalTargetPausedResult(item, index, 'favorite-ledger-shard:' + groupedItem.targetLedgerId, 'Creating the next favorite shard failed; this target is paused.');
+                  return physicalTargetPausedResult(item, index, 'favorite-ledger-shard:' + groupedItem.targetLedgerId, '创建下一分册失败，已暂停该目标的同步。');
                 }
                 if (resolution.state === 'already-member') {
                   successfulItems.push({ ...groupedItem, targetFolderId: resolution.folderId });
@@ -3395,10 +3395,10 @@ export function buildExecuteFavoriteLedgerPlanScript(
             for (const groupedItem of groupedItems) {
               const resolution = await resolvePhysicalTarget(groupedItem);
               if (resolution.state === 'membership-incomplete') {
-                return physicalTargetPausedResult(item, index, 'favorite-ledger-membership-incomplete', 'Formal favorite membership is incomplete; execution is paused.');
+                return physicalTargetPausedResult(item, index, 'favorite-ledger-membership-incomplete', '正式收藏夹成员信息读取不完整，已暂停同步。');
               }
               if (resolution.state === 'create-failed') {
-                return physicalTargetPausedResult(item, index, 'favorite-ledger-shard:' + groupedItem.targetLedgerId, 'Creating the next favorite shard failed; this target is paused.');
+                return physicalTargetPausedResult(item, index, 'favorite-ledger-shard:' + groupedItem.targetLedgerId, '创建下一分册失败，已暂停该目标的同步。');
               }
               if (resolution.state === 'already-member') {
                 resolvedItems.push({ ...groupedItem, targetFolderId: resolution.folderId, alreadyInTarget: true });
@@ -3476,8 +3476,15 @@ export function buildExecuteFavoriteLedgerPlanScript(
           const isHtmlLoginFailure = (message) =>
             /returned HTML instead of JSON|log in to Bilibili/i.test(String(message || ''));
           const hasHtmlLoginFailure = appendFailures.some((failure) => isHtmlLoginFailure(failure.message));
+          const localizedFailureMessage = (message, fallback) => {
+            const text = String(message || '').trim();
+            if (!/[\u3400-\u9fff]/.test(text)) return fallback;
+            if (!/[A-Za-z]/.test(text.replace(/B\s*站/g, ''))) return text;
+            const fragments = text.match(/[\u3400-\u9fff][\u3400-\u9fff\d\s，。！？、：；（）()\-]*/g);
+            return fragments?.at(-1)?.trim() || fallback;
+          };
           const summarizeFailureMessage = (message) =>
-            isHtmlLoginFailure(message) ? 'Bilibili 登录状态失效' : String(message || 'unknown error');
+            isHtmlLoginFailure(message) ? 'B 站登录状态失效' : localizedFailureMessage(message, 'B 站收藏操作失败');
           const failedTitles = appendFailures
             .slice(0, 3)
             .map((failure) => (failure.title || String(failure.aid)) + ': ' + summarizeFailureMessage(failure.message))
@@ -3489,15 +3496,14 @@ export function buildExecuteFavoriteLedgerPlanScript(
             missingTargets,
             completedItems,
             message:
-              'old favorite organization partially completed: ' +
+              '旧收藏已部分归册：已完成 ' +
               appendCount +
-              ' appended, ' +
+              ' 条，失败 ' +
               appendFailures.length +
-              ' failed' +
-              (failedTitles ? ' (' + failedTitles + ')' : '') +
-              (syncRequired ? ' ' + syncRequiredMessage : '') +
-              (hasHtmlLoginFailure ? ' 请重新登录 Bilibili 后再试。' : '') +
-              '.'
+              ' 条' +
+              (failedTitles ? '（' + failedTitles + '）' : '') +
+              (syncRequired ? '；' + syncRequiredMessage : '') +
+              (hasHtmlLoginFailure ? '；请重新登录 B 站后再试。' : syncRequired ? '' : '。')
           };
         }
 
@@ -3513,7 +3519,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
           ok: false,
           steps,
           missingTargets: missingTargets.length > 0 ? missingTargets : ['favorite-ledger-api'],
-          message: '旧藏归册未能完成：' + (error instanceof Error ? error.message : String(error || '未知错误'))
+          message: '旧收藏归册未完成，请检查网络和登录状态后重试。'
         };
       }
     })();

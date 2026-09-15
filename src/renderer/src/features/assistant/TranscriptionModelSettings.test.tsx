@@ -414,7 +414,7 @@ describe('TranscriptionModelSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: '下载' }))
     fireEvent.click(screen.getByRole('button', { name: '确认下载' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Model download failed: source unreachable')
+    expect(await screen.findByRole('alert')).toHaveTextContent('模型下载或安装失败，请重试。')
     expect(screen.getByRole('button', { name: '继续/重试' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '重新下载' })).toBeInTheDocument()
   })
@@ -434,7 +434,7 @@ describe('TranscriptionModelSettings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '下载' }))
     fireEvent.click(screen.getByRole('button', { name: '确认下载' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Model download failed: source unreachable')
+    expect(await screen.findByRole('alert')).toHaveTextContent('模型下载或安装失败，请重试。')
 
     fireEvent.click(screen.getByRole('button', { name: /faster-whisper large-v3-turbo/ }))
     fireEvent.click(screen.getByRole('option', { name: /Whisper small/ }))
@@ -482,7 +482,7 @@ describe('TranscriptionModelSettings', () => {
     expect(screen.getByRole('status')).toHaveTextContent('正在合并分片')
     expect(screen.getByText('1.5 GB / 2.9 GB · 8.4 MB/s · 预计剩余 3 分钟')).toBeInTheDocument()
     expect(screen.getByText('当前来源：ModelScope')).toBeInTheDocument()
-    expect(screen.getByText('ModelScope 连接失败，正在尝试 GitHub Release')).toBeInTheDocument()
+    expect(screen.getByText('下载来源连接失败，正在尝试备用来源。')).toBeInTheDocument()
   })
 
   it('keeps the model chooser compact without a repeated section heading', () => {

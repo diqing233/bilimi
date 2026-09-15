@@ -1143,7 +1143,7 @@ export function createTranscriptionQueueFeedback(
     item.status === 'failed' && previous.items.find((previousItem) => previousItem.id === item.id)?.status === 'running'
   )
   if (newlyFailed) {
-    const reason = newlyFailed.errorMessage?.trim() || '转写过程中遇到未知错误。'
+    const reason = formatAssistantFeedbackMessage(newlyFailed.errorMessage ?? '', '转写过程中遇到问题，请重试。')
     return {
       tone: 'error',
       globalMessage: `转写失败：${newlyFailed.title}`,
@@ -1486,7 +1486,7 @@ export function resolveGlobalTranscriptionStatus(
 
   const failedItem = transcriptionQueue.items.findLast((item) => item.status === 'failed')
   if (failedItem) {
-    const failureReason = failedItem.errorMessage?.trim() || '转写过程中遇到未知错误。'
+    const failureReason = formatAssistantFeedbackMessage(failedItem.errorMessage ?? '', '转写过程中遇到问题，请重试。')
     return {
       label: '转写失败',
       detail: detailWithModel(`当前转写视频：${failedItem.title}：${failureReason} 打开札记可重试。`, failedItem),
@@ -1609,7 +1609,7 @@ function formatGlobalProgressPercent(progress?: VideoAudioTranscriptionProgress)
 }
 
 function createActionErrorHint(action: AssistantAction, result: AssistantAutomationResult) {
-  const message = result.message.trim()
+  const message = formatAssistantFeedbackMessage(result.message, ACTION_ERROR_HINTS[action])
   const missingCurrentVideo = result.missingTargets.includes('current-video')
   const messageSaysNoVideo = /未打开视频|暂无视频|打开一个视频|当前视频/.test(message)
 
@@ -1633,11 +1633,12 @@ function localizeDeepSeekStatusMessage(message: string): string {
     return '请先启用 DeepSeek 并填写 API 密钥。'
   }
 
-  return message
+  const localized = message
     .replace(/^DeepSeek API request failed:\s*/, 'DeepSeek API 请求失败：')
     .replace(/^DeepSeek response did not include any content\.$/, 'DeepSeek 响应没有返回内容。')
     .replace(/^DeepSeek response could not be parsed\.$/, 'DeepSeek 响应解析失败。')
     .replace(/^DeepSeek response schema was invalid\.$/, 'DeepSeek 响应格式无效。')
+  return formatAssistantFeedbackMessage(localized, 'DeepSeek 连接验证失败，请重试。')
 }
 
 function applyPosterSummaryToNote(note: VideoNote, poster: NotePosterSummary): VideoNote {
@@ -1914,7 +1915,7 @@ const BilibiliConnectionModeControl = memo(function BilibiliConnectionModeContro
       setMessage('B 站连接方式已应用，所有 B 站标签已重新加载。')
     } catch (error) {
       setMode(previous)
-      setMessage(`B 站连接方式未生效：${error instanceof Error ? error.message : String(error)}`)
+      setMessage(formatAssistantFeedbackMessage(error instanceof Error ? error.message : '', 'B 站连接方式未生效，请重试。'))
     }
   }
 
@@ -3465,7 +3466,7 @@ export function FloatingAssistantApp({
         setFavoriteLedgerStatus(fallback.favoriteLedgerStatus)
         setFeedback({
           tone: 'error',
-          message: error instanceof Error ? error.message : '读取当前视频时遇到未知差错。',
+          message: formatAssistantFeedbackMessage(error instanceof Error ? error.message : '', '读取当前视频时遇到问题，请重试。'),
           steps: [],
           missingTargets: []
         })
@@ -4574,7 +4575,7 @@ export function FloatingAssistantApp({
       tellPet(nextReport.ok ? 'success' : 'error', nextReport.ok ? '诊断完成。' : '诊断发现需要处理的项目。')
       return nextReport
     } catch (error) {
-      const message = error instanceof Error ? error.message : '诊断失败。'
+      const message = formatAssistantFeedbackMessage(error instanceof Error ? error.message : '', '诊断失败，请重试。')
       setSettingsDiagnosticMessage('')
       setGlobalFeedback(message)
       tellPet('error', message)
@@ -4669,17 +4670,18 @@ export function FloatingAssistantApp({
           pageClickOnly: preferences.bilibiliOperationMode === 'page-visual'
         })) ?? createDefaultResult('此折已阅。')
 
+      const userMessage = formatAssistantFeedbackMessage(result.message, result.ok ? '操作完成。' : '操作未完成，请重试。')
       if (!result.ok && result.missingTargets.some((target) => target.startsWith('favorite-shard-confirmation:'))) {
-        setPendingFavoriteShardAction({ action, options, message: result.message })
+        setPendingFavoriteShardAction({ action, options, message: userMessage })
       }
 
       setFeedback({
         tone: result.ok ? 'success' : 'error',
-        message: result.message,
+        message: userMessage,
         steps: result.steps,
         missingTargets: result.missingTargets
       })
-      setGlobalFeedback(result.message)
+      setGlobalFeedback(userMessage)
       tellPet(
         result.ok ? 'done' : 'error',
         result.ok
@@ -4688,7 +4690,7 @@ export function FloatingAssistantApp({
       )
       window.bilimiDesktop?.setAssistantPetState?.(result.ok ? 'done' : 'error')
     } catch (error) {
-      const message = error instanceof Error ? error.message : '代批时遇到未知差错。'
+      const message = formatAssistantFeedbackMessage(error instanceof Error ? error.message : '', '代批时遇到问题，请重试。')
       setFeedback({
         tone: 'error',
         message,
@@ -4796,7 +4798,7 @@ export function FloatingAssistantApp({
       tellPet(note ? 'success' : 'error', note ? '札记整理好了，主人可以检查啦。' : '小咪没拿到可用札记结果。')
       return note
     } catch (error) {
-      tellPet('error', error instanceof Error ? error.message : '札记生成遇到问题。')
+      tellPet('error', formatAssistantFeedbackMessage(error instanceof Error ? error.message : '', '札记生成遇到问题，请重试。'))
       throw error
     } finally {
       setVideoNoteLoading(false)
@@ -4835,7 +4837,7 @@ export function FloatingAssistantApp({
 
       return noteToStore
     } catch (error) {
-      tellPet('error', error instanceof Error ? error.message : '转写音频时遇到问题。')
+      tellPet('error', formatAssistantFeedbackMessage(error instanceof Error ? error.message : '', '转写音频时遇到问题，请重试。'))
       throw error
     } finally {
       setVideoNoteLoading(false)
@@ -4884,7 +4886,7 @@ export function FloatingAssistantApp({
       setGlobalFeedback('已加入转写队列')
       return nextQueue
     } catch (error) {
-      const message = error instanceof Error ? error.message : '加入转写队列失败。'
+      const message = formatAssistantFeedbackMessage(error instanceof Error ? error.message : '', '加入转写队列失败，请重试。')
       tellPet('error', message)
       setGlobalFeedback(message)
       throw error
@@ -5127,7 +5129,7 @@ export function FloatingAssistantApp({
       await loadSnapshot({ reconcileFavoriteBindingProjection: true })
     }
 
-    tellPet(result.ok ? 'success' : 'error', result.message)
+    tellPet(result.ok ? 'success' : 'error', formatAssistantFeedbackMessage(result.message, result.ok ? '册目已备齐。' : '备册未完成，请重试。'))
     return result
   }
 
@@ -5147,7 +5149,7 @@ export function FloatingAssistantApp({
       await loadSnapshot({ reconcileFavoriteBindingProjection: true })
     }
 
-    tellPet(result.ok ? 'success' : 'error', result.message)
+    tellPet(result.ok ? 'success' : 'error', formatAssistantFeedbackMessage(result.message, result.ok ? '掌库已同步。' : '掌库同步失败，请重试。'))
     return result
   }
 
@@ -5384,7 +5386,7 @@ export function FloatingAssistantApp({
       (await window.bilimiDesktop?.openBilibiliFavorites?.()) ??
       createDefaultResult('已打开 B 站收藏夹。')
 
-    tellPet(result.ok ? 'success' : 'error', result.message)
+    tellPet(result.ok ? 'success' : 'error', formatAssistantFeedbackMessage(result.message, result.ok ? '已打开 B 站收藏夹。' : '打开 B 站收藏夹失败，请重试。'))
     return result
   }
 

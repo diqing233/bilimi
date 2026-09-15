@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { BilimiModal } from '../../components/BilimiModal'
 import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 import type { TranscriptionGpuProbe, TranscriptionModelId, TranscriptionModelInstallation, TranscriptionModelInstallProgress } from '@shared/types'
+import { formatUserVisibleErrorMessage } from './userVisibleErrorMessage'
 
 type Props = {
   accountMid?: string
@@ -95,7 +96,7 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
     const installation = options ? onInstall?.(id, options) : onInstall?.(id)
     if (installation && typeof installation.then === 'function') {
       void installation.catch((error: unknown) => {
-        setInstallationError(error instanceof Error ? error.message : String(error))
+        setInstallationError(formatUserVisibleErrorMessage(error, '模型下载或安装失败，请重试。'))
       }).finally(() => setInstalling(null))
     } else {
       setInstalling(null)
@@ -171,7 +172,7 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
       <p role="status" className="assistant-settings__transcription-model-progress">{INSTALL_STAGE_LABELS[selectedProgress.stage]}{selectedProgress.stage === 'downloading-part' && selectedProgress.partIndex && selectedProgress.partCount ? `分片 ${selectedProgress.partIndex}/${selectedProgress.partCount}` : selectedProgress.percentage !== undefined ? ` · ${selectedProgress.percentage}%` : ''}</p>
       {selectedProgress.receivedBytes !== undefined && selectedProgress.totalBytes !== undefined ? <><p className="assistant-settings__transcription-model-progress-detail">{transferBytesLabel(selectedProgress.receivedBytes)} / {transferBytesLabel(selectedProgress.totalBytes)}{selectedProgress.bytesPerSecond ? ` · ${transferBytesLabel(selectedProgress.bytesPerSecond)}/s · ${etaLabel(selectedProgress.etaSeconds)}` : ' · 正在估算'}</p><progress max={selectedProgress.totalBytes} value={selectedProgress.receivedBytes} aria-label="模型下载进度" /></> : <progress aria-label="模型下载进度" />}
       {selectedProgress.source ? <p>当前来源：{selectedProgress.source}</p> : null}
-      {selectedProgress.sourceFallbackMessage ? <p>{selectedProgress.sourceFallbackMessage}</p> : null}
+      {selectedProgress.sourceFallbackMessage ? <p>{formatUserVisibleErrorMessage(new Error(selectedProgress.sourceFallbackMessage), '下载来源连接失败，正在尝试备用来源。')}</p> : null}
       <button type="button" className="assistant-settings__transcription-model-action" onClick={() => selected && onCancel?.(selected.id)}>取消下载</button>
     </div> : null}
     {!downloadActive ? <div className="assistant-settings__transcription-model-actions" data-testid="transcription-model-actions">
@@ -197,7 +198,7 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
     )}
     {!accountMid && <small>登录 B 站后可为当前账号选择模型。</small>}
     {installationError && <p className="assistant-settings__transcription-model-error" role="alert">{installationError}</p>}
-    {selectedProgress?.stage === 'failed' && selectedProgress.error && <p className="assistant-settings__transcription-model-error" role="alert">{selectedProgress.error}</p>}
+    {selectedProgress?.stage === 'failed' && selectedProgress.error && <p className="assistant-settings__transcription-model-error" role="alert">{formatUserVisibleErrorMessage(new Error(selectedProgress.error), '模型下载或验证失败，请重试。')}</p>}
     {confirmationModel ? <BilimiModal title={`确认下载 ${LABELS[confirmationModel.id]}`} ariaLabel="确认下载模型" className="assistant-settings__transcription-model-confirmation" onClose={() => setConfirmationModel(null)} actions={<>
         <button type="button" className="assistant-settings__transcription-model-action" onClick={() => setConfirmationModel(null)}>取消</button>
         <button type="button" data-variant="primary" className="assistant-settings__transcription-model-action assistant-settings__transcription-model-action--primary" onClick={() => { const { id, resumable } = confirmationModel; setConfirmationModel(null); startInstallation(id, resumable ? { restart: true } : undefined) }}>{confirmationModel.resumable ? '确认重新下载' : '确认下载'}</button>

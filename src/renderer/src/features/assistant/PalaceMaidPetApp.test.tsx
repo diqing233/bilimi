@@ -692,7 +692,7 @@ describe('PalaceMaidPetApp', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('DeepSeek failed.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('小咪现在还答不上来。')
   })
 
   it('loads the persisted pet style for the floating pet renderer', async () => {

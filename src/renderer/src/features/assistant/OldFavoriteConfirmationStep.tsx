@@ -3,6 +3,7 @@ import type { OldFavoriteWorkspaceExecutionFailureCode, OldFavoriteWorkspaceSnap
 import { useEffect, useState } from 'react'
 import { OldFavoriteModal } from './OldFavoriteModal'
 import { OldFavoriteViewScopeSwitch, OldFavoriteWholeRunOverview, type OldFavoriteViewScope } from './OldFavoriteOverviewControls'
+import { formatUserVisibleErrorMessage } from './userVisibleErrorMessage'
 
 type OldFavoriteConfirmationStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
@@ -121,7 +122,10 @@ export function OldFavoriteConfirmationStep({
   viewScope: controlledViewScope,
   onViewScopeChange
 }: OldFavoriteConfirmationStepProps) {
-  const failureReason = snapshot.executionProgress?.lastFailureReason ?? ''
+  const rawFailureReason = snapshot.executionProgress?.lastFailureReason ?? ''
+  const failureReason = rawFailureReason
+    ? formatUserVisibleErrorMessage(new Error(rawFailureReason), 'B 站同步失败，请检查网络和登录状态后重试。')
+    : ''
   const retryAvailableAt = snapshot.executionProgress?.retryAvailableAt
   const [retryClock, setRetryClock] = useState(() => Date.now())
   const [endDialogOpen, setEndDialogOpen] = useState(false)

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { BilimiModal } from '../../components/BilimiModal'
+import { formatUserVisibleErrorMessage } from './userVisibleErrorMessage'
 
 type Account = { uid: string; nickname?: string; retained: boolean }
 type Usage = {
@@ -65,7 +66,7 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
   const applyCleanup = async () => {
     if (!approvedCleanup) return
     setCleanupPreview('正在清理')
-    try { await onApplyCleanup?.(approvedCleanup.level, approvedCleanup.uid); await onDataChanged?.(); setApprovedCleanup(null); setCleanupPreview('清理完成') } catch (error) { setCleanupPreview(`清理失败：${error instanceof Error ? error.message : String(error)}`) }
+    try { await onApplyCleanup?.(approvedCleanup.level, approvedCleanup.uid); await onDataChanged?.(); setApprovedCleanup(null); setCleanupPreview('清理完成') } catch (error) { setCleanupPreview(formatUserVisibleErrorMessage(error, '清理失败，请重试。')) }
   }
   const exportData = async () => {
     setMigrationProgress('正在导出')
@@ -85,7 +86,7 @@ export function LocalDataSettings({ userDataPath, accounts, currentAccountUid, c
       if (deletion !== 'all' && cleanupAccountUid !== currentAccountUid) await onDataChanged?.()
       setCleanupPreview('清理完成')
     } catch (error) {
-      setCleanupPreview(`清理失败：${error instanceof Error ? error.message : String(error)}`)
+      setCleanupPreview(formatUserVisibleErrorMessage(error, '清理失败，请重试。'))
     }
   }
 

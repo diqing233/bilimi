@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { BilimiModal } from '../../components/BilimiModal'
 import { useExclusiveMenu } from '../../components/useExclusiveMenu'
+import { formatUserVisibleErrorMessage } from '../assistant/userVisibleErrorMessage'
 import type {
   VideoNoteBatchArchiveSelection,
   VideoNoteBatchExportPreview,
@@ -94,7 +95,7 @@ export function VideoNoteBatchExportDialog({ open, accountMid, selections, hasNo
       setSummary(nextSummary)
       setError(undefined)
     }).catch((reason: unknown) => {
-      if (previewRequest === previewRequestRef.current) setError(reason instanceof Error ? reason.message : 'Unable to preview export content.')
+      if (previewRequest === previewRequestRef.current) setError(formatUserVisibleErrorMessage(reason, '无法读取导出内容，请重试。'))
     })
   }, [open, accountMid, selections, formats, scope, selectedContent, includeNotes])
 
@@ -146,7 +147,7 @@ export function VideoNoteBatchExportDialog({ open, accountMid, selections, hasNo
     void start({ ...request, batchId }).then((nextResult) => {
       if (exportRun === exportRunRef.current) setResult(nextResult)
     }).catch((reason: unknown) => {
-      if (exportRun === exportRunRef.current) setError(reason instanceof Error ? reason.message : 'Export failed. Please retry.')
+      if (exportRun === exportRunRef.current) setError(formatUserVisibleErrorMessage(reason, '导出失败，请重试。'))
     }).finally(() => {
       if (exportRun === exportRunRef.current) setExporting(false)
     })
@@ -159,11 +160,11 @@ export function VideoNoteBatchExportDialog({ open, accountMid, selections, hasNo
     void cancel({ batchId, accountMid }).then((canceled) => {
       if (!canceled) {
         setCancelling(false)
-        setError('The export has already finished and cannot be canceled.')
+        setError('导出已经结束，无法取消。')
       }
     }).catch(() => {
       setCancelling(false)
-      setError('Unable to cancel export. Please retry.')
+      setError('无法取消导出，请重试。')
     })
   }
 
@@ -199,7 +200,7 @@ export function VideoNoteBatchExportDialog({ open, accountMid, selections, hasNo
       {exporting ? <p>{cancelling ? '正在取消…' : `正在处理 ${completedCount} 项`}</p> : null}
     </> : <>
       <p>{`${result.canceled ? '已取消；' : ''}成功 ${result.succeededCount}，跳过 ${result.skippedCount}，失败 ${result.failedCount}`}</p>
-      {result.items?.length ? <div className="video-note-export-dialog__result-list">{result.items.map((item) => <p key={`${item.archiveId}:${item.versionId}`}>{`${item.status === 'succeeded' ? '成功' : item.status === 'skipped' ? '跳过' : item.status === 'canceled' ? '已取消' : '失败'}：${item.title ?? item.archiveId}${item.error ? ` - ${item.error}` : ''}`}</p>)}</div> : null}
+      {result.items?.length ? <div className="video-note-export-dialog__result-list">{result.items.map((item) => <p key={`${item.archiveId}:${item.versionId}`}>{`${item.status === 'succeeded' ? '成功' : item.status === 'skipped' ? '跳过' : item.status === 'canceled' ? '已取消' : '失败'}：${item.title ?? item.archiveId}${item.error ? ` - ${formatUserVisibleErrorMessage(new Error(item.error), '导出失败，请重试。')}` : ''}`}</p>)}</div> : null}
       {result.batchId && result.folderPath ? <button type="button" className="video-note-export-dialog__open-folder" onClick={() => void openFolder({ batchId: result.batchId!, accountMid })}>打开文件夹</button> : null}
     </>}
   </BilimiModal>

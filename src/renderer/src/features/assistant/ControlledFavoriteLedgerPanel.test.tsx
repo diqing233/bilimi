@@ -2017,6 +2017,39 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '继续扫描' })).toBeInTheDocument()
   })
 
+  it('opens the executing confirmation state and its existing progress bar after recovering a draft', async () => {
+    const executing = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'executing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }, executionProgress: { completedOperationCount: 1, totalOperationCount: 3 }
+    }
+    const command = vi.fn().mockResolvedValue(executing)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(executing),
+      prepareOldFavoriteWorkspaceRecoveryV1: vi.fn().mockResolvedValue({
+        accountMid: '100', workspaceId: 'workspace-100', status: 'executing', currentStep: 'sync-paused',
+        baselineChangeEvidence: { scope: 'account', workspaceBaselineRevision: 1, repositoryRevision: 1, changed: false, direction: 'unchanged', manualClassificationsRemainAuthoritative: true, changedDimensions: [] },
+        recoveryChoices: ['recover-draft']
+      }),
+      commandOldFavoriteWorkspaceV1: command
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '恢复草稿' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', expect.objectContaining({
+      type: 'select-recovery-decision', choice: 'merge-latest'
+    })))
+    expect(await screen.findByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('progressbar', { name: '正在同步到 B 站' })).toHaveValue(1)
+    expect(screen.getByText('已完成 1 / 3 条')).toBeInTheDocument()
+  })
+
   it('rebuilds a corrupt workspace before starting the recovery rescan', async () => {
     const rebuildRequired = {
       recovery: 'rebuild-required' as const, preserveCompletedLocalResults: true,
@@ -2986,14 +3019,14 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '整理收藏' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('扫描启动失败')
-    expect(screen.getByRole('alert')).toHaveTextContent('current Bilibili account is unavailable')
+    expect(await screen.findByRole('alert')).toHaveTextContent('扫描启动失败：请重新扫描。')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('current Bilibili account is unavailable')
     expect(screen.getByRole('button', { name: '重新扫描' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
     expect(screen.queryByText('正在扫描收藏夹基本信息。扫描完成后会补取标签；标签补取完成前，建议先等待，不要提前进入后续整理。')).not.toBeInTheDocument()
-    expect(onTransientFeedback).toHaveBeenCalledWith('current Bilibili account is unavailable')
+    expect(onTransientFeedback).toHaveBeenCalledWith('请重新扫描。')
 
     fireEvent.click(screen.getByRole('button', { name: '重新扫描' }))
     await waitFor(() => expect(command).toHaveBeenCalledTimes(2))
@@ -3222,6 +3255,39 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('本轮目标收藏夹尚未同步到 B 站')
+  })
+
+  it('shows a Chinese retry message instead of the IPC-wrapped English preflight failure', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const, readiness: 'ready' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 },
+      history: { cursor: 1, length: 1 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      getOldFavoriteWorkspaceBilibiliExecutionPreflightV1: vi.fn().mockRejectedValue(new Error(
+        "Error invoking remote method 'old-favorite-workspace-v1:bilibili execution preflight': Error: Favorite repository remote folder inventory is unavailable."
+      )),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as unknown as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" missingLedgerIds={['music']}
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false, bindingState: 'unbacked' }]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    await openPersistedWorkspaceGuide()
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('无法读取 B 站收藏夹列表，请检查网络并保持已登录的 B 站页面打开后重试。')
+    expect(alert).not.toHaveTextContent('Error invoking remote method')
   })
 
   it('defers a clear Bilibili backup preflight to the authoritative freeze check', async () => {
