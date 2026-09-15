@@ -475,6 +475,13 @@ export function createTranscriptionModelManager(deps: Dependencies = {}) {
           } catch (error) {
             if (isCancellation(error, signal)) throw error
             attempts.push(`${source.label}: ${errorDetail(error)}`)
+            const nextSource = FASTER_WHISPER_RUNTIME.sources[FASTER_WHISPER_RUNTIME.sources.indexOf(source) + 1]
+            if (nextSource) {
+              onPhase?.('connecting', {
+                source: nextSource.label,
+                sourceFallbackMessage: `${source.label} 连接失败，正在尝试 ${nextSource.label}`
+              })
+            }
           }
         }
         if (!downloaded) throw new Error(`Shared faster-whisper runtime download failed. Attempted sources: ${attempts.join('; ')}`)

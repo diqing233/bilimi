@@ -50,12 +50,14 @@ export function registerTranscriptionModelIpc({
     if (!manager.install) throw new Error('Transcription model installation is unavailable.')
     const controller = new AbortController()
     controllers.set(id, controller)
+    let activeSource: TranscriptionModelInstallProgress['source']
     let previousReceived = 0
     let previousAt = Date.now()
     let smoothedBytesPerSecond: number | undefined
     const updateProgress = (value: TranscriptionModelInstallProgress) => {
-      currentProgress = value
-      publish(event.sender.id, value)
+      if (value.source) activeSource = value.source
+      currentProgress = { ...value, ...(activeSource ? { source: activeSource } : {}) }
+      publish(event.sender.id, currentProgress)
     }
     updateProgress({ id, stage: 'connecting' })
     try {
@@ -86,8 +88,11 @@ export function registerTranscriptionModelIpc({
       updateProgress({ id, stage: 'available', percentage: 100 })
       return manager.list()
     } catch (error) {
-      if (isAbortError(error)) updateProgress({ id, stage: 'canceled' })
-      else updateProgress({
+      if (isAbortError(error)) {
+        updateProgress({ id, stage: 'canceled' })
+        return manager.list()
+      }
+      updateProgress({
         id,
         stage: 'failed',
         error: error instanceof Error ? error.message : String(error)

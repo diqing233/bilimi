@@ -92,6 +92,33 @@ describe('transcription model IPC', () => {
     expect(manager.install).toHaveBeenCalledWith(model.id, expect.any(Function), expect.any(AbortSignal), expect.any(Function), true)
   })
 
+  it('retains the actual download source through later active installation phases', async () => {
+    const ipcMain = createIpcMain()
+    const send = vi.fn()
+    const manager = {
+      list: vi.fn(() => [model]),
+      install: vi.fn(async (_id, _onProgress, _signal, onPhase) => {
+        onPhase?.('connecting', { source: 'ModelScope' })
+        onPhase?.('verifying')
+      }),
+      revalidate: vi.fn(async () => undefined)
+    }
+    registerTranscriptionModelIpc({ ipcMain, manager, send })
+
+    await ipcMain.handlers.get('video-audio:transcription-model-install')?.({ sender: { id: 7 } }, model.id)
+
+    expect(send.mock.calls).toContainEqual([
+      7,
+      'video-audio:transcription-model-progress',
+      expect.objectContaining({ id: model.id, stage: 'verifying', source: 'ModelScope' })
+    ])
+    expect(send.mock.calls).toContainEqual([
+      7,
+      'video-audio:transcription-model-progress',
+      expect.objectContaining({ id: model.id, stage: 'validating-runtime', source: 'ModelScope' })
+    ])
+  })
+
   it('publishes download, verification, runtime validation, and availability while installing once', async () => {
     const ipcMain = createIpcMain()
     const send = vi.fn()
@@ -134,7 +161,7 @@ describe('transcription model IPC', () => {
 
     const installing = ipcMain.handlers.get('video-audio:transcription-model-install')?.({ sender: { id: 7 } }, model.id) as Promise<unknown>
     await ipcMain.handlers.get('video-audio:transcription-model-install-cancel')?.({ sender: { id: 7 } }, model.id)
-    await expect(installing).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(installing).resolves.toEqual([])
 
     expect(send).toHaveBeenLastCalledWith(7, 'video-audio:transcription-model-progress', expect.objectContaining({ id: model.id, stage: 'canceled' }))
     expect(manager.revalidate).not.toHaveBeenCalled()

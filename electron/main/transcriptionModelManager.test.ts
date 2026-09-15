@@ -497,6 +497,29 @@ describe('transcription model manager', () => {
     expect(finalized.some((path) => /faster-whisper-runtime\.partial\/bilimi-faster-whisper\.exe$/u.test(path))).toBe(true)
   })
 
+  it('reports a shared runtime source switch before using the GitHub Release fallback', async () => {
+    const phases: Array<{ phase: string; source?: string; sourceFallbackMessage?: string }> = []
+    const manager = createTranscriptionModelManager({
+      exists: () => false,
+      download: async ({ source, destination }) => {
+        if (source.includes('/faster-whisper-runtime/')) throw new Error('mirror unavailable')
+        return destination
+      },
+      verify: async () => true,
+      finalize: async () => undefined,
+      activate: async () => undefined,
+      hasFreeSpace: async () => true
+    })
+
+    await manager.install('faster-whisper-large-v3-turbo', undefined, undefined, (phase, details) => phases.push({ phase, ...details }))
+
+    expect(phases).toContainEqual({
+      phase: 'connecting',
+      source: 'GitHub Release',
+      sourceFallbackMessage: 'ModelScope 连接失败，正在尝试 GitHub Release'
+    })
+  })
+
   it('falls back to the GitHub Release while retaining the artifact partial after a mirror error', async () => {
     const sources: string[] = []
     const download = vi.fn(async ({ source, destination }: { source: string; destination: string }) => {

@@ -102,7 +102,10 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
     }
   }
 
-  useEffect(() => setCandidate(selectedModelId), [selectedModelId])
+  useEffect(() => {
+    setCandidate(selectedModelId)
+    setInstallationError(null)
+  }, [selectedModelId])
   useEffect(() => {
     if (!menuOpen) return
     if (focusFirstOptionOnOpenRef.current) {
@@ -144,7 +147,7 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
     model.available ? '已安装' : model.installed ? '已安装待验证' : model.resumable ? '已取消，可继续下载' : '未安装'
   const currentSuffix = (id: TranscriptionModelId) => id === selectedModelId ? '（当前模型）' : ''
   const modelSummary = (model: TranscriptionModelInstallation) => PURPOSES[model.id]
-  const renderOption = (model: TranscriptionModelInstallation) => <button key={model.id} type="button" role="option" aria-selected={candidate === model.id} onClick={() => { setCandidate(model.id); setMenuOpen(false); triggerRef.current?.focus() }}><strong>{LABELS[model.id]}{currentSuffix(model.id)}</strong><span>{modelStatus(model)} · {bytesLabel(model.downloadBytes)}</span><small>{modelSummary(model)}</small></button>
+  const renderOption = (model: TranscriptionModelInstallation) => <button key={model.id} type="button" role="option" aria-selected={candidate === model.id} onClick={() => { setCandidate(model.id); setInstallationError(null); setMenuOpen(false); triggerRef.current?.focus() }}><strong>{LABELS[model.id]}{currentSuffix(model.id)}</strong><span>{modelStatus(model)} · {bytesLabel(model.downloadBytes)}</span><small>{modelSummary(model)}</small></button>
 
   return <div {...menuScope} className="assistant-settings__transcription-models">
     <p>选择当前账号使用的转写模型。</p>

@@ -419,6 +419,31 @@ describe('TranscriptionModelSettings', () => {
     expect(screen.getByRole('button', { name: '重新下载' })).toBeInTheDocument()
   })
 
+  it('clears a previous model download failure when the user switches to a migratable model', async () => {
+    const onMigrateLegacyWhisper = vi.fn()
+    render(<TranscriptionModelSettings
+      selectedModelId="faster-whisper-large-v3-turbo"
+      models={[
+        { id: 'faster-whisper-large-v3-turbo', bundled: false, installed: false, available: false, version: 'fixed', runtimeFamily: 'faster-whisper', license: 'MIT', attribution: 'faster-whisper', downloadBytes: 1, installedBytes: 1 },
+        { id: 'whisper-small', bundled: true, installed: true, available: true, migratable: true, version: 'fixed', runtimeFamily: 'whisper.cpp', license: 'MIT', attribution: 'whisper.cpp', downloadBytes: 1, installedBytes: 1 }
+      ]}
+      onSelect={vi.fn()}
+      onInstall={() => Promise.reject(new Error('Model download failed: source unreachable'))}
+      onMigrateLegacyWhisper={onMigrateLegacyWhisper}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '下载' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认下载' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Model download failed: source unreachable')
+
+    fireEvent.click(screen.getByRole('button', { name: /faster-whisper large-v3-turbo/ }))
+    fireEvent.click(screen.getByRole('option', { name: /Whisper small/ }))
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '迁移到应用模型目录' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: '继续/重试' })).not.toBeInTheDocument()
+  })
+
   it('shows streamed download progress, runtime validation, and a dedicated revalidation action', () => {
     const onRevalidate = vi.fn()
     render(<TranscriptionModelSettings
