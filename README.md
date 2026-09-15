@@ -42,19 +42,19 @@ bilimi 是一款面向 Bilibili 浏览、收藏整理与视频资料沉淀的 Wi
 
 从 GitHub Release 下载正式安装包：
 
-[下载 bilimi 1.0.3](https://github.com/diqing233/bilimi/releases/download/v1.0.3/bilimi.Setup.1.0.3.exe)
+[下载 bilimi 1.2.0](https://github.com/diqing233/bilimi/releases/download/v1.2.0/bilimi.Setup.1.2.0.exe)
 
 安装包文件名：
 
 ```text
-bilimi.Setup.1.0.0.exe
+bilimi.Setup.1.2.0.exe
 ```
 
 只建议从本仓库的 GitHub Releases 页面下载安装包，不要运行来源不明的二次打包文件。
 
 ### 安装步骤
 
-1. 下载 `bilimi.Setup.1.0.0.exe`。
+1. 下载 `bilimi.Setup.1.2.0.exe`。
 2. 双击运行安装器。
 3. 安装器会把 bilimi 安装到当前 Windows 用户环境，并创建桌面快捷方式和开始菜单快捷方式。
 4. 安装完成后，从桌面、开始菜单或安装器完成页启动 bilimi。
@@ -168,7 +168,7 @@ bilimi.Setup.1.0.0.exe
 
 ### 全局提示
 
-页签下方显示最近一次全局反馈。长文本可通过悬停查看完整内容。后台状态灯可直接跳到正在工作的功能区，因此转写或整理期间不必一直停留在原页面。
+页签下方显示最近一次全局反馈。长文本默认截断，点击整条提示可展开或收起完整内容。后台状态灯可直接跳到正在工作的功能区，因此转写或整理期间不必一直停留在原页面。
 
 ## 批阅页面
 
@@ -241,7 +241,7 @@ bilimi.Setup.1.0.0.exe
 
 ### 主操作
 
-- `转写音频`：下载当前视频音频，通过本地 whisper.cpp 转写，并将结果自动保存到档案库。
+- `转写音频`：下载当前视频音频，通过设置中选定的本地转写模型处理，并将结果自动保存到档案库。
 - `档案库`：进入全局档案库，查看所有视频历史、文稿、总结、备注和版本。
 
 在不提供音频转写能力的上下文中，主操作可能显示“整理札记”或“重新整理”，用于处理已有文本。
@@ -521,7 +521,7 @@ README 中出现的第三方中转服务信息只是界面现有推荐内容，�
 - `2 线程`：平衡。
 - `4 线程`：较快。
 
-线程数影响 whisper.cpp 本地转写阶段，不会提高网络下载速度。
+线程数影响本地 CPU 转写阶段，不会提高网络下载速度。
 
 ### bilimi 收藏策略
 
@@ -596,17 +596,17 @@ Windows 安装包内置：
 - `yt-dlp.exe`
 - `ffmpeg.exe`
 - `ffprobe.exe`
+- SenseVoiceSmall 默认模型与运行时
 - whisper.cpp Windows 运行时
-- `ggml-small.bin`
 
-普通用户不需要另行安装 Node.js、Python、ffmpeg、yt-dlp 或语音模型。
+普通用户不需要另行安装 Node.js、Python、ffmpeg 或 yt-dlp。SenseVoiceSmall 可直接使用；Whisper small 和 faster-whisper 模型可在设置中按需下载，下载后的模型保存在本机，卸载时可选择一并删除。
 
 转写流程大致为：
 
 1. 从当前视频读取必要信息和登录会话。
 2. 使用 yt-dlp 下载可用音频。
 3. 使用 ffmpeg/ffprobe 检查并准备音频。
-4. 使用 whisper.cpp 和本地模型分段转写。
+4. 使用当前设置的本地模型转写。
 5. 生成无时间线和带时间线文稿。
 6. 自动保存到档案库。
 7. 如果开启自动总结，再调用 DeepSeek 生成总结。
@@ -789,7 +789,7 @@ npm run dist:win
 `dist:win` 会重新安装锁定依赖、构建应用、准备 Electron 和媒体工具，并通过 electron-builder 生成 NSIS 安装器：
 
 ```text
-dist/bilimi.Setup.1.0.3.exe
+dist/bilimi.Setup.1.2.0.exe
 ```
 
 ### 发布前验收
@@ -805,7 +805,7 @@ dist/bilimi.Setup.1.0.3.exe
 ## 已知限制
 
 - Windows 安装包尚未代码签名。
-- 安装包体积较大，因为内置本地媒体工具、whisper.cpp 和语音模型。
+- 安装包体积较大，因为内置本地媒体工具、SenseVoiceSmall 和转写运行时；额外模型会按需下载。
 - B 站页面自动化可能随页面结构或接口策略变化而失效。
 - B 站登录、账号权限、风控和地区限制不受 bilimi 控制。
 - yt-dlp 对 B 站解析规则的支持可能阶段性失效。
