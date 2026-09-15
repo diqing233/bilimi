@@ -345,6 +345,15 @@ describe('classifyVideoContent', () => {
     ).not.toBe('custom-tag-guide')
   })
 
+  it('uses a saved enabled unbound ledger for local preclassification', () => {
+    const classification = classifyVideoContent({ title: '摄影教程' }, [
+      { id: 'inbox', displayName: '暂存', keywords: [], enabled: true, priority: 0, isDefault: false },
+      { id: 'unbound-photo', displayName: 'bilimi·光影', keywords: ['摄影'], enabled: true, priority: 1, isDefault: false, bindingState: 'unbound' }
+    ])
+
+    expect(classification.ledgerId).toBe('unbound-photo')
+  })
+
   it('ignores DeepSeek-only constraints when scoring local ledger rules', () => {
     const ledgers: FavoriteLedger[] = [
       {

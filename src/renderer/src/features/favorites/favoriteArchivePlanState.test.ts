@@ -1,6 +1,7 @@
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { describe, expect, it } from 'vitest'
 import {
+  applyArchiveCandidateTransaction,
   applyArchivePlanSelection,
   buildExecutableArchivePlan,
   createArchivePlanState,
@@ -206,7 +207,7 @@ describe('favoriteArchivePlanState', () => {
     ])
   })
 
-  it('keeps selected real bilimi targets without synced folder ids executable', () => {
+  it('blocks selected real bilimi targets without synced folder ids', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'life-interest'
         ? { ...ledger, bilibiliFolderId: undefined }
@@ -220,12 +221,154 @@ describe('favoriteArchivePlanState', () => {
       }
     ])
 
-    expect(buildExecutableArchivePlan(state, ledgers)).toEqual([
-      expect.objectContaining({
-        aid: 101,
-        targetLedgerId: 'life-interest',
-        targetFolderId: ''
-      })
+    expect(() => buildExecutableArchivePlan(state, ledgers)).toThrow(
+      '归档目标尚未同步到 B 站：bilimi·生活日常'
+    )
+  })
+
+  it('blocks execution when a selected custom target has no ledger definition', () => {
+    const state = createArchivePlanState([
+      {
+        ...item,
+        currentTargetLedgerIds: ['custom-author-hon'],
+        selectedTargetLedgerIds: ['custom-author-hon']
+      }
     ])
+
+    expect(() => buildExecutableArchivePlan(state, createDefaultFavoriteLedgers())).toThrow(
+      '无法解析归档目标：custom-author-hon'
+    )
+  })
+
+  it('selects 326 candidate items in one immutable archive transaction', () => {
+    const items = Array.from({ length: 326 }, (_, index) => ({
+      ...item,
+      aid: 1000 + index,
+      currentTargetLedgerIds: ['inbox'],
+      selectedTargetLedgerIds: ['inbox']
+    }))
+    const before = {
+      archivePlanState: createArchivePlanState(items),
+      selectedCandidateKeys: [],
+      draftLedgers: createDefaultFavoriteLedgers(),
+      candidateSourceLedgerIdsByItemKey: {}
+    }
+
+    const after = applyArchiveCandidateTransaction(before, {
+      candidateKey: 'tag-cluster:hon',
+      candidateLedgerId: 'custom-author-hon',
+      candidateLedger: {
+        ...createDefaultFavoriteLedgers()[0],
+        id: 'custom-author-hon',
+        displayName: '作者 Hon',
+        isDefault: false
+      },
+      affectedItemKeys: before.archivePlanState.items.map((entry) => entry.itemKey),
+      selected: true
+    })
+
+    expect(after).not.toBe(before)
+    expect(after.archivePlanState.items).toHaveLength(326)
+    expect(after.archivePlanState.items.every((entry) =>
+      entry.currentTargetLedgerIds.includes('custom-author-hon')
+    )).toBe(true)
+    expect(after.selectedCandidateKeys).toEqual(['tag-cluster:hon'])
+    expect(after.draftLedgers.find((ledger) => ledger.id === 'custom-author-hon')?.displayName).toBe(
+      '作者 Hon'
+    )
+  })
+
+  it('restores each item source position when a candidate is deselected', () => {
+    const basePlan = createArchivePlanState([
+      { ...item, aid: 201, currentTargetLedgerIds: ['knowledge'], selectedTargetLedgerIds: ['knowledge'] },
+      { ...item, aid: 202, currentTargetLedgerIds: [], selectedTargetLedgerIds: [] }
+    ])
+    const candidateLedger = {
+      ...createDefaultFavoriteLedgers()[0],
+      id: 'custom-author-hon',
+      displayName: '作者 Hon',
+      isDefault: false
+    }
+    const selected = applyArchiveCandidateTransaction(
+      {
+        archivePlanState: basePlan,
+        selectedCandidateKeys: [],
+        draftLedgers: createDefaultFavoriteLedgers(),
+        candidateSourceLedgerIdsByItemKey: {}
+      },
+      {
+        candidateKey: 'author:hon',
+        candidateLedgerId: candidateLedger.id,
+        candidateLedger,
+        affectedItemKeys: basePlan.items.map((entry) => entry.itemKey),
+        selected: true
+      }
+    )
+
+    const restored = applyArchiveCandidateTransaction(selected, {
+      candidateKey: 'author:hon',
+      candidateLedgerId: candidateLedger.id,
+      candidateLedger,
+      affectedItemKeys: basePlan.items.map((entry) => entry.itemKey),
+      selected: false
+    })
+
+    expect(restored.archivePlanState.items.map((entry) => entry.currentTargetLedgerIds)).toEqual([
+      ['knowledge'],
+      []
+    ])
+    expect(restored.selectedCandidateKeys).toEqual([])
+    expect(restored.draftLedgers.some((ledger) => ledger.id === candidateLedger.id)).toBe(false)
+    expect(restored.candidateSourceLedgerIdsByItemKey).toEqual({})
+  })
+
+  it('does not restore a removed candidate during interleaved candidate cancellation', () => {
+    const defaults = createDefaultFavoriteLedgers()
+    const plan = createArchivePlanState([
+      { ...item, currentTargetLedgerIds: ['knowledge'], selectedTargetLedgerIds: ['knowledge'] }
+    ])
+    const base = {
+      archivePlanState: plan,
+      selectedCandidateKeys: [],
+      draftLedgers: defaults,
+      candidateSourceLedgerIdsByItemKey: {}
+    }
+    const itemKey = plan.items[0].itemKey
+    const candidate = (id: string, displayName: string) => ({
+      ...defaults[0], id, displayName, isDefault: false
+    })
+    const selectA = applyArchiveCandidateTransaction(base, {
+      candidateKey: 'candidate:A', candidateLedgerId: 'custom-A', candidateLedger: candidate('custom-A', 'A'),
+      affectedItemKeys: [itemKey], selected: true
+    })
+    const selectB = applyArchiveCandidateTransaction(selectA, {
+      candidateKey: 'candidate:B', candidateLedgerId: 'custom-B', candidateLedger: candidate('custom-B', 'B'),
+      affectedItemKeys: [itemKey], selected: true
+    })
+    const cancelA = applyArchiveCandidateTransaction(selectB, {
+      candidateKey: 'candidate:A', candidateLedgerId: 'custom-A', candidateLedger: candidate('custom-A', 'A'),
+      affectedItemKeys: [itemKey], selected: false
+    })
+    const cancelB = applyArchiveCandidateTransaction(cancelA, {
+      candidateKey: 'candidate:B', candidateLedgerId: 'custom-B', candidateLedger: candidate('custom-B', 'B'),
+      affectedItemKeys: [itemKey], selected: false
+    })
+
+    expect(cancelA.archivePlanState.items[0].currentTargetLedgerIds).toEqual(['knowledge', 'custom-B'])
+    expect(cancelB.archivePlanState.items[0].currentTargetLedgerIds).toEqual(['knowledge'])
+    expect(cancelB.draftLedgers.some((ledger) => ledger.id.startsWith('custom-'))).toBe(false)
+  })
+
+  it('blocks execution when a resolved target has no Bilibili folder id', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'knowledge' ? { ...ledger, bilibiliFolderId: undefined } : ledger
+    )
+    const state = createArchivePlanState([
+      { ...item, currentTargetLedgerIds: ['knowledge'], selectedTargetLedgerIds: ['knowledge'] }
+    ])
+
+    expect(() => buildExecutableArchivePlan(state, ledgers)).toThrow(
+      '归档目标尚未同步到 B 站：bilimi·知识学习'
+    )
   })
 })

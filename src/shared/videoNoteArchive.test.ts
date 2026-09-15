@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { VideoNote, VideoNoteArchiveEntry } from './types'
 import {
   appendVideoNoteArchiveVersion,
+  createNotePosterCopyParts,
+  normalizeNotePosterTextForDisplay,
   createNotePosterText,
   createPlainTranscriptText,
   createSummaryText,
   deleteVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion,
+  normalizeVideoNoteArchives,
   searchVideoNoteArchives,
   updateVideoNoteArchiveVersion
 } from './videoNoteArchive'
@@ -48,9 +51,54 @@ function createNote(overrides: Partial<VideoNote> = {}): VideoNote {
 }
 
 describe('video note archive helpers', () => {
+  it('puts every non-empty transcription fragment on its own line without inventing punctuation', () => {
+    const note = createNote({
+      transcript: [
+        { start: 0, end: 2, text: '今天我们测试手机续航' },
+        { start: 2.2, end: 4, text: '  ' },
+        { start: 4.2, end: 6, text: '先说明测试条件' },
+        { start: 6.2, end: 8, text: '再公布实测结果' }
+      ]
+    })
+
+    expect(createPlainTranscriptText(note)).toBe(
+      '今天我们测试手机续航\n先说明测试条件\n再公布实测结果'
+    )
+  })
+
+  it('preserves punctuation already present in transcription fragments', () => {
+    const note = createNote({
+      transcript: [
+        { start: 0, end: 2, text: '今天我们测试手机续航。' },
+        { start: 2.2, end: 4, text: '结果符合预期！' },
+        { start: 4.2, end: 6, text: '下一项继续测试' }
+      ]
+    })
+
+    expect(createPlainTranscriptText(note)).toBe('今天我们测试手机续航。\n结果符合预期！\n下一项继续测试')
+  })
+
+  it('recreates saved plain transcripts from source fragments when reading old archives', () => {
+    const note = createNote({
+      transcript: [
+        { start: 0, end: 2, text: '第一句' },
+        { start: 2.2, end: 4, text: '第二句' }
+      ]
+    })
+    const archive: VideoNoteArchiveEntry = {
+      id: 'archive-1',
+      source: note.source,
+      versions: [{ id: 'version-1', note, plainTranscript: '旧格式', summaryText: '', createdAt: note.createdAt }],
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt
+    }
+
+    expect(normalizeVideoNoteArchives([archive])[0].versions[0].plainTranscript).toBe('第一句\n第二句')
+  })
+
   it('creates copyable plain transcript text without timestamps', () => {
     expect(createPlainTranscriptText(createNote())).toBe(
-      '先介绍机器学习的基本概念。\n\n再说明训练数据如何影响模型。'
+      '先介绍机器学习的基本概念。\n再说明训练数据如何影响模型。'
     )
   })
 
@@ -81,6 +129,79 @@ describe('video note archive helpers', () => {
     )
   })
 
+  it('keeps different parts of the same B站 video in separate archives', () => {
+    const p1 = createNote({
+      id: 'account:42:aid:7:cid:70',
+      source: {
+        ...createNote().source,
+        accountMid: '42',
+        aid: 7,
+        cid: 70,
+        url: 'https://www.bilibili.com/video/BV1note?p=1'
+      }
+    })
+    const p2 = createNote({
+      id: 'account:42:aid:7:cid:71',
+      source: {
+        ...createNote().source,
+        accountMid: '42',
+        aid: 7,
+        cid: 71,
+        url: 'https://www.bilibili.com/video/BV1note?p=2'
+      }
+    })
+
+    const archives = appendVideoNoteArchiveVersion(
+      appendVideoNoteArchiveVersion([], p1, '2026-08-19T00:00:00.000Z'),
+      p2,
+      '2026-08-19T01:00:00.000Z'
+    )
+
+    expect(archives).toHaveLength(2)
+    expect(archives.map((archive) => archive.id)).toEqual([
+      'account:42:aid:7:cid:70',
+      'account:42:aid:7:cid:71'
+    ])
+  })
+
+  it('adds repeat transcriptions only to the matching exact part archive', () => {
+    const p1 = createNote({
+      id: 'account:42:aid:7:cid:70',
+      source: { ...createNote().source, accountMid: '42', aid: 7, cid: 70 }
+    })
+    const p1Retry = createNote({
+      id: 'account:42:aid:7:cid:70',
+      source: { ...p1.source },
+      transcript: [{ start: 0, end: 2, text: 'P1 第二次转写。' }]
+    })
+    const p2 = createNote({
+      id: 'account:42:aid:7:cid:71',
+      source: { ...createNote().source, accountMid: '42', aid: 7, cid: 71 }
+    })
+
+    const afterP2 = appendVideoNoteArchiveVersion(
+      appendVideoNoteArchiveVersion([], p1, '2026-08-19T00:00:00.000Z'),
+      p2,
+      '2026-08-19T01:00:00.000Z'
+    )
+    const archives = appendVideoNoteArchiveVersion(afterP2, p1Retry, '2026-08-19T02:00:00.000Z')
+
+    expect(archives.find((archive) => archive.id === 'account:42:aid:7:cid:70')?.versions).toHaveLength(2)
+    expect(archives.find((archive) => archive.id === 'account:42:aid:7:cid:71')?.versions).toHaveLength(1)
+  })
+
+  it('assigns a unique persistent version id when the same timestamp is appended twice', () => {
+    const note = createNote()
+    const createdAt = '2026-06-17T00:00:00.000Z'
+    const afterFirst = appendVideoNoteArchiveVersion([], note, createdAt)
+    const afterSecond = appendVideoNoteArchiveVersion(afterFirst, note, createdAt)
+
+    expect(afterSecond[0].versions.map((version) => version.id)).toEqual([
+      `${note.id}:version:${createdAt}`,
+      `${note.id}:version:${createdAt}:2`
+    ])
+  })
+
   it('stores explicit DeepSeek summary text when appending an archive version', () => {
     const archives = appendVideoNoteArchiveVersion(
       [],
@@ -106,11 +227,61 @@ describe('video note archive helpers', () => {
     expect(text).toContain('## 精准总结')
     expect(text).toContain('机器学习入门')
     expect(text).toContain('- 核心内容：训练数据影响模型表现。')
+    expect(text).not.toContain('关键词：')
     expect(text).toContain('## 精修文稿')
     expect(text).toContain('先介绍机器学习的基本概念。')
-    expect(text).toContain('## 内容核对清单')
+    expect(text).toContain('## 详细内容提要')
     expect(text).toContain('- 数据：训练数据')
     expect(text.indexOf('## 精准总结')).toBeLessThan(text.indexOf('## 精修文稿'))
+  })
+
+  it('uses the unified summary structure while retaining legacy checklist archives', () => {
+    const text = createNotePosterText({
+      title: '测试条件复盘',
+      subtitle: '讲者比较两种方案的测试结果。',
+      keyPoints: ['方案 A 在 25 摄氏度的测试中更稳定。'],
+      keywords: ['测试'],
+      prompt: 'unused',
+      detailedOutline: ['先说明测试条件。', '再比较方案 A 与方案 B。'],
+      polishedTranscriptText: '保真精修文稿。',
+      reviewItems: [{ text: 'X200 型号', reason: '型号读音不确定' }]
+    })
+
+    expect(text).toContain('## 精准总结')
+    expect(text).toContain('## 详细内容提要')
+    expect(text).toContain('- 先说明测试条件。')
+    expect(text).toContain('## 精修文稿')
+    expect(text).toContain('待确认：X200 型号（型号读音不确定）')
+    expect(text).not.toContain('## 待人工确认')
+    expect(text).not.toContain('segment-')
+    expect(text).not.toContain('精修记录')
+
+    const legacy = createNotePosterCopyParts([
+      '## 精准总结', '', '旧总结仍在。', '', '## 精修文稿', '', '旧精修文稿。', '',
+      '## 内容核对清单', '', '- 旧档案细节。', '', '精修记录：', '- segment-1：甲 → 乙'
+    ].join('\n'))
+    expect(legacy.summaryText).toContain('旧总结仍在。')
+    expect(legacy.summaryText).toContain('## 详细内容提要')
+    expect(legacy.summaryText).toContain('- 旧档案细节。')
+    expect(legacy.summaryText).not.toContain('精修记录')
+    expect(legacy.polishedTranscriptText).toBe('旧精修文稿。')
+    expect(normalizeNotePosterTextForDisplay([
+      '## 精准总结', '', '旧总结仍在。', '', '## 精修文稿', '', '旧精修文稿。', '',
+      '## 内容核对清单', '', '- 旧档案细节。', '', '精修记录：', '- segment-1：甲 → 乙'
+    ].join('\n'))).toEqual([
+      '## 精准总结', '', '旧总结仍在。', '', '## 详细内容提要', '', '- 旧档案细节。', '',
+      '## 精修文稿', '', '旧精修文稿。'
+    ].join('\n'))
+  })
+
+  it('removes legacy segment identifiers from manual-review display text', () => {
+    const normalized = normalizeNotePosterTextForDisplay([
+      '## 精准总结', '', '旧总结仍在。', '',
+      '## 待人工确认（1）', '', '- segment-2：X200 型号（读音不确定）'
+    ].join('\n'))
+
+    expect(normalized).toContain('X200 型号（读音不确定）')
+    expect(normalized).not.toContain('segment-')
   })
 
   it('searches title, author, bvid, transcript and summary text', () => {

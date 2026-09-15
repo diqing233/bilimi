@@ -1,6 +1,11 @@
 import Store from 'electron-store'
-import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { appendFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { createDefaultFavoriteLedgers, isPersistableFavoriteLedgerId, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
+import { normalizeOldFavoriteWorkspaceSegmentSize } from '../../src/shared/oldFavoriteWorkspace'
 import { normalizeAssistantSidebarWidthPx } from '../../src/shared/assistantSidebarWidth'
+import { DEFAULT_TRANSCRIPTION_MODEL_ID } from '../../src/shared/transcriptionModels'
 import {
   DEFAULT_PET_HOVER_SHORTCUTS,
   hasLegacyAssistantHoverShortcut,
@@ -14,7 +19,12 @@ import {
   normalizeVideoNoteArchives,
   updateVideoNoteArchiveVersion as replaceVideoNoteArchiveVersion
 } from '../../src/shared/videoNoteArchive'
-import { normalizeVideoNotes, upsertVideoNote } from '../../src/shared/videoNotes'
+import { createVideoNoteId, normalizeVideoNotes, upsertVideoNote } from '../../src/shared/videoNotes'
+import {
+  createNoteProcessingCheckpointKey,
+  pruneNoteProcessingCheckpoints,
+  type NoteProcessingCheckpoint
+} from '../../src/shared/noteProcessingCheckpoint'
 import {
   normalizePendingFavoriteQueue,
   upsertPendingFavoriteQueueItems as mergePendingFavoriteQueueItems,
@@ -36,28 +46,42 @@ import type {
   FavoriteKeywordSuggestion,
   FavoriteKeywordSuggestionAction,
   FavoriteKeywordSuggestionStatus,
+  FavoriteAccountPreferences,
+  DeletedFavoriteLedgerRecord,
   FavoriteLedger,
+  FavoriteLedgerEnabledPatch,
   MainWindowCloseBehavior,
   PendingFavoriteQueueItem,
   PendingFavoriteQueueStatus,
   VideoAudioTranscriptionThreadLimit,
+  TranscriptionModelId,
   VideoAudioTranscriptionQueueItem,
   VideoNote,
   VideoNoteArchiveEntry
 } from '../../src/shared/types'
 
 export type AssistantPreferences = {
+  /** Portable presentation preferences; credentials and runtime state stay excluded. */
+  theme: 'light' | 'dark' | 'system'
+  language: string
+  windowBounds: { x: number; y: number; width: number; height: number } | null
   favoritesFolderName: string
   favoriteLedgers: FavoriteLedger[]
+  favoriteAccountPreferences: Record<string, FavoriteAccountPreferences>
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
   petHoverShortcuts: PetHoverShortcutId[]
   showPetAssistantShortcut: boolean
+  autoShowPetOnStartup: boolean
   hidePetDuringVideoFullscreen: boolean
   closeBehavior: MainWindowCloseBehavior
   confirmBeforeExit: boolean
+  rememberCloseChoice?: boolean
+  closeChoiceMigrationVersion?: number
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
+  bilibiliConnectionMode: 'auto' | 'direct'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
+  oldFavoriteWorkspaceSegmentSize: number
   favoriteArchiveStrategy: FavoriteArchiveStrategy
   favoriteCorrectionLearningEnabled: boolean
   favoriteCorrectionLearningClassificationEnabled: boolean
@@ -86,12 +110,19 @@ export type AssistantPreferences = {
 }
 
 export type DesktopStoreState = AssistantPreferences & {
+  /** Device-local opt-outs for automatic work-folder adoption by Bilibili UID. */
+  favoriteLibraryDismissedRemoteFolderIdsByAccount: Record<string, string[]>
+  /** Device-local opt-outs for the remote-only Bilimi draft reminder by Bilibili UID. */
+  favoriteLedgerRemoteDraftReminderDismissedByAccount: Record<string, string[]>
+  /** Remote-only drafts deleted locally remain suppressed until the owner explicitly runs backup again. */
+  favoriteLedgerRemoteDraftRediscoveryPendingByAccount: Record<string, string[]>
   deepseekApiKey: string
   deepseekApiKeyEncrypted: string
   videoNotes: VideoNote[]
   videoNoteArchives: VideoNoteArchiveEntry[]
   pendingFavoriteQueue: PendingFavoriteQueueItem[]
   videoAudioTranscriptionQueue: VideoAudioTranscriptionQueueItem[]
+  noteProcessingCheckpointsV1: Record<string, NoteProcessingCheckpoint>
 }
 
 export type AssistantStoreLike = {
@@ -112,18 +143,169 @@ const EMPTY_DEEPSEEK_KEY_STATUS: DeepSeekKeyStatus = {
   protection: 'unavailable'
 }
 
+export type FavoriteLedgerEnabledOverrideStoreLike = {
+  getOverrides(): Record<string, Record<string, boolean>>
+  append(patch: FavoriteLedgerEnabledPatch): Promise<void>
+  clear(accountMid?: string): void
+}
+
+function normalizeFavoriteAccountMid(accountMid: string) {
+  const trimmed = accountMid.trim()
+  if (!/^\d+$/u.test(trimmed) || BigInt(trimmed) === 0n) throw new Error('Favorite account is invalid.')
+  return BigInt(trimmed).toString()
+}
+
+function normalizedDismissedRemoteFolderIdsByAccount(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {} as Record<string, string[]>
+  const normalized: Record<string, string[]> = {}
+  for (const [accountMid, folderIds] of Object.entries(value)) {
+    try {
+      const account = normalizeFavoriteAccountMid(accountMid)
+      if (!Array.isArray(folderIds)) continue
+      const ids = [...new Set(folderIds.filter((id): id is string => typeof id === 'string')
+        .map((id) => id.trim()).filter(Boolean))].sort()
+      if (ids.length) normalized[account] = ids
+    } catch {
+      // Ignore malformed device-local account projections.
+    }
+  }
+  return normalized
+}
+
+function normalizePortableWindowBounds(value: unknown): { x: number; y: number; width: number; height: number } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const bounds = value as Record<string, unknown>
+  if (!['x', 'y', 'width', 'height'].every((key) => typeof bounds[key] === 'number' && Number.isFinite(bounds[key]))) return null
+  if (Number(bounds.width) < 100 || Number(bounds.height) < 100) return null
+  return { x: Number(bounds.x), y: Number(bounds.y), width: Number(bounds.width), height: Number(bounds.height) }
+}
+
+function normalizeFavoriteAccountPreferences(value: unknown): FavoriteAccountPreferences | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const candidate = value as Partial<FavoriteAccountPreferences>
+  if (!Array.isArray(candidate.favoriteLedgers)) return undefined
+  return {
+    defaultFavoriteSystemEnabled: candidate.defaultFavoriteSystemEnabled !== false,
+    favoriteLedgers: normalizeFavoriteLedgers(candidate.favoriteLedgers),
+    ...(Array.isArray(candidate.hiddenFavoriteLibraryManagedLedgerIds)
+      ? { hiddenFavoriteLibraryManagedLedgerIds: [...new Set(candidate.hiddenFavoriteLibraryManagedLedgerIds
+          .filter((id): id is string => typeof id === 'string')
+          .map((id) => id.trim())
+          .filter((id) => isPersistableFavoriteLedgerId(id)))].sort() }
+      : {}),
+    ...(candidate.favoriteDiscoveryNoticeDismissed === true
+      ? { favoriteDiscoveryNoticeDismissed: true }
+      : {}),
+    ...(Array.isArray(candidate.deletedFavoriteLedgerRecords)
+      ? { deletedFavoriteLedgerRecords: candidate.deletedFavoriteLedgerRecords.flatMap((record) => {
+          if (!record || typeof record !== 'object' || Array.isArray(record)) return []
+          const item = record as Partial<DeletedFavoriteLedgerRecord>
+          if (typeof item.logicalLedgerId !== 'string' || !item.logicalLedgerId.trim() ||
+            typeof item.deletedAt !== 'string' || !Number.isFinite(Date.parse(item.deletedAt)) ||
+            !item.ledger || typeof item.ledger !== 'object' || Array.isArray(item.ledger)) return []
+          const ledger = normalizeFavoriteLedgers([item.ledger as FavoriteLedger])[0]
+          return ledger ? [{ logicalLedgerId: item.logicalLedgerId.trim(), deletedAt: new Date(Date.parse(item.deletedAt)).toISOString(), ledger }] : []
+        }) }
+      : {}),
+    ...(candidate.favoriteLibraryCollapsedGroups && typeof candidate.favoriteLibraryCollapsedGroups === 'object'
+      ? { favoriteLibraryCollapsedGroups: Object.fromEntries(Object.entries(candidate.favoriteLibraryCollapsedGroups)
+        .filter(([key, value]) => /^[a-z-]+$/u.test(key) && typeof value === 'boolean')) }
+      : {}),
+    ...(candidate.transcriptionModelId === 'whisper-small' || candidate.transcriptionModelId === 'faster-whisper-large-v3-turbo' || candidate.transcriptionModelId === 'faster-whisper-large-v3' || candidate.transcriptionModelId === 'sensevoice-small'
+      ? { transcriptionModelId: candidate.transcriptionModelId }
+      : {}),
+    ...(typeof candidate.updatedAt === 'string' && Number.isFinite(Date.parse(candidate.updatedAt))
+      ? { updatedAt: new Date(Date.parse(candidate.updatedAt)).toISOString() }
+      : {})
+  }
+}
+
+function normalizeFavoriteAccountPreferenceMap(value: unknown) {
+  if (!value || typeof value !== 'object') return {} as Record<string, FavoriteAccountPreferences>
+  const normalized: Record<string, FavoriteAccountPreferences> = {}
+  for (const [accountMid, preferences] of Object.entries(value)) {
+    try {
+      const account = normalizeFavoriteAccountMid(accountMid)
+      const entry = normalizeFavoriteAccountPreferences(preferences)
+      if (entry) normalized[account] = entry
+    } catch {
+      // Ignore malformed persisted account projections.
+    }
+  }
+  return normalized
+}
+
+function normalizeFavoriteLedgerEnabledOverrides(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {} as Record<string, Record<string, boolean>>
+  }
+  const normalized: Record<string, Record<string, boolean>> = {}
+  for (const [accountMid, ledgerValues] of Object.entries(value)) {
+    try {
+      const account = normalizeFavoriteAccountMid(accountMid)
+      if (!ledgerValues || typeof ledgerValues !== 'object' || Array.isArray(ledgerValues)) continue
+      const ledgers: Record<string, boolean> = {}
+      for (const [ledgerId, enabled] of Object.entries(ledgerValues)) {
+        const normalizedLedgerId = ledgerId.trim()
+        if (normalizedLedgerId && typeof enabled === 'boolean') ledgers[normalizedLedgerId] = enabled
+      }
+      if (Object.keys(ledgers).length) normalized[account] = ledgers
+    } catch {
+      // Ignore malformed entries in the small transient override index.
+    }
+  }
+  return normalized
+}
+
+function applyFavoriteLedgerEnabledOverrides(
+  accounts: Record<string, FavoriteAccountPreferences>,
+  overrideStore: FavoriteLedgerEnabledOverrideStoreLike
+) {
+  const overrides = normalizeFavoriteLedgerEnabledOverrides(
+    overrideStore.getOverrides()
+  )
+  return Object.fromEntries(Object.entries(accounts).map(([accountMid, preferences]) => {
+    const accountOverrides = overrides[accountMid]
+    if (!accountOverrides) return [accountMid, preferences]
+    return [accountMid, {
+      ...preferences,
+      favoriteLedgers: preferences.favoriteLedgers.map((ledger) =>
+        Object.prototype.hasOwnProperty.call(accountOverrides, ledger.id)
+          ? { ...ledger, enabled: accountOverrides[ledger.id] }
+          : ledger
+      )
+    }]
+  }))
+}
+
+function clearFavoriteLedgerEnabledOverrides(
+  overrideStore: FavoriteLedgerEnabledOverrideStoreLike,
+  accountMid?: string
+) {
+  overrideStore.clear(accountMid)
+}
+
 export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
+  theme: 'system',
+  language: 'zh-CN',
+  windowBounds: null,
   favoritesFolderName: 'bilimi 内库',
   favoriteLedgers: createDefaultFavoriteLedgers(),
+  favoriteAccountPreferences: {},
   ledgerPromptDismissed: false,
   petStyle: 'big-head',
   petHoverShortcuts: DEFAULT_PET_HOVER_SHORTCUTS,
   showPetAssistantShortcut: true,
+  autoShowPetOnStartup: true,
   hidePetDuringVideoFullscreen: false,
   closeBehavior: 'minimize-to-tray',
   confirmBeforeExit: true,
+  rememberCloseChoice: false,
+  closeChoiceMigrationVersion: 1,
   bilibiliOperationMode: 'api-assisted',
+  bilibiliConnectionMode: 'auto',
   favoriteArchiveMultiMode: 'off',
+  oldFavoriteWorkspaceSegmentSize: 2_000,
   favoriteArchiveStrategy: 'aggressive',
   favoriteCorrectionLearningEnabled: true,
   favoriteCorrectionLearningClassificationEnabled: true,
@@ -153,15 +335,27 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
 
 export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   ...DEFAULT_ASSISTANT_PREFERENCES,
+  closeChoiceMigrationVersion: 0,
+  favoriteLibraryDismissedRemoteFolderIdsByAccount: {},
+  favoriteLedgerRemoteDraftReminderDismissedByAccount: {},
+  favoriteLedgerRemoteDraftRediscoveryPendingByAccount: {},
   deepseekApiKey: '',
   deepseekApiKeyEncrypted: '',
   videoNotes: [],
   videoNoteArchives: [],
   pendingFavoriteQueue: [],
-  videoAudioTranscriptionQueue: []
+  videoAudioTranscriptionQueue: [],
+  noteProcessingCheckpointsV1: {},
 }
 
 let desktopStore: Store<DesktopStoreState> | undefined
+let favoriteLedgerEnabledOverrideStore: FavoriteLedgerEnabledOverrideStoreLike | undefined
+
+const EMPTY_FAVORITE_LEDGER_ENABLED_OVERRIDE_STORE: FavoriteLedgerEnabledOverrideStoreLike = {
+  getOverrides: () => ({}),
+  append: async () => {},
+  clear: () => {}
+}
 
 function loadDeepSeekFeatureToggle(
   store: AssistantStoreLike,
@@ -335,11 +529,68 @@ export function getDesktopStore(): Store<DesktopStoreState> {
   return desktopStore
 }
 
+export function getFavoriteLedgerEnabledOverrideStore(): FavoriteLedgerEnabledOverrideStoreLike {
+  if (!favoriteLedgerEnabledOverrideStore) {
+    const journalPath = join(dirname(getDesktopStore().path), 'favorite-ledger-enabled-overrides.jsonl')
+    let overrides: Record<string, Record<string, boolean>> = {}
+    try {
+      const records = readFileSync(journalPath, 'utf8').split(/\r?\n/u).filter(Boolean)
+      for (const record of records) {
+        const patch = JSON.parse(record) as Partial<FavoriteLedgerEnabledPatch>
+        if (typeof patch.accountMid !== 'string' || typeof patch.ledgerId !== 'string' || typeof patch.enabled !== 'boolean') continue
+        const accountMid = normalizeFavoriteAccountMid(patch.accountMid)
+        const ledgerId = patch.ledgerId.trim()
+        if (!ledgerId) continue
+        overrides = { ...overrides, [accountMid]: { ...(overrides[accountMid] ?? {}), [ledgerId]: patch.enabled } }
+      }
+    } catch {
+      // A missing or malformed journal starts with no transient overrides.
+    }
+    favoriteLedgerEnabledOverrideStore = {
+      getOverrides: () => overrides,
+      async append(patch) {
+        await appendFile(journalPath, `${JSON.stringify(patch)}\n`, 'utf8')
+        overrides[patch.accountMid] ??= {}
+        overrides[patch.accountMid][patch.ledgerId] = patch.enabled
+      },
+      clear(accountMid) {
+        if (accountMid) {
+          const { [accountMid]: _removed, ...remaining } = overrides
+          overrides = remaining
+        } else {
+          overrides = {}
+        }
+        const compacted = Object.entries(overrides).flatMap(([savedAccountMid, ledgers]) =>
+          Object.entries(ledgers).map(([ledgerId, enabled]) =>
+            JSON.stringify({ accountMid: savedAccountMid, ledgerId, enabled })
+          )
+        )
+        writeFileSync(journalPath, compacted.length ? `${compacted.join('\n')}\n` : '', 'utf8')
+      }
+    }
+  }
+  return favoriteLedgerEnabledOverrideStore
+}
+
+function resolveFavoriteLedgerEnabledOverrideStore(
+  store: AssistantStoreLike,
+  overrideStore?: FavoriteLedgerEnabledOverrideStoreLike
+) {
+  if (overrideStore) return overrideStore
+  return desktopStore && store === desktopStore
+    ? getFavoriteLedgerEnabledOverrideStore()
+    : EMPTY_FAVORITE_LEDGER_ENABLED_OVERRIDE_STORE
+}
+
 export function loadAssistantPreferences(
-  store: AssistantStoreLike = getDesktopStore()
+  store: AssistantStoreLike = getDesktopStore(),
+  safeStorage?: SafeStorageLike,
+  overrideStore?: FavoriteLedgerEnabledOverrideStoreLike
 ): AssistantPreferences {
+  const enabledOverrideStore = resolveFavoriteLedgerEnabledOverrideStore(store, overrideStore)
   const petStyle = store.get('petStyle')
   const bilibiliOperationMode = store.get('bilibiliOperationMode')
+  const bilibiliConnectionMode = store.get('bilibiliConnectionMode')
   const favoriteArchiveMultiMode = store.get('favoriteArchiveMultiMode')
   const favoriteArchiveStrategy = store.get('favoriteArchiveStrategy')
   const defaultCoinCount = store.get('defaultCoinCount')
@@ -348,9 +599,23 @@ export function loadAssistantPreferences(
   const deepseekApiKey = store.get('deepseekApiKey') ?? ''
   const deepseekApiKeyEncrypted = store.get('deepseekApiKeyEncrypted') ?? ''
 
+  const closeChoiceMigrationVersion = Number(store.get('closeChoiceMigrationVersion'))
+  if (closeChoiceMigrationVersion !== 1) {
+    store.set({ rememberCloseChoice: false, closeChoiceMigrationVersion: 1 })
+  }
+
   return {
-    favoritesFolderName: store.get('favoritesFolderName'),
+    theme: store.get('theme') === 'light' || store.get('theme') === 'dark' ? store.get('theme') : 'system',
+    language: typeof store.get('language') === 'string' && store.get('language').trim() ? store.get('language').trim() : 'zh-CN',
+    windowBounds: normalizePortableWindowBounds(store.get('windowBounds')),
+    favoritesFolderName: typeof store.get('favoritesFolderName') === 'string' && store.get('favoritesFolderName').trim()
+      ? store.get('favoritesFolderName').trim()
+      : DEFAULT_ASSISTANT_PREFERENCES.favoritesFolderName,
     favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
+    favoriteAccountPreferences: applyFavoriteLedgerEnabledOverrides(
+      normalizeFavoriteAccountPreferenceMap(store.get('favoriteAccountPreferences')),
+      enabledOverrideStore
+    ),
     ledgerPromptDismissed: Boolean(store.get('ledgerPromptDismissed')),
     petStyle: petStyle === 'classic' ? 'classic' : 'big-head',
     petHoverShortcuts: normalizePetHoverShortcuts(store.get('petHoverShortcuts')),
@@ -359,16 +624,25 @@ export function loadAssistantPreferences(
         ? true
         : Boolean(store.get('showPetAssistantShortcut')) ||
           hasLegacyAssistantHoverShortcut(store.get('petHoverShortcuts')),
+    autoShowPetOnStartup:
+      store.has?.('autoShowPetOnStartup') === false ? true : Boolean(store.get('autoShowPetOnStartup')),
     hidePetDuringVideoFullscreen: Boolean(store.get('hidePetDuringVideoFullscreen')),
     closeBehavior: normalizeMainWindowCloseBehavior(store.get('closeBehavior')),
     confirmBeforeExit:
       store.has?.('confirmBeforeExit') === false ? true : Boolean(store.get('confirmBeforeExit')),
+    rememberCloseChoice:
+      closeChoiceMigrationVersion === 1 ? Boolean(store.get('rememberCloseChoice')) : false,
+    closeChoiceMigrationVersion: 1,
     bilibiliOperationMode:
       bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
+    bilibiliConnectionMode: bilibiliConnectionMode === 'direct' ? 'direct' : 'auto',
     favoriteArchiveMultiMode:
       favoriteArchiveMultiMode === 'two' || favoriteArchiveMultiMode === 'three'
         ? favoriteArchiveMultiMode
         : 'off',
+    oldFavoriteWorkspaceSegmentSize: normalizeOldFavoriteWorkspaceSegmentSize(
+      store.get('oldFavoriteWorkspaceSegmentSize')
+    ),
     favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(favoriteArchiveStrategy),
     favoriteCorrectionLearningEnabled:
       store.has?.('favoriteCorrectionLearningEnabled') === false
@@ -398,9 +672,9 @@ export function loadAssistantPreferences(
     ),
     preferenceCounts: store.get('preferenceCounts') ?? {},
     deepseekEnabled: Boolean(store.get('deepseekEnabled')),
-    deepseekApiKeyStored: Boolean(
-      String(deepseekApiKey).trim() || String(deepseekApiKeyEncrypted).trim()
-    ),
+    deepseekApiKeyStored: safeStorage
+      ? loadDeepSeekApiKeyStatus(store, safeStorage).configured
+      : Boolean(String(deepseekApiKey).trim() || String(deepseekApiKeyEncrypted).trim()),
     deepseekCommentEnabled: loadDeepSeekFeatureToggle(
       store,
       'deepseekCommentEnabled',
@@ -441,24 +715,62 @@ export function loadAssistantPreferences(
 
 export function saveAssistantPreferences(
   store: AssistantStoreLike = getDesktopStore(),
-  preferences: AssistantPreferences = DEFAULT_ASSISTANT_PREFERENCES
+  preferences: AssistantPreferences = DEFAULT_ASSISTANT_PREFERENCES,
+  overrideStore?: FavoriteLedgerEnabledOverrideStoreLike
 ): AssistantPreferences {
+  const enabledOverrideStore = resolveFavoriteLedgerEnabledOverrideStore(store, overrideStore)
+  // A renderer can load before the account-specific lazy migration has
+  // completed and send back a full preference snapshot with an empty account
+  // map.  Never let that stale snapshot erase durable account projections;
+  // explicit entries still replace only the accounts they contain.
+  const currentFavoriteAccountPreferences = normalizeFavoriteAccountPreferenceMap(
+    store.get('favoriteAccountPreferences')
+  )
+  const requestedFavoriteAccountPreferences = normalizeFavoriteAccountPreferenceMap(
+    preferences.favoriteAccountPreferences
+  )
+  const mergedFavoriteAccountPreferences = Object.fromEntries(Object.entries({
+    ...currentFavoriteAccountPreferences,
+    ...requestedFavoriteAccountPreferences
+  }).map(([accountMid, requested]) => {
+    const current = currentFavoriteAccountPreferences[accountMid]
+    // This deletion marker belongs to the main-process deletion/recovery
+    // transaction. A renderer's complete preference projection may be stale,
+    // so it can neither erase nor restore the current marker set.
+    const hiddenFavoriteLibraryManagedLedgerIds = current?.hiddenFavoriteLibraryManagedLedgerIds ?? []
+    const { hiddenFavoriteLibraryManagedLedgerIds: _rendererHiddenIds, ...requestedWithoutHiddenIds } = requested
+    return [accountMid, {
+      ...requestedWithoutHiddenIds,
+      ...(hiddenFavoriteLibraryManagedLedgerIds.length ? { hiddenFavoriteLibraryManagedLedgerIds } : {})
+    }]
+  })) as Record<string, FavoriteAccountPreferences>
   store.set({
+    theme: preferences.theme === 'light' || preferences.theme === 'dark' ? preferences.theme : 'system',
+    language: typeof preferences.language === 'string' && preferences.language.trim() ? preferences.language.trim() : 'zh-CN',
+    windowBounds: normalizePortableWindowBounds(preferences.windowBounds),
     favoritesFolderName: preferences.favoritesFolderName,
     favoriteLedgers: normalizeFavoriteLedgers(preferences.favoriteLedgers),
+    favoriteAccountPreferences: mergedFavoriteAccountPreferences,
     ledgerPromptDismissed: Boolean(preferences.ledgerPromptDismissed),
     petStyle: preferences.petStyle === 'classic' ? 'classic' : 'big-head',
     petHoverShortcuts: normalizePetHoverShortcuts(preferences.petHoverShortcuts),
     showPetAssistantShortcut: Boolean(preferences.showPetAssistantShortcut),
+    autoShowPetOnStartup: Boolean(preferences.autoShowPetOnStartup),
     hidePetDuringVideoFullscreen: Boolean(preferences.hidePetDuringVideoFullscreen),
     closeBehavior: normalizeMainWindowCloseBehavior(preferences.closeBehavior),
     confirmBeforeExit: Boolean(preferences.confirmBeforeExit),
+    rememberCloseChoice: Boolean(preferences.rememberCloseChoice),
+    closeChoiceMigrationVersion: 1,
     bilibiliOperationMode:
       preferences.bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
+    bilibiliConnectionMode: preferences.bilibiliConnectionMode === 'direct' ? 'direct' : 'auto',
     favoriteArchiveMultiMode:
       preferences.favoriteArchiveMultiMode === 'two' || preferences.favoriteArchiveMultiMode === 'three'
         ? preferences.favoriteArchiveMultiMode
         : 'off',
+    oldFavoriteWorkspaceSegmentSize: normalizeOldFavoriteWorkspaceSegmentSize(
+      preferences.oldFavoriteWorkspaceSegmentSize
+    ),
     favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(preferences.favoriteArchiveStrategy),
     favoriteCorrectionLearningEnabled: Boolean(preferences.favoriteCorrectionLearningEnabled),
     favoriteCorrectionLearningClassificationEnabled: Boolean(
@@ -506,7 +818,258 @@ export function saveAssistantPreferences(
     assistantSidebarWidthPx: normalizeAssistantSidebarWidthPx(preferences.assistantSidebarWidthPx)
   })
 
-  return loadAssistantPreferences(store)
+  clearFavoriteLedgerEnabledOverrides(enabledOverrideStore)
+  return loadAssistantPreferences(store, undefined, enabledOverrideStore)
+}
+
+export function normalizeAssistantPreferencePatch(
+  patch: Partial<AssistantPreferences> = {}
+): Partial<AssistantPreferences> | null {
+  const scalarPatch: Partial<AssistantPreferences> = {}
+  let scalarOnly = true
+
+  for (const [key, value] of Object.entries(patch) as Array<[
+    keyof AssistantPreferences,
+    AssistantPreferences[keyof AssistantPreferences]
+  ]>) {
+    switch (key) {
+      case 'deepseekEnabled':
+      case 'deepseekCommentEnabled':
+      case 'deepseekAutoSummaryEnabled':
+      case 'deepseekPetChatEnabled':
+      case 'deepseekDailyClassificationEnabled':
+      case 'deepseekArchiveOrganizationEnabled':
+      case 'deepseekFeatureDefaultsInitialized':
+      case 'ledgerPromptDismissed':
+      case 'showPetAssistantShortcut':
+      case 'autoShowPetOnStartup':
+      case 'hidePetDuringVideoFullscreen':
+      case 'confirmBeforeExit':
+      case 'rememberCloseChoice':
+      case 'permissionOnboardingCompleted':
+        Object.assign(scalarPatch, { [key]: Boolean(value) })
+        break
+      case 'deepseekDailyClassificationMode':
+        scalarPatch.deepseekDailyClassificationMode = normalizeDeepSeekDailyClassificationMode(value)
+        break
+      case 'deepseekModel':
+        scalarPatch.deepseekModel = typeof value === 'string'
+          ? value
+          : DEFAULT_ASSISTANT_PREFERENCES.deepseekModel
+        break
+      case 'deepseekBaseUrl':
+        scalarPatch.deepseekBaseUrl = typeof value === 'string'
+          ? value
+          : DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl
+        break
+      case 'petStyle':
+        scalarPatch.petStyle = value === 'classic' ? 'classic' : 'big-head'
+        break
+      case 'closeBehavior':
+        scalarPatch.closeBehavior = normalizeMainWindowCloseBehavior(value)
+        break
+      case 'bilibiliOperationMode':
+        scalarPatch.bilibiliOperationMode = value === 'page-visual' ? 'page-visual' : 'api-assisted'
+        break
+      case 'bilibiliConnectionMode':
+        scalarPatch.bilibiliConnectionMode = value === 'direct' ? 'direct' : 'auto'
+        break
+      case 'favoriteArchiveMultiMode':
+        scalarPatch.favoriteArchiveMultiMode = value === 'two' || value === 'three' ? value : 'off'
+        break
+      case 'favoriteArchiveStrategy':
+        scalarPatch.favoriteArchiveStrategy = normalizeFavoriteArchiveStrategy(value)
+        break
+      case 'oldFavoriteWorkspaceSegmentSize':
+        scalarPatch.oldFavoriteWorkspaceSegmentSize = normalizeOldFavoriteWorkspaceSegmentSize(value)
+        break
+      case 'defaultCoinCount':
+        scalarPatch.defaultCoinCount = value === 2 ? 2 : 1
+        break
+      case 'commentSubmitMode':
+        scalarPatch.commentSubmitMode = value === 'random' ? 'random' : 'choose'
+        break
+      case 'videoAudioTranscriptionThreadLimit':
+        scalarPatch.videoAudioTranscriptionThreadLimit = normalizeVideoAudioTranscriptionThreadLimit(value)
+        break
+      case 'assistantSidebarWidthPx':
+        scalarPatch.assistantSidebarWidthPx = normalizeAssistantSidebarWidthPx(value)
+        break
+      case 'petHoverShortcuts':
+        scalarPatch.petHoverShortcuts = normalizePetHoverShortcuts(value)
+        break
+      case 'favoritesFolderName':
+        scalarPatch.favoritesFolderName = typeof value === 'string' ? value : DEFAULT_ASSISTANT_PREFERENCES.favoritesFolderName
+        break
+      default:
+        scalarOnly = false
+        break
+    }
+  }
+
+  if (scalarOnly) {
+    return scalarPatch
+  }
+
+  return null
+}
+
+export function writeAssistantPreferencePatch(
+  store: AssistantStoreLike = getDesktopStore(),
+  patch: Partial<AssistantPreferences> = {}
+): Partial<AssistantPreferences> | null {
+  const normalizedPatch = normalizeAssistantPreferencePatch(patch)
+  if (!normalizedPatch) return null
+  if (Object.keys(normalizedPatch).length > 0) store.set(normalizedPatch)
+  return normalizedPatch
+}
+
+export function patchAssistantPreferences(
+  store: AssistantStoreLike = getDesktopStore(),
+  patch: Partial<AssistantPreferences> = {}
+): AssistantPreferences {
+  const normalizedPatch = normalizeAssistantPreferencePatch(patch)
+  if (normalizedPatch) {
+    writeAssistantPreferencePatch(store, normalizedPatch)
+    return loadAssistantPreferences(store)
+  }
+
+  return saveAssistantPreferences(store, {
+    ...loadAssistantPreferences(store),
+    ...patch
+  })
+}
+
+export function isFavoriteLibraryRemoteFolderDismissed(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string, remoteFolderId: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const folderId = remoteFolderId.trim()
+  if (!folderId) return false
+  return normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLibraryDismissedRemoteFolderIdsByAccount'))[account]?.includes(folderId) ?? false
+}
+
+export function dismissFavoriteLibraryRemoteFolder(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string, remoteFolderId: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const folderId = remoteFolderId.trim()
+  if (!folderId) throw new Error('Favorite library remote folder is invalid.')
+  const current = normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLibraryDismissedRemoteFolderIdsByAccount'))
+  const next = [...new Set([...(current[account] ?? []), folderId])].sort()
+  store.set('favoriteLibraryDismissedRemoteFolderIdsByAccount', { ...current, [account]: next })
+}
+
+export function isFavoriteLedgerRemoteDraftReminderDismissed(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string, remoteFolderId: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const folderId = remoteFolderId.trim()
+  if (!folderId) return false
+  return normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftReminderDismissedByAccount'))[account]?.includes(folderId) ?? false
+}
+
+export function loadFavoriteLedgerRemoteDraftReminderDismissals(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  return normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftReminderDismissedByAccount'))[account] ?? []
+}
+
+export function dismissFavoriteLedgerRemoteDraftReminder(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string, remoteFolderId: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const folderId = remoteFolderId.trim()
+  if (!folderId) throw new Error('Favorite ledger remote draft reminder folder is invalid.')
+  const current = normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftReminderDismissedByAccount'))
+  const next = [...new Set([...(current[account] ?? []), folderId])].sort()
+  store.set('favoriteLedgerRemoteDraftReminderDismissedByAccount', { ...current, [account]: next })
+}
+
+/** Returns remote draft IDs that remain hidden until the owner explicitly runs backup. */
+export function loadFavoriteLedgerRemoteDraftRediscoveryPending(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  return normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftRediscoveryPendingByAccount'))[account] ?? []
+}
+
+/** Keeps a locally deleted remote-only candidate out of ordinary status scans. */
+export function markFavoriteLedgerRemoteDraftRediscoveryPending(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string, remoteFolderIds: readonly string[]
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const addedIds = remoteFolderIds.map((id) => id.trim()).filter(Boolean)
+  if (!addedIds.length) return
+  const current = normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftRediscoveryPendingByAccount'))
+  const next = [...new Set([...(current[account] ?? []), ...addedIds])].sort()
+  store.set('favoriteLedgerRemoteDraftRediscoveryPendingByAccount', { ...current, [account]: next })
+}
+
+/** Releases only explicit-backup pending IDs; manual "do not remind" choices stay untouched. */
+export function consumeFavoriteLedgerRemoteDraftRediscoveryPending(
+  store: AssistantStoreLike = getDesktopStore(), accountMid: string
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const current = normalizedDismissedRemoteFolderIdsByAccount(store.get('favoriteLedgerRemoteDraftRediscoveryPendingByAccount'))
+  const pending = current[account] ?? []
+  if (!pending.length) return []
+  const { [account]: _consumed, ...remaining } = current
+  store.set('favoriteLedgerRemoteDraftRediscoveryPendingByAccount', remaining)
+  return pending
+}
+
+/** Reads a durable account setting instead of accepting a renderer-owned projection. */
+export function loadFavoriteAccountPreferences(
+  store: AssistantStoreLike = getDesktopStore(),
+  accountMid: string,
+  overrideStore?: FavoriteLedgerEnabledOverrideStoreLike
+): FavoriteAccountPreferences {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const enabledOverrideStore = resolveFavoriteLedgerEnabledOverrideStore(store, overrideStore)
+  const accounts = normalizeFavoriteAccountPreferenceMap(store.get('favoriteAccountPreferences'))
+  const existing = applyFavoriteLedgerEnabledOverrides(accounts, enabledOverrideStore)[account]
+  if (existing) return { ...existing, transcriptionModelId: existing.transcriptionModelId ?? DEFAULT_TRANSCRIPTION_MODEL_ID }
+
+  const initialized: FavoriteAccountPreferences = {
+    defaultFavoriteSystemEnabled: true,
+    favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
+    transcriptionModelId: DEFAULT_TRANSCRIPTION_MODEL_ID,
+    updatedAt: new Date().toISOString()
+  }
+  store.set({ favoriteAccountPreferences: { ...accounts, [account]: initialized } })
+  return initialized
+}
+
+export function saveFavoriteAccountPreferences(
+  store: AssistantStoreLike = getDesktopStore(),
+  accountMid: string,
+  preferences: FavoriteAccountPreferences,
+  overrideStore?: FavoriteLedgerEnabledOverrideStoreLike
+) {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const enabledOverrideStore = resolveFavoriteLedgerEnabledOverrideStore(store, overrideStore)
+  const normalized = normalizeFavoriteAccountPreferences({ ...preferences, updatedAt: new Date().toISOString() })
+  if (!normalized) throw new Error('Favorite account preferences are invalid.')
+  const current = normalizeFavoriteAccountPreferenceMap(store.get('favoriteAccountPreferences'))
+  store.set({ favoriteAccountPreferences: { ...current, [account]: normalized } })
+  clearFavoriteLedgerEnabledOverrides(enabledOverrideStore, account)
+  return normalized
+}
+
+export async function writeFavoriteLedgerEnabled(
+  store: FavoriteLedgerEnabledOverrideStoreLike = getFavoriteLedgerEnabledOverrideStore(),
+  accountMid: string,
+  ledgerId: string,
+  enabled: boolean
+): Promise<FavoriteLedgerEnabledPatch> {
+  const account = normalizeFavoriteAccountMid(accountMid)
+  const normalizedLedgerId = ledgerId.trim()
+  if (!normalizedLedgerId) throw new Error('Favorite ledger is unavailable.')
+  const patch = { accountMid: account, ledgerId: normalizedLedgerId, enabled: Boolean(enabled) }
+  await store.append(patch)
+  return patch
 }
 
 export function loadDeepSeekApiKeyStatus(
@@ -615,22 +1178,89 @@ export function loadVideoNoteArchives(
   return normalizeVideoNoteArchives(store.get('videoNoteArchives') ?? [])
 }
 
+function isVerifiedSavedArchiveVersion(
+  version: VideoNoteArchiveEntry['versions'][number] | undefined,
+  note: VideoNote,
+  summaryText: string
+): version is VideoNoteArchiveEntry['versions'][number] {
+  if (!version || version.note.id !== note.id || version.summaryText !== summaryText) return false
+  const savedSource = version.note.source
+  const expectedSource = note.source
+  if (
+    savedSource.accountMid !== expectedSource.accountMid ||
+    savedSource.aid !== expectedSource.aid ||
+    savedSource.cid !== expectedSource.cid ||
+    savedSource.bvid !== expectedSource.bvid
+  ) return false
+  return JSON.stringify(version.note.transcript) === JSON.stringify(note.transcript)
+}
+
 export function saveVideoNoteArchiveVersion(
   store: AssistantStoreLike = getDesktopStore(),
   note: VideoNote,
   createdAt: string = new Date().toISOString(),
   summaryText = ''
 ): VideoNoteArchiveEntry[] {
+  return saveVideoNoteArchiveVersionWithIdentity(store, note, createdAt, summaryText).archives
+}
+
+/** Writes one archive version and returns the exact identity created by that mutation. */
+export function saveVideoNoteArchiveVersionWithIdentity(
+  store: AssistantStoreLike = getDesktopStore(),
+  note: VideoNote,
+  createdAt: string = new Date().toISOString(),
+  summaryText = ''
+): { archives: VideoNoteArchiveEntry[]; archiveId: string; versionId: string } {
+  const previous = loadVideoNoteArchives(store)
+  const archiveId = createVideoNoteId(note.source)
   const archives = appendVideoNoteArchiveVersion(
-    loadVideoNoteArchives(store),
+    previous,
     note,
     createdAt,
     summaryText
   )
 
   store.set('videoNoteArchives', archives)
+  const archive = archives.find((candidate) => candidate.id === archiveId)
+  const version = archive?.versions.at(-1)
+  if (!archive || !version) throw new Error('Archive version identity could not be resolved after saving.')
+  const persistedArchives = loadVideoNoteArchives(store)
+  const persistedArchive = persistedArchives.find((candidate) => candidate.id === archive.id)
+  const persistedVersion = persistedArchive?.versions.at(-1)
+  if (!persistedArchive || !isVerifiedSavedArchiveVersion(persistedVersion, note, summaryText)) {
+    throw new Error('Archive version could not be re-read after saving.')
+  }
+  return { archives: persistedArchives, archiveId: persistedArchive.id, versionId: persistedVersion.id }
+}
 
-  return archives
+/**
+ * Replaces summary content on one immutable archive version and proves the same
+ * version can be read back before the caller may publish a summary-success event.
+ */
+export function saveVideoNoteArchiveSummaryWithIdentity(
+  store: AssistantStoreLike = getDesktopStore(),
+  archiveId: string,
+  versionId: string,
+  note: VideoNote,
+  summaryText: string
+): { archives: VideoNoteArchiveEntry[]; archiveId: string; versionId: string } {
+  const normalizedSummary = summaryText.trim()
+  if (!normalizedSummary) throw new Error('Archive summary content is empty.')
+  const existing = loadVideoNoteArchives(store)
+  const existingVersion = existing.find((archive) => archive.id === archiveId)?.versions
+    .find((version) => version.id === versionId)
+  if (!existingVersion) throw new Error('Archive version could not be found for summary save.')
+
+  const archives = replaceVideoNoteArchiveVersion(existing, archiveId, versionId, note, normalizedSummary)
+  store.set('videoNoteArchives', archives)
+
+  const persistedArchives = loadVideoNoteArchives(store)
+  const persistedArchive = persistedArchives.find((archive) => archive.id === archiveId)
+  const persistedVersion = persistedArchive?.versions.find((version) => version.id === versionId)
+  if (!persistedArchive || !isVerifiedSavedArchiveVersion(persistedVersion, note, normalizedSummary)) {
+    throw new Error('Archive summary could not be re-read after saving.')
+  }
+  return { archives: persistedArchives, archiveId: persistedArchive.id, versionId: persistedVersion.id }
 }
 
 export function deleteVideoNoteArchiveEntry(
@@ -731,14 +1361,17 @@ export function loadVideoAudioTranscriptionQueue(
     return []
   }
 
+  const waitingForUserRestart = items
+    .filter((item) => item.status === 'waiting-restart')
+    .map((item) => ({ ...item, transcriptionModelId: item.transcriptionModelId ?? 'whisper-small' }))
   items.forEach((item) => {
-    if (item.draftNote && !item.archiveNoteId) {
+    if (item.status !== 'waiting-restart' && item.draftNote && !item.archiveNoteId) {
       saveVideoNoteArchiveVersion(store, item.draftNote, item.completedAt ?? item.updatedAt, '')
     }
   })
-  store.set('videoAudioTranscriptionQueue', [])
+  store.set('videoAudioTranscriptionQueue', waitingForUserRestart)
 
-  return []
+  return waitingForUserRestart
 }
 
 export function saveVideoAudioTranscriptionQueue(
@@ -748,4 +1381,33 @@ export function saveVideoAudioTranscriptionQueue(
   store.set('videoAudioTranscriptionQueue', items)
 
   return items
+}
+
+export function loadNoteProcessingCheckpoints(
+  store: AssistantStoreLike = getDesktopStore()
+): Record<string, NoteProcessingCheckpoint> {
+  return pruneNoteProcessingCheckpoints(store.get('noteProcessingCheckpointsV1') ?? {})
+}
+
+export function saveNoteProcessingCheckpoint(
+  store: AssistantStoreLike = getDesktopStore(),
+  checkpoint: NoteProcessingCheckpoint
+): Record<string, NoteProcessingCheckpoint> {
+  const checkpoints = loadNoteProcessingCheckpoints(store)
+  const next = pruneNoteProcessingCheckpoints({
+    ...checkpoints,
+    [createNoteProcessingCheckpointKey(checkpoint)]: checkpoint
+  })
+  store.set('noteProcessingCheckpointsV1', next)
+  return next
+}
+
+export function deleteNoteProcessingCheckpoint(
+  store: AssistantStoreLike = getDesktopStore(),
+  checkpoint: Pick<NoteProcessingCheckpoint, 'accountMid' | 'videoId' | 'transcriptHash' | 'promptVersion' | 'model'>
+): Record<string, NoteProcessingCheckpoint> {
+  const checkpoints = loadNoteProcessingCheckpoints(store)
+  delete checkpoints[createNoteProcessingCheckpointKey(checkpoint)]
+  store.set('noteProcessingCheckpointsV1', checkpoints)
+  return checkpoints
 }

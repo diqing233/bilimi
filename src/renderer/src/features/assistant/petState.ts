@@ -9,6 +9,7 @@ export type AssistantPetState =
   | 'cheer'
   | 'sleepy'
   | 'surprised'
+  | 'crying'
   | 'done'
 
 export type AssistantPetHint = {
@@ -29,6 +30,7 @@ export type AssistantPetStateView = {
     | '小咪加油'
     | '小咪困困'
     | '小咪惊讶'
+    | '小咪委屈'
     | '小咪完成'
   bubble: string
 }
@@ -84,6 +86,11 @@ const STATE_VIEWS: Record<AssistantPetState, AssistantPetStateView> = {
     label: '小咪惊讶',
     bubble: '欸，刚刚有新变化，小咪看到了。'
   },
+  crying: {
+    state: 'crying',
+    label: '小咪委屈',
+    bubble: '主人是不是不要小咪了……'
+  },
   done: {
     state: 'done',
     label: '小咪完成',
@@ -101,6 +108,7 @@ export function normalizePetState(value: unknown): AssistantPetState {
     value === 'cheer' ||
     value === 'sleepy' ||
     value === 'surprised' ||
+    value === 'crying' ||
     value === 'done'
     ? value
     : 'idle'

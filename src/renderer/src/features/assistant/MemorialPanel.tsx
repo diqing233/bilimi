@@ -5,11 +5,13 @@ import type {
   RecommendationLabel,
   NotePosterSummary,
   VideoAudioTranscriptionProgress,
+  VideoAudioTranscriptionQueueItem,
   VideoAudioTranscriptionQueueSnapshot,
   VideoNote,
   VideoNoteArchiveEntry
 } from '@shared/types'
-import { useEffect, useState, type SyntheticEvent } from 'react'
+import type { MultipartVideoPart, MultipartVideoSnapshot } from '../notes/videoNoteMultipart'
+import { useEffect, useState, type ComponentProps, type SyntheticEvent } from 'react'
 import { VideoNotesPanel, type VideoNotesResultTab } from '../notes/VideoNotesPanel'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
@@ -23,6 +25,8 @@ type VideoNoteTranscriptionOptions = {
   summarizeWithDeepSeek?: boolean
 }
 
+type VideoNotesPanelProps = ComponentProps<typeof VideoNotesPanel>
+
 type MemorialPanelProps = {
   recommendation: RecommendationLabel
   commentDrafts: string[]
@@ -35,7 +39,12 @@ type MemorialPanelProps = {
   onPreferenceChange?: (patch: Partial<AssistantPreferences>) => void
   videoNotesResultTab?: VideoNotesResultTab | null
   onVideoNotesResultTabChange?: (tab: VideoNotesResultTab | null) => void
+  onSeekCurrentVideoTime?: (seconds: number) => void | Promise<void>
+  onSeekVideoNoteSource?: (source: VideoNote['source'], seconds: number) => void | Promise<void>
+  onVideoNotesCopyFeedback?: VideoNotesPanelProps['onCopyFeedback']
   videoCategory?: string
+  favoriteProvisioningHint?: string
+  currentAccountMid?: string
   videoTitle: string
   videoAuthor?: string
   hasCurrentVideo?: boolean
@@ -48,8 +57,20 @@ type MemorialPanelProps = {
   onEnqueueVideoAudioTranscription?: (
     options?: VideoNoteTranscriptionOptions
   ) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  onReadMultipartVideo?: () => Promise<MultipartVideoSnapshot | null>
+  onEnqueueMultipartTranscription?: (
+    snapshot: MultipartVideoSnapshot,
+    parts: MultipartVideoPart[],
+    options?: VideoNoteTranscriptionOptions
+  ) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  onOpenQueueSource?: (item: VideoAudioTranscriptionQueueItem) => void
   onCancelQueuedVideoAudioTranscription?: (id: string) => void
+  onCancelQueuedVideoSummary?: (id: string) => void
   onRetryQueuedVideoAudioTranscription?: (id: string) => void
+  onRetryQueuedVideoAudioOnCpu?: (id: string) => void
+  onRetryQueuedArchiveRegistration?: (id: string) => void
+  onRetryQueuedVideoSummary?: (id: string) => void
+  onBulkQueueAction?: VideoNotesPanelProps['onBulkQueueAction']
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onArchivePosterSummary?: (
     note: VideoNote,
@@ -79,13 +100,13 @@ type MemorialPanelProps = {
 }
 
 const COIN_SETTING_TITLES: Record<1 | 2, string> = {
-  1: '默认投 1 枚硬币（再点一次可补投 1 枚）',
+  1: '默认投 1 枚硬币（再次点击可补投 1 枚）',
   2: '默认投 2 枚硬币'
 }
 
 const COMMENT_SETTING_TITLES: Record<CommentSubmitMode, string> = {
-  random: '随机生成一条并直接发送',
-  choose: '生成 3 条候选，选择后发送（也可以复制后发评论）'
+  random: '随机生成一条弹幕并直接发送',
+  choose: '生成 3 条候选弹幕，选择后发送(也可以复制发评论）'
 }
 
 const ACTIONS: Array<{
@@ -179,7 +200,12 @@ export function MemorialPanel({
   onPreferenceChange,
   videoNotesResultTab,
   onVideoNotesResultTabChange,
+  onSeekCurrentVideoTime,
+  onSeekVideoNoteSource,
+  onVideoNotesCopyFeedback,
   videoCategory = '解闷小品',
+  favoriteProvisioningHint,
+  currentAccountMid,
   videoTitle,
   videoAuthor,
   hasCurrentVideo = true,
@@ -188,8 +214,16 @@ export function MemorialPanel({
   onGenerateVideoNote,
   onTranscribeVideoAudio,
   onEnqueueVideoAudioTranscription,
+  onReadMultipartVideo,
+  onEnqueueMultipartTranscription,
+  onOpenQueueSource,
   onCancelQueuedVideoAudioTranscription,
+  onCancelQueuedVideoSummary,
   onRetryQueuedVideoAudioTranscription,
+  onRetryQueuedVideoAudioOnCpu,
+  onRetryQueuedArchiveRegistration,
+  onRetryQueuedVideoSummary,
+  onBulkQueueAction,
   onGeneratePoster,
   onArchivePosterSummary,
   onSaveVideoNote,
@@ -243,16 +277,18 @@ export function MemorialPanel({
         {activePanelTab === 'review' ? (
           <div className="memorial-panel__body">
             <aside className="memorial-panel__meta">
-              <p title={videoTitle}>{videoTitle}</p>
+              <p className="memorial-panel__meta-eyebrow">当前视频</p>
+              <p className="memorial-panel__meta-title" title={videoTitle}>{videoTitle}</p>
               {hasCurrentVideo ? (
                 <>
-                  <p>UP 主：{authorLabel}</p>
-                  <p>小咪准备归类到：{videoCategory}</p>
+                  <p className="memorial-panel__meta-detail">UP 主：{authorLabel}</p>
+                  <p className="memorial-panel__meta-detail">小咪准备归类到：{videoCategory}</p>
+                  {favoriteProvisioningHint ? <p className="memorial-panel__favorite-provisioning-hint memorial-panel__meta-detail">{favoriteProvisioningHint}</p> : null}
                 </>
               ) : (
                 <>
-                  <p>UP 主会显示在这里</p>
-                  <p>小咪会在这里展示视频的预归类位置</p>
+                  <p className="memorial-panel__meta-detail">UP 主会显示在这里</p>
+                  <p className="memorial-panel__meta-detail">小咪会在这里展示视频的预归类位置</p>
                 </>
               )}
               {recommendation.hint ? (
@@ -263,49 +299,67 @@ export function MemorialPanel({
               {ACTIONS.map(({ action, testId, label, description, icon, iconAlt }) => {
                 const quickSetting =
                   action === '赐' ? (
-                    <label
+                    <div
                       className="memorial-panel__action-setting"
+                      role="group"
+                      aria-label="投币厚赏参数"
                       onClick={stopActionEvent}
                       onPointerDown={stopActionEvent}
                       onKeyDown={stopActionEvent}
                     >
-                      <select
-                        aria-label="投币厚赏参数"
-                        title={COIN_SETTING_TITLES[defaultCoinCount]}
-                        value={defaultCoinCount}
-                        onChange={(event) => {
-                          event.stopPropagation()
-                          onPreferenceChange?.({
-                            defaultCoinCount: Number(event.currentTarget.value) as 1 | 2
-                          })
-                        }}
+                      <button
+                        type="button"
+                        className="memorial-panel__action-setting-option"
+                        aria-pressed={defaultCoinCount === 1}
+                        title={COIN_SETTING_TITLES[1]}
+                        onClick={() => onPreferenceChange?.({ defaultCoinCount: 1 })}
                       >
-                        <option value={1}>一枚</option>
-                        <option value={2}>两枚</option>
-                      </select>
-                    </label>
+                        一枚
+                      </button>
+                      <span className="memorial-panel__action-setting-separator" aria-hidden="true">
+                        ·
+                      </span>
+                      <button
+                        type="button"
+                        className="memorial-panel__action-setting-option"
+                        aria-pressed={defaultCoinCount === 2}
+                        title={COIN_SETTING_TITLES[2]}
+                        onClick={() => onPreferenceChange?.({ defaultCoinCount: 2 })}
+                      >
+                        两枚
+                      </button>
+                    </div>
                   ) : action === '表' ? (
-                    <label
+                    <div
                       className="memorial-panel__action-setting"
+                      role="group"
+                      aria-label="拟奏短评参数"
                       onClick={stopActionEvent}
                       onPointerDown={stopActionEvent}
                       onKeyDown={stopActionEvent}
                     >
-                      <select
-                        aria-label="拟奏短评参数"
-                        title={COMMENT_SETTING_TITLES[commentSubmitMode]}
-                        value={commentSubmitMode}
-                        onChange={(event) => {
-                          event.stopPropagation()
-                          onPreferenceChange?.({
-                            commentSubmitMode: event.currentTarget.value as CommentSubmitMode
-                          })
-                        }}
+                      <button
+                        type="button"
+                        className="memorial-panel__action-setting-option"
+                        aria-pressed={commentSubmitMode === 'random'}
+                        title={COMMENT_SETTING_TITLES.random}
+                        onClick={() => onPreferenceChange?.({ commentSubmitMode: 'random' })}
                       >
-                        <option value="random">随机</option>
-                        <option value="choose">选择</option>
-                      </select>
-                    </label>
+                        随机
+                      </button>
+                      <span className="memorial-panel__action-setting-separator" aria-hidden="true">
+                        ·
+                      </span>
+                      <button
+                        type="button"
+                        className="memorial-panel__action-setting-option"
+                        aria-pressed={commentSubmitMode === 'choose'}
+                        title={COMMENT_SETTING_TITLES.choose}
+                        onClick={() => onPreferenceChange?.({ commentSubmitMode: 'choose' })}
+                      >
+                        选择
+                      </button>
+                    </div>
                   ) : null
 
                 return (
@@ -340,14 +394,23 @@ export function MemorialPanel({
         ) : (
           <VideoNotesPanel
             note={videoNote}
+            accountMid={currentAccountMid}
             currentVideoTitle={videoTitle}
             currentVideoAuthor={videoAuthor}
             isLoading={videoNoteLoading}
             onGenerate={onGenerateVideoNote}
             onTranscribeAudio={onTranscribeVideoAudio}
             onEnqueueTranscription={onEnqueueVideoAudioTranscription}
+            onReadMultipartVideo={onReadMultipartVideo}
+            onEnqueueMultipartTranscription={onEnqueueMultipartTranscription}
+            onOpenQueueSource={onOpenQueueSource}
             onCancelQueuedVideoAudioTranscription={onCancelQueuedVideoAudioTranscription}
+            onCancelQueuedVideoSummary={onCancelQueuedVideoSummary}
             onRetryQueuedVideoAudioTranscription={onRetryQueuedVideoAudioTranscription}
+            onRetryQueuedVideoAudioOnCpu={onRetryQueuedVideoAudioOnCpu}
+            onRetryQueuedArchiveRegistration={onRetryQueuedArchiveRegistration}
+            onRetryQueuedVideoSummary={onRetryQueuedVideoSummary}
+            onBulkQueueAction={onBulkQueueAction}
             onGeneratePoster={onGeneratePoster}
             onArchivePosterSummary={onArchivePosterSummary}
             onSave={onSaveVideoNote}
@@ -358,10 +421,12 @@ export function MemorialPanel({
             deepSeekEnabled={deepSeekEnabled}
             deepSeekAutoSummaryEnabled={deepSeekAutoSummaryEnabled}
             deepSeekSummaryGenerating={deepSeekSummaryGenerating}
-            transcriptionProgress={transcriptionProgress}
             transcriptionQueue={transcriptionQueue}
             activeResultTab={videoNotesResultTab}
             onActiveResultTabChange={onVideoNotesResultTabChange}
+            onSeekCurrentVideoTime={onSeekCurrentVideoTime}
+            onSeekSource={onSeekVideoNoteSource}
+            onCopyFeedback={onVideoNotesCopyFeedback}
           />
         )}
         {feedback ? (

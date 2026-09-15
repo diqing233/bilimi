@@ -3,6 +3,7 @@ import {
   MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS,
   installMainWindowControlReactions
 } from './mainWindowControlReactions'
+import { getMainWindowPresentationState } from './mainWindowPresentationState'
 import type { AssistantPetHint } from '../../src/renderer/src/features/assistant/petState'
 
 type WindowEventName = 'minimize' | 'restore' | 'maximize' | 'unmaximize' | 'close'
@@ -25,6 +26,10 @@ function createTestWindow() {
 }
 
 describe('installMainWindowControlReactions', () => {
+  it('reports whether the main window is visibly open for passive pet-hint suppression', () => {
+    expect(getMainWindowPresentationState({ isVisible: () => true, isMinimized: () => false })).toEqual({ visible: true, minimized: false })
+    expect(getMainWindowPresentationState(null)).toEqual({ visible: false, minimized: false })
+  })
   it('lets XiaoMi say goodbye when the native minimize button is used', () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0)
     const window = createTestWindow()
@@ -36,7 +41,7 @@ describe('installMainWindowControlReactions', () => {
         getPreferences: () =>
           ({
             closeBehavior: 'exit-launcher',
-            confirmBeforeExit: false
+            rememberCloseChoice: true
           }) as never,
         minimizeToTray: vi.fn(),
         prepareToExitLauncher: vi.fn(),
@@ -68,7 +73,7 @@ describe('installMainWindowControlReactions', () => {
         getPreferences: () =>
           ({
             closeBehavior: 'exit-launcher',
-            confirmBeforeExit: false
+            rememberCloseChoice: true
           }) as never,
         minimizeToTray: vi.fn(),
         prepareToExitLauncher: vi.fn(),
@@ -163,6 +168,7 @@ describe('installMainWindowControlReactions', () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0)
     const window = createTestWindow()
     const closeAssistantPet = vi.fn()
+    const quitApplication = vi.fn()
     const sendPetHint = vi.fn<(hint: AssistantPetHint) => void>()
     const closeEvent = { preventDefault: vi.fn() }
 
@@ -172,10 +178,11 @@ describe('installMainWindowControlReactions', () => {
         getPreferences: () =>
           ({
             closeBehavior: 'exit-launcher',
-            confirmBeforeExit: false
+            rememberCloseChoice: true
           }) as never,
         minimizeToTray: vi.fn(),
         prepareToExitLauncher: vi.fn(),
+        quitApplication,
         savePreferencePatch: vi.fn(),
         sendPetHint,
         showCloseConfirmation: vi.fn(),
@@ -190,6 +197,7 @@ describe('installMainWindowControlReactions', () => {
         message: '那小咪先退场啦，主人下次见。'
       })
       expect(closeAssistantPet).not.toHaveBeenCalled()
+      expect(quitApplication).toHaveBeenCalledOnce()
       expect(window.close).not.toHaveBeenCalled()
 
       vi.advanceTimersByTime(MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS)
@@ -212,7 +220,7 @@ describe('installMainWindowControlReactions', () => {
       getPreferences: () =>
         ({
           closeBehavior: 'minimize-to-tray',
-          confirmBeforeExit: true
+          rememberCloseChoice: true
         }) as never,
       minimizeToTray,
       prepareToExitLauncher: vi.fn(),
@@ -233,6 +241,7 @@ describe('installMainWindowControlReactions', () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0)
     const window = createTestWindow()
     const closeAssistantPet = vi.fn()
+    const quitApplication = vi.fn()
     const sendPetHint = vi.fn<(hint: AssistantPetHint) => void>()
     const savePreferencePatch = vi.fn()
     const closeEvent = { preventDefault: vi.fn() }
@@ -243,10 +252,11 @@ describe('installMainWindowControlReactions', () => {
         getPreferences: () =>
           ({
             closeBehavior: 'exit-launcher',
-            confirmBeforeExit: true
+            rememberCloseChoice: false
           }) as never,
         minimizeToTray: vi.fn(),
         prepareToExitLauncher: vi.fn(),
+        quitApplication,
         savePreferencePatch,
         sendPetHint,
         showCloseConfirmation: () => ({ response: 1, checkboxChecked: true }),
@@ -259,13 +269,14 @@ describe('installMainWindowControlReactions', () => {
       expect(closeEvent.preventDefault).toHaveBeenCalledOnce()
       expect(savePreferencePatch).toHaveBeenCalledWith({
         closeBehavior: 'exit-launcher',
-        confirmBeforeExit: false
+        rememberCloseChoice: true
       })
       expect(sendPetHint).toHaveBeenCalledWith({
         tone: 'sleepy',
         message: '那小咪先退场啦，主人下次见。'
       })
-      expect(window.close).toHaveBeenCalledOnce()
+      expect(window.close).not.toHaveBeenCalled()
+      expect(quitApplication).toHaveBeenCalledOnce()
 
       vi.advanceTimersByTime(MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS)
 

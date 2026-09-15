@@ -1,0 +1,210 @@
+import { createFavoriteRepositoryArchiveExport, createFavoriteRepositoryArchiveExportChecksum, validateFavoriteRepositoryArchiveExport, type AccountFavoriteRepositorySnapshot, type FavoriteRepositoryArchiveExport } from '../../src/shared/favoriteRepository'
+import type { VideoAudioTranscriptionQueueItem, VideoNoteArchiveEntry } from '../../src/shared/types'
+import type { LocalDataPersistence } from './localDataService'
+import type { PortableAccountData } from '../../src/shared/localDataMigration'
+
+type RepositoryArchive = FavoriteRepositoryArchiveExport & { checksum: string }
+type PortableBatch = {
+  repositoryArchives: Record<string, RepositoryArchive>
+  settingsByUid: Record<string, Record<string, unknown>>
+  archivesByUid: Record<string, VideoNoteArchiveEntry[]>
+  transcriptionByUid: Record<string, VideoAudioTranscriptionQueueItem[]>
+  auditEventsByUid: Record<string, Record<string, unknown>[]>
+  workspacesByUid: Record<string, Record<string, unknown>[]>
+  remoteOperationsByUid: Record<string, Record<string, unknown>[]>
+}
+type PortableApplyOptions = { mode: 'merge' | 'overwrite'; selectedUids: string[] }
+
+type Dependencies = {
+  listAccountUids(): string[] | Promise<string[]>
+  /** Sources retained locally even after account preferences have been removed. */
+  listRetainedAccountUids?(): string[] | Promise<string[]>
+  getRepository(uid: string): Promise<AccountFavoriteRepositorySnapshot>
+  getAccountSettings(uid: string): Record<string, unknown> | Promise<Record<string, unknown>>
+  getArchives(): VideoNoteArchiveEntry[] | Promise<VideoNoteArchiveEntry[]>
+  getTranscriptionItems(): VideoAudioTranscriptionQueueItem[] | Promise<VideoAudioTranscriptionQueueItem[]>
+  getAuditEvents?(uid: string): Record<string, unknown>[] | Promise<Record<string, unknown>[]>
+  getWorkspaces?(uid: string): Record<string, unknown>[] | Promise<Record<string, unknown>[]>
+  getRemoteOperations?(uid: string): Record<string, unknown>[] | Promise<Record<string, unknown>[]>
+  applyPortableBatch(batch: PortableBatch): void | Promise<void>
+  applyPortableState(batch: PortableBatch, sharedSettings: Record<string, unknown>, options?: PortableApplyOptions): void | Promise<void>
+  readSharedSettings(): Record<string, unknown> | Promise<Record<string, unknown>>
+  writeSharedSettings(settings: Record<string, unknown>): void | Promise<void>
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === 'object' && !Array.isArray(value) }
+function uid(value: string) { if (!/^[1-9]\d*$/u.test(value)) throw new Error('Portable account UID is invalid.'); return BigInt(value).toString() }
+
+function portableRepository(snapshot: AccountFavoriteRepositorySnapshot, events: Record<string, unknown>[]): RepositoryArchive {
+  return createFavoriteRepositoryArchiveExport(snapshot, {
+    generatedAt: snapshot.updatedAt,
+    events: structuredClone(events) as RepositoryArchive['events'], archives: []
+  })
+}
+
+function recordsForAccount(records: Record<string, unknown>[], accountMid: string) {
+  return records.filter((record) => record.accountMid === accountMid).map((record) => structuredClone(record))
+}
+
+function portableWorkspaceRecord(value: unknown, accountMid: string) {
+  if (!isRecord(value) || value.accountMid !== accountMid || !isRecord(value.workspaceRef)) return undefined
+  const { updatedAt: _legacyUpdatedAt, ...workspace } = value
+  const reference = workspace.workspaceRef as Record<string, unknown>
+  if (typeof workspace.id !== 'string' || typeof workspace.status !== 'string' || !Number.isSafeInteger(workspace.baselineRevision) ||
+    typeof reference.updatedAt !== 'string' || !Number.isFinite(Date.parse(reference.updatedAt))) return undefined
+  return structuredClone(workspace)
+}
+
+function recoveryTimestamp(value: Record<string, unknown>) {
+  const reference = isRecord(value.workspaceRef) ? value.workspaceRef : undefined
+  return typeof reference?.updatedAt === 'string' ? reference.updatedAt : typeof value.updatedAt === 'string' ? value.updatedAt : ''
+}
+
+function compareWorkspaces(left: Record<string, unknown>, right: Record<string, unknown>) {
+  const timestamp = recoveryTimestamp(left).localeCompare(recoveryTimestamp(right))
+  if (timestamp) return timestamp
+  const leftRef = isRecord(left.workspaceRef) ? left.workspaceRef : {}
+  const rightRef = isRecord(right.workspaceRef) ? right.workspaceRef : {}
+  for (const [leftValue, rightValue] of [
+    [left.baselineRevision, right.baselineRevision],
+    [leftRef.overlayRevision, rightRef.overlayRevision],
+    [leftRef.journalCursor, rightRef.journalCursor]
+  ] as const) {
+    const difference = Number(leftValue ?? -1) - Number(rightValue ?? -1)
+    if (difference) return difference
+  }
+  return JSON.stringify(left).localeCompare(JSON.stringify(right))
+}
+
+function portableSyncRecord(value: Record<string, unknown>) {
+  const { accountMid: _accountMid, ...record } = value
+  return record
+}
+
+function canonicalRecoveryRecords(snapshot: AccountFavoriteRepositorySnapshot, accountMid: string) {
+  const archive = portableRepository(snapshot, [])
+  const workspace = archive.recovery?.workspace
+  const syncRecords = archive.recovery?.syncRecords ?? []
+  return {
+    workspaces: workspace ? [{ ...structuredClone(workspace), updatedAt: workspace.workspaceRef.updatedAt ?? snapshot.updatedAt }] : [],
+    remoteOperations: syncRecords.map((record) => ({ ...structuredClone(record), accountMid }))
+  }
+}
+
+function repositoryArchive(uidValue: string, value: unknown): RepositoryArchive {
+  let validated: RepositoryArchive
+  try { validated = validateFavoriteRepositoryArchiveExport(value) } catch { throw new Error('Portable repository section is invalid.') }
+  if (validated.accountMid !== uidValue) throw new Error('Portable repository account mismatch.')
+  return structuredClone(validated)
+}
+
+/** Fold separately inventoried, validated recovery sources into the canonical
+ * repository archive before the main importer atomically publishes it. */
+function repositoryWithPortableRecovery(
+  uidValue: string,
+  value: unknown,
+  auditEvents: Record<string, unknown>[],
+  workspaces: Record<string, unknown>[],
+  remoteOperations: Record<string, unknown>[]
+): RepositoryArchive {
+  const repository = repositoryArchive(uidValue, value)
+  const recovery = repository.recovery ?? {
+    folders: [], memberships: {}, physicalShards: [], syncRecords: [], organizationRecords: [],
+    organizationBatches: [], organizationMigrationInitialized: false, tombstones: []
+  }
+  const workspace = workspaces.map((item) => portableWorkspaceRecord(item, uidValue)).filter((item): item is Record<string, unknown> => Boolean(item))
+    .sort((left, right) => compareWorkspaces(right, left))[0]
+  const next: FavoriteRepositoryArchiveExport = {
+    ...repository,
+    events: structuredClone(auditEvents) as FavoriteRepositoryArchiveExport['events'],
+    recovery: {
+      ...recovery,
+      ...(workspace ? { workspace: structuredClone(workspace) as NonNullable<FavoriteRepositoryArchiveExport['recovery']>['workspace'] } : {}),
+      syncRecords: remoteOperations.map(portableSyncRecord) as NonNullable<FavoriteRepositoryArchiveExport['recovery']>['syncRecords']
+    }
+  }
+  const withChecksum = { ...next, checksum: createFavoriteRepositoryArchiveExportChecksum(next) }
+  return repositoryArchive(uidValue, withChecksum)
+}
+
+export function createLocalDataPersistenceAdapter(dependencies: Dependencies): LocalDataPersistence {
+  return {
+    async listAccountUids() {
+      const retained = await dependencies.listRetainedAccountUids?.() ?? []
+      return [...new Set([...(await dependencies.listAccountUids()), ...retained].map(uid))]
+    },
+    async readAccount(rawUid: string): Promise<PortableAccountData> {
+      const accountMid = uid(rawUid)
+      const [snapshot, settings, archives, transcription, auditEvents, workspaces, remoteOperations] = await Promise.all([
+        dependencies.getRepository(accountMid), dependencies.getAccountSettings(accountMid), dependencies.getArchives(), dependencies.getTranscriptionItems(),
+        dependencies.getAuditEvents?.(accountMid) ?? [], dependencies.getWorkspaces?.(accountMid) ?? [], dependencies.getRemoteOperations?.(accountMid) ?? []
+      ])
+      if (snapshot.accountMid !== accountMid) throw new Error('Repository account mismatch.')
+      const canonical = canonicalRecoveryRecords(snapshot, accountMid)
+      return {
+        repository: portableRepository(snapshot, recordsForAccount(auditEvents, accountMid)), settings: structuredClone(settings),
+        archives: archives.filter((entry) => entry.source.accountMid === accountMid).map((entry) => structuredClone(entry)),
+        transcription: transcription.filter((item) => item.accountMid === accountMid).map((item) => structuredClone(item)),
+        auditEvents: recordsForAccount(auditEvents, accountMid), workspaces: canonical.workspaces, remoteOperations: canonical.remoteOperations
+      }
+    },
+    async writeAccounts(accounts: Record<string, PortableAccountData>) {
+      const repositoryArchives: Record<string, RepositoryArchive> = {}
+      const settingsByUid: Record<string, Record<string, unknown>> = {}
+      const archivesByUid: Record<string, VideoNoteArchiveEntry[]> = {}
+      const transcriptionByUid: Record<string, VideoAudioTranscriptionQueueItem[]> = {}
+      const auditEventsByUid: Record<string, Record<string, unknown>[]> = {}
+      const workspacesByUid: Record<string, Record<string, unknown>[]> = {}
+      const remoteOperationsByUid: Record<string, Record<string, unknown>[]> = {}
+      for (const [rawUid, data] of Object.entries(accounts)) {
+        const accountMid = uid(rawUid)
+        const auditEvents = Array.isArray(data.auditEvents) ? structuredClone(data.auditEvents) as Record<string, unknown>[] : []
+        const workspaces = Array.isArray(data.workspaces) ? structuredClone(data.workspaces) as Record<string, unknown>[] : []
+        const remoteOperations = Array.isArray(data.remoteOperations) ? structuredClone(data.remoteOperations) as Record<string, unknown>[] : []
+        repositoryArchives[accountMid] = repositoryWithPortableRecovery(accountMid, data.repository, auditEvents, workspaces, remoteOperations)
+        if (isRecord(data.settings)) settingsByUid[accountMid] = structuredClone(data.settings)
+        const archives = Array.isArray(data.archives) ? data.archives : []
+        if (archives.some((entry) => !isRecord(entry) || !isRecord(entry.source) || entry.source.accountMid !== accountMid)) throw new Error('Portable archive account mismatch.')
+        archivesByUid[accountMid] = structuredClone(archives) as VideoNoteArchiveEntry[]
+        const transcription = Array.isArray(data.transcription) ? data.transcription : []
+        if (transcription.some((entry) => !isRecord(entry) || entry.accountMid !== accountMid)) throw new Error('Portable transcription account mismatch.')
+        transcriptionByUid[accountMid] = structuredClone(transcription) as VideoAudioTranscriptionQueueItem[]
+        auditEventsByUid[accountMid] = auditEvents
+        workspacesByUid[accountMid] = workspaces
+        remoteOperationsByUid[accountMid] = remoteOperations
+      }
+      await dependencies.applyPortableBatch({ repositoryArchives, settingsByUid, archivesByUid, transcriptionByUid, auditEventsByUid, workspacesByUid, remoteOperationsByUid })
+    },
+    async writePortableState(state, options) {
+      const repositoryArchives: Record<string, RepositoryArchive> = {}
+      const settingsByUid: Record<string, Record<string, unknown>> = {}
+      const archivesByUid: Record<string, VideoNoteArchiveEntry[]> = {}
+      const transcriptionByUid: Record<string, VideoAudioTranscriptionQueueItem[]> = {}
+      const auditEventsByUid: Record<string, Record<string, unknown>[]> = {}
+      const workspacesByUid: Record<string, Record<string, unknown>[]> = {}
+      const remoteOperationsByUid: Record<string, Record<string, unknown>[]> = {}
+      for (const [rawUid, data] of Object.entries(state.accounts)) {
+        const accountMid = uid(rawUid)
+        const auditEvents = Array.isArray(data.auditEvents) ? structuredClone(data.auditEvents) as Record<string, unknown>[] : []
+        const workspaces = Array.isArray(data.workspaces) ? structuredClone(data.workspaces) as Record<string, unknown>[] : []
+        const remoteOperations = Array.isArray(data.remoteOperations) ? structuredClone(data.remoteOperations) as Record<string, unknown>[] : []
+        repositoryArchives[accountMid] = repositoryWithPortableRecovery(accountMid, data.repository, auditEvents, workspaces, remoteOperations)
+        if (isRecord(data.settings)) settingsByUid[accountMid] = structuredClone(data.settings)
+        const archives = Array.isArray(data.archives) ? data.archives : []
+        const transcription = Array.isArray(data.transcription) ? data.transcription : []
+        if (archives.some((entry) => !isRecord(entry) || !isRecord(entry.source) || entry.source.accountMid !== accountMid)) throw new Error('Portable archive account mismatch.')
+        if (transcription.some((entry) => !isRecord(entry) || entry.accountMid !== accountMid)) throw new Error('Portable transcription account mismatch.')
+        archivesByUid[accountMid] = structuredClone(archives) as VideoNoteArchiveEntry[]
+        transcriptionByUid[accountMid] = structuredClone(transcription) as VideoAudioTranscriptionQueueItem[]
+        auditEventsByUid[accountMid] = auditEvents
+        workspacesByUid[accountMid] = workspaces
+        remoteOperationsByUid[accountMid] = remoteOperations
+      }
+      const batch = { repositoryArchives, settingsByUid, archivesByUid, transcriptionByUid, auditEventsByUid, workspacesByUid, remoteOperationsByUid }
+      if (options) await dependencies.applyPortableState(batch, structuredClone(state.sharedSettings), options)
+      else await dependencies.applyPortableState(batch, structuredClone(state.sharedSettings))
+    },
+    readSharedSettings: dependencies.readSharedSettings,
+    writeSharedSettings: dependencies.writeSharedSettings
+  }
+}

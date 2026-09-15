@@ -21,6 +21,8 @@ type ExecuteAssistantActionArgs = {
   favoriteLedgers: FavoriteLedger[]
   targetLedgerId: string
   targetLedgerIds?: string[]
+  /** When false, review may perform likes/coins but must not mutate favorites. */
+  favoriteProvisioned?: boolean
   resultMessagePrefix?: string
 }
 
@@ -49,6 +51,16 @@ function favoriteTargetLabel(args: ExecuteAssistantActionArgs): string {
 function favoriteSuccessMessage(args: ExecuteAssistantActionArgs): string {
   const targetLabel = favoriteTargetLabel(args)
 
+  if (args.favoriteProvisioned === false) {
+    const completedAction =
+      args.action === '赏'
+        ? '已点赞'
+        : args.action === '赐'
+          ? '已一键三连'
+          : '本次操作未写入收藏夹'
+    return `${completedAction}；当前收藏夹尚未备册或未绑定，本次仅完成预分类，未创建或写入 B 站收藏夹；请先去掌库收藏夹备册或重新绑定，完成后可归类到 ${targetLabel}。`
+  }
+
   if (args.action === '赏') {
     return `已点赞，归类存入 ${targetLabel}。`
   }
@@ -60,20 +72,38 @@ function favoriteSuccessMessage(args: ExecuteAssistantActionArgs): string {
   return `已归类存入 ${targetLabel}。`
 }
 
+function favoritePetHint(args: ExecuteAssistantActionArgs): string | undefined {
+  if (args.favoriteProvisioned !== false || !usesFavorite(args.action)) {
+    return undefined
+  }
+
+  const targetLabel = favoriteTargetLabel(args)
+  const actionPrefix =
+    args.action === '赏'
+      ? '已点赞'
+      : args.action === '赐'
+        ? '已一键三连'
+        : '本次操作未写入收藏夹'
+
+  return `主人，${actionPrefix}；当前收藏夹尚未备册或未绑定，本次仅完成预分类，未创建或写入 B 站收藏夹；请先去掌库收藏夹备册或重新绑定，完成后可归类到 ${targetLabel}。`
+}
+
 function formatActionResultMessage(
   args: ExecuteAssistantActionArgs,
   result: AssistantAutomationResult
 ): AssistantAutomationResult {
   const message = result.ok && usesFavorite(args.action) ? favoriteSuccessMessage(args) : result.message
   const prefix = args.resultMessagePrefix?.trim()
+  const petHint = result.ok ? favoritePetHint(args) : result.petHint
 
   if (!prefix) {
-    return { ...result, message }
+    return { ...result, message, petHint }
   }
 
   return {
     ...result,
-    message: message ? `${prefix}\n${message}` : prefix
+    message: message ? `${prefix}\n${message}` : prefix,
+    petHint
   }
 }
 
@@ -190,6 +220,7 @@ async function runFavoriteApiFallback(
       ok: true,
       steps: [...domResult.steps, ...apiResult.steps],
       missingTargets: [],
+      favoriteFolderIdsByLedgerId: apiResult.favoriteFolderIdsByLedgerId,
       message: apiResult.message
     }
   }
@@ -233,6 +264,19 @@ async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
     }
   }
 
+  const pageClickOnly = args.favoriteApiFallbackEnabled === false
+  const favoriteUnavailable = args.favoriteProvisioned === false
+  const skipPageFavorite = usesFavorite(args.action) && (favoriteUnavailable || !pageClickOnly)
+
+  if (args.action === '藏' && skipPageFavorite && !favoriteUnavailable) {
+    return runFavoriteApiFallback(args, {
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: ''
+    })
+  }
+
   const script = buildAutomationScript(
     args.action,
     args.favoritesFolderName,
@@ -240,7 +284,7 @@ async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
     args.commentDraft,
     args.favoriteLedgers,
     args.targetLedgerId,
-    { submitComment: args.submitComment }
+    { submitComment: args.submitComment, skipFavorite: skipPageFavorite }
   )
   const domResult = await runScriptWithTimeout(args.runScript, script)
 
@@ -248,11 +292,9 @@ async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
     return runTrustedDanmakuSubmit(args, domResult)
   }
 
-  if (!shouldUseFavoriteApi(domResult, args.action)) {
+  if (favoriteUnavailable || !shouldUseFavoriteApi(domResult, args.action)) {
     return domResult
   }
-
-  const pageClickOnly = args.favoriteApiFallbackEnabled === false
 
   if (pageClickOnly) {
     if (domResult.ok || !args.runVisualFallback || favoriteMissingTargets(domResult).length === 0) {
@@ -282,25 +324,5 @@ async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
       ? skipFavoriteApiFallback(domResult)
       : await runFavoriteApiFallback(args, domResult)
 
-  if (
-    apiResult.ok ||
-    domResult.ok ||
-    !args.runVisualFallback ||
-    favoriteMissingTargets(apiResult).length === 0
-  ) {
-    return apiResult
-  }
-
-  const visualResult = await args.runVisualFallback({
-    favoriteFolders: favoriteLedgerNamesById(args.favoriteLedgers),
-    favoritesFolderName: args.favoritesFolderName,
-    targetLedgerId: args.targetLedgerId
-  })
-
-  return {
-    ok: visualResult.ok,
-    steps: [...apiResult.steps, ...visualResult.steps],
-    missingTargets: visualResult.missingTargets,
-    message: visualResult.message
-  }
+  return apiResult
 }

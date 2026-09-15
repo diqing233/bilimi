@@ -5,10 +5,10 @@ const packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
 const packageLock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
 
 describe('Windows installer packaging config', () => {
-  it('uses the v1.0.0 release version in package and lock metadata', () => {
-    expect(packageJson.version).toBe('1.0.0')
-    expect(packageLock.version).toBe('1.0.0')
-    expect(packageLock.packages[''].version).toBe('1.0.0')
+  it('uses the v1.2.0 release version in package and lock metadata', () => {
+    expect(packageJson.version).toBe('1.2.0')
+    expect(packageLock.version).toBe('1.2.0')
+    expect(packageLock.packages[''].version).toBe('1.2.0')
   })
 
   it('includes release metadata used by the Windows installer', () => {
@@ -43,9 +43,14 @@ describe('Windows installer packaging config', () => {
     expect(packageJson.build.files).toContain('out/**')
     expect(packageJson.build.files).toContain('build/icon.ico')
     expect(packageJson.build.win.icon).toBe('build/icon.ico')
-    expect(packageJson.build.extraResources).toContainEqual({
+    expect(packageJson.build.extraResources).toContainEqual(expect.objectContaining({
       from: 'tools/win32',
-      to: 'tools/win32'
+      to: 'tools/win32',
+      filter: expect.arrayContaining(['!whisper/models/**', '!transcription-models/**'])
+    }))
+    expect(packageJson.build.extraResources).toContainEqual({
+      from: 'tools/win32/transcription-models/sensevoice-small',
+      to: 'tools/win32/transcription-models/sensevoice-small'
     })
   })
 })

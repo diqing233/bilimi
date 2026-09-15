@@ -2,7 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
 
 describe('setFloatingSealMouseTransparency', () => {
-  it('ignores mouse events with forwarding while the cursor is over transparent host pixels', () => {
+  it('restores hit testing when a visible pet is woken or repositioned', () => {
+    const window = { setIgnoreMouseEvents: vi.fn() }
+
+    setFloatingSealMouseTransparency(window, false)
+
+    expect(window.setIgnoreMouseEvents).toHaveBeenCalledWith(false)
+  })
+  it('forwards pointer movement while transparent so the pet can reclaim the first left-button drag', () => {
     const window = {
       setIgnoreMouseEvents: vi.fn()
     }

@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.1.0 - 2026-07-24
+
+- Added the three-column Favorite Library workspace with virtualized video rows, folder navigation, video details, selection, filtering, sorting, pagination, and operation history.
+- Added explicit local copy, move, local-delete, Bilibili-unfavorite, and managed-folder deletion safety flows. Remote destructive actions are previewed, explicitly confirmed, executed once, and reconciled when their result is unknown.
+- Added account-scoped local-data export, import preview, merge/overwrite choices, cleanup controls, and documented credential/session exclusions.
+- Added a lightweight Bilibili danmaku repaint after a settled timeline seek without changing playback or the user's danmaku switch.
+
+## 1.0.4 - 2026-07-16
+
+- Kept strictly serial old-favorite execution responsive and correctly paced when Chromium clamps background timers by measuring waits against real elapsed time.
+- Disabled background throttling only while old-favorite execution is active for the main renderer and actual Bilibili webview, restoring defaults for pauses, completion, failures, and risk-control stops without blocking Windows sleep.
+- Replaced repeated global-circuit scan failures with one safe-stop summary, folded technical details and excess ordinary failures, and made skipped folders explicit as requests that were never sent.
+- Added clear paused progress copy and moved the “结束本轮” confirmation into the existing progress card while preserving pending batch checkpoints.
+- Added an `ERR_PROXY_CONNECTION_FAILED` recovery card with reload and an explicit current-run direct retry limited to the shared Bilibili session; restart returns to Windows system network settings.
+
+## 1.0.3 - 2026-07-15
+
+- Locked every plan-changing old-favorite control after final confirmation while keeping scan, recommendation, and archive-preview review available.
+- Added safe pause and resume from the next unexecuted video, including interruptible cooldowns, pending-batch retention, and a confirmed “结束本轮” path.
+- Split user pauses from terminal Bilibili risk-control stops and added immediate handling for API `-509`/`-352`, HTTP `412`, captcha, verification, and Chinese risk messages.
+- Increased strictly serial old-favorite throughput after the first 50 videos and merged multiple target folders for one video into one append request without adding any delete or move behavior.
+- Preserved target-level correction and archive-protection records across grouped requests, partial results, refreshed folder IDs, and pause/resume cycles.
+
+## 1.0.1 - 2026-07-13
+
+- Preserved saved DeepSeek models and service addresses across review, archive, sidebar, exit, and restart flows by merging preference patches in the main process.
+- Reworked close handling around an explicit remembered choice, with a safe one-time migration and confirmation before resetting all settings.
+- Split old-favorite discovery from tag enrichment so large libraries expose complete basic metadata first, then update tag progress, classification, and recommendations through a resumable, rate-limited background queue.
+- Improved Windows 10 transparent Xiaomiao edge rendering and compact-display resize behavior at 125% scaling.
+- Enlarged the existing Xiaomiao application artwork by 8% while retaining its rounded background and complete Windows icon size ladder.
+
 ## 1.0.0 - 2026-07-13
 
 - Promoted the current Windows desktop application to the first stable `1.0.0` release.

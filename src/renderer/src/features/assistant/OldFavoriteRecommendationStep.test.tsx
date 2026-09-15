@@ -1,0 +1,98 @@
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { OldFavoriteRecommendationStep } from './OldFavoriteRecommendationStep'
+
+describe('OldFavoriteRecommendationStep multi-batch views', () => {
+  it('explains that adopted recommendations participate in the draft before later backup', () => {
+    render(<OldFavoriteRecommendationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2_000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [{ id: 'segment-1', index: 0, status: 'previewing', itemCount: 2, readiness: 'ready' }],
+        currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
+        recommendations: { candidates: [{ id: 'author-1', displayName: 'bilimi\u00b7UP', kind: 'author', count: 2, reason: 'current' }], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0, entries: [] }
+      }}
+      loading={false}
+      onSetRecommendedCandidates={vi.fn()}
+    />)
+
+    expect(screen.getByText('勾选后的推荐收藏夹可参与本轮整理；未备册不影响本轮草稿，整理结束后可再备册并同步到 B 站。')).toBeInTheDocument()
+    expect(screen.queryByText('全选只作用于当前候选组；取消勾选不会删除已有的 B 站收藏夹。')).not.toBeInTheDocument()
+  })
+
+  it('defaults to current-batch candidates and switches to completed whole-run counts without recomputing', () => {
+    render(<OldFavoriteRecommendationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: true, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [
+          { id: 'segment-1', index: 0, status: 'previewing', itemCount: 500, readiness: 'ready', completedTagItemCount: 500, pendingTagItemCount: 0 },
+          { id: 'segment-2', index: 1, status: 'previewing', itemCount: 1, readiness: 'tagging', completedTagItemCount: 0, pendingTagItemCount: 1 }
+        ], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
+        recommendations: {
+          candidates: [
+            { id: 'tag-current', displayName: '当前标签', kind: 'tag', count: 12, currentSegmentCount: 2, reason: 'current' },
+            { id: 'tag-other', displayName: '其他批标签', kind: 'tag', count: 10, currentSegmentCount: 0, reason: 'other' }
+          ], adoptedCandidateIds: []
+        }, history: { cursor: 0, length: 0, entries: [] },
+        overview: {
+          available: true, completedSegmentCount: 1, totalSegmentCount: 2, unavailableItemCount: 0, sourceFolders: [], archiveTargets: [],
+          recommendationCounts: [{ id: 'tag-current', count: 12 }, { id: 'tag-other', count: 10 }]
+        }
+      }}
+      loading={false} onSetRecommendedCandidates={vi.fn()}
+    />)
+
+    expect(screen.getByRole('group', { name: '推荐收藏夹视图' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '当前批次' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('2 条适合')).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: '当前标签' })).toHaveAttribute(
+      'title',
+      '高频标签收藏夹：当前标签\n本轮总共匹配：12 条\n当前批次匹配：2 条'
+    )
+    expect(screen.queryByRole('checkbox', { name: '其他批标签' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '本轮总览' }))
+
+    expect(screen.getByText('已汇总 1/2 批')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '其他批标签' })).toBeInTheDocument()
+    expect(screen.getByText('10 条适合')).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: '当前标签' })).toHaveAttribute(
+      'title',
+      '高频标签收藏夹：当前标签\n本轮总共匹配：12 条'
+    )
+  })
+
+  it('keeps data-layer source suffixes only when same-name recommendations were already disambiguated', () => {
+    render(<OldFavoriteRecommendationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 500, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [
+          { id: 'segment-1', index: 0, status: 'previewing', itemCount: 8, readiness: 'ready', completedTagItemCount: 8, pendingTagItemCount: 0 }
+        ], currentSegment: { id: 'segment-1', aids: [], items: [] }, classifications: {},
+        recommendations: {
+          candidates: [
+            { id: 'author-arknights', displayName: '明日方舟（UP）', kind: 'author', count: 5, currentSegmentCount: 5, reason: 'current' },
+            { id: 'tag-arknights', displayName: '明日方舟（标签）', kind: 'tag', count: 3, currentSegmentCount: 3, reason: 'current' }
+          ], adoptedCandidateIds: []
+        }, history: { cursor: 0, length: 0, entries: [] },
+        overview: {
+          available: true, completedSegmentCount: 1, totalSegmentCount: 1, unavailableItemCount: 0, sourceFolders: [], archiveTargets: [],
+          recommendationCounts: [{ id: 'author-arknights', count: 5 }, { id: 'tag-arknights', count: 3 }]
+        }
+      }}
+      loading={false} onSetRecommendedCandidates={vi.fn()}
+    />)
+
+    expect(screen.getByRole('article', { name: '明日方舟（UP）' })).toHaveAttribute(
+      'title',
+      '专属 UP 追更收藏夹：明日方舟（UP）\n本轮总共匹配：5 条\n当前批次匹配：5 条'
+    )
+    expect(screen.getByRole('article', { name: '明日方舟（标签）' })).toHaveAttribute(
+      'title',
+      '高频标签收藏夹：明日方舟（标签）\n本轮总共匹配：3 条\n当前批次匹配：3 条'
+    )
+  })
+})

@@ -4,10 +4,13 @@ import { describe, expect, it } from 'vitest'
 
 const stylesPath = resolve(process.cwd(), 'src/renderer/src/styles.css')
 const styles = readFileSync(stylesPath, 'utf8').replace(/\r\n/g, '\n')
+const archivePanelStylesPath = resolve(process.cwd(), 'src/renderer/src/features/notes/VideoNoteArchivePanel.css')
+const archivePanelStyles = readFileSync(archivePanelStylesPath, 'utf8').replace(/\r\n/g, '\n')
 
 describe('VideoNoteArchivePanel layout styles', () => {
   it('makes the return-to-notes button visually prominent in the archive header', () => {
-    const returnButtonStyle = styles.match(/\.video-note-archive__return-button \{[^}]+\}/)?.[0]
+    const returnButtonStyles = [...styles.matchAll(/\.video-note-archive__return-button \{[^}]+\}/g)].map((match) => match[0])
+    const returnButtonStyle = returnButtonStyles.find((style) => style.includes('display: inline-grid;'))
 
     expect(returnButtonStyle).toContain('display: inline-grid;')
     expect(returnButtonStyle).toContain('grid-template-columns: auto 28px auto;')
@@ -41,11 +44,29 @@ describe('VideoNoteArchivePanel layout styles', () => {
   it('keeps search, memo filter and starred filter on one compact row', () => {
     expect(styles).toContain('.video-note-archive__header,\n.video-note-archive__toolbar,\n.video-note-archive__actions {\n  display: flex;')
     expect(styles).toContain('justify-content: flex-end;')
-    expect(styles).toContain('.video-note-archive__toolbar,\n.video-note-archive__list {\n  border-top: 1px dashed rgba(31, 99, 181, 0.2);')
-    expect(styles).toContain('.video-note-archive__toolbar {\n  padding: 8px 0;\n  justify-content: flex-end;\n  align-items: flex-end;')
+    expect(styles).toContain('.video-note-archive__toolbar,\n.video-note-archive__list {\n  box-sizing: border-box;\n  width: calc(100% + (var(--porcelain-card-padding) * 2));\n  margin-inline: calc(var(--porcelain-card-padding) * -1);\n  border-top: 1px dashed rgba(31, 99, 181, 0.2);')
+    expect(styles).toContain('.video-note-archive__toolbar {\n  padding: 8px 0;\n  padding-inline: var(--porcelain-card-padding);\n  justify-content: flex-end;\n  align-items: flex-end;')
     expect(styles).toContain('.video-note-archive__toolbar label:first-child {\n  flex: 1 1 180px;')
     expect(styles).toContain('.video-note-archive__toolbar label:first-child input {\n  width: 100%;\n  height: 42px;')
     expect(styles).toContain('.video-note-archive__star-filter,\n.video-note-archive__memo-filter {\n  height: 42px;')
+  })
+
+  it('reserves visible scrollbar space inside the full-bleed archive list', () => {
+    expect(styles).toMatch(/\.video-note-archive__list \{[\s\S]*?width: calc\(100% \+ var\(--porcelain-card-padding\)\);[\s\S]*?margin-left: calc\(var\(--porcelain-card-padding\) \* -1\);/)
+    expect(styles).toMatch(/\.video-note-archive__list \{[\s\S]*?scrollbar-gutter: stable;/)
+    expect(styles).toMatch(/\.video-note-archive__list \{[\s\S]*?padding-right: calc\(var\(--porcelain-card-padding\) \+ 8px\);/)
+  })
+
+  it('wraps archive batch actions without overflowing a narrow sidebar', () => {
+    expect(styles).toMatch(/\.video-note-archive__batch-toolbar \{[\s\S]*?display: flex;[\s\S]*?flex-wrap: wrap;/)
+    expect(styles).toMatch(/\.video-note-archive__batch-status \{[\s\S]*?min-width: 0;[\s\S]*?overflow-wrap: anywhere;/)
+    expect(styles).toMatch(/\.video-note-archive__batch-actions \{[\s\S]*?display: flex;[\s\S]*?flex-wrap: wrap;/)
+    expect(styles).toContain('.video-note-archive__history-card[data-batch-mode="true"] {\n  grid-template-rows: auto auto auto minmax(0, 1fr);')
+  })
+
+  it('keeps normal archive cards full width and adds a checkbox column only in batch mode', () => {
+    expect(styles).toContain('.video-note-archive__list-item {\n  display: block;')
+    expect(styles).toContain('.video-note-archive__history-card[data-batch-mode="true"] .video-note-archive__list-item {\n  display: grid;\n  grid-template-columns: auto minmax(0, 1fr);')
   })
 
   it('keeps version controls, starred toggle and memo toggle on one row', () => {
@@ -86,15 +107,27 @@ describe('VideoNoteArchivePanel layout styles', () => {
     expect(styles).toContain('overflow-wrap: anywhere;')
   })
 
-  it('lets every archive result tab use the same inner result card scrollbar', () => {
+  it('gives archive documents a stable readable viewport instead of the legacy 160px cap', () => {
+    expect(styles).not.toContain('.video-notes__result-body {\n  max-height: 160px;')
     expect(styles).toContain(
-      '.video-notes__result-body {\n  max-height: 160px;\n  overflow: auto;\n  border-top: 1px dashed rgba(31, 99, 181, 0.18);'
+      '.video-note-archive__result-panel .video-notes__result-body {\n  min-height: 240px;\n  max-height: none;\n  overflow: auto;'
     )
     expect(styles).toContain(
       '.video-notes__result-body ol,\n.video-notes__result-body pre,\n.video-notes__result-body .video-notes__plain-text {\n  max-height: none;\n  overflow: visible;'
     )
+    expect(styles).toContain('.video-notes__timeline {\n  display: grid;')
+    expect(styles).toContain('.video-notes__timeline-row {\n  display: grid;')
+    expect(styles).toContain('.video-notes__timeline-row {\n  display: grid;\n  grid-template-columns: max-content minmax(0, 1fr);\n  gap: 10px;\n  align-items: baseline;')
+    expect(archivePanelStyles).toContain('.video-note-archive__timestamp-button {\n  appearance: none;')
+    expect(archivePanelStyles).toContain('  line-height: 1.75;')
+  })
+
+  it('keeps feedback out of the document sizing flow', () => {
     expect(styles).toContain(
-      '.video-note-archive__result-panel .video-notes__result-body {\n  border-top: 0;\n  padding-top: 0;'
+      '.video-notes__feedback {\n  position: absolute;\n  right: 0;\n  bottom: 0;\n  left: 0;'
+    )
+    expect(styles).toContain(
+      '.video-notes__feedback p {\n  max-height: 3em;\n  margin: 0;\n  overflow: auto;'
     )
   })
 })

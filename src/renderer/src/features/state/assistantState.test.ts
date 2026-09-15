@@ -3,14 +3,153 @@ import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import {
   createInitialAssistantPreferences,
   createInitialAssistantState,
+  effectiveFavoriteLedgersForAccount,
+  favoriteLedgersForAccount,
+  applyImmediatePreferencePatch,
+  applyFavoriteLedgerEnabledPatch,
+  withFavoriteLedgersForAccount,
   reduceAssistantState,
   recordAssistantPreferenceFeedback
 } from './assistantState'
 import type { AssistantAction } from '@shared/types'
+import { classifyVideoContent } from '../recommendation/videoClassifier'
 
 const LIKE_ACTION = '赞' as AssistantAction
 
 describe('assistant state', () => {
+  it('preserves valid hidden managed-folder IDs when hydrating account preferences', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [],
+          hiddenFavoriteLibraryManagedLedgerIds: [' music ', 'music', '', 'not a valid id']
+        }
+      }
+    })
+
+    expect(preferences.favoriteAccountPreferences?.['100']?.hiddenFavoriteLibraryManagedLedgerIds).toEqual(['music'])
+  })
+
+  it('normalizes the per-account favorite discovery notice dismissal flag', () => {
+    const legacy = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: []
+        }
+      }
+    })
+    expect(legacy.favoriteAccountPreferences?.['100']?.favoriteDiscoveryNoticeDismissed ?? false).toBe(false)
+
+    const dismissed = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [],
+          favoriteDiscoveryNoticeDismissed: true
+        },
+        '200': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [],
+          favoriteDiscoveryNoticeDismissed: 'true' as never
+        }
+      }
+    })
+    expect(dismissed.favoriteAccountPreferences?.['100']?.favoriteDiscoveryNoticeDismissed).toBe(true)
+    expect(dismissed.favoriteAccountPreferences?.['200']?.favoriteDiscoveryNoticeDismissed ?? false).toBe(false)
+  })
+
+  it('migrates a legacy recommendation deletion record to an ordinary saved rule during preference normalization', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [],
+          deletedFavoriteLedgerRecords: [{
+            logicalLedgerId: 'deleted-recommendation',
+            deletedAt: '2026-09-05T00:00:00.000Z',
+            ledger: {
+              id: 'deleted-recommendation',
+              displayName: 'bilimi·已删除推荐',
+              keywords: ['已删除推荐'],
+              enabled: true,
+              priority: 10,
+              ruleOrigin: 'recommendation-draft',
+              bindingState: 'unbacked',
+              bilibiliFolderId: '77',
+              isDefault: false
+            }
+          }]
+        }
+      }
+    })
+
+    expect(preferences.favoriteAccountPreferences?.['100']?.deletedFavoriteLedgerRecords).toEqual([
+      expect.objectContaining({
+        logicalLedgerId: 'deleted-recommendation',
+        ledger: expect.objectContaining({
+          ruleOrigin: 'saved-rule',
+          bilibiliFolderId: '77'
+        })
+      })
+    ])
+  })
+
+  it('applies one account ledger enabled patch without rebuilding unrelated accounts or ledgers', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [
+            { id: 'first', displayName: 'bilimi·first', enabled: false, keywords: [], ruleType: 'keyword', priority: 10, isDefault: false },
+            { id: 'second', displayName: 'bilimi·second', enabled: true, keywords: [], ruleType: 'keyword', priority: 20, isDefault: false }
+          ],
+          transcriptionModelId: 'whisper-small'
+        },
+        '200': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: [],
+          transcriptionModelId: 'whisper-small'
+        }
+      }
+    })
+    const otherAccount = preferences.favoriteAccountPreferences?.['200']
+    const untouchedLedger = preferences.favoriteAccountPreferences?.['100']?.favoriteLedgers[1]
+
+    const next = applyFavoriteLedgerEnabledPatch(preferences, { accountMid: '100', ledgerId: 'first', enabled: true })
+
+    expect(next.favoriteAccountPreferences?.['100']?.favoriteLedgers[0]?.enabled).toBe(true)
+    expect(next.favoriteAccountPreferences?.['100']?.favoriteLedgers[1]).toBe(untouchedLedger)
+    expect(next.favoriteAccountPreferences?.['200']).toBe(otherAccount)
+  })
+
+  it('defaults automatic pet startup to enabled and preserves an explicit opt-out', () => {
+    expect((createInitialAssistantPreferences() as unknown as Record<string, unknown>).autoShowPetOnStartup).toBe(true)
+    expect((createInitialAssistantPreferences({ autoShowPetOnStartup: false } as never) as unknown as Record<string, unknown>).autoShowPetOnStartup).toBe(false)
+  })
+  it('applies an interactive setting patch without cloning unrelated heavy preferences', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteCorrectionRecords: [{
+        id: 'record-1', aid: 1, title: 'Heavy preference record', originalLedgerId: 'inbox', userLedgerIds: ['game'],
+        source: 'user', feedbackType: 'strong-correction', sourceScene: 'archive-preview', tags: [], matchedKeywords: [],
+        createdAt: '2026-07-29T00:00:00.000Z', confirmedAt: '2026-07-29T00:00:00.000Z'
+      }]
+    })
+    const records = preferences.favoriteCorrectionRecords
+    const accounts = preferences.favoriteAccountPreferences
+
+    const next = applyImmediatePreferencePatch(preferences, { hidePetDuringVideoFullscreen: true })
+
+    expect(next.hidePetDuringVideoFullscreen).toBe(true)
+    expect(next.favoriteCorrectionRecords).toBe(records)
+    expect(next.favoriteAccountPreferences).toBe(accounts)
+  })
+  it('reuses the current preference object when an acknowledged patch changes nothing', () => {
+    const preferences = createInitialAssistantPreferences({ deepseekEnabled: true })
+
+    expect(applyImmediatePreferencePatch(preferences, { deepseekEnabled: true })).toBe(preferences)
+  })
   it('records funny likes into local preferences', () => {
     const next = reduceAssistantState(createInitialAssistantState(), {
       type: 'record-feedback',
@@ -106,6 +245,13 @@ describe('assistant state', () => {
     )
   })
 
+  it('migrates a missing device-wide Bilibili connection choice to auto', () => {
+    expect(createInitialAssistantPreferences({}).bilibiliConnectionMode).toBe('auto')
+    expect(createInitialAssistantPreferences({ bilibiliConnectionMode: 'direct' }).bilibiliConnectionMode).toBe('direct')
+    expect(createInitialAssistantPreferences({ bilibiliConnectionMode: 'system' as never }).bilibiliConnectionMode).toBe('auto')
+    expect(createInitialAssistantPreferences({ bilibiliConnectionMode: 'invalid' as never }).bilibiliConnectionMode).toBe('auto')
+  })
+
   it('increments persisted preference counts after a successful action', () => {
     const next = recordAssistantPreferenceFeedback(createInitialAssistantPreferences(), 'funny', LIKE_ACTION)
 
@@ -162,6 +308,110 @@ describe('assistant state', () => {
     expect(createInitialAssistantPreferences()).not.toHaveProperty(
       'deepseekOldFavoriteAssistanceEnabled'
     )
+  })
+
+  it('keeps favorite ledgers scoped to the active account when replacing them', () => {
+    const firstAccountLedgers = [{
+      id: 'first', displayName: 'bilimi·第一账号', keywords: [], enabled: true, priority: 10, isDefault: false
+    }]
+    const secondAccountLedgers = [{
+      id: 'second', displayName: 'bilimi·第二账号', keywords: [], enabled: true, priority: 10, isDefault: false
+    }]
+    const preferences = createInitialAssistantPreferences({
+      favoriteLedgers: createDefaultFavoriteLedgers(),
+      favoriteAccountPreferences: {
+        '100': { defaultFavoriteSystemEnabled: false, favoriteLedgers: firstAccountLedgers },
+        '200': { defaultFavoriteSystemEnabled: true, favoriteLedgers: secondAccountLedgers }
+      }
+    })
+
+    expect(favoriteLedgersForAccount(preferences, '100')).toEqual(expect.arrayContaining(firstAccountLedgers))
+    expect(favoriteLedgersForAccount(preferences, '100')).not.toEqual(expect.arrayContaining(secondAccountLedgers))
+    expect(withFavoriteLedgersForAccount(preferences, '100', secondAccountLedgers)).toMatchObject({
+      favoriteLedgers: createDefaultFavoriteLedgers(),
+      favoriteAccountPreferences: {
+        '100': { defaultFavoriteSystemEnabled: false, favoriteLedgers: expect.arrayContaining(secondAccountLedgers) },
+        '200': { defaultFavoriteSystemEnabled: true, favoriteLedgers: expect.arrayContaining(secondAccountLedgers) }
+      }
+    })
+  })
+
+  it('preserves each account transcription model when normalizing and replacing ledgers', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': { defaultFavoriteSystemEnabled: true, favoriteLedgers: [], transcriptionModelId: 'faster-whisper-large-v3-turbo' }
+      }
+    })
+
+    expect(preferences.favoriteAccountPreferences?.['100']?.transcriptionModelId).toBe('faster-whisper-large-v3-turbo')
+    expect(withFavoriteLedgersForAccount(preferences, '100', [])
+      .favoriteAccountPreferences?.['100']?.transcriptionModelId).toBe('faster-whisper-large-v3-turbo')
+  })
+
+  it('removes ordinary defaults from an account effective target set while retaining staging and custom targets', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: false,
+          favoriteLedgers: [
+            { id: 'knowledge', displayName: 'bilimi·知识', keywords: ['科技'], enabled: true, priority: 10, isDefault: true },
+            { id: 'inbox', displayName: 'bilimi·暂存', keywords: [], enabled: true, priority: 20, isDefault: true },
+            { id: 'custom', displayName: '自建', keywords: ['科技'], enabled: true, priority: 30, isDefault: false }
+          ]
+        }
+      }
+    })
+
+    expect(effectiveFavoriteLedgersForAccount(preferences, '100')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'knowledge', enabled: false, isDefault: false }),
+      expect.objectContaining({ id: 'inbox', enabled: true }),
+      expect.objectContaining({ id: 'custom', enabled: true })
+    ]))
+    expect(classifyVideoContent({ title: '科技视频' }, effectiveFavoriteLedgersForAccount(preferences, '100')))
+      .toMatchObject({ ledgerId: 'custom' })
+  })
+
+  it('projects default folders as automatic review targets while the default system is enabled', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => ({
+            ...ledger,
+            enabled: false
+          }))
+        }
+      }
+    })
+
+    expect(effectiveFavoriteLedgersForAccount(preferences, '100')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'knowledge', enabled: true }),
+        expect.objectContaining({ id: 'game', enabled: true }),
+        expect.objectContaining({ id: 'inbox', enabled: true })
+      ])
+    )
+  })
+
+  it('keeps a default folder selected after its Bilibili backup was deleted', () => {
+    const preferences = createInitialAssistantPreferences({
+      favoriteAccountPreferences: {
+        '100': {
+          defaultFavoriteSystemEnabled: true,
+          favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => ledger.id === 'music'
+            ? { ...ledger, enabled: false, managedFolderDeletedByUser: true }
+            : { ...ledger, enabled: false })
+        }
+      }
+    })
+
+    const effective = effectiveFavoriteLedgersForAccount(preferences, '100')
+
+    expect(effective.find((ledger) => ledger.id === 'music')).toMatchObject({
+      enabled: true,
+      managedFolderDeletedByUser: true
+    })
+    expect(effective.find((ledger) => ledger.id === 'knowledge')).toMatchObject({ enabled: true })
   })
 
   it('preserves persisted coin and comment choices', () => {
@@ -442,6 +692,20 @@ describe('assistant state', () => {
       ],
       favoriteKeywordSuggestions: []
     })
+  })
+
+  it('normalizes the next-round old-favorite segment limit to 500 through 5000 or the experimental unlimited value', () => {
+    expect(createInitialAssistantPreferences()).toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 500 } as never))
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 500 })
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 5_000 } as never))
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 5_000 })
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: Number.MAX_SAFE_INTEGER } as never))
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: Number.MAX_SAFE_INTEGER })
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 499 } as never))
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
+    expect(createInitialAssistantPreferences({ oldFavoriteWorkspaceSegmentSize: 5_001 } as never))
+      .toMatchObject({ oldFavoriteWorkspaceSegmentSize: 2_000 })
   })
 
   it('clears legacy correction records once before the adjustment-record schema is enabled', () => {

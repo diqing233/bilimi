@@ -41,23 +41,17 @@ export function resolveMainWindowCloseAction({
   confirmation?: CloseConfirmationResult
   preferences: AssistantPreferences
 }): MainWindowCloseAction {
-  if (preferences.closeBehavior === 'minimize-to-tray' && !confirmation) {
-    return { kind: 'minimize-to-tray' }
-  }
-
-  if (!preferences.confirmBeforeExit && !confirmation) {
-    return { kind: 'exit-launcher' }
-  }
-
   if (!confirmation) {
-    return { kind: 'confirm-before-exit' }
+    return Boolean(preferences.rememberCloseChoice)
+      ? { kind: preferences.closeBehavior }
+      : { kind: 'confirm-before-exit' }
   }
 
   if (confirmation.response === 0) {
     return {
       kind: 'minimize-to-tray',
       preferencePatch: confirmation.checkboxChecked
-        ? { closeBehavior: 'minimize-to-tray' }
+        ? { closeBehavior: 'minimize-to-tray', rememberCloseChoice: true }
         : undefined
     }
   }
@@ -66,7 +60,7 @@ export function resolveMainWindowCloseAction({
     return {
       kind: 'exit-launcher',
       preferencePatch: confirmation.checkboxChecked
-        ? { closeBehavior: 'exit-launcher', confirmBeforeExit: false }
+        ? { closeBehavior: 'exit-launcher', rememberCloseChoice: true }
         : undefined
     }
   }

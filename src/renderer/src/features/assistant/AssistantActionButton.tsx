@@ -1,8 +1,8 @@
 import type { ButtonHTMLAttributes } from 'react'
 
 type AssistantActionButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  icon: string
-  iconAlt: string
+  icon?: string
+  iconAlt?: string
   badge: string
   label: string
   description: string

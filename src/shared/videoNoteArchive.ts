@@ -21,8 +21,13 @@ function formatTimestamp(seconds: number | null): string {
   return `${minutes.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`
 }
 
-function createVersionId(note: VideoNote, createdAt: string): string {
-  return `${note.id}:version:${createdAt}`
+function createVersionId(note: VideoNote, createdAt: string, existingVersionIds: ReadonlySet<string>): string {
+  const baseId = `${note.id}:version:${createdAt}`
+  if (!existingVersionIds.has(baseId)) return baseId
+
+  let suffix = 2
+  while (existingVersionIds.has(`${baseId}:${suffix}`)) suffix += 1
+  return `${baseId}:${suffix}`
 }
 
 function timelineText(items: VideoNoteTimelineItem[], emptyText: string): string {
@@ -39,7 +44,7 @@ function transcriptText(segments: TranscriptSegment[]): string {
   return segments
     .map((segment) => segment.text.trim())
     .filter(Boolean)
-    .join('\n\n')
+    .join('\n')
 }
 
 export function createPlainTranscriptText(note: VideoNote): string {
@@ -72,16 +77,19 @@ export function createPolishedTranscriptText(poster: NotePosterSummary): string 
 
 export type NotePosterCopyParts = {
   summaryText: string
+  detailedOutlineText: string
   polishedTranscriptText: string
 }
 
-function textBeforeHeading(value: string, heading: string): string {
-  const index = value.search(new RegExp(`^##\\s+${heading}\\s*$`, 'mu'))
+const POSTER_HEADINGS = ['详细内容提要', '精修文稿', '内容核对清单', '待人工确认'] as const
+
+function textBeforeHeading(value: string, heading: string) {
+  const index = value.search(new RegExp(`^##\\s+${heading}(?:（\\d+）)?\\s*$`, 'mu'))
   return index >= 0 ? value.slice(0, index).trim() : value.trim()
 }
 
-function textBetweenHeadings(value: string, startHeading: string, endHeading: string): string {
-  const startMatch = new RegExp(`^##\\s+${startHeading}\\s*$`, 'mu').exec(value)
+function textBetweenHeadings(value: string, startHeading: string, endHeadings: readonly string[]) {
+  const startMatch = new RegExp(`^##\\s+${startHeading}(?:（\\d+）)?\\s*$`, 'mu').exec(value)
 
   if (!startMatch) {
     return ''
@@ -89,16 +97,42 @@ function textBetweenHeadings(value: string, startHeading: string, endHeading: st
 
   const start = startMatch.index + startMatch[0].length
   const rest = value.slice(start)
-  const endIndex = rest.search(new RegExp(`^##\\s+${endHeading}\\s*$`, 'mu'))
+  const endIndex = rest.search(new RegExp(`^##\\s+(?:${endHeadings.join('|')})(?:（\\d+）)?\\s*$`, 'mu'))
 
   return (endIndex >= 0 ? rest.slice(0, endIndex) : rest).trim()
 }
 
 export function createNotePosterCopyParts(summaryText: string): NotePosterCopyParts {
+  const legacyDetail = textBetweenHeadings(summaryText, '内容核对清单', ['待人工确认'])
+    .replace(/(?:^|\n)精修记录：[\s\S]*$/u, '')
+    .trim()
+  const currentDetail = textBetweenHeadings(summaryText, '详细内容提要', ['精修文稿', '待人工确认'])
+  const summary = textBeforeHeading(textBeforeHeading(textBeforeHeading(summaryText, '精修文稿'), '待人工确认'), '内容核对清单')
+  const summaryWithLegacyDetail = !currentDetail && legacyDetail
+    ? [summary, '## 详细内容提要', legacyDetail].join('\n\n')
+    : summary
   return {
-    summaryText: textBeforeHeading(textBeforeHeading(summaryText, '精修文稿'), '内容核对清单'),
-    polishedTranscriptText: textBetweenHeadings(summaryText, '精修文稿', '内容核对清单')
+    summaryText: summaryWithLegacyDetail,
+    detailedOutlineText: currentDetail || legacyDetail,
+    polishedTranscriptText: textBetweenHeadings(summaryText, '精修文稿', ['详细内容提要', '内容核对清单', '待人工确认'])
   }
+}
+
+/** Makes legacy poster text safe for display/export without mutating its saved archive value. */
+export function normalizeNotePosterTextForDisplay(summaryText: string): string {
+  if (!/##\s+(?:精准总结|精修文稿|内容核对清单|详细内容提要|待人工确认)/u.test(summaryText)) {
+    return summaryText.trim()
+  }
+  const copyParts = createNotePosterCopyParts(summaryText)
+  const reviewText = textBetweenHeadings(summaryText, '待人工确认', [])
+    .replace(/(?:^|\n)精修记录：[\s\S]*$/u, '')
+    .replace(/(^|\n)(\s*(?:[-*+]\s*)?)segment-\d+\s*[：:]\s*/giu, '$1$2')
+    .trim()
+  return [
+    copyParts.summaryText,
+    copyParts.polishedTranscriptText ? `## 精修文稿\n\n${copyParts.polishedTranscriptText}` : '',
+    reviewText ? `## 待人工确认\n\n${reviewText}` : ''
+  ].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 function normalizeArchiveVersion(version: VideoNoteArchiveVersion): VideoNoteArchiveVersion {
@@ -107,7 +141,7 @@ function normalizeArchiveVersion(version: VideoNoteArchiveVersion): VideoNoteArc
   return {
     ...version,
     note,
-    plainTranscript: version.plainTranscript ?? createPlainTranscriptText(note),
+    plainTranscript: createPlainTranscriptText(note),
     summaryText: version.summaryText ?? createSummaryText(note)
   }
 }
@@ -144,15 +178,15 @@ export function appendVideoNoteArchiveVersion(
   const normalizedArchives = normalizeVideoNoteArchives(archives)
   const normalizedNote = normalizeVideoNote(note)
   const archiveId = createVideoNoteId(normalizedNote.source)
+  const existingArchive = normalizedArchives.find((archive) => archive.id === archiveId)
+  const existingVersionIds = new Set(existingArchive?.versions.map((version) => version.id) ?? [])
   const version: VideoNoteArchiveVersion = {
-    id: createVersionId(normalizedNote, createdAt),
+    id: createVersionId(normalizedNote, createdAt, existingVersionIds),
     note: normalizedNote,
     plainTranscript: createPlainTranscriptText(normalizedNote),
     summaryText,
     createdAt
   }
-  const existingArchive = normalizedArchives.find((archive) => archive.id === archiveId)
-
   if (!existingArchive) {
     return [
       ...normalizedArchives,
@@ -209,8 +243,7 @@ export function createNotePosterSummaryText(poster: NotePosterSummary): string {
     poster.title ? `### ${poster.title}` : '',
     poster.subtitle,
     '',
-    ...poster.keyPoints.map((point) => '- ' + point),
-    poster.keywords.length > 0 ? '关键词：' + poster.keywords.join('、') : ''
+    ...poster.keyPoints.map((point) => '- ' + point)
   ]
     .filter((line) => line !== undefined && line !== null)
     .join('\n')
@@ -220,14 +253,24 @@ export function createNotePosterSummaryText(poster: NotePosterSummary): string {
 
 export function createNotePosterText(poster: NotePosterSummary): string {
   const polishedTranscriptText = createPolishedTranscriptText(poster)
-  const auditChecklistText = poster.auditChecklistText?.trim()
-
+  const reviewItems = poster.reviewItems?.map((item) => ({ text: item.text.trim(), reason: item.reason.trim() }))
+    .filter((item) => item.text && item.reason) ?? []
+  const detailedOutline = poster.detailedOutline?.map((item) => item.trim()).filter(Boolean) ?? []
+  for (const reviewItem of reviewItems) {
+    const index = detailedOutline.findIndex((item) => item.includes(reviewItem.text))
+    const marker = `${reviewItem.text}（待确认：${reviewItem.reason}）`
+    if (index >= 0) detailedOutline[index] = detailedOutline[index].replace(reviewItem.text, marker).replace(/）\s+/gu, '）')
+    else detailedOutline.push(`待确认：${reviewItem.text}（${reviewItem.reason}）`)
+  }
+  const legacyDetail = poster.auditChecklistText?.trim()
+    .replace(/^#+\s*内容核对清单\s*/u, '')
+    .replace(/(?:^|\n)精修记录：[\s\S]*$/u, '')
+    .trim()
   return [
     createNotePosterSummaryText(poster),
-    polishedTranscriptText ? ['', '## 精修文稿', '', polishedTranscriptText] : '',
-    auditChecklistText
-      ? ['', '## 内容核对清单', '', auditChecklistText.replace(/^#+\s*内容核对清单\s*/u, '').trim()]
-      : ''
+    detailedOutline.length ? ['', '## 详细内容提要', '', ...detailedOutline.map((item) => `- ${item}`)]
+      : legacyDetail ? ['', '## 详细内容提要', '', legacyDetail] : '',
+    polishedTranscriptText ? ['', '## 精修文稿', '', polishedTranscriptText] : ''
   ]
     .flat()
     .filter((line) => line !== undefined && line !== null)

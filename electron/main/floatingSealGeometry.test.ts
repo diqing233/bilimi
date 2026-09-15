@@ -3,11 +3,13 @@ import {
   createAssistantPanelPosition,
   createFloatingAssistantBounds,
   createFloatingHostBounds,
+  createFloatingHostMovementArea,
   createInitialFloatingSealVisualBounds,
   createFloatingVisualBounds,
   createFloatingMenuBounds,
   createFixedFloatingSealBounds,
   createFloatingSealDragPosition,
+  createFloatingSealPositionInsideWorkArea,
   createFloatingSealResizeBounds,
   createFloatingSealStepResizeBounds
 } from './floatingSealGeometry'
@@ -31,6 +33,33 @@ describe('floating seal geometry', () => {
         currentCursor: { x: 180, y: 270 }
       })
     ).toEqual({ x: 140, y: 230 })
+  })
+
+  it('keeps the visible pet at the right edge while transparent padding extends offscreen', () => {
+    expect(
+      createFloatingSealPositionInsideWorkArea({
+        position: { x: 1300, y: -12 },
+        hostSize: { width: 336, height: 380 },
+        workArea: { x: 0, y: 0, width: 1536, height: 832 },
+        padding: { top: 0, right: 28, bottom: 28, left: 28 }
+      })
+    ).toEqual({ x: 1228, y: 0 })
+  })
+
+  it.each([
+    ['left', { x: -100, y: 200 }, { x: -28, y: 200 }],
+    ['right', { x: 1800, y: 200 }, { x: 1612, y: 200 }],
+    ['top', { x: 400, y: -100 }, { x: 400, y: 0 }],
+    ['bottom', { x: 400, y: 900 }, { x: 400, y: 688 }]
+  ])('clamps the visible pet to the %s edge without consuming transparent padding', (_edge, position, expected) => {
+    expect(
+      createFloatingSealPositionInsideWorkArea({
+        position,
+        hostSize: { width: 336, height: 380 },
+        workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+        padding: { top: 0, right: 28, bottom: 28, left: 28 }
+      })
+    ).toEqual(expected)
   })
 
   it('places the assistant panel beside the floating seal inside the main window', () => {
@@ -107,6 +136,15 @@ describe('floating menu geometry', () => {
 
     expect(hostBounds).toEqual({ x: 872, y: 520, width: 336, height: 380 })
     expect(createFloatingVisualBounds({ hostBounds, padding })).toEqual(visualBounds)
+  })
+
+  it('expands the valid host movement area by transparent padding', () => {
+    expect(
+      createFloatingHostMovementArea({
+        visualWorkArea: { x: 0, y: 0, width: 1920, height: 1040 },
+        padding: { top: 0, right: 28, bottom: 28, left: 28 }
+      })
+    ).toEqual({ x: -28, y: 0, width: 1976, height: 1068 })
   })
 
   it('resizes the floating pet host proportionally around the pet foot anchor', () => {

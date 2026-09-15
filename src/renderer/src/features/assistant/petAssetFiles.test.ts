@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { inflateSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
@@ -151,7 +152,7 @@ function readOpaqueBounds(filename: string, assetDir: string) {
   }
 }
 
-describe('big-head pet asset files', () => {
+describe('pet asset files', () => {
   it('uses compact transparent Q-version sprites for every state', () => {
     const stateFiles = ['idle.png', 'clicked.png', 'working.png', 'error.png', 'hint.png']
 
@@ -172,34 +173,17 @@ describe('big-head pet asset files', () => {
     expect(countOpaquePixelsInBand('error.png', (x, _y, width) => x >= width - 30)).toBe(0)
   })
 
-  it(
-    'adapts the new clicked illustration to every pet canvas without shifting its anchor',
-    () => {
-      const variants = [
-        { assetDir: BIG_HEAD_ASSET_DIR, width: 434, height: 461, bottomGap: 16 },
-        { assetDir: CLASSIC_ASSET_DIR, width: 512, height: 512, bottomGap: 23 },
-        { assetDir: LEGACY_ASSET_DIR, width: 512, height: 512, bottomGap: 23 }
-      ]
+  it('keeps the original standing Q-version clicked illustration in both compatible locations', () => {
+    const expectedHash = 'e8202ebe0c807b0328ce12f60debad71987ee92f70f9da4ccf98ba2c1d26cc50'
+    const classicClicked = readFileSync(resolve(CLASSIC_ASSET_DIR, 'clicked.png'))
+    const legacyClicked = readFileSync(resolve(LEGACY_ASSET_DIR, 'clicked.png'))
 
-      for (const variant of variants) {
-        expect(readPngMetadata('clicked.png', variant.assetDir)).toEqual({
-          width: variant.width,
-          height: variant.height,
-          colorType: 6
-        })
+    expect(classicClicked).toEqual(legacyClicked)
+    expect(createHash('sha256').update(classicClicked).digest('hex')).toBe(expectedHash)
+  })
 
-        const bounds = readOpaqueBounds('clicked.png', variant.assetDir)
-
-        expect(bounds.width / bounds.height).toBeGreaterThan(0.78)
-        expect(bounds.width / bounds.height).toBeLessThan(0.82)
-        expect(Math.abs(bounds.centerX - (bounds.canvasWidth - 1) / 2)).toBeLessThanOrEqual(2)
-        expect(bounds.bottomGap).toBe(variant.bottomGap)
-      }
-
-      expect(readFileSync(resolve(CLASSIC_ASSET_DIR, 'clicked.png'))).toEqual(
-        readFileSync(resolve(LEGACY_ASSET_DIR, 'clicked.png'))
-      )
-    },
-    10_000
-  )
+  it('does not retain unused crying sprite files', () => {
+    expect(existsSync(resolve(BIG_HEAD_ASSET_DIR, 'crying.png'))).toBe(false)
+    expect(existsSync(resolve(CLASSIC_ASSET_DIR, 'crying.png'))).toBe(false)
+  })
 })

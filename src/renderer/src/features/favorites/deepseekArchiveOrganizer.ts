@@ -10,6 +10,7 @@ import {
   type FavoriteArchivePlanItemState,
   type FavoriteArchivePlanState
 } from './favoriteArchivePlanState'
+import { formatUserVisibleErrorMessage } from '../assistant/userVisibleErrorMessage'
 
 type FavoriteArchiveOrganizeRequest = Extract<
   DeepSeekGenerateRequest,
@@ -136,6 +137,10 @@ function isApplicableResult(
   currentState: FavoriteArchivePlanState
 ): result is DeepSeekArchiveVideoResult & { aid: number } {
   return !result.invalid && typeof result.aid === 'number' && Boolean(findItemForResult(currentState, result))
+}
+
+function deepSeekResultErrorMessage(message: string | undefined, fallback: string): string {
+  return formatUserVisibleErrorMessage(message ? new Error(message) : null, fallback)
 }
 
 function selectTargets(args: {
@@ -279,7 +284,12 @@ export function applyDeepSeekArchiveResults(
     if (result.invalid) {
       recordNonApplication(result.failureKind === 'request-failed' ? 'request-failed' : 'invalid-result')
       messages.push(
-        `DeepSeek 未应用：${result.aid ?? '未知视频'} ${result.errorMessage ?? '返回信息不完整'}`
+        `DeepSeek 未应用：${result.aid ?? '未知视频'} ${deepSeekResultErrorMessage(
+          result.errorMessage,
+          result.failureKind === 'request-failed'
+            ? 'DeepSeek 请求失败，请检查服务设置后重试。'
+            : '返回信息不完整'
+        )}`
       )
       continue
     }
@@ -287,7 +297,7 @@ export function applyDeepSeekArchiveResults(
     if (!isApplicableResult(result, nextState)) {
       recordNonApplication('unmatched-video')
       messages.push(
-        `DeepSeek 未应用：${result.aid ?? '未知视频'} ${result.errorMessage ?? '无法匹配原视频'}`
+        `DeepSeek 未应用：${result.aid ?? '未知视频'} ${deepSeekResultErrorMessage(result.errorMessage, '无法匹配原视频')}`
       )
       continue
     }

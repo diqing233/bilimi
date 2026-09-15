@@ -20,6 +20,7 @@ export type PetMotion =
   | 'cheer'
   | 'sleepy'
   | 'surprised'
+  | 'crying'
   | 'done'
 
 export type PetTransient = 'clicked'

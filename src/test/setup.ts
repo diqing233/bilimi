@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterEach } from 'vitest'
+import { afterEach, vi } from 'vitest'
 
 if (typeof window.PointerEvent === 'undefined') {
   class PointerEventPolyfill extends MouseEvent {
@@ -25,7 +25,23 @@ if (typeof window.PointerEvent === 'undefined') {
   })
 }
 
+// JSDOM exposes scrollTo but reports it as unimplemented during modal cleanup.
+Object.defineProperty(window, 'scrollTo', {
+  configurable: true,
+  writable: true,
+  value: () => undefined
+})
+
 afterEach(() => {
   cleanup()
+  document.body.replaceChildren()
+  document.documentElement.style.overflow = ''
+  Reflect.deleteProperty(document, 'cookie')
+  localStorage.clear()
+  sessionStorage.clear()
+  vi.clearAllTimers()
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   Reflect.deleteProperty(window, 'bilimiDesktop')
 })

@@ -1,6 +1,7 @@
 ﻿import { describe, expect, it, vi } from 'vitest'
 import {
   createAssistantRuntimeTimeoutMs,
+  installAssistantRuntimeReadinessLifecycle,
   requestAssistantRuntimeWhenReady
 } from './assistantRuntimeSignal'
 import type { AssistantRuntimeResponse } from './assistantRuntimeSignal'
@@ -15,25 +16,56 @@ function createAutomationResult(ok: boolean): AssistantAutomationResult {
   }
 }
 
-function createRuntimeTarget(isLoading: boolean) {
+function createRuntimeTarget(isLoading: boolean, isRuntimeReady = true) {
   let finishLoad: (() => void) | undefined
+  let destroyed: (() => void) | undefined
+  let runtimeReady: (() => void) | undefined
+  let targetDestroyed = false
   const send = vi.fn()
   const once = vi.fn((event: string, callback: () => void) => {
     if (event === 'did-finish-load') {
       finishLoad = callback
+    } else if (event === 'destroyed') {
+      destroyed = callback
     }
   })
+  const removeListener = vi.fn((event: string, callback: () => void) => {
+    if (event === 'did-finish-load' && finishLoad === callback) {
+      finishLoad = undefined
+    } else if (event === 'destroyed' && destroyed === callback) {
+      destroyed = undefined
+    }
+  })
+  const onceRuntimeReady = vi.fn((callback: () => void) => {
+    runtimeReady = callback
+  })
+  const removeRuntimeReadyListener = vi.fn()
 
   return {
+    destroy: () => {
+      targetDestroyed = true
+      destroyed?.()
+    },
     finishLoad: () => finishLoad?.(),
+    markRuntimeReady: () => {
+      isRuntimeReady = true
+      runtimeReady?.()
+    },
     target: {
-      isDestroyed: () => false,
+      isDestroyed: () => targetDestroyed,
+      isRuntimeReady: () => isRuntimeReady,
+      onceRuntimeReady,
+      removeRuntimeReadyListener,
       webContents: {
         isLoading: () => isLoading,
         once,
+        removeListener,
         send
       }
     },
+    onceRuntimeReady,
+    removeRuntimeReadyListener,
+    removeListener,
     once,
     send
   }
@@ -43,6 +75,11 @@ function createResponseBus() {
   let responseListener:
     | ((_event: unknown, response: AssistantRuntimeResponse) => void)
     | undefined
+  const on = vi.fn((event: string, listener: typeof responseListener) => {
+    if (event === 'assistant-runtime:response') {
+      responseListener = listener
+    }
+  })
   const once = vi.fn((event: string, listener: typeof responseListener) => {
     if (event === 'assistant-runtime:response') {
       responseListener = listener
@@ -52,38 +89,35 @@ function createResponseBus() {
 
   return {
     emitResponse: (response: AssistantRuntimeResponse) => responseListener?.({}, response),
+    on,
     once,
     removeListener
   }
 }
 
 describe('requestAssistantRuntimeWhenReady', () => {
+  it('installs readiness reset listeners on the concrete runtime window', () => {
+    const listeners = new Map<string, () => void>()
+    const clearReady = vi.fn()
+    const clearWaiters = vi.fn()
+    const win = {
+      webContents: {
+        id: 42,
+        on: vi.fn((event: string, callback: () => void) => listeners.set(event, callback))
+      }
+    }
+
+    installAssistantRuntimeReadinessLifecycle(win, { clearReady, clearWaiters })
+
+    listeners.get('did-start-loading')?.()
+    listeners.get('destroyed')?.()
+    expect(clearReady).toHaveBeenCalledTimes(2)
+    expect(clearReady).toHaveBeenCalledWith(42)
+    expect(clearWaiters).toHaveBeenCalledWith(42)
+  })
+
   it('uses a long default timeout for long-running runtime requests', () => {
     expect(createAssistantRuntimeTimeoutMs({ type: 'generate-video-note-from-audio' })).toBe(
-      30 * 60 * 1000
-    )
-    expect(createAssistantRuntimeTimeoutMs({ type: 'scan-old-favorites' })).toBe(30 * 60 * 1000)
-    expect(
-      createAssistantRuntimeTimeoutMs({
-        type: 'rejudge-old-favorite',
-        item: {
-          aid: 250,
-          title: '待重判旧藏',
-          sourceFolderTitle: '默认收藏夹',
-          targetLedgerId: 'inbox',
-          targetFolderId: '9008',
-          targetDisplayName: 'bilimi·暂存',
-          reviewRequired: false,
-          alreadyInTarget: false,
-          selected: false,
-          originalSuggestedLedgerIds: [],
-          currentTargetLedgerIds: [],
-          selectedTargetLedgerIds: [],
-          lowConfidence: false
-        }
-      })
-    ).toBe(30 * 60 * 1000)
-    expect(createAssistantRuntimeTimeoutMs({ type: 'execute-old-favorite-plan', items: [] })).toBe(
       30 * 60 * 1000
     )
     expect(
@@ -143,11 +177,73 @@ describe('requestAssistantRuntimeWhenReady', () => {
     await expect(promise).resolves.toMatchObject({ ok: true })
   })
 
-  it('waits for renderer load before sending the runtime request', () => {
+  it('dispatches concurrent responses out of order through one shared response listener', async () => {
+    const { target, send } = createRuntimeTarget(false)
+    const bus = createResponseBus()
+    const longRequest = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
+      createRequestId: () => 'req-long',
+      request: { type: 'generate-video-note-from-audio' },
+      responseBus: bus,
+      target,
+      timeoutMs: 100
+    })
+    const snapshotRequest = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
+      createRequestId: () => 'req-snapshot',
+      request: { type: 'snapshot' },
+      responseBus: bus,
+      target,
+      timeoutMs: 100
+    })
+
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(bus.on).toHaveBeenCalledTimes(1)
+    expect(bus.once).not.toHaveBeenCalled()
+
+    bus.emitResponse({
+      id: 'req-snapshot',
+      ok: true,
+      payload: createAutomationResult(true)
+    })
+    await expect(snapshotRequest).resolves.toMatchObject({ ok: true })
+
+    bus.emitResponse({
+      id: 'req-long',
+      ok: true,
+      payload: createAutomationResult(true)
+    })
+    await expect(longRequest).resolves.toMatchObject({ ok: true })
+  })
+
+  it('rejects a duplicate request id before replacing the pending request', async () => {
+    const { target, send } = createRuntimeTarget(false)
+    const bus = createResponseBus()
+    const firstRequest = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
+      createRequestId: () => 'req-duplicate',
+      request: { type: 'snapshot' },
+      responseBus: bus,
+      target,
+      timeoutMs: 100
+    })
+    const duplicateRequest = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
+      createRequestId: () => 'req-duplicate',
+      request: { type: 'snapshot' },
+      responseBus: bus,
+      target,
+      timeoutMs: 100
+    })
+
+    await expect(duplicateRequest).rejects.toThrow('Duplicate assistant runtime request id: req-duplicate')
+    expect(send).toHaveBeenCalledTimes(1)
+
+    bus.emitResponse({ id: 'req-duplicate', ok: true, payload: createAutomationResult(true) })
+    await expect(firstRequest).resolves.toMatchObject({ ok: true })
+  })
+
+  it('waits for renderer load before sending the runtime request', async () => {
     const { finishLoad, target, once, send } = createRuntimeTarget(true)
     const bus = createResponseBus()
 
-    void requestAssistantRuntimeWhenReady({
+    const promise = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
       createRequestId: () => 'req-2',
       request: { type: 'snapshot' },
       responseBus: bus,
@@ -164,6 +260,79 @@ describe('requestAssistantRuntimeWhenReady', () => {
       id: 'req-2',
       type: 'snapshot'
     })
+    bus.emitResponse({ id: 'req-2', ok: true, payload: createAutomationResult(true) })
+    await expect(promise).resolves.toMatchObject({ ok: true })
+  })
+
+  it('does not send a loading runtime request after it has timed out', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { finishLoad, target, removeListener, send } = createRuntimeTarget(true)
+      const bus = createResponseBus()
+      const promise = requestAssistantRuntimeWhenReady({
+        createRequestId: () => 'req-loading-timeout',
+        request: { type: 'snapshot' },
+        responseBus: bus,
+        target,
+        timeoutMs: 100
+      })
+      const rejection = expect(promise).rejects.toThrow('Assistant runtime request timed out.')
+
+      await vi.advanceTimersByTimeAsync(100)
+      await rejection
+      finishLoad()
+
+      expect(send).not.toHaveBeenCalled()
+      expect(removeListener).toHaveBeenCalledWith('did-finish-load', expect.any(Function))
+      expect(removeListener).toHaveBeenCalledWith('destroyed', expect.any(Function))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects a loading request and removes its listeners when the target is destroyed', async () => {
+    const { destroy, target, removeListener, send } = createRuntimeTarget(true)
+    const bus = createResponseBus()
+    const promise = requestAssistantRuntimeWhenReady({
+      createRequestId: () => 'req-loading-destroyed',
+      request: { type: 'snapshot' },
+      responseBus: bus,
+      target,
+      timeoutMs: 100
+    })
+
+    destroy()
+
+    await expect(promise).rejects.toThrow('Assistant runtime target was destroyed.')
+    expect(send).not.toHaveBeenCalled()
+    expect(removeListener).toHaveBeenCalledWith('did-finish-load', expect.any(Function))
+    expect(removeListener).toHaveBeenCalledWith('destroyed', expect.any(Function))
+  })
+
+  it('waits for the renderer runtime registration after the page has loaded', async () => {
+    const { markRuntimeReady, target, onceRuntimeReady, send } = createRuntimeTarget(false, false)
+    const bus = createResponseBus()
+    const promise = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
+      createRequestId: () => 'req-ready',
+      request: { type: 'snapshot' },
+      responseBus: bus,
+      target,
+      timeoutMs: 100
+    })
+
+    expect(send).not.toHaveBeenCalled()
+    expect(onceRuntimeReady).toHaveBeenCalledTimes(1)
+
+    markRuntimeReady()
+
+    expect(send).toHaveBeenCalledWith('assistant-runtime:request', {
+      id: 'req-ready',
+      type: 'snapshot'
+    })
+
+    bus.emitResponse({ id: 'req-ready', ok: true, payload: createAutomationResult(true) })
+    await expect(promise).resolves.toMatchObject({ ok: true })
   })
 
   it('rejects when the runtime returns an error response', async () => {
@@ -215,29 +384,6 @@ describe('requestAssistantRuntimeWhenReady', () => {
       await vi.advanceTimersByTimeAsync(8000)
 
       bus.emitResponse({ id: 'req-5', ok: true, payload: createAutomationResult(true) })
-
-      await expect(promise).resolves.toMatchObject({ ok: true })
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('keeps old favorite scans alive past the default quick request timeout', async () => {
-    vi.useFakeTimers()
-
-    try {
-      const { target } = createRuntimeTarget(false)
-      const bus = createResponseBus()
-      const promise = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
-        createRequestId: () => 'req-6',
-        request: { type: 'scan-old-favorites' },
-        responseBus: bus,
-        target
-      })
-
-      await vi.advanceTimersByTimeAsync(8000)
-
-      bus.emitResponse({ id: 'req-6', ok: true, payload: createAutomationResult(true) })
 
       await expect(promise).resolves.toMatchObject({ ok: true })
     } finally {

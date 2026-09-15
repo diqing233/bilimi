@@ -130,9 +130,9 @@ export function buildStripCaptionPowerShellArgs(hwndDecimal: string): string[] {
 export function installFloatingSealCaptionStrip(
   target: CaptionStripTarget,
   options: CaptionStripOptions = {}
-): void {
+): Promise<void> {
   if (target.isDestroyed()) {
-    return
+    return Promise.resolve()
   }
 
   const log = options.logger ?? (() => {})
@@ -142,7 +142,7 @@ export function installFloatingSealCaptionStrip(
     hwndDecimal = extractHwndDecimal(target.getNativeWindowHandle())
   } catch (error) {
     log('floatingSealCaptionStrip: failed to read native handle', error)
-    return
+    return Promise.resolve()
   }
 
   let args: string[]
@@ -150,26 +150,40 @@ export function installFloatingSealCaptionStrip(
     args = buildStripCaptionPowerShellArgs(hwndDecimal)
   } catch (error) {
     log('floatingSealCaptionStrip: failed to build script', error)
-    return
+    return Promise.resolve()
   }
 
   const spawnFn = options.spawn
   if (!spawnFn) {
     log('floatingSealCaptionStrip: spawn unavailable')
-    return
+    return Promise.resolve()
   }
 
-  try {
-    const child = spawnFn(options.powershellPath ?? POWERSHELL_DEFAULT, args, {
-      windowsHide: true,
-      // 用 pipe 接 PS 脚本里的 stdout（成功摘要）和 stderr（catch 写出的异常）。
-      stdio: 'pipe'
-    })
-    if (child && typeof child === 'object') {
+  return new Promise((resolve) => {
+    let settled = false
+    const settle = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    try {
+      const child = spawnFn(options.powershellPath ?? POWERSHELL_DEFAULT, args, {
+        windowsHide: true,
+        // 用 pipe 接 PS 脚本里的 stdout（成功摘要）和 stderr（catch 写出的异常）。
+        stdio: 'pipe'
+      })
+      if (!child || typeof child !== 'object') {
+        settle()
+        return
+      }
       if (typeof child.on === 'function') {
         child.on('error', ((error: unknown) => {
           log('floatingSealCaptionStrip: powershell spawn error', error)
+          settle()
         }) as (...args: never[]) => void)
+        child.on('close', settle as (...args: never[]) => void)
+      } else {
+        settle()
       }
       const stdout = child.stdout
       if (stdout && typeof stdout.on === 'function') {
@@ -189,8 +203,9 @@ export function installFloatingSealCaptionStrip(
           }
         })
       }
+    } catch (error) {
+      log('floatingSealCaptionStrip: spawn threw', error)
+      settle()
     }
-  } catch (error) {
-    log('floatingSealCaptionStrip: spawn threw', error)
-  }
+  })
 }

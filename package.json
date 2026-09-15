@@ -1,7 +1,7 @@
 {
   "name": "bilimi",
   "productName": "bilimi",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "private": false,
   "description": "Electron desktop app for browsing Bilibili with a local assistant sidebar.",
   "author": "diqing",
@@ -20,6 +20,7 @@
     "dist:win": "npm ci && npm run build && npm run setup:electron && npm run setup:media-tools && set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/&& electron-builder --win nsis --publish never"
   },
   "dependencies": {
+    "docx": "^9.5.1",
     "electron-store": "^10.1.0",
     "opencc-js": "^1.3.1",
     "react": "^19.1.0",
@@ -58,7 +59,16 @@
     "extraResources": [
       {
         "from": "tools/win32",
-        "to": "tools/win32"
+        "to": "tools/win32",
+        "filter": [
+          "**/*",
+          "!whisper/models/**",
+          "!transcription-models/**"
+        ]
+      },
+      {
+        "from": "tools/win32/transcription-models/sensevoice-small",
+        "to": "tools/win32/transcription-models/sensevoice-small"
       }
     ],
     "win": {

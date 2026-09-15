@@ -9,6 +9,16 @@ import type {
   NotePosterSummary,
   VideoNote
 } from '../../src/shared/types'
+import {
+  applyFaithfulProofreadingBatch,
+  assembleFaithfulTranscript,
+  createFaithfulTranscriptBatches,
+  createFaithfulTranscriptSegments,
+  type FaithfulTranscriptBatch,
+  type FaithfulTranscriptCorrection,
+  type FaithfulTranscriptReviewItem
+} from './faithfulTranscriptPolishing'
+import { retryTransientDeepSeekRequest, type DeepSeekRetryDelay, type DeepSeekRetryProgress } from './deepseekRetry'
 
 export type DeepSeekConfig = {
   enabled: boolean
@@ -24,10 +34,14 @@ type DeepSeekMessage = {
 
 type DeepSeekChoiceResponse = {
   model?: string
-  choices?: Array<{ message?: { content?: string } }>
+  choices?: Array<{ finish_reason?: string; message?: { content?: string } }>
 }
 
 const REVIEW_COMMENT_CHARACTER_LIMIT = 100
+const DEFAULT_DEEPSEEK_REQUEST_TIMEOUT_MS = 90_000
+const DEFAULT_OLD_FAVORITE_REQUEST_TIMEOUT_MS = 180_000
+const DEFAULT_PROOFREADING_REQUEST_TIMEOUT_MS = 20_000
+const DEFAULT_SUMMARY_REQUEST_TIMEOUT_MS = 300_000
 
 const VALID_KEYWORD_SUGGESTION_ACTIONS = new Set<FavoriteKeywordSuggestionAction>([
   'add-keyword',
@@ -62,51 +76,8 @@ function trimTo(value: string, maxLength: number): string {
   return trimmed.length > maxLength ? trimmed.slice(0, maxLength).trim() : trimmed
 }
 
-function trimJsonPayload<T>(items: T[], maxLength: number): T[] {
-  const selected: T[] = []
-  let usedLength = 2
-
-  for (const item of items) {
-    const serialized = JSON.stringify(item)
-    const nextLength = usedLength + serialized.length + (selected.length > 0 ? 1 : 0)
-    if (nextLength > maxLength) {
-      break
-    }
-
-    selected.push(item)
-    usedLength = nextLength
-  }
-
-  return selected
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function selectTranscriptForSummary(note: VideoNote): VideoNote['transcript'] {
-  const transcript = note.transcript.filter((segment) => Boolean(segment.text.trim()))
-  if (transcript.length <= 30) {
-    return transcript
-  }
-
-  const head = trimJsonPayload(transcript, 18000)
-  if (head.length === transcript.length) {
-    return head
-  }
-
-  const tail = trimJsonPayload([...transcript].reverse(), 6000).reverse()
-  const selected = [...head, ...tail].filter(
-    (segment, index, segments) =>
-      segments.findIndex(
-        (candidate) =>
-          candidate.start === segment.start &&
-          candidate.end === segment.end &&
-          candidate.text === segment.text
-      ) === index
-  )
-
-  return selected
 }
 
 function coerceStringArray(value: unknown, limit: number): string[] {
@@ -116,6 +87,24 @@ function coerceStringArray(value: unknown, limit: number): string[] {
         .map((item) => item.trim())
         .slice(0, limit)
     : []
+}
+
+function coerceSummaryStringArray(value: unknown, limit: number): string[] {
+  if (Array.isArray(value)) return coerceStringArray(value, limit)
+  if (typeof value !== 'string') return []
+  return value
+    .split(/\r?\n/gu)
+    .map((item) => item.trim().replace(/^\s*(?:[-*•]|\d+[.)、])\s*/u, ''))
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+function firstNonEmptySummaryField(record: Record<string, unknown>, keys: string[]): unknown {
+  return keys.map((key) => record[key]).find((value) => {
+    if (typeof value === 'string') return Boolean(value.trim())
+    if (Array.isArray(value)) return value.length > 0
+    return value !== undefined && value !== null
+  })
 }
 
 function isUnclassifiedLedgerId(value: string): boolean {
@@ -198,13 +187,6 @@ function isUsefulShortNoteKeyPoint(value: string): boolean {
   return value.replace(/\s+/g, '').length >= 8
 }
 
-function createTranscriptText(note: VideoNote): string {
-  return selectTranscriptForSummary(note)
-    .map((segment) => segment.text.trim())
-    .filter(Boolean)
-    .join('\n\n')
-}
-
 function parseJsonContent(content: string): unknown {
   const trimmed = content.trim()
 
@@ -222,17 +204,6 @@ function parseJsonContent(content: string): unknown {
       throw new DeepSeekServiceError('invalid-output', 'DeepSeek returned invalid JSON.')
     }
   }
-}
-
-function summarizeNote(note: VideoNote): string {
-  return JSON.stringify({
-    source: note.source,
-    overview: note.overview,
-    transcript: selectTranscriptForSummary(note),
-    chapters: note.chapters.slice(0, 12),
-    annotations: note.annotations.slice(0, 12),
-    userMemo: note.userMemo
-  })
 }
 
 function invalidArchiveResult(
@@ -289,8 +260,6 @@ function parseArchiveResultRow(
       : undefined
   const targetLedgerIds = coerceStringArray(row.targetLedgerIds, 3)
   const reason = typeof row.reason === 'string' ? row.reason.trim() : ''
-  const confidence =
-    typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : undefined
   const invalidReasons: string[] = []
 
   if (aid === undefined) {
@@ -298,12 +267,6 @@ function parseArchiveResultRow(
   }
   if (!Array.isArray(row.targetLedgerIds) || targetLedgerIds.length === 0) {
     invalidReasons.push('invalid targetLedgerIds')
-  }
-  if (confidence === undefined || confidence < 0 || confidence > 1) {
-    invalidReasons.push('invalid confidence')
-  }
-  if (!reason) {
-    invalidReasons.push('invalid reason')
   }
   if (
     shouldRejectUnclassifiedForMeaningfulVideo({
@@ -321,7 +284,7 @@ function parseArchiveResultRow(
     targetLedgerIds,
     keepOriginal: row.keepOriginal === true,
     reason,
-    confidence,
+    confidence: typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : undefined,
     lowConfidence: row.lowConfidence === true,
     secondPassChanged: row.secondPassChanged === true
   }
@@ -415,6 +378,7 @@ function invalidDailyClassificationReviewResult(
 ): DeepSeekDailyClassificationReviewResult {
   return {
     targetLedgerIds,
+    appliedConstraintLedgerIds: [],
     corrected: false,
     reason,
     confidence:
@@ -436,6 +400,12 @@ function parseDailyClassificationReviewResult(
   const allowedLedgerIds = enabledLedgerIdsForRequest(request)
   const targetLedgerIds = coerceStringArray(row.targetLedgerIds, 3).filter((ledgerId) =>
     allowedLedgerIds.has(ledgerId)
+  )
+  const constrainedLedgerIds = new Set(request.ledgers
+    .filter((ledger) => ledger.enabled && Boolean(ledger.deepSeekConstraint?.trim()))
+    .map((ledger) => ledger.id))
+  const appliedConstraintLedgerIds = coerceStringArray(row.appliedConstraintLedgerIds, 3).filter(
+    (ledgerId) => targetLedgerIds.includes(ledgerId) && constrainedLedgerIds.has(ledgerId)
   )
   const confidence =
     typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : undefined
@@ -476,6 +446,7 @@ function parseDailyClassificationReviewResult(
   return {
     kind: 'favorite-daily-classify-review',
     targetLedgerIds,
+    appliedConstraintLedgerIds,
     corrected: row.corrected === true,
     reason,
     confidence,
@@ -505,26 +476,6 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
     ]
   }
 
-  if (request.kind === 'note-poster') {
-    return [
-      {
-        role: 'system',
-        content:
-          [
-            '你是 DeepSeek 视频札记总结助手，请使用简体中文处理视频文稿。',
-            '第一阶段：先作为专业文稿整理编辑，基于用户提供的视频标题、简介、完整可用文稿、章节、批注和备注生成“精修文稿” polishedTranscriptText。严格按视频讲述顺序整理，尽量信息不失真，不得总结、压缩、简化、合并删减案例、数据、对话、观点、举例、数字、问答细节或限制条件；保留所有人物对话、数值、时间、案例、正反观点、专有名词、分点论述和问答内容；只修正明显错别字、口误、断句和语病，修改后原意不变；非中文内容翻译成中文来分析；识别不确定处用“疑似：”标注。',
-            '第二阶段：再基于 polishedTranscriptText 生成精准总结。title 点出主题；subtitle 写整体主旨；keyPoints 输出 6 到 8 条可复习的核心内容，每条保留关键数据、核心结论、中心观点、重要举例、限制条件，去掉口水话、重复话和铺垫话，但禁止过度精简导致信息缺失；keywords 输出 4 到 8 个关键词。',
-            '最后生成“内容核对清单” auditChecklistText，列出原文全部核心信息点，包括人物、数据、时间、案例、观点、问答、结论和可能需要人工确认的内容，证明无遗漏。不要编造材料外的信息。',
-            'Return JSON only: {"title":"","subtitle":"","keyPoints":[],"keywords":[],"prompt":"","polishedTranscriptText":"","auditChecklistText":""}.'
-          ].join(' ')
-      },
-      {
-        role: 'user',
-        content: summarizeNote(request.note)
-      }
-    ]
-  }
-
   if (request.kind === 'favorite-archive-organize') {
     return [
       {
@@ -534,12 +485,10 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
           'You may only output existing enabled bilimi ledgers from the provided ledger list, or 未分类 when the video should not be archived.',
           'When no exact ledger exists but the video has meaningful topic signals, choose the closest existing enabled ledger instead of 未分类.',
           'Use 未分类 only as a last resort for empty, unsafe, spammy, or genuinely unclassifiable videos; if you choose it, explain why no existing ledger fits.',
-          'When choosing a closest existing ledger for a missing exact topic, include keywordSuggestions only for the final chosen ledger.',
-          'If a ledger has deepSeekConstraint, you must use it as folder-specific decision guidance. It is not a keyword list; do not classify a video only because a word appears inside the constraint text.',
-          'You cannot create folders and cannot directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
-          'Echo sourceFolderTitle from each input video in every result so duplicate aid rows from different source folders can be applied to the intended row.',
+          'If a ledger has deepSeekConstraint, you must use it as folder-specific decision guidance. A matching constraint takes precedence over local keywords, automatic classifications, and existing targets. When a constraint applies, include that ledger in targetLedgerIds. It is not a keyword list; do not classify a video only because a word appears inside the constraint text. If applicable constraints conflict, choose the best-supported ledger.',
+          'You cannot create folders and cannot directly edit keywords.',
           'Respect multiArchiveLimit for targetLedgerIds. Use keepOriginal only when the current targets should remain alongside the suggested targets.',
-          'Return JSON only: {"results":[{"aid":1,"sourceFolderTitle":"默认收藏夹","targetLedgerIds":["ledger-id"],"keepOriginal":false,"reason":"","confidence":0.8,"lowConfidence":false,"secondPassChanged":false}],"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]}'
+          'Return JSON only: {"results":[{"aid":1,"targetLedgerIds":["ledger-id"],"keepOriginal":false}]}. Include a short reason only when targetLedgerIds is ["未分类"].'
         ].join(' ')
       },
       {
@@ -564,10 +513,10 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
           'When no exact ledger exists but the video has meaningful topic signals, choose the closest existing enabled ledger instead of inbox/unclassified.',
           'Use inbox/unclassified only as a last resort for empty, unsafe, spammy, or genuinely unclassifiable videos; if you choose it, explain why no existing ledger fits.',
           'When choosing a closest existing ledger for a missing exact topic, include keywordSuggestions only for the final chosen ledger.',
-          'If a ledger has deepSeekConstraint, use it as folder-specific decision guidance. It is not a keyword list; do not classify a video only because a word appears inside the constraint text.',
+          'If a ledger has deepSeekConstraint, use it as folder-specific decision guidance. A matching constraint takes precedence over local keywords, automatic classifications, and existing targets. When a constraint applies, include that ledger in targetLedgerIds. It is not a keyword list; do not classify a video only because a word appears inside the constraint text. If applicable constraints conflict, choose the best-supported ledger and explain the conflict in reason.',
           'Do not create folders and do not directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
           'Set corrected=true only when the local classification should be replaced before executing. If local targets are correct, echo them and set corrected=false.',
-          'Return JSON only: {"targetLedgerIds":["ledger-id"],"corrected":false,"reason":"","confidence":0.8,"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]}'
+          'Return JSON only: {"targetLedgerIds":["ledger-id"],"appliedConstraintLedgerIds":["ledger-id"],"corrected":false,"reason":"","confidence":0.8,"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]} Use appliedConstraintLedgerIds only for enabled ledgers whose deepSeekConstraint you actually applied, and only when that ledger is included in targetLedgerIds.'
         ].join(' ')
       },
       {
@@ -603,7 +552,8 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
 
 function parseResult(
   request: DeepSeekGenerateRequest,
-  content: string
+  content: string,
+  finishReason?: string
 ): DeepSeekGenerateResult {
   if (request.kind === 'review-comment') {
     const parsed = parseJsonContent(content) as { comments?: unknown }
@@ -618,66 +568,15 @@ function parseResult(
     return { kind: 'review-comment', comments }
   }
 
-  if (request.kind === 'note-poster') {
-    const parsed = parseJsonContent(content) as Partial<NotePosterSummary>
-    const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
-    const subtitle = typeof parsed.subtitle === 'string' ? parsed.subtitle.trim() : ''
-    const prompt = typeof parsed.prompt === 'string' ? parsed.prompt.trim() : ''
-    const keyPoints = coerceStringArray(parsed.keyPoints, 8)
-    const keywords = coerceStringArray(parsed.keywords, 8)
-    const sourceTranscriptText = createTranscriptText(request.note)
-    const shortNote = sourceTranscriptText.replace(/\s+/g, '').length < 200
-    const parsedPolishedTranscriptText =
-      typeof parsed.polishedTranscriptText === 'string' ? parsed.polishedTranscriptText.trim() : ''
-    const parsedAuditChecklistText =
-      typeof parsed.auditChecklistText === 'string' ? parsed.auditChecklistText.trim() : ''
-    const polishedTranscriptText =
-      parsedPolishedTranscriptText || (shortNote ? sourceTranscriptText : '')
-    const auditChecklistText =
-      parsedAuditChecklistText ||
-      (shortNote && keyPoints.length > 0
-        ? keyPoints.map((point) => `- ${point}`).join('\n')
-        : '')
-    const minimumKeyPointCount = shortNote ? 1 : 2
-    const usefulKeyPoint = shortNote ? isUsefulShortNoteKeyPoint : isUsefulNoteKeyPoint
-    const invalidReasons: string[] = []
-
-    if (!title) invalidReasons.push('缺少标题')
-    if (!subtitle) invalidReasons.push('缺少主旨')
-    if (keyPoints.length < minimumKeyPointCount) {
-      invalidReasons.push(`核心内容少于 ${minimumKeyPointCount} 条`)
-    }
-    if (keyPoints.some((point) => !usefulKeyPoint(point))) {
-      invalidReasons.push(shortNote ? '核心内容过短' : '核心内容缺少有效细节')
-    }
-    if (!polishedTranscriptText) invalidReasons.push('缺少精修文稿')
-    if (!auditChecklistText) invalidReasons.push('缺少内容核对清单')
-
-    if (invalidReasons.length > 0) {
-      throw new DeepSeekServiceError(
-        'invalid-output',
-        `DeepSeek 总结内容不完整：${invalidReasons.join('、')}。`
-      )
-    }
-
-    return {
-      kind: 'note-poster',
-      poster: {
-        title,
-        subtitle,
-        keyPoints,
-        keywords,
-        prompt,
-        polishedTranscriptText,
-        auditChecklistText
-      }
-    }
-  }
-
   if (request.kind === 'favorite-archive-organize') {
-    const parsed = parseJsonContent(content) as {
-      results?: unknown
-      keywordSuggestions?: unknown
+    let parsed: { results?: unknown; keywordSuggestions?: unknown }
+    try {
+      parsed = parseJsonContent(content) as { results?: unknown; keywordSuggestions?: unknown }
+    } catch (error) {
+      if (error instanceof DeepSeekServiceError && finishReason === 'length') {
+        throw new DeepSeekServiceError('invalid-output', `${error.message} (finish_reason: length)`)
+      }
+      throw error
     }
 
     if (!Array.isArray(parsed.results)) {
@@ -708,7 +607,32 @@ export async function generateDeepSeekResult(options: {
   request: DeepSeekGenerateRequest
   fetchImpl?: typeof fetch
   signal?: AbortSignal
-  onResponseMetadata?: (metadata: { model?: string }) => void
+  /** Bounds each provider HTTP attempt so a stalled compatible endpoint cannot leave IPC pending forever. */
+  requestTimeoutMs?: number
+  onResponseMetadata?: (metadata: { model?: string; finishReason?: string }) => void
+  retryDelay?: DeepSeekRetryDelay
+  retryDelaysMs?: readonly number[]
+  onRetry?: (progress: DeepSeekRetryProgress) => void
+  notePosterCheckpoint?: {
+    polishedTranscriptText?: string
+    completedBatchIds?: string[]
+    polishedTextBySegmentId?: Record<string, string>
+    corrections?: FaithfulTranscriptCorrection[]
+    reviewItems?: FaithfulTranscriptReviewItem[]
+    proofreadingCompleted: boolean
+  }
+  onNotePosterCheckpoint?: (checkpoint: {
+    completedBatchIds: string[]
+    polishedTextBySegmentId: Record<string, string>
+    corrections: FaithfulTranscriptCorrection[]
+    reviewItems: FaithfulTranscriptReviewItem[]
+    proofreadingCompleted: boolean
+  }) => void
+  onNotePosterProgress?: (progress: {
+    stage: 'proofreading-batch' | 'summary'
+    batchIndex?: number
+    batchCount?: number
+  }) => void
 }): Promise<DeepSeekGenerateResult> {
   const apiKey = options.config.apiKey.trim()
   if (!options.config.enabled || !apiKey) {
@@ -716,22 +640,325 @@ export async function generateDeepSeekResult(options: {
   }
 
   const fetchImpl = options.fetchImpl ?? fetch
+  const requestTimeoutMs = options.requestTimeoutMs ?? (options.request.kind === 'favorite-archive-organize'
+    ? DEFAULT_OLD_FAVORITE_REQUEST_TIMEOUT_MS
+    : DEFAULT_DEEPSEEK_REQUEST_TIMEOUT_MS)
+
+  const requestMessages = async (
+    messages: DeepSeekMessage[],
+    temperature: number,
+    responseFormatJson = false,
+    timeoutMs = requestTimeoutMs
+  ): Promise<{ content: string; finishReason?: string }> => {
+    let response: Response
+    try {
+      response = await retryTransientDeepSeekRequest(async () => {
+        const request = createBoundedRequestSignal(options.signal, timeoutMs)
+        try {
+          const next = await Promise.race([
+            fetchImpl(createEndpoint(options.config.baseUrl), {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+              },
+              signal: request.signal,
+              body: JSON.stringify({
+                model: options.config.model,
+                messages,
+                temperature,
+                ...(responseFormatJson ? { response_format: { type: 'json_object' } } : {})
+              })
+            }),
+            request.timeout
+          ])
+          if (!next.ok) {
+            throw new DeepSeekServiceError(
+              'api-error',
+              `DeepSeek API request failed: ${next.status} ${next.statusText}`.trim()
+            )
+          }
+          return next
+        } catch (error) {
+          if (request.timedOut()) {
+            throw new DeepSeekServiceError(
+              'network-error',
+              `DeepSeek request timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`
+            )
+          }
+          throw error
+        } finally {
+          request.dispose()
+        }
+      }, {
+        delay: options.retryDelay,
+        signal: options.signal,
+        retryDelaysMs: options.retryDelaysMs,
+        onRetry: options.onRetry
+      })
+    } catch (error) {
+      if (error instanceof DeepSeekServiceError) throw error
+      throw new DeepSeekServiceError(
+        'network-error',
+        error instanceof Error ? error.message : 'DeepSeek network request failed.'
+      )
+    }
+
+    let payload: DeepSeekChoiceResponse
+    try {
+      payload = JSON.parse(await response.text()) as DeepSeekChoiceResponse
+    } catch {
+      throw new DeepSeekServiceError('invalid-output', 'DeepSeek returned invalid response JSON.')
+    }
+
+    const finishReason =
+      typeof payload.choices?.[0]?.finish_reason === 'string' && payload.choices[0].finish_reason.trim()
+        ? payload.choices[0].finish_reason.trim()
+        : undefined
+    options.onResponseMetadata?.({
+      model: typeof payload.model === 'string' && payload.model.trim() ? payload.model.trim() : undefined,
+      finishReason
+    })
+    const content = payload.choices?.[0]?.message?.content
+    if (typeof content !== 'string') {
+      throw new DeepSeekServiceError('invalid-output', 'DeepSeek response did not include content.')
+    }
+    return { content, finishReason }
+  }
+
+  if (options.request.kind === 'note-poster') {
+    const note = options.request.note
+    const sourceSegments = createFaithfulTranscriptSegments(note)
+    const batches = createFaithfulTranscriptBatches(note)
+    const sourceTextById = new Map(sourceSegments.map((segment) => [segment.id, segment.text]))
+    const polishedTextBySegmentId = new Map(sourceTextById)
+    for (const [id, text] of Object.entries(options.notePosterCheckpoint?.polishedTextBySegmentId ?? {})) {
+      if (sourceTextById.has(id) && typeof text === 'string') polishedTextBySegmentId.set(id, text)
+    }
+    const completedBatchIds = new Set(options.notePosterCheckpoint?.completedBatchIds ?? [])
+    const corrections: FaithfulTranscriptCorrection[] = [...(options.notePosterCheckpoint?.corrections ?? [])]
+    const reviewItems: FaithfulTranscriptReviewItem[] = [...(options.notePosterCheckpoint?.reviewItems ?? [])]
+
+    for (const [batchIndex, batch] of batches.entries()) {
+      if (options.notePosterCheckpoint?.proofreadingCompleted || completedBatchIds.has(batch.sourceStartSegmentId)) continue
+      options.onNotePosterProgress?.({
+        stage: 'proofreading-batch',
+        batchIndex: batchIndex + 1,
+        batchCount: batches.length
+      })
+      let response: Awaited<ReturnType<typeof requestMessages>>
+      try {
+        response = await requestMessages(
+          createProofreadingMessages(batch),
+          0.1,
+          true,
+          Math.min(requestTimeoutMs, DEFAULT_PROOFREADING_REQUEST_TIMEOUT_MS)
+        )
+      } catch (error) {
+        const proofreadingTimedOut =
+          error instanceof DeepSeekServiceError &&
+          error.code === 'network-error' &&
+          /timed out/i.test(error.message)
+        if (!proofreadingTimedOut) throw error
+
+        // Some compatible gateways cannot finish structured proofreading even
+        // for tiny batches. Preserve the source transcript and continue with
+        // the user's requested summary instead of blocking the whole action.
+        for (const remainingBatch of batches.slice(batchIndex)) {
+          completedBatchIds.add(remainingBatch.sourceStartSegmentId)
+        }
+        options.onNotePosterCheckpoint?.({
+          completedBatchIds: [...completedBatchIds],
+          polishedTextBySegmentId: Object.fromEntries([...polishedTextBySegmentId]
+            .filter(([id, text]) => sourceTextById.get(id) !== text)),
+          corrections,
+          reviewItems,
+          proofreadingCompleted: true
+        })
+        break
+      }
+      let parsed: unknown
+      try {
+        parsed = parseJsonContent(response.content)
+        const result = applyFaithfulProofreadingBatch(batch, parsed, response.finishReason)
+        for (const segment of result.polishedSegments) polishedTextBySegmentId.set(segment.id, segment.text)
+        corrections.push(...result.corrections)
+        reviewItems.push(...result.reviewItems)
+        completedBatchIds.add(batch.sourceStartSegmentId)
+        options.onNotePosterCheckpoint?.({
+          completedBatchIds: [...completedBatchIds],
+          polishedTextBySegmentId: Object.fromEntries([...polishedTextBySegmentId]
+            .filter(([id, text]) => sourceTextById.get(id) !== text)),
+          corrections,
+          reviewItems,
+          proofreadingCompleted: completedBatchIds.size === batches.length
+        })
+      } catch (error) {
+        throw new DeepSeekServiceError(
+          'invalid-output',
+          error instanceof Error ? error.message : 'DeepSeek 保真精修结果无效。'
+        )
+      }
+    }
+
+    const polishedTranscriptText = options.notePosterCheckpoint?.proofreadingCompleted && options.notePosterCheckpoint.polishedTranscriptText
+      ? options.notePosterCheckpoint.polishedTranscriptText
+      : assembleFaithfulTranscript(sourceSegments, polishedTextBySegmentId)
+    options.onNotePosterProgress?.({ stage: 'summary' })
+    const summaryTimeoutMs = options.requestTimeoutMs === undefined
+      ? DEFAULT_SUMMARY_REQUEST_TIMEOUT_MS
+      : Math.max(requestTimeoutMs, requestTimeoutMs * 2)
+    const summaryResponse = await requestMessages(
+      createSummaryMessages(note, polishedTranscriptText),
+      0.3,
+      true,
+      summaryTimeoutMs
+    )
+    if (summaryResponse.finishReason === 'length') {
+      throw new DeepSeekServiceError('invalid-output', 'DeepSeek 总结结果被长度限制截断。')
+    }
+    const parsedRoot = parseJsonContent(summaryResponse.content) as Partial<NotePosterSummary> & Record<string, unknown>
+    const parsed = parsedRoot.summary && typeof parsedRoot.summary === 'object'
+      ? parsedRoot.summary as Partial<NotePosterSummary> & Record<string, unknown>
+      : parsedRoot
+    let title = [parsed.title, parsed.标题, parsed.heading]
+      .find((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+      ?.trim() ?? ''
+    const parsedSubtitle = firstNonEmptySummaryField(parsed, ['subtitle', '主旨', '摘要', 'summary'])
+    let subtitle = typeof parsedSubtitle === 'string' ? parsedSubtitle.trim() : ''
+    // Poster prompt had no consumer; do not spend output tokens persisting it.
+    const prompt = ''
+    let keyPoints = coerceSummaryStringArray(
+      firstNonEmptySummaryField(parsed, ['keyPoints', '核心内容', '核心內容', 'key_points']),
+      Number.MAX_SAFE_INTEGER
+    )
+    const keywords: string[] = []
+    let returnedDetailedOutline = coerceSummaryStringArray(
+      firstNonEmptySummaryField(parsed, [
+        'detailedOutline',
+        'detailed_outline',
+        'outline',
+        '详细内容提要',
+        '詳細內容提要',
+        '详细提要',
+        '内容提要'
+      ]),
+      Number.MAX_SAFE_INTEGER
+    )
+    const missingFields = [
+      ...(!title ? ['title'] : []),
+      ...(!subtitle ? ['subtitle'] : []),
+      ...(keyPoints.length === 0 ? ['keyPoints'] : []),
+      ...(returnedDetailedOutline.length === 0 ? ['detailedOutline'] : [])
+    ]
+    if (missingFields.length > 0) {
+      try {
+        const repairResponse = await requestMessages(
+          createSummaryRepairMessages({
+            note,
+            polishedTranscriptText,
+            missingFields,
+            existing: { title, subtitle, keyPoints, detailedOutline: returnedDetailedOutline }
+          }),
+          0.1,
+          true,
+          summaryTimeoutMs
+        )
+        const repaired = parseJsonContent(repairResponse.content) as Partial<NotePosterSummary> & Record<string, unknown>
+        if (!title) {
+          title = [repaired.title, repaired.标题, repaired.heading]
+            .find((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+            ?.trim() ?? ''
+        }
+        if (!subtitle) {
+          const repairedSubtitle = firstNonEmptySummaryField(repaired, ['subtitle', '主旨', '摘要', 'summary'])
+          if (typeof repairedSubtitle === 'string') subtitle = repairedSubtitle.trim()
+        }
+        if (keyPoints.length === 0) {
+          keyPoints = coerceSummaryStringArray(
+            firstNonEmptySummaryField(repaired, ['keyPoints', '核心内容', '核心內容', 'key_points']),
+            Number.MAX_SAFE_INTEGER
+          )
+        }
+        if (returnedDetailedOutline.length === 0) {
+          returnedDetailedOutline = coerceSummaryStringArray(
+            firstNonEmptySummaryField(repaired, [
+              'detailedOutline',
+              'detailed_outline',
+              'outline',
+              '详细内容提要',
+              '詳細內容提要',
+              '详细提要',
+              '内容提要'
+            ]),
+            Number.MAX_SAFE_INTEGER
+          )
+        }
+      } catch (error) {
+        if (options.signal?.aborted) throw error
+      }
+    }
+    if (returnedDetailedOutline.length === 0) {
+      const chapterOutline = note.chapters
+        .map((chapter) => {
+          const titleText = chapter.title.trim()
+          const summaryText = chapter.summary.trim()
+          if (titleText && summaryText) return `${titleText}：${summaryText}`
+          return titleText || summaryText
+        })
+        .filter(Boolean)
+      returnedDetailedOutline = chapterOutline.length > 0 ? chapterOutline : [...keyPoints]
+    }
+    const detailedOutline = mergeReviewItemsIntoDetailedOutline(returnedDetailedOutline, [
+      ...reviewItems.map((item) => ({ text: item.originalText, reason: item.reason }))
+    ])
+    if (!title && subtitle && keyPoints.length > 0 && detailedOutline.length > 0) {
+      title = note.source.title.trim()
+    }
+    const invalidReasons: string[] = []
+    if (!title) invalidReasons.push('缺少标题')
+    if (!subtitle) invalidReasons.push('缺少主旨')
+    if (keyPoints.length === 0) invalidReasons.push('缺少核心内容')
+    if (detailedOutline.length === 0) invalidReasons.push('缺少详细内容提要')
+    if (invalidReasons.length > 0) {
+      throw new DeepSeekServiceError('invalid-output', `DeepSeek 总结内容不完整：${invalidReasons.join('、')}。`)
+    }
+
+    return {
+      kind: 'note-poster',
+      poster: {
+        title,
+        subtitle,
+        keyPoints,
+        keywords,
+        prompt,
+        polishedTranscriptText,
+        detailedOutline,
+        reviewItems: []
+      }
+    }
+  }
+
   let response: Response
 
   try {
-    response = await fetchImpl(createEndpoint(options.config.baseUrl), {
+    response = await fetchWithBoundedTimeout(fetchImpl, createEndpoint(options.config.baseUrl), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      signal: options.signal,
       body: JSON.stringify({
         model: options.config.model,
         messages: buildMessages(options.request),
-        temperature: options.request.kind === 'pet-chat' ? 0.7 : 0.4
+        temperature: options.request.kind === 'pet-chat' ? 0.7 : 0.4,
+        ...(options.request.kind === 'favorite-archive-organize'
+          ? {
+              response_format: { type: 'json_object' }
+            }
+          : {})
       })
-    })
+    }, options.signal, requestTimeoutMs)
   } catch (error) {
     throw new DeepSeekServiceError(
       'network-error',
@@ -754,7 +981,10 @@ export async function generateDeepSeekResult(options: {
   }
 
   options.onResponseMetadata?.({
-    model: typeof payload.model === 'string' && payload.model.trim() ? payload.model.trim() : undefined
+    model: typeof payload.model === 'string' && payload.model.trim() ? payload.model.trim() : undefined,
+    finishReason: typeof payload.choices?.[0]?.finish_reason === 'string' && payload.choices[0].finish_reason.trim()
+      ? payload.choices[0].finish_reason.trim()
+      : undefined
   })
 
   const content = payload.choices?.[0]?.message?.content
@@ -762,5 +992,158 @@ export async function generateDeepSeekResult(options: {
     throw new DeepSeekServiceError('invalid-output', 'DeepSeek response did not include content.')
   }
 
-  return parseResult(options.request, content)
+  return parseResult(options.request, content, payload.choices?.[0]?.finish_reason)
+}
+
+function createBoundedRequestSignal(parentSignal: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController()
+  let timedOut = false
+  const abortFromParent = () => controller.abort()
+  let rejectTimeout: (reason: unknown) => void = () => undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    rejectTimeout = reject
+  })
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+    rejectTimeout(new DeepSeekServiceError(
+      'network-error',
+      `DeepSeek request timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`
+    ))
+  }, timeoutMs)
+
+  if (parentSignal?.aborted) abortFromParent()
+  else parentSignal?.addEventListener('abort', abortFromParent, { once: true })
+
+  return {
+    signal: controller.signal,
+    timedOut: () => timedOut,
+    timeout,
+    dispose: () => {
+      clearTimeout(timer)
+      parentSignal?.removeEventListener('abort', abortFromParent)
+    }
+  }
+}
+
+async function fetchWithBoundedTimeout(
+  fetchImpl: typeof fetch,
+  endpoint: string,
+  init: Omit<RequestInit, 'signal'>,
+  parentSignal: AbortSignal | undefined,
+  timeoutMs: number
+): Promise<Response> {
+  const request = createBoundedRequestSignal(parentSignal, timeoutMs)
+  try {
+    return await Promise.race([
+      fetchImpl(endpoint, { ...init, signal: request.signal }),
+      request.timeout
+    ])
+  } catch (error) {
+    if (request.timedOut()) {
+      throw new DeepSeekServiceError(
+        'network-error',
+        `DeepSeek request timed out after ${Math.ceil(timeoutMs / 1000)} seconds.`
+      )
+    }
+    throw error
+  } finally {
+    request.dispose()
+  }
+}
+
+function mergeReviewItemsIntoDetailedOutline(
+  outline: string[],
+  reviewItems: Array<{ text: string; reason: string }>
+): string[] {
+  const merged = [...outline]
+  for (const item of reviewItems) {
+    const index = merged.findIndex((detail) => detail.includes(item.text))
+    const marker = `${item.text}（待确认：${item.reason}）`
+    if (index >= 0) merged[index] = merged[index].replace(item.text, marker).replace(/）\s+/gu, '）')
+    else merged.push(`待确认：${item.text}（${item.reason}）`)
+  }
+  return merged
+}
+
+const FAITHFUL_PROOFREADING_SYSTEM_PROMPT = [
+  '你是视频转写文稿校对助手。你的任务是保真校对，不是总结、缩写、润色或重新创作。',
+  '原始文稿不可删减。不得删除、压缩、概括、合并、调换或补写任何内容。',
+  '必须保留嗯、啊、然后、就是说等口语词，保留所有重复词和重复句，不添加重复标记。',
+  '外语原文必须保留，不得用中文翻译覆盖。不得猜测或添加说话人身份。',
+  '只允许提出标点、断句、词语断裂、基础格式和结合完整上下文高度确定的转写错误修改。优先补齐自然的逗号、句号、问号和感叹号，避免把每个短语都改成句号。',
+  '不得纠正讲者本人的事实观点。无法确定时保持原文并加入 reviewItems。',
+  '不得返回重写后的完整文稿，只返回需要修改的唯一原文位置。未列出的内容由程序原样保留。',
+  '数字、人名、机构、品牌、型号、日期、单位、标识、否定词、程度词、条件词、转折词属于高风险内容；修改时 highRisk 必须为 true。',
+  '每项 originalText 必须与对应主处理片段中的唯一子串完全一致。上下文片段只用于理解，禁止修改。',
+  '只返回合法 JSON：{"sourceStartSegmentId":"","sourceEndSegmentId":"","changes":[{"segmentId":"","originalText":"","replacementText":"","changeType":"punctuation | sentence-boundary | transcription-error | formatting","reason":"","confidence":0.0,"highRisk":false}],"reviewItems":[{"segmentId":"","originalText":"","reason":"","possibleInterpretation":""}]}。'
+].join(' ')
+
+const FAITHFUL_SUMMARY_SYSTEM_PROMPT = [
+  '你是视频文稿整理助手，只依据精修文稿使用简体中文输出。',
+  '精准总结：title 点明主题，subtitle 概括主旨，keyPoints 保留重要过程、数字、条件和结论；不设固定条数，不为简短遗漏信息。',
+  '详细内容提要：detailedOutline 按讲述顺序或主题完整展开，可用二级列表；保留人物、名称、数字、时间、案例、规则、观点归属、结论和限定条件，禁止机械字段拼接。',
+  '无法确认的名称在相关提要中简短注明，不另设待人工确认。不得猜测或编造材料外信息。精修文稿由程序原样保留，无需重新输出。',
+  '只返回 JSON：{"title":"","subtitle":"","keyPoints":[],"detailedOutline":[]}。'
+].join(' ')
+
+function createProofreadingMessages(batch: FaithfulTranscriptBatch): DeepSeekMessage[] {
+  return [
+    { role: 'system', content: FAITHFUL_PROOFREADING_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        task: {
+          sourceStartSegmentId: batch.sourceStartSegmentId,
+          sourceEndSegmentId: batch.sourceEndSegmentId,
+          instruction: 'contextSegments 只用于理解；只允许修改 primarySegments。'
+        },
+        contextSegments: batch.contextSegments,
+        primarySegments: batch.primarySegments
+      })
+    }
+  ]
+}
+
+function createSummaryMessages(note: VideoNote, polishedTranscriptText: string): DeepSeekMessage[] {
+  return [
+    { role: 'system', content: FAITHFUL_SUMMARY_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        source: note.source,
+        polishedTranscriptText,
+        chapters: note.chapters,
+        annotations: note.annotations,
+        userMemo: note.userMemo
+      })
+    }
+  ]
+}
+
+function createSummaryRepairMessages(input: {
+  note: VideoNote
+  polishedTranscriptText: string
+  missingFields: string[]
+  existing: Pick<NotePosterSummary, 'title' | 'subtitle' | 'keyPoints' | 'detailedOutline'>
+}): DeepSeekMessage[] {
+  return [
+    {
+      role: 'system',
+      content: [
+        '你只补全视频总结缺失字段，不重写已有字段。只依据提供的精修文稿，不得猜测。',
+        '核心内容和详细内容提要不设固定条数或字数；内容有效、具体且非空即可。',
+        `只返回这些字段的 JSON：${input.missingFields.join('、')}。`
+      ].join(' ')
+    },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        missingFields: input.missingFields,
+        existing: input.existing,
+        source: input.note.source,
+        polishedTranscriptText: input.polishedTranscriptText
+      })
+    }
+  ]
 }

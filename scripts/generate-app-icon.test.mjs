@@ -4,16 +4,21 @@ import {
   APP_BUILD_ICON_PNG,
   APP_ICON_ICO_SIZES,
   APP_ICON_RESIZE_MODE,
+  APP_ICON_SUBJECT_SCALE,
   APP_ICON_SOURCE
 } from './generate-app-icon.mjs'
 
 describe('app icon generation inputs', () => {
-  it('uses the porcelain maid screenshot as the app icon source', () => {
-    expect(APP_ICON_SOURCE).toMatch(/electron[\\/]assets[\\/]bilimi-icon-source\.png$/)
+  it('uses the complete waving porcelain maid artwork as the app icon source', () => {
+    expect(APP_ICON_SOURCE).toMatch(/electron[\\/]assets[\\/]bilimi-icon-approved\.png$/)
   })
 
-  it('fits the complete square mascot artwork without a fixed pixel crop', () => {
-    expect(APP_ICON_RESIZE_MODE).toBe('contain-square')
+  it('resizes the approved final composition without cropping it again', () => {
+    expect(APP_ICON_RESIZE_MODE).toBe('approved-artwork-direct')
+  })
+
+  it('does not apply a second destructive scale after composing the icon', () => {
+    expect(APP_ICON_SUBJECT_SCALE).toBe(1)
   })
 
   it('generates matching Electron and packaged build icons', () => {

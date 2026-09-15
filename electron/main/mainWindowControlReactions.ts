@@ -23,6 +23,7 @@ type MainWindowControlReactionsOptions = {
   getPreferences: () => AssistantPreferences
   minimizeToTray: () => void
   prepareToExitLauncher: () => void
+  quitApplication?: () => void
   savePreferencePatch: (patch: Partial<AssistantPreferences>) => void
   sendPetHint: (hint: AssistantPetHint) => void
   showCloseConfirmation: () => CloseConfirmationResult | Promise<CloseConfirmationResult>
@@ -68,6 +69,7 @@ export function installMainWindowControlReactions({
   getPreferences,
   minimizeToTray,
   prepareToExitLauncher,
+  quitApplication,
   savePreferencePatch,
   sendPetHint,
   showCloseConfirmation,
@@ -108,9 +110,10 @@ export function installMainWindowControlReactions({
     if (action.kind === 'exit-launcher') {
       prepareToExitLauncher()
       farewellAndClosePet()
+      allowNativeClose = true
+      quitApplication?.()
 
-      if (options.closeAfterExit) {
-        allowNativeClose = true
+      if (options.closeAfterExit && !quitApplication) {
         window.close()
       }
     }

@@ -18,6 +18,45 @@ export type RunProcess = (
   options?: ProcessRunOptions
 ) => Promise<ProcessResult>
 
+export type AudioDownloadRetryDelay = (milliseconds: number, signal?: AbortSignal) => Promise<void>
+
+const AUDIO_DOWNLOAD_RETRY_DELAYS_MS = [1000, 3000]
+
+function isAbortError(error: unknown, signal?: AbortSignal): boolean {
+  return signal?.aborted === true || (error instanceof Error && error.name === 'AbortError')
+}
+
+function isTransientAudioDownloadFailure(result: ProcessResult): boolean {
+  if (result.exitCode === 0) return false
+  const details = `${result.stderr}\n${result.stdout}`.toLowerCase()
+  return [
+    'eof occurred in violation of protocol',
+    'connection reset',
+    'connection aborted',
+    'remote end closed connection',
+    'timed out',
+    'temporary failure in name resolution',
+    'name resolution',
+    'http error 408',
+    'http error 429',
+    'http error 500',
+    'http error 502',
+    'http error 503',
+    'http error 504'
+  ].some((marker) => details.includes(marker))
+}
+
+async function abortableRetryDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError')
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, milliseconds)
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer)
+      reject(new DOMException('The operation was aborted.', 'AbortError'))
+    }, { once: true })
+  })
+}
+
 function killProcessTree(pid?: number) {
   if (!pid) {
     return
@@ -281,7 +320,8 @@ export async function downloadVideoAudio({
   outputTemplate,
   runProcess: run = runProcess,
   statFile = stat,
-  signal
+  signal,
+  retryDelay = abortableRetryDelay
 }: {
   ytdlpPath: string
   url: string
@@ -290,10 +330,27 @@ export async function downloadVideoAudio({
   runProcess?: RunProcess
   statFile?: (path: string) => Promise<{ size: number }>
   signal?: AbortSignal
+  retryDelay?: AudioDownloadRetryDelay
 }): Promise<{ audioPath: string }> {
-  const result = await run(ytdlpPath, buildYtdlpAudioArgs({ url, cookiePath, outputTemplate }), {
-    signal
-  })
+  let result: ProcessResult
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      result = await run(ytdlpPath, buildYtdlpAudioArgs({ url, cookiePath, outputTemplate }), {
+        signal
+      })
+    } catch (error) {
+      if (isAbortError(error, signal)) throw error
+      throw error
+    }
+
+    if (
+      result.exitCode === 0 ||
+      attempt >= AUDIO_DOWNLOAD_RETRY_DELAYS_MS.length ||
+      !isTransientAudioDownloadFailure(result)
+    ) break
+
+    await retryDelay(AUDIO_DOWNLOAD_RETRY_DELAYS_MS[attempt], signal)
+  }
 
   if (result.exitCode !== 0) {
     throw new Error(`Audio download failed: ${sanitizeProcessText(result.stderr || result.stdout)}`)

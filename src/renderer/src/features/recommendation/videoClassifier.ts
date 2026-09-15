@@ -1,4 +1,5 @@
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+import { resolveFavoriteLedgerCapabilities } from '@shared/favoriteLedgerCapabilities'
 import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
 import type {
   FavoriteLedger,
@@ -14,6 +15,8 @@ import { normalizeClassificationText } from './classificationText'
 
 export type VideoContentContext = {
   aid?: number
+  cid?: number
+  bvid?: string
   title?: string
   author?: string
   description?: string
@@ -421,7 +424,7 @@ function diagnosticForScore(score: LedgerScore, runnerUp?: LedgerScore): Favorit
 
 function rankedLedgerScores(context: VideoContentContext, ledgers: FavoriteLedger[]) {
   return ledgers
-    .filter((ledger) => ledger.id !== 'inbox')
+    .filter((ledger) => ledger.id !== 'inbox' && resolveFavoriteLedgerCapabilities(ledger).canClassify)
     .map((ledger) => scoreLedger(context, ledger))
     .filter(
       (entry) =>
@@ -572,6 +575,8 @@ export function buildVideoContentContextScript(): string {
       const initialState = window.__INITIAL_STATE__ || {};
       const videoData = initialState.videoData || initialState.videoInfo || {};
       const aid = Number(videoData.aid || initialState.aid || 0);
+      const cid = Number(videoData.cid || initialState.cid || 0);
+      const bvid = String(videoData.bvid || initialState.bvid || '').trim();
 
       const tags = Array.from(
         document.querySelectorAll('.tag-link,.tag,.video-tag,[class*="tag"] a,[class*="tag"] span')
@@ -582,6 +587,8 @@ export function buildVideoContentContextScript(): string {
 
       return {
         aid: Number.isFinite(aid) && aid > 0 ? aid : undefined,
+        cid: Number.isFinite(cid) && cid > 0 ? cid : undefined,
+        bvid: bvid || undefined,
         title: document.querySelector('h1')?.textContent || document.title || '',
         author: document.querySelector('.up-name,.username,[class*="up-name"]')?.textContent || videoData.owner?.name || '',
         description: readMeta('description') || readText(['.desc-info-text', '.video-desc', '[class*="desc"]']),

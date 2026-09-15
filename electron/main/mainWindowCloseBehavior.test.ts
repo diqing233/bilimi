@@ -16,6 +16,7 @@ function createPreferences(
     petStyle: 'big-head',
     petHoverShortcuts: [],
     showPetAssistantShortcut: true,
+    autoShowPetOnStartup: false,
     hidePetDuringVideoFullscreen: false,
     closeBehavior: 'exit-launcher',
     confirmBeforeExit: true,
@@ -46,33 +47,33 @@ function createPreferences(
 }
 
 describe('main window close behavior', () => {
-  it('minimizes immediately when the saved close behavior is tray minimization', () => {
+  it('asks every time when tray minimization is not remembered', () => {
     const result = resolveMainWindowCloseAction({
       preferences: createPreferences({
         closeBehavior: 'minimize-to-tray',
-        confirmBeforeExit: true
+        rememberCloseChoice: false
       })
     })
 
-    expect(result).toEqual({ kind: 'minimize-to-tray' })
+    expect(result).toEqual({ kind: 'confirm-before-exit' })
   })
 
-  it('exits immediately when exit confirmation has been disabled', () => {
+  it('exits immediately when the selected close behavior is remembered', () => {
     const result = resolveMainWindowCloseAction({
       preferences: createPreferences({
         closeBehavior: 'exit-launcher',
-        confirmBeforeExit: false
+        rememberCloseChoice: true
       })
     })
 
     expect(result).toEqual({ kind: 'exit-launcher' })
   })
 
-  it('asks before exiting when exit confirmation is enabled', () => {
+  it('asks before exiting when the selected close behavior is not remembered', () => {
     const result = resolveMainWindowCloseAction({
       preferences: createPreferences({
         closeBehavior: 'exit-launcher',
-        confirmBeforeExit: true
+        rememberCloseChoice: false
       })
     })
 
@@ -88,12 +89,13 @@ describe('main window close behavior', () => {
     expect(result).toEqual({
       kind: 'minimize-to-tray',
       preferencePatch: {
-        closeBehavior: 'minimize-to-tray'
+        closeBehavior: 'minimize-to-tray',
+        rememberCloseChoice: true
       }
     })
   })
 
-  it('remembers direct exit by disabling future exit confirmation', () => {
+  it('remembers direct exit with the explicit remember field', () => {
     const result = resolveMainWindowCloseAction({
       preferences: createPreferences(),
       confirmation: { response: 1, checkboxChecked: true }
@@ -103,7 +105,7 @@ describe('main window close behavior', () => {
       kind: 'exit-launcher',
       preferencePatch: {
         closeBehavior: 'exit-launcher',
-        confirmBeforeExit: false
+        rememberCloseChoice: true
       }
     })
   })

@@ -222,6 +222,10 @@ describe('deepseekArchiveOrganizer', () => {
       'invalid-result': 1,
       'request-failed': 1
     })
+    expect(applied.messages).toEqual(expect.arrayContaining([
+      'DeepSeek 未应用：1 返回信息不完整',
+      'DeepSeek 未应用：2 DeepSeek 请求失败，请检查服务设置后重试。'
+    ]))
   })
 
   it('applies one duplicate aid row by source folder title without changing the other row', () => {

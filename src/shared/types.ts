@@ -1,5 +1,19 @@
 import type { PetHoverShortcutId } from './petHoverShortcuts'
 
+export type {
+  AccountFavoriteRepositorySnapshot,
+  FavoriteRepositoryCommand,
+  FavoriteRepositoryCommandResult,
+  FavoriteRepositoryFolder,
+  FavoriteRepositoryMembershipIndex,
+  FavoriteRepositoryPage,
+  FavoriteRepositoryPhysicalShard,
+  FavoriteRepositorySyncRecord,
+  FavoriteRepositoryVideo,
+  FavoriteRepositoryWorkspace,
+  FavoriteRepositoryWorkspaceRef
+} from './favoriteRepository'
+
 export type AssistantAction = '赏' | '藏' | '赐' | '表' | '阅'
 
 export type BrowserSurfaceModel = {
@@ -27,6 +41,10 @@ export type DefaultFavoriteLedgerId =
 export type FavoriteLedgerId = string
 export type RecommendationKind = FavoriteLedgerId
 export type FavoriteLedgerRuleType = 'keyword' | 'author' | 'tag' | 'deepseek'
+export type FavoriteLedgerSyncState = 'local-draft'
+export type FavoriteLedgerBindingState = 'bound' | 'unbacked' | 'unbound'
+/** The local provenance decides recommendation cancellation; binding state does not. */
+export type FavoriteLedgerRuleOrigin = 'saved-rule' | 'recommendation-draft'
 
 export type FavoriteLedger = {
   id: FavoriteLedgerId
@@ -36,16 +54,152 @@ export type FavoriteLedger = {
   enabled: boolean
   priority: number
   bilibiliFolderId?: string
+  /** All physical Bilibili folders backing one logical bilimi folder. */
+  bilibiliFolderIds?: string[]
+  /** Last title observed for the explicit Bilibili folder binding. */
+  bilibiliFolderTitle?: string
+  /** Last video count observed for the corresponding Bilibili folder. */
+  bilibiliFolderVideoCount?: number
+  /** Remote folder binding is explicit; same names are only rebind candidates. */
+  bindingState?: FavoriteLedgerBindingState
+  /** The owner deleted the default bilimi folder and must explicitly choose a later recovery. */
+  managedFolderDeletedByUser?: boolean
+  /** Exact remote IDs confirmed deleted during the current unbacked recovery; only suppresses stale list residues. */
+  confirmedDeletedRemoteFolderIds?: string[]
+  /** Exact remote IDs retained only as deletion/reconciliation history when formal physical shards are gone. */
+  historicalBilibiliFolderIds?: string[]
+  /** Last observed titles for historical remote IDs; never grants backup or sync authority. */
+  historicalBilibiliFolderTitle?: string
+  /** A Bilibili shard was created by bilimi but still awaits formal ID verification. */
+  pendingRemoteBinding?: boolean
+  /** The pending shard came from this backup's create response, never a name-based candidate. */
+  pendingRemoteBindingCreatedByBackup?: boolean
+  /** Exact remote ID of a created shard that is not formally bound yet. Never grants write access. */
+  pendingRemoteFolderId?: string
+  /** Last title returned with a pending remote shard creation response. */
+  pendingRemoteFolderTitle?: string
+  /** Local drafts are unconfigured rules and do not classify or sync until explicitly saved. */
+  syncState?: FavoriteLedgerSyncState
+  /** Persisted provenance for the saved-rule versus generated-recommendation boundary. */
+  ruleOrigin?: FavoriteLedgerRuleOrigin
   isDefault: boolean
+}
+
+export type DeletedFavoriteLedgerRecord = {
+  logicalLedgerId: FavoriteLedgerId
+  deletedAt: string
+  ledger: FavoriteLedger
 }
 
 export type FavoriteLedgerSaveOptions = {
   deleteDisabled?: boolean
+  /** Local preference persistence for a scan-indexed recommendation whose workspace command already updated classifications. */
+  recommendationOnly?: boolean
+  /** Logical ledgers locked by the current explicit batch-backup click; non-targets stay local only. */
+  backupTargetLedgerIds?: FavoriteLedgerId[]
+  /** Only an explicit backup may rediscover remote-only drafts deleted locally. */
+  rediscoverDeletedRemoteDrafts?: boolean
+  /** Remote-only draft reminders the owner explicitly dismissed for this account. */
+  dismissedRemoteFolderIds?: string[]
+  /** Complete account-level remote identities that must not be re-projected as remote-only drafts. */
+  remoteDraftKnownFolderIds?: string[]
+  /** Whether this operation is an explicit stable directory discovery that may return remote-only observation drafts. */
+  includeRemoteOnlyDrafts?: boolean
+  /** Stop a direct backup after its first fresh directory read when an unknown remote Bilimi folder needs confirmation. */
+  haltOnRemoteObservations?: boolean
+  /** Read-only directory preflight for an explicit backup; it must not create, bind, rename, or persist remote observations. */
+  remoteObservationPreflight?: boolean
+  /** Restricts backup to create-or-confirm-bind for explicit library targets. */
+  lightweightBackup?: boolean
+  /** The user has explicitly approved creating the current library work folder after a read-only preflight found no reusable candidate. */
+  confirmCreateAndBind?: boolean
+  /** Explicit user choices from the rebind confirmation dialog. */
+  rebindRemoteFolderIds?: Record<FavoriteLedgerId, string>
+  /** All confirmed physical Bilibili folders for one recovered logical ledger. */
+  rebindRemoteFolders?: Record<FavoriteLedgerId, Array<{ id: string; title: string; memberCount?: number }>>
+  /** The owner explicitly approved renaming already formal bound shards listed by the read-only preflight. */
+  confirmBoundRename?: boolean
+  /** Process only explicitly confirmed formal bound-shard renames; do not create, bind, back up, or synchronize videos. */
+  renameBoundOnly?: boolean
+  /** Exact formal Bilibili shard tuples displayed by the bound-rename preflight; confirmation fails closed if they change. */
+  boundRenameShards?: Record<FavoriteLedgerId, Array<{
+    remoteFolderId: string
+    shardNumber: number
+    currentRemoteTitle?: string
+    targetTitle?: string
+  }>>
+}
+
+/** A Bilibili-only folder observed during an explicit backup preflight. */
+export type RemoteFavoriteLedgerObservation = {
+  /** Exact remote operation handle; it is never a local rule identity. */
+  folderId: string
+  /** Title returned by Bilibili's folder inventory. */
+  title: string
+  /** Member count returned by the same inventory snapshot. */
+  memberCount: number
 }
 
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
 export type CommentSubmitMode = 'choose' | 'random'
 export type VideoAudioTranscriptionThreadLimit = 'unlimited' | 1 | 2 | 4
+export type TranscriptionModelId =
+  | 'sensevoice-small'
+  | 'whisper-small'
+  | 'faster-whisper-large-v3-turbo'
+  | 'faster-whisper-large-v3'
+export type TranscriptionRuntimeFamily = 'sensevoice' | 'whisper.cpp' | 'faster-whisper'
+export type TranscriptionGpuProbe =
+  | { modelId?: TranscriptionModelId; status: 'available'; device: 'cuda'; computeType: 'float16' | 'int8_float16'; gpuName: string; driverVersion: string; memoryMiB: number; freeMemoryMiB: number }
+  | { modelId?: TranscriptionModelId; status: 'cpu-only'; reason: string }
+export type TranscriptionModelInstallation = {
+  id: TranscriptionModelId
+  bundled: boolean
+  installed: boolean
+  /** A verified download may continue from this machine-wide partial directory. */
+  resumable?: boolean
+  /** This installation lives under bilimi's managed model directory and can be removed safely. */
+  removable?: boolean
+  /** The legacy bundled Whisper file can be copied into managed storage for unified management. */
+  migratable?: boolean
+  /** Shown only for a managed installation before the user confirms removal. */
+  managedPath?: string
+  /** Installed artifacts are selectable only after their runtime health check passes. */
+  available: boolean
+  version: string
+  runtimeFamily: TranscriptionRuntimeFamily
+  /** Optional for renderer/preload compatibility with an older main process. */
+  hardware?: string
+  license: string
+  attribution: string
+  downloadBytes: number
+  installedBytes: number
+}
+export type TranscriptionModelInstallStage =
+  | 'connecting'
+  | 'downloading'
+  | 'downloading-part'
+  | 'verifying'
+  | 'merging-parts'
+  | 'installing'
+  | 'validating-runtime'
+  | 'available'
+  | 'failed'
+  | 'canceled'
+export type TranscriptionModelInstallProgress = {
+  id: TranscriptionModelId
+  stage: TranscriptionModelInstallStage
+  receivedBytes?: number
+  totalBytes?: number
+  percentage?: number
+  bytesPerSecond?: number
+  etaSeconds?: number
+  source?: 'ModelScope' | 'GitHub Release' | 'Official source'
+  sourceFallbackMessage?: string
+  partIndex?: number
+  partCount?: number
+  error?: string
+}
 export type MainWindowCloseBehavior = 'minimize-to-tray' | 'exit-launcher'
 
 export type PendingFavoriteQueueSource = 'old-favorite-scan' | 'new-favorite'
@@ -118,17 +272,6 @@ export type FavoriteCorrectionRecord = {
   confirmedAt?: string
 }
 
-export type OldFavoriteRuntimeSnapshot = {
-  key: string
-  revision: number
-  value: unknown
-  accountMid: string
-}
-
-export type OldFavoriteRuntimeSetResult = OldFavoriteRuntimeSnapshot & {
-  accepted: boolean
-}
-
 export type FavoriteKeywordSuggestion = {
   id: string
   action: FavoriteKeywordSuggestionAction
@@ -159,8 +302,34 @@ export type FavoriteLedgerClassificationDiagnostic = {
 
 export type FavoriteLedgerStatus = {
   ok: boolean
+  /** Whether the current status was read successfully; `ok` may still be false for unrelated ledger gaps. */
+  verified?: boolean
+  /** A structurally valid Bilibili directory can still be incomplete during cross-device propagation. */
+  remoteDirectoryState?: 'verified' | 'uncertain'
   ledgers: FavoriteLedger[]
   missingLedgerIds: FavoriteLedgerId[]
+  unboundLedgerIds?: FavoriteLedgerId[]
+  /** Remote-only Bilimi drafts found on Bilibili but not configured locally. */
+  remoteOnlyDraftLedgerIds?: FavoriteLedgerId[]
+  /** Read-only Bilibili-only folders from an explicit discovery or backup preflight. */
+  remoteObservations?: RemoteFavoriteLedgerObservation[]
+  /** Read-only exact-ID rename observations from an explicit discovery or a manual Bilibili mutation. */
+  boundRenameCandidates?: FavoriteLedgerBoundRenameCandidate[]
+  unboundCandidates?: Array<{
+    ledgerId: FavoriteLedgerId
+    candidates: Array<{
+      id: string
+      title: string
+      memberCount: number
+      /** Previously persisted physical-shard number for this exact remote ID, when known. */
+      shardNumber?: number
+      /** Safe user-facing explanation when this exact remote shard was rejected. */
+      bindingFailureReason?: string
+      /** Original binding-service error retained for diagnostics. */
+      bindingFailureDetail?: string
+    }>
+  }>
+  backupConflictLedgerIds?: FavoriteLedgerId[]
   message: string
 }
 
@@ -178,18 +347,37 @@ export type RecommendationLabel = {
   hint?: string
 }
 
+export type AssistantPreferencePatchMeta = {
+  originId: string
+  mutationId: number
+}
+
+export type FavoriteLedgerEnabledPatch = {
+  accountMid: string
+  ledgerId: FavoriteLedgerId
+  enabled: boolean
+}
+
 export type AssistantPreferences = {
   favoritesFolderName: string
   favoriteLedgers: FavoriteLedger[]
+  favoriteAccountPreferences?: Record<string, FavoriteAccountPreferences>
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
   petHoverShortcuts: PetHoverShortcutId[]
   showPetAssistantShortcut: boolean
+  autoShowPetOnStartup: boolean
   hidePetDuringVideoFullscreen: boolean
   closeBehavior: MainWindowCloseBehavior
   confirmBeforeExit: boolean
+  rememberCloseChoice?: boolean
+  closeChoiceMigrationVersion?: number
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
+  /** Device-wide Bilibili session network preference, never account-scoped. */
+  bilibiliConnectionMode: 'auto' | 'direct'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
+  /** Maximum detailed items in each batch of the next old-favorite organization round. */
+  oldFavoriteWorkspaceSegmentSize: number
   favoriteArchiveStrategy: FavoriteArchiveStrategy
   favoriteCorrectionLearningEnabled: boolean
   favoriteCorrectionLearningClassificationEnabled: boolean
@@ -217,11 +405,53 @@ export type AssistantPreferences = {
   assistantSidebarWidthPx: number | null
 }
 
+export type FavoriteAccountPreferences = {
+  defaultFavoriteSystemEnabled: boolean
+  favoriteLedgers: FavoriteLedger[]
+  /** Logical bilimi work folders hidden by an explicit local library deletion. */
+  hiddenFavoriteLibraryManagedLedgerIds?: string[]
+  /** Hide the read-only remote discovery summary until the next verified refresh. */
+  favoriteDiscoveryNoticeDismissed?: boolean
+  deletedFavoriteLedgerRecords?: DeletedFavoriteLedgerRecord[]
+  /** UI-only navigation state, keyed by stable group ID and isolated per Bilibili UID. */
+  favoriteLibraryCollapsedGroups?: Record<string, boolean>
+  transcriptionModelId?: TranscriptionModelId
+  /** Durable conflict-resolution timestamp for portable account settings. */
+  updatedAt?: string
+}
+
 export type AssistantAutomationResult = {
   ok: boolean
   steps: string[]
   missingTargets: string[]
   message: string
+  /** Optional structured pet feedback derived from the same action result. */
+  petHint?: string
+  resultUnknown?: boolean
+  /** Remote-only Bilimi drafts observed during the operation and projected locally. */
+  remoteOnlyDraftLedgerIds?: FavoriteLedgerId[]
+  /** Read-only Bilibili-only folders from this operation's fresh directory snapshot. */
+  remoteObservations?: RemoteFavoriteLedgerObservation[]
+  /** The first save inventory found remote-only folders and stopped before any create, bind, or local persistence. */
+  remoteObservationConfirmationRequired?: boolean
+  /** Remote Bilibili folder ids confirmed by a successful favorite API call. */
+  favoriteFolderIdsByLedgerId?: Record<string, string>
+  /** Read-only exact-ID preflight for title-different formal bound shards. */
+  boundRenameCandidates?: FavoriteLedgerBoundRenameCandidate[]
+}
+
+export type FavoriteLedgerBoundRenameCandidate = {
+  ledgerId: FavoriteLedgerId
+  logicalTitle: string
+  logicalVideoCount: number
+  shards: Array<{
+    /** Internal confirmation token; the UI must never render this remote ID. */
+    remoteFolderId: string
+    shardNumber: number
+    currentRemoteTitle: string
+    remoteMemberCount: number
+    targetTitle: string
+  }>
 }
 
 export type VisualAutomationContext = {
@@ -240,6 +470,16 @@ export type VisualAutomationFallback = (
 ) => Promise<AssistantAutomationResult>
 
 export type VideoNoteSourceMetadata = {
+  /** Archive ownership. Entries created before this field stay unassigned and private to the archive library. */
+  accountMid?: string
+  /** Stable Bilibili video identity for archive navigation and exports. */
+  aid?: number
+  /** Stable Bilibili part identity; absent only for single-part/legacy notes. */
+  cid?: number
+  /** Exact part metadata captured by an explicit multi-P transcription action. */
+  partNumber?: number
+  partTitle?: string
+  partDurationSeconds?: number
   title: string
   author?: string
   description?: string
@@ -317,7 +557,7 @@ export type FavoriteLedgerAuthorInsightSignal = FavoriteLedgerInsightSignal & {
   share: number
 }
 
-export type FavoriteLedgerCandidateKind = 'author' | 'tag-cluster' | 'category' | 'series'
+export type FavoriteLedgerCandidateKind = 'author' | 'tag-cluster' | 'category'
 
 export type FavoriteLedgerCandidateConfidence = 'high' | 'medium'
 
@@ -326,6 +566,11 @@ export type NotePosterSummary = {
   subtitle: string
   keyPoints: string[]
   keywords: string[]
+  /** Ordered, source-grounded detail for the readable summary/export. */
+  detailedOutline?: string[]
+  /** Uncertain source tokens are intentionally kept out of the asserted detail. */
+  reviewItems?: Array<{ text: string; reason: string }>
+  /** Retained solely to render pre-structure archives without rewriting them. */
   prompt: string
   polishedTranscriptText?: string
   auditChecklistText?: string
@@ -336,6 +581,8 @@ export type DeepSeekArchiveMode =
   | 'classified-only'
   | 'unclassified-only'
   | 'low-confidence-and-unclassified'
+
+export type DeepSeekArchiveScope = 'current' | 'all'
 
 export type DeepSeekArchiveVideoInput = {
   aid: number
@@ -400,6 +647,8 @@ export type DeepSeekDailyClassificationInput = {
 
 export type DeepSeekDailyClassificationReviewResult = {
   targetLedgerIds: FavoriteLedgerId[]
+  /** Enabled DeepSeek-constraint ledgers that the model applied to this decision. */
+  appliedConstraintLedgerIds?: FavoriteLedgerId[]
   corrected: boolean
   reason: string
   confidence?: number
@@ -475,6 +724,12 @@ export type DeepSeekConnectionTestResult = {
   responseModel?: string
 }
 
+export type DeepSeekConnectionTestProgress = {
+  attempt: number
+  totalAttempts: number
+  delayMs: number
+}
+
 export type StartupDiagnosticStatus = 'ok' | 'warning' | 'error'
 
 export type StartupDiagnosticItem = {
@@ -535,6 +790,8 @@ export type VideoAudioTranscriptionProgressStep =
   | 'generating-note'
   | 'summarizing-deepseek'
   | 'saving-archive'
+  | 'canceling'
+  | 'canceling-summary'
   | 'queue-completed'
 
 export type VideoAudioTranscriptionProgress = {
@@ -542,26 +799,47 @@ export type VideoAudioTranscriptionProgress = {
   message: string
   segmentIndex?: number
   segmentCount?: number
+  actualDevice?: 'cpu' | 'cuda'
+  actualComputeType?: 'int8' | 'float16' | 'int8_float16'
+  runtimeFallbackMessage?: string
 }
 
 export type VideoAudioTranscriptionRequest = {
+  /** Library-originated requests are scoped to their Bilibili account. */
+  accountMid?: string
   url: string
   title: string
   author?: string
   bvid?: string
   aid?: number | string
   cid?: number | string
+  partNumber?: number | string
+  partTitle?: string
+  partDurationSeconds?: number | string
+  /** Immutable local metadata snapshot used when this item was enqueued. */
+  metadataRevision?: number
   summarizeWithDeepSeek?: boolean
+  /** Captured by the queue so a preference change cannot switch an active job. */
+  transcriptionModelId?: TranscriptionModelId
+  /** A user-selected one-shot retry after a CUDA out-of-memory failure. */
+  transcriptionDeviceOverride?: 'cpu'
 }
+
+export type VideoAudioTranscriptionFailureKind = 'cuda-oom'
+/** A summary is only saved once its exact archive version can be re-read. */
+export type VideoAudioTranscriptionSummaryStatus = 'not-requested' | 'queued' | 'generating' | 'generated' | 'saved' | 'failed'
 
 export type VideoAudioTranscriptionResult = {
   transcript: TranscriptSegment[]
   transcriptSource: 'audio'
+  runtime?: { device: 'cpu' | 'cuda'; computeType: 'int8' | 'float16' | 'int8_float16'; fallbackMessage?: string }
 }
 
 export type VideoAudioTranscriptionQueueStatus =
   | 'pending'
   | 'running'
+  /** Imported work that was active on another device; only an explicit retry may resume it. */
+  | 'waiting-restart'
   | 'completed'
   | 'failed'
   | 'canceled'
@@ -573,10 +851,29 @@ export type VideoAudioTranscriptionQueueItem = VideoAudioTranscriptionRequest & 
   updatedAt: string
   startedAt?: string
   completedAt?: string
+  /** A running worker acknowledges cancellation only after it exits. */
+  cancelRequested?: boolean
   progress?: VideoAudioTranscriptionProgress
   errorMessage?: string
+  /** Diagnostics are intentionally separate so the queue can show a concise actionable error. */
+  errorDetails?: string
+  failureKind?: VideoAudioTranscriptionFailureKind
+  /** Authoritative runtime selected by the main-process provider for this job. */
+  actualDevice?: 'cpu' | 'cuda'
+  actualComputeType?: 'int8' | 'float16' | 'int8_float16'
+  runtimeFallbackMessage?: string
   archiveNoteId?: string
+  /** Exact immutable archive version registered for this completed queue job. */
+  archiveVersionId?: string
   draftNote?: VideoNote
+  /** Registration is separate from transcription so a retry never re-downloads audio. */
+  archiveRegistrationStatus?: 'pending' | 'registered' | 'failed'
+  archiveRegistrationError?: string
+  archiveSummaryText?: string
+  /** Empty ASR output is a normal completion and must not be presented as a summary failure. */
+  transcriptOutcome?: 'no-speech'
+  /** Independent from transcription/archive registration so summary-only retry never retranscribes audio. */
+  summaryStatus?: VideoAudioTranscriptionSummaryStatus
 }
 
 export type VideoAudioTranscriptionQueueSnapshot = {

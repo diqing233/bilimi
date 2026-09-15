@@ -63,6 +63,67 @@ describe('buildAutomationScript', () => {
     )
   })
 
+  it('does not open a favorite dialog when the page script is told to skip favorite work', async () => {
+    let favoriteClicked = false
+    document.body.innerHTML = `
+      <button aria-label="点赞">点赞</button>
+      <button aria-label="收藏">收藏</button>
+    `
+    document.querySelector('[aria-label="收藏"]')?.addEventListener('click', () => {
+      favoriteClicked = true
+    })
+
+    const result = await window.eval(
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv', {
+        skipFavorite: true
+      })
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(['like'])
+    expect(favoriteClicked).toBe(false)
+  })
+
+  it('never scrolls an unrelated page container while searching for a favorite folder', async () => {
+    document.body.innerHTML = `
+      <button aria-label="点赞">点赞</button>
+      <button aria-label="收藏">收藏</button>
+      <div class="danmaku-scroll"></div>
+    `
+    const danmakuScroll = document.querySelector('.danmaku-scroll') as HTMLDivElement
+    Object.defineProperty(danmakuScroll, 'scrollHeight', { configurable: true, value: 900 })
+    Object.defineProperty(danmakuScroll, 'clientHeight', { configurable: true, value: 180 })
+
+    document.querySelector('[aria-label="收藏"]')?.addEventListener('click', () => {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `<section class="unknown-favorite-panel">
+          <div class="favorite-scroll"></div>
+          <button class="fav-add-folder">新建收藏夹</button>
+          <input class="fav-name-input" />
+          <button class="fav-create-confirm">新建</button>
+          <button class="fav-submit">完成</button>
+        </section>`
+      )
+      const favoriteScroll = document.querySelector('.favorite-scroll') as HTMLDivElement
+      Object.defineProperty(favoriteScroll, 'scrollHeight', { configurable: true, value: 600 })
+      Object.defineProperty(favoriteScroll, 'clientHeight', { configurable: true, value: 120 })
+      favoriteScroll.addEventListener('scroll', () => {
+        document.querySelector('.fav-add-folder')?.setAttribute('data-visible', 'true')
+      })
+      document.querySelector('.fav-create-confirm')?.addEventListener('click', () => {
+        document.querySelector('.favorite-scroll')?.insertAdjacentHTML('afterbegin', '<button>bilimi·影视动漫</button>')
+      })
+    })
+
+    const result = await window.eval(
+      buildAutomationScript('藏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+    )
+
+    expect(result.ok).toBe(true)
+    expect(danmakuScroll.scrollTop).toBe(0)
+  })
+
   it('likes and saves the current page into the Bilimi favorites folder for 赏', async () => {
     document.body.innerHTML = `
       <button aria-label="点赞">点赞</button>

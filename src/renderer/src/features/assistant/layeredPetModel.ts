@@ -99,6 +99,14 @@ const STATE_VISUALS: Record<
     effect: 'hint-sparkles',
     motion: 'surprised'
   },
+  crying: {
+    expression: {
+      eyes: 'wronged',
+      mouth: 'small'
+    },
+    effect: 'none',
+    motion: 'crying'
+  },
   done: {
     expression: {
       eyes: 'happy',

@@ -12,6 +12,77 @@ function expectStyleSnippet(snippet: string): void {
 }
 
 describe('renderer porcelain theme styles', () => {
+  it('uses one themed, responsive modal surface and semantic action system', () => {
+    expectStyleSnippet('.bilimi-modal__viewport { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center;')
+    expectStyleSnippet('.bilimi-modal__dialog { position: relative; z-index: 1; display: flex; flex-direction: column; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 32px); min-height: 0; overflow: hidden;')
+    expectStyleSnippet('.bilimi-modal__header, .bilimi-modal__actions { flex: 0 0 auto; }')
+    expectStyleSnippet('.bilimi-modal__body { display: grid; flex: 1 1 auto; min-height: 0; gap: 8px; overflow-y: auto; overscroll-behavior: contain;')
+    expectStyleSnippet('background: linear-gradient(180deg, rgba(247, 251, 255, 0.99), rgba(220, 238, 255, 0.99));')
+    expectStyleSnippet('.bilimi-modal__dialog[data-tone="danger"] { border-color: rgba(183, 62, 48, 0.42);')
+    expectStyleSnippet('.bilimi-modal__actions button:hover:not(:disabled) { border-color: rgba(31, 99, 181, 0.52);')
+    expectStyleSnippet('.bilimi-modal__actions button[data-variant="danger"] { border-color: #b73e30; background: #b73e30; color: white;')
+    expectStyleSnippet('.assistant-settings__reset-confirmation .bilimi-modal__actions button { min-height: 30px; padding: 5px 9px; font-size: 14px; }')
+    expectStyleSnippet('.assistant-settings__reset-confirmation .bilimi-modal__actions button[data-variant="danger"] { border-color: #e7a69e; background: #fff8f7; color: #a8453b; }')
+    expect(normalizedStyles).not.toContain('@media (max-width: 420px) {\n  .bilimi-modal__actions {\n    display: grid;')
+  })
+
+  it('does not let the retired local-data confirmation card override the shared modal shell', () => {
+    expect(normalizedStyles).not.toContain('.local-data-settings__usage, .local-data-settings__account-list, .local-data-settings__preview, .local-data-settings__cleanup, .local-data-settings__confirmation')
+    expect(normalizedStyles).not.toContain('.local-data-settings__confirmation {')
+    expectStyleSnippet('.bilimi-modal__actions .local-data-settings__danger-button { border-color: #b73e30 !important; background: #b73e30; color: white !important; }')
+  })
+
+  it('keeps old favorite recovery actions compact on one row until space genuinely runs out', () => {
+    expectStyleSnippet('.old-favorite-modal__dialog .bilimi-modal__actions { flex-wrap: wrap; gap: 8px; }')
+    expectStyleSnippet('.old-favorite-modal__dialog .bilimi-modal__actions button { min-height: 30px; padding: 5px 9px; font-weight: 400; white-space: nowrap; }')
+  })
+
+  it('themes the completed export folder action instead of stretching a native button', () => {
+    expectStyleSnippet('.video-note-export-dialog__open-folder { justify-self: start; min-height: 32px; padding: 6px 12px;')
+    expectStyleSnippet('.video-note-export-dialog__open-folder:hover:not(:disabled), .video-note-export-dialog__open-folder:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, 0.52); background: rgba(220, 238, 255, 0.92);')
+    expectStyleSnippet('.video-note-export-dialog__open-folder:active:not(:disabled) { background: rgba(220, 238, 255, 0.98);')
+  })
+
+  it('keeps queue titles text-only and highlights the selected list row', () => {
+    expectStyleSnippet(
+      '.video-notes .video-notes__queue-record-title { display: block; min-width: 0; overflow: hidden; border: 0; padding: 0; background: transparent;'
+    )
+    expectStyleSnippet(
+      '.video-notes__queue-record[data-selected="true"] { background: #e7f0ff;'
+    )
+    expectStyleSnippet(
+      '.video-notes .video-notes__queue-record-title:hover, .video-notes .video-notes__queue-record-title:focus-visible { border-color: transparent; background: transparent; box-shadow: none; transform: none;'
+    )
+    expectStyleSnippet(
+      '.video-notes .video-notes__queue-record-select, .video-notes .video-notes__queue-current-title { display: grid; min-width: 0; flex: 1; gap: 3px; border: 0; background: transparent; padding: 0;'
+    )
+    expectStyleSnippet(
+      '.video-notes__queue-row-action { align-self: center; border: 0; background: transparent; padding: 0;'
+    )
+  })
+
+  it('keeps the queue bulk-select label on one line in a narrow sidebar', () => {
+    expectStyleSnippet(
+      '.video-notes__queue-bulk-toolbar label { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;'
+    )
+  })
+
+  it('keeps assistant-owned scrollbars on the shared porcelain palette', () => {
+    expect(normalizedStyles).toContain('.assistant-settings, .local-data-settings { scrollbar-width: thin; scrollbar-color: #7ea8d8 rgb(226 238 255 / .58); }')
+    expect(normalizedStyles).toContain('.assistant-settings::-webkit-scrollbar, .local-data-settings::-webkit-scrollbar { width: 10px; height: 10px; }')
+  })
+
+  it('hides the persistently mounted settings workspace outside the Settings tab', () => {
+    expectStyleSnippet('.assistant-settings[hidden] { display: none;')
+  })
+
+  it('does not keep the transparent desktop pet repainting forever while idle or working', () => {
+    expectStyleSnippet('.layered-pet { position: relative; z-index: 1; display: block;')
+    expectStyleSnippet('animation: layered-pet-idle 3.8s ease-in-out 2;')
+    expectStyleSnippet('.layered-pet[data-pet-motion="working"] { animation-name: layered-pet-working; animation-duration: 1s; animation-iteration-count: 3;')
+    expectStyleSnippet('.layered-pet__layer--effect { animation: layered-pet-effect 1.2s ease-in-out 2;')
+  })
+
   it('keeps bordered controls rounded instead of square-cornered', () => {
     expect(normalizedStyles).not.toMatch(/border-(?:top|bottom)-(?:left|right)-radius:\s*0\b/)
 
@@ -79,6 +150,37 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('centers old favorite modals over the viewport above the assistant sidebar', () => {
+    expectStyleSnippet(
+      '.bilimi-modal__viewport { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center;'
+    )
+    expectStyleSnippet(
+      '.bilimi-modal__dialog { position: relative; z-index: 1; display: flex; flex-direction: column; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 32px); min-height: 0; overflow: hidden;'
+    )
+    expectStyleSnippet('.old-favorite-modal__dialog { width: min(420px, calc(100vw - 32px));')
+  })
+
+  it('keeps the compact old favorite batch controls inside narrow sidebars', () => {
+    expectStyleSnippet(
+      '.favorite-ledger-panel__batch-switcher { display: grid; grid-template-columns: minmax(0, 1fr) auto; flex: 1 1 100%; grid-column: 1 / -1; width: 100%; min-width: 0; max-width: 100%;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__batch-switcher > .favorite-ledger-panel__batch-select { grid-column: 1; width: 100%; min-width: 0;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__batch-switcher button, .favorite-ledger-panel__batch-switcher select { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis;'
+    )
+  })
+
+  it('keeps the closed change-history trigger free of the retired parent pseudo-arrow', () => {
+    expect(normalizedStyles).not.toContain(
+      '.favorite-ledger-panel__archive-history-select-control::after'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-arrow { width: 7px; height: 7px;'
+    )
+  })
+
   it('keeps the main app shell clipped to the window instead of exposing horizontal page scroll', () => {
     expect(normalizedStyles).toContain('body {\n  overflow: hidden;')
     expect(normalizedStyles).toContain('.app-shell {\n  position: relative;\n  width: 100%;')
@@ -90,13 +192,13 @@ describe('renderer porcelain theme styles', () => {
   it('uses compact density rules for small logical windows without scaling the whole app', () => {
     expect(normalizedStyles).toContain('@media (max-width: 1200px), (max-height: 760px)')
     expectStyleSnippet(
-      '@media (max-width: 1200px), (max-height: 760px) { .app-main { grid-template-rows: 38px minmax(0, 1fr);'
+      '@media (max-width: 1200px), (max-height: 760px) { .browser-workspace { grid-template-rows: 38px minmax(0, 1fr) auto;'
     )
     expectStyleSnippet(
       '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 8px; gap: 6px; padding: 4px var(--assistant-sidebar-workspace-padding-x) 8px; font-size: 13px;'
     )
     expectStyleSnippet(
-      '.assistant-sidebar { width: var(--assistant-sidebar-width, clamp(288px, 26vw, 320px));'
+      '.assistant-sidebar-shell { width: var(--assistant-sidebar-width, clamp(288px, 26vw, 320px));'
     )
   })
 
@@ -114,7 +216,7 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.browser-tabs__controls {\n  display: grid;\n  grid-template-columns: 34px 78px;'
     )
-    expect(normalizedStyles).toContain('border-left: 1px solid rgba(31, 99, 181, 0.16);')
+    expect(normalizedStyles).toContain('border-left: 1px solid rgba(31, 99, 181, 0.22);')
     expect(normalizedStyles).toContain('.browser-tabs__collapse-slot {\n  width: 78px;')
   })
 
@@ -136,7 +238,7 @@ describe('renderer porcelain theme styles', () => {
       '.browser-tabs__item:is(:hover, :focus-within, [data-selected="true"]) .browser-tabs__close { width: 26px; opacity: 1; pointer-events: auto;'
     )
     expectStyleSnippet(
-      '@media (max-width: 1200px), (max-height: 760px) { .app-main { grid-template-rows: 38px minmax(0, 1fr);'
+      '@media (max-width: 1200px), (max-height: 760px) { .browser-workspace { grid-template-rows: 38px minmax(0, 1fr) auto;'
     )
     expectStyleSnippet(
       '.browser-tabs__item { flex-basis: 132px; min-width: 80px; max-width: 180px; height: 28px;'
@@ -169,6 +271,84 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('.browser-surface--hidden {\n  display: none;')
   })
 
+  it('gives rounded settings, archive, and queue cards one shared full-bleed divider contract', () => {
+    expectStyleSnippet('.porcelain-full-bleed-divider { box-sizing: border-box; width: calc(100% + (var(--porcelain-card-padding) * 2)); margin-inline: calc(var(--porcelain-card-padding) * -1); border-top: var(--bilimi-divider);')
+    expect(normalizedStyles).toMatch(/\.video-note-archive__history-card,\n\.video-note-archive__detail \{[\s\S]*?--porcelain-card-padding: 8px;/)
+    expect(normalizedStyles).toMatch(/\.assistant-settings__group \{[\s\S]*?--porcelain-card-padding: 10px;/)
+    expect(normalizedStyles).toMatch(/\.video-notes__queue \{[\s\S]*?--porcelain-card-padding: 6px;/)
+    for (const selector of ['\\.video-note-archive__toolbar,\\s*\\.video-note-archive__list', '\\.video-note-archive__detail section', '\\.video-notes__queue-body']) {
+      expect(normalizedStyles).toMatch(new RegExp(`${selector} \\{[\\s\\S]*?width: calc\\(100% \\+ \\(var\\(--porcelain-card-padding\\) \\* 2\\)\\);[\\s\\S]*?margin-inline: calc\\(var\\(--porcelain-card-padding\\) \\* -1\\);`))
+    }
+    for (const selector of ['\\.video-note-archive__toolbar', '\\.video-note-archive__list', '\\.video-note-archive__detail section', '\\.video-notes__queue-body']) {
+      expect(normalizedStyles).toMatch(new RegExp(`${selector} \\{[\\s\\S]*?padding-inline: var\\(--porcelain-card-padding\\);`))
+    }
+    expect(normalizedStyles).toMatch(/\.video-note-archive__list \{[\s\S]*?padding-block: 8px 0;[\s\S]*?padding-inline: var\(--porcelain-card-padding\);/)
+    expect(normalizedStyles).toMatch(/\.video-note-archive__list \{[\s\S]*?scrollbar-gutter: stable;[\s\S]*?padding-right: calc\(var\(--porcelain-card-padding\) \+ 8px\);/)
+    expect(normalizedStyles).toMatch(/\.video-note-archive__list \{[\s\S]*?width: calc\(100% \+ var\(--porcelain-card-padding\)\);[\s\S]*?margin-left: calc\(var\(--porcelain-card-padding\) \* -1\);/)
+  })
+
+  it('disables the favorite-detail reveal transition for reduced motion', () => {
+    expectStyleSnippet(
+      '@media (prefers-reduced-motion: reduce) { .favorite-library-drawer, .assistant-sidebar, .favorite-library__chevron, .disclosure-arrow, .favorite-library-drawer__actions button, .favorite-library__detail-section, .video-note-archive__return-button { transition-duration: 1ms !important;'
+    )
+  })
+
+  it('removes the collapsed favorite library body from the drawer grid', () => {
+    expectStyleSnippet(
+      '.favorite-library-drawer[data-collapsed="true"] .favorite-library-drawer__body { display: none;'
+    )
+  })
+
+  it('keeps preview cards as sized interactive track items with visible borders and menus', () => {
+    expectStyleSnippet(
+      '.favorite-ledger-panel__preview-item-shell { flex: 0 0 calc(100% - 56px); min-width: 0; scroll-snap-align: start;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__preview-item-shell > article { box-sizing: border-box; width: 100%; min-width: 0;'
+    )
+    expectStyleSnippet('.favorite-ledger-panel__preview-video { box-sizing: border-box; width: 100%;')
+    expectStyleSnippet(
+      '.favorite-ledger-panel__preview-video a { color: var(--porcelain-deep); text-decoration: underline; text-underline-offset: 2px;'
+    )
+    expectStyleSnippet('.favorite-ledger-panel__target-menu { position: static;')
+  })
+
+  it('slides the closed favorite library drawer out before releasing its layout', () => {
+    expectStyleSnippet('.favorite-library-drawer[data-closing="true"] { transform: translateY(14px); opacity: 0; pointer-events: none;')
+    expectStyleSnippet('.favorite-library-drawer[data-collapsing="true"] { transform: translateY(14px); opacity: 0;')
+    expectStyleSnippet('.favorite-library-drawer[data-closing="true"] { transform: translateY(var(--panel-drawer-collapse-offset, 14px)); transition: transform var(--panel-drawer-close-duration, 170ms) var(--panel-drawer-close-easing, cubic-bezier(0.4, 0, 1, 1)), opacity 140ms var(--panel-drawer-close-easing, cubic-bezier(0.4, 0, 1, 1));')
+    expectStyleSnippet('.favorite-library-drawer[data-collapsing="true"] { transform: translateY(var(--panel-drawer-collapse-offset, 14px)); transition: transform var(--panel-drawer-collapse-duration, 170ms) var(--panel-drawer-collapse-easing, cubic-bezier(0.4, 0, 1, 1)), opacity 140ms var(--panel-drawer-collapse-easing, cubic-bezier(0.4, 0, 1, 1));')
+    expect(normalizedStyles).not.toContain(
+      '.favorite-library-drawer[data-collapsing="true"] {\n  transform: translateY(14px);\n  opacity: 0;\n  pointer-events: none;'
+    )
+  })
+
+  it('keeps the favorite drawer resize hit area out of the header layout', () => {
+    expectStyleSnippet('.favorite-library-drawer { position: relative; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr);')
+    expectStyleSnippet('.favorite-library-drawer__resize-handle { position: absolute; top: 0; right: 0; left: 0; z-index: 2; height: 10px;')
+    expectStyleSnippet(".favorite-library-drawer__resize-handle::after { content: ''; position: absolute; top: 0;")
+  })
+
+  it('keeps panel transition gaps on the assistant ice surface', () => {
+    expectStyleSnippet(
+      '.app-shell { position: relative; width: 100%; height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; background: var(--porcelain-ice);'
+    )
+    expectStyleSnippet(
+      '.browser-stack { position: relative; min-height: 0; overflow: hidden; background: var(--porcelain-ice);'
+    )
+    expectStyleSnippet('.assistant-sidebar-shell { position: relative; width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px));')
+  })
+
+  it('keeps local data usage readable in a narrow sidebar', () => {
+    expectStyleSnippet('.local-data-settings__section:first-child { padding-top: 0; border-top: 0; }')
+    expectStyleSnippet('@media (max-width: 420px) { .local-data-settings__usage { grid-template-columns: minmax(0, 1fr); }')
+  })
+
+  it('keeps the migration scope equally sized and separates destructive data actions', () => {
+    expectStyleSnippet('.local-data-settings__segmented { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%;')
+    expectStyleSnippet('.local-data-settings__danger-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding-top: 10px; border-top: 1px solid rgba(183, 62, 48, .38); }')
+  })
+
   it('uses a left boundary sidebar collapse control without reserving a rail column', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
 
@@ -181,7 +361,8 @@ describe('renderer porcelain theme styles', () => {
       'min-width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px));'
     )
     expect(sidebarStyles).toContain('grid-template-columns: minmax(0, 1fr);')
-    expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 0;')
+    expect(sidebarStyles).toContain('.assistant-sidebar-shell[data-collapsed="true"] {\n  width: 0;\n  min-width: 0;')
+    expectStyleSnippet('.assistant-sidebar-shell[data-closing="true"] .assistant-sidebar { position: absolute; top: 0; right: 0; width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px));')
     expect(sidebarStyles).toContain('.assistant-sidebar__resize-handle {')
     expect(sidebarStyles).toContain('cursor: col-resize;')
     expect(sidebarStyles).toContain('.assistant-sidebar__resize-shield {\n  position: fixed;')
@@ -206,6 +387,12 @@ describe('renderer porcelain theme styles', () => {
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-label {\n  line-height: 1;')
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-pet {\n  width: 24px;\n  height: 24px;')
     expect(sidebarStyles).not.toContain('.assistant-sidebar[data-collapsed="true"] .assistant-sidebar__collapse-button {\n  right: 12px;\n  bottom: 12px;')
+  })
+
+  it('keeps the sidebar visible while it translates out before releasing browser space', () => {
+    expectStyleSnippet('.assistant-sidebar-shell[data-closing="true"] .assistant-sidebar { position: absolute; top: 0; right: 0; width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px)); transform: translateX(calc(100% + var(--panel-sidebar-collapse-offset, 14px))); transition: transform var(--panel-sidebar-collapse-duration, 220ms) var(--panel-sidebar-collapse-easing, cubic-bezier(0.4, 0, 1, 1)), border-color 160ms ease;')
+    expect(normalizedStyles).not.toContain('.assistant-sidebar-shell[data-closing="true"] .assistant-sidebar { opacity: 0;')
+    expectStyleSnippet('.assistant-sidebar-shell[data-closing="true"] { background: var(--porcelain-ice); }')
   })
 
   it('keeps the four assistant tabs equally spaced with horizontal labels', () => {
@@ -239,10 +426,16 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('keeps the global assistant status inside the chrome frame without an extra bottom rule', () => {
-    expectStyleSnippet('.floating-assistant-global-status { min-height: 68px; display: grid; grid-template-rows: minmax(34px, auto) 34px; gap: 0; padding: 0; border-bottom: 0; background: rgba(247, 251, 255, 0.76);')
-    expectStyleSnippet('.floating-assistant-global-status__feedback { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--porcelain-deep); padding: 7px 10px; font-size: 12px; font-weight: 700;')
+    expectStyleSnippet('.floating-assistant-global-status { min-height: 76px; display: grid; grid-template-rows: minmax(42px, auto) 34px; gap: 0; padding: 0; border-bottom: 0; background: rgba(247, 251, 255, 0.76);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback { position: relative; z-index: 3; margin: 0; min-width: 0; color: var(--porcelain-deep); font-size: 12px; font-weight: 700; line-height: 18px; background: rgba(247, 251, 255, 0.98);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-chevron { display: block; flex: 0 0 16px; width: 16px; height: 16px; margin: 0; transition: transform 180ms ease-out;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-toggle[aria-expanded="true"] .floating-assistant-global-status__feedback-chevron { transform: rotate(180deg);')
+    expectStyleSnippet('.floating-assistant-global-status__menu { position: absolute; top: 100%; right: 0; left: 0; z-index: 5; max-height: min(320px, calc(100vh - 140px)); overflow: hidden;')
+    expectStyleSnippet('.floating-assistant-global-status__menu-scroll { max-height: min(260px, calc(100vh - 210px)); overflow: auto;')
     expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
-    expectStyleSnippet('.floating-assistant-global-status__light { appearance: none; border: 0; background: transparent; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')
+    expectStyleSnippet('.floating-assistant-global-status__light { appearance: none; position: static; border: 0; background: transparent; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')
     expectStyleSnippet('.floating-assistant-global-status__light:hover, .floating-assistant-global-status__light:focus-visible { background: rgba(220, 238, 255, 0.72); outline: none;')
   })
 
@@ -266,10 +459,7 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__archive-history-select-control option { color: var(--porcelain-deep); background: #ffffff;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__archive-history-select-control::after { content: ""; position: absolute; z-index: 1; left: 50%; top: 50%;'
-    )
-    expectStyleSnippet(
-      'transform: translate(-50%, -50%) rotate(45deg); pointer-events: none;'
+      '.favorite-ledger-panel__archive-history-trigger { width: 32px; min-width: 32px; height: 32px;'
     )
     expectStyleSnippet(
       '.favorite-ledger-panel__archive-history-button { width: 100%; min-width: 0;'
@@ -281,7 +471,7 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__deepseek-archive-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__deepseek-archive-actions { flex: 1 1 176px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;'
+      '.favorite-ledger-panel__deepseek-archive-actions { flex: 0 1 auto; margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;'
     )
     expectStyleSnippet(
       '.favorite-ledger-panel__deepseek-archive-actions > button, .favorite-ledger-panel__deepseek-archive-scope { flex: 0 0 auto;'
@@ -297,21 +487,30 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
-  it('keeps DeepSeek archive feedback on one stable muted line', () => {
+  it('keeps DeepSeek archive feedback full-width and readable', () => {
     expectStyleSnippet(
-      '.favorite-ledger-panel__deepseek-archive-status { overflow: hidden; color: var(--porcelain-muted); font-weight: 700; text-overflow: ellipsis; white-space: nowrap;'
+      '.favorite-ledger-panel__deepseek-feedback { width: 100%; min-width: 0; box-sizing: border-box; display: grid; gap: 6px;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__deepseek-result { width: 100%; min-width: 0;'
+      '.favorite-ledger-panel__deepseek-feedback-copy { min-width: 0; overflow-wrap: anywhere; white-space: normal;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-feedback .favorite-ledger-panel__deepseek-archive-progress-track { width: 100%; box-sizing: border-box;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-progress-copy { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; overflow: visible;'
     )
     expectStyleSnippet('.favorite-ledger-panel__deepseek-result-details { display: grid;')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-result-details--organization { margin-top: 0; padding-top: 0; border-top: 0;')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-result-details--organization {')
+    expectStyleSnippet('max-height: min(42vh, 300px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: #7ea8d8 rgb(226 238 255 / .58);')
     expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle { display: inline-flex;')
     expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle:hover:not(:disabled), .favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle:focus-visible:not(:disabled) { border-color: transparent; background: transparent;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__deepseek-result-trigger strong')
   })
 
   it('frames the assistant workspace chrome while keeping tab buttons defined', () => {
-    expectStyleSnippet('.floating-assistant-chrome { min-width: 0; display: grid; grid-template-rows: auto auto; border: 1px solid rgba(31, 99, 181, 0.28); border-radius: 8px; background: rgba(247, 251, 255, 0.72); box-shadow: 0 1px 3px rgba(7, 26, 51, 0.08); overflow: hidden;')
+    expectStyleSnippet('.floating-assistant-chrome { position: relative; min-width: 0; display: grid; grid-template-rows: auto auto; border: 1px solid rgba(31, 99, 181, 0.28); border-radius: 8px; background: rgba(247, 251, 255, 0.72); box-shadow: 0 1px 3px rgba(7, 26, 51, 0.08); overflow: visible;')
     expectStyleSnippet('.floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 8px 8px 7px; border-bottom: 1px dashed #d1e6fb;')
     expectStyleSnippet('.floating-assistant-tabs button { width: 100%; min-width: 0; min-height: 38px; display: grid; grid-template-columns: 22px minmax(0, auto); justify-content: center; align-items: center; gap: 4px; border: 1px solid #8ec0f4;')
     expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; align-items: center; border-top: 1px dashed #d1e6fb;')
@@ -423,8 +622,18 @@ describe('renderer porcelain theme styles', () => {
     )
     expect(normalizedStyles).not.toContain('left: 58px;\n  bottom: 2px;')
     expectStyleSnippet(
-      '.palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(1) { transform: translate(12px, 0);'
+      '.palace-maid-pet__hover-shortcuts[data-layout="fan"][data-count="1"] .palace-maid-pet__hover-shortcut:nth-child(1) { transform: translate(8px, 0);'
     )
+    expectStyleSnippet('.palace-maid-pet__hover-shortcuts[data-layout="fan"][data-count="2"] .palace-maid-pet__hover-shortcut:nth-child(1) { transform: translate(4px, 0);')
+    expectStyleSnippet('.palace-maid-pet__hover-shortcuts[data-layout="fan"][data-count="2"] .palace-maid-pet__hover-shortcut:nth-child(2) { transform: translate(4px, 0);')
+    expectStyleSnippet('.palace-maid-pet__hover-shortcuts[data-layout="fan"][data-count="3"] .palace-maid-pet__hover-shortcut:nth-child(1) { transform: translate(9px, 0);')
+    expectStyleSnippet('.palace-maid-pet__hover-shortcuts[data-layout="fan"][data-count="3"] .palace-maid-pet__hover-shortcut:nth-child(2) { transform: translate(0, 0);')
+    expectStyleSnippet('.palace-maid-pet__hover-shortcuts[data-layout="fan"][data-count="3"] .palace-maid-pet__hover-shortcut:nth-child(3) { transform: translate(9px, 0);')
+    expectStyleSnippet('.palace-maid-pet__hover-shortcuts[data-layout="fan"][data-count="4"] .palace-maid-pet__hover-shortcut:nth-child(1) { transform: translate(12px, 0);')
+    expectStyleSnippet('.palace-maid-pet__hover-shortcuts[data-layout="fan"][data-count="4"] .palace-maid-pet__hover-shortcut:nth-child(2) { transform: translate(2px, -1px);')
+    expectStyleSnippet('.palace-maid-pet__hover-shortcuts[data-layout="fan"][data-count="4"] .palace-maid-pet__hover-shortcut:nth-child(3) { transform: translate(0, 0);')
+    expectStyleSnippet('.palace-maid-pet__hover-shortcuts[data-layout="fan"][data-count="4"] .palace-maid-pet__hover-shortcut:nth-child(4) { transform: translate(9px, 1px);')
+    expect(normalizedStyles).not.toMatch(/data-count="[1-4]"[^}]+translate\([^,]+,\s*-\d{2,}px\)/)
     expectStyleSnippet(
       '.palace-maid-pet__hover-shortcuts[data-assistant-shortcut="true"] .palace-maid-pet__assistant-shortcut { position: absolute; left: 42px; bottom: 50px;'
     )
@@ -466,46 +675,54 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
     expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')
     expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22);'
+      '.memorial-panel__action-card--with-setting { position: relative; display: block; min-width: 0; border: 1px solid rgba(31, 99, 181, 0.22);'
     )
-    expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-control); background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) );'
+    expect(normalizedStyles).not.toContain(
+      '.memorial-panel__action-card--with-setting {\n  grid-template-columns:'
     )
     expectStyleSnippet(
       '.memorial-panel__action-card--with-setting:hover, .memorial-panel__action-card--with-setting:focus-within { border-color: rgba(31, 99, 181, 0.5); background: linear-gradient( 180deg, rgba(255, 254, 253, 1), rgba(220, 238, 255, 1) ); box-shadow: 0 8px 16px rgba(31, 99, 181, 0.14); transform: translateY(-1px);'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control);'
-    )
-    expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control); border: 0; background: transparent;'
+      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control); border: 0; background: transparent;'
     )
     expectStyleSnippet(
       '.memorial-panel__action-card--with-setting .assistant-action-button:hover:not(:disabled), .memorial-panel__action-card--with-setting .assistant-action-button:focus-visible:not(:disabled) { background: transparent; box-shadow: none; transform: none;'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; justify-self: stretch; min-width: 0; width: 56px; max-width: 56px;'
+      '.memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:hover), .memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:focus-within) { border-color: rgba(31, 99, 181, 0.22);'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px;'
+      '.memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:hover), .memorial-panel__action-card--with-setting:has(.memorial-panel__action-setting:focus-within) { border-color: rgba(31, 99, 181, 0.22); background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) ); box-shadow: none; transform: none;'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px; border: 0; border-left: 1px solid rgba(31, 99, 181, 0.22);'
-    )
-    expect(normalizedStyles).toContain(
-      '.memorial-panel__action-setting select {\n  box-sizing: border-box;\n  width: 100%;\n  max-width: 100%;\n  min-width: 0;\n  min-height: 62px;\n  border: 0;\n  border-left: 1px solid rgba(31, 99, 181, 0.22);\n  border-radius: var(--porcelain-radius-join) var(--porcelain-radius-control)\n    var(--porcelain-radius-control) var(--porcelain-radius-join);\n  background: transparent;'
+      '.memorial-panel__action-setting { position: absolute; top: 2px; right: 8px; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-width: 0; width: 88px; max-width: 88px; padding: 2px;'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting select:hover, .memorial-panel__action-setting select:focus-visible { border-left-color: rgba(31, 99, 181, 0.5); background: transparent; box-shadow: none;'
+      '.memorial-panel__action-setting .memorial-panel__action-setting-option { appearance: none; min-width: 34px; min-height: 24px; padding: 2px 3px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--porcelain-muted);'
     )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting-option[aria-pressed="true"] { color: var(--porcelain-primary);'
+    )
+    expect(normalizedStyles).not.toContain(
+      '.memorial-panel__action-setting-option[aria-pressed="true"] {\n  color: var(--porcelain-primary);\n  text-decoration:'
+    )
+    expectStyleSnippet('.memorial-panel__action-setting .memorial-panel__action-setting-option:hover:not(:disabled), .memorial-panel__action-setting .memorial-panel__action-setting-option:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, 0.42); background: rgba(220, 238, 255, 0.72); outline: none; box-shadow: none; transform: none;')
+    expectStyleSnippet('.memorial-panel__action-setting-separator { color: var(--porcelain-muted); font-size: 12px; line-height: 1; user-select: none;')
+    expect(normalizedStyles).not.toContain('.memorial-panel__action-setting select')
     expect(normalizedStyles).toContain('rgba(220, 238, 255, 0.98)')
     expect(normalizedStyles).toContain('rgba(220, 238, 255, 1)')
     expectStyleSnippet(
       '.assistant-action-button { min-height: 62px; display: grid; grid-template-columns: 58px minmax(0, 1fr); grid-template-areas: "mark label" "mark desc"; align-items: center; gap: 3px 8px; border-radius: 6px; text-align: left; background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) );'
     )
-    expect(normalizedStyles).toContain('padding: 0 15px 0 7px;\n  text-align: left;\n  text-align-last: left;')
     expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr);')
     expectStyleSnippet('grid-template-areas: "mark label" "mark desc";')
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting > .assistant-action-button > .assistant-action-button__label { padding-right: 104px; }'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting > .assistant-action-button > .assistant-action-button__description { padding-right: 4px; }'
+    )
     expect(normalizedStyles).toContain(
       '.assistant-action-button__icon {\n  grid-area: mark;\n  position: relative;\n  width: 42px;\n  height: 44px;'
     )
@@ -556,6 +773,7 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.video-notes__source h3 {\n  margin: 0;\n  color: var(--porcelain-text);\n  font-size: 16px;'
     )
+    expectStyleSnippet('.video-notes__source-transcription-status { margin: 0; color: inherit; font-size: 12px; line-height: inherit; font-weight: inherit; }')
     expectStyleSnippet('.video-notes__primary-actions { display: grid; grid-template-columns: 1fr;')
     expectStyleSnippet(
       '.video-notes__primary-actions { display: grid; grid-template-columns: 1fr; gap: 6px; align-items: center; border: 0; background: transparent; padding: 0;'
@@ -577,11 +795,12 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.video-notes__result-tabs button { display: grid; grid-template-rows: auto auto; align-content: start; gap: 2px; height: 66px; min-height: 66px; min-width: 0; box-sizing: border-box; padding: 6px 8px;')
     expectStyleSnippet('.video-notes__result-tabs small { display: -webkit-box; overflow: hidden; color: inherit; opacity: 0.78; line-height: 1.18; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: ellipsis;')
     expectStyleSnippet('.video-notes__queue-header { display: grid; gap: 4px;')
-    expectStyleSnippet('.video-notes__queue-summary { display: flex; align-items: center; justify-content: space-between;')
+    expectStyleSnippet('.video-notes__queue-header--after-current { border-top: var(--bilimi-divider); padding-top: 6px;')
+    expectStyleSnippet('.video-notes__queue-summary { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between;')
     expectStyleSnippet('.video-notes__queue-title { display: -webkit-box; overflow: hidden;')
-    expectStyleSnippet('.video-notes__queue-selector { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center;')
-    expectStyleSnippet('.video-notes__queue-selector select { appearance: none; width: 24px; min-width: 24px; height: 24px; padding: 0;')
-    expectStyleSnippet('.video-notes__queue-selector::after { content: ""; position: absolute; right: 8px; top: 50%; width: 6px; height: 6px; border-right: 1.5px solid rgba(31, 99, 181, 0.72); border-bottom: 1.5px solid rgba(31, 99, 181, 0.72); transform: translateY(-62%) rotate(45deg); pointer-events: none;')
+    expectStyleSnippet('.video-notes__queue-selector { position: relative; display: inline-flex; flex: 0 0 auto; margin-left: auto; align-items: center;')
+    expect(normalizedStyles).not.toContain('.video-notes__queue-history-toggle')
+    expectStyleSnippet('.video-notes__queue-arrow { position: static; width: 6px; height: 6px; border-right: 1.5px solid rgba(31, 99, 181, 0.72); border-bottom: 1.5px solid rgba(31, 99, 181, 0.72); transform: rotate(45deg); pointer-events: none;')
     expect(normalizedStyles).toContain(
       '.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));'
     )
@@ -604,23 +823,49 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.video-note-archive__history-card { display: grid; grid-template-rows: auto auto minmax(0, 1fr);'
     )
-    expectStyleSnippet(
-      '.video-note-archive__toolbar, .video-note-archive__list { border-top: 1px dashed rgba(31, 99, 181, 0.2);'
-    )
+    expectStyleSnippet('.video-note-archive__toolbar, .video-note-archive__list { box-sizing: border-box; width: calc(100% + (var(--porcelain-card-padding) * 2)); margin-inline: calc(var(--porcelain-card-padding) * -1); border-top: 1px dashed rgba(31, 99, 181, 0.2);')
     expectStyleSnippet('.video-notes__source dd { min-width: 0; overflow-wrap: anywhere;')
     expectStyleSnippet('.video-notes__summary-result { display: grid; gap: 8px; min-width: 0;')
     expectStyleSnippet('.video-notes__summary-result pre { max-width: 100%; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere;')
     expectStyleSnippet('.video-notes__summary-section { display: grid; gap: 5px; min-width: 0; border-top: 1px dashed rgba(31, 99, 181, 0.18);')
     expectStyleSnippet('.video-notes__summary-section pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; border: 0; background: transparent;')
-    expectStyleSnippet('.video-notes__result-body { max-height: 160px; overflow: auto; border-top: 1px dashed rgba(31, 99, 181, 0.18); background: transparent;')
+    expectStyleSnippet('.video-notes__result-body { max-height: min(52vh, 520px); overflow: auto; border-top: 1px dashed rgba(31, 99, 181, 0.18); background: transparent;')
     expectStyleSnippet('.video-notes__result-body ol, .video-notes__result-body pre, .video-notes__result-body .video-notes__plain-text { max-height: none; overflow: visible; border-top: 0; padding-top: 0;')
-    expectStyleSnippet('.video-note-archive__detail section { display: grid; gap: 6px; border-top: 1px dashed rgba(31, 99, 181, 0.18);')
-    expectStyleSnippet('.video-note-archive__result-panel .video-notes__result-body { border-top: 0; padding-top: 0;')
+    expectStyleSnippet('.video-note-archive__detail section { display: grid; gap: 6px; box-sizing: border-box; width: calc(100% + (var(--porcelain-card-padding) * 2)); margin-inline: calc(var(--porcelain-card-padding) * -1); border-top: var(--bilimi-divider);')
+    expectStyleSnippet('.video-note-archive__result-panel .video-notes__result-body { min-height: 240px; max-height: none; overflow: auto; border-top: 0; padding-top: 0;')
+    expectStyleSnippet('.video-notes__feedback { position: absolute; right: 0; bottom: 0; left: 0; z-index: 4; display: grid; gap: 2px; pointer-events: none;')
+    expectStyleSnippet('.video-notes__feedback p { max-height: 3em; margin: 0; overflow: auto; border: 1px solid rgba(31, 99, 181, 0.22); background: rgba(247, 251, 255, 0.96);')
     expect(normalizedStyles).not.toContain('.video-notes__plain-text {\n  max-height: 160px;\n  overflow: auto;\n  border: 1px solid')
     expect(normalizedStyles).toContain('.video-notes textarea {\n  min-height: 60px;')
     expect(normalizedStyles).toContain(
       '.video-notes__memo textarea[readonly] {\n  min-height: 130px;'
     )
+  })
+
+  it('styles notes transcription modes as borderless toggles instead of a dropdown', () => {
+    expectStyleSnippet('.video-notes__transcription-mode { position: absolute; top: 2px; right: 8px;')
+    expectStyleSnippet('.video-notes .video-notes__transcription-mode-option { appearance: none; min-width: 36px; min-height: 24px;')
+    expectStyleSnippet('width: auto; flex: 0 0 auto;')
+    expectStyleSnippet('padding: 2px 5px; border: 1px solid transparent; border-radius: 5px;')
+    expectStyleSnippet('background: transparent; color: var(--porcelain-muted);')
+    expectStyleSnippet('box-shadow: none; transform: none;')
+    expectStyleSnippet('.video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__label { padding-right: 104px; }')
+    expectStyleSnippet('.video-notes__primary-action-card > .assistant-action-button > .assistant-action-button__description { padding-right: 4px; }')
+    expectStyleSnippet('.video-notes__transcription-mode-option[aria-pressed="true"] { color: var(--porcelain-primary);')
+    expect(normalizedStyles).not.toContain(
+      '.video-notes__transcription-mode-option[aria-pressed="true"] {\n  color: var(--porcelain-primary);\n  text-decoration:'
+    )
+    expectStyleSnippet('.video-notes .video-notes__transcription-mode-option:hover:not(:disabled):not(.assistant-action-button), .video-notes .video-notes__transcription-mode-option:focus-visible:not(:disabled):not(.assistant-action-button) { border-color: rgba(31, 99, 181, 0.42);')
+    expectStyleSnippet('outline: none; box-shadow: none; transform: none;')
+    expectStyleSnippet('.video-notes__transcription-mode-separator { color: var(--porcelain-muted);')
+    expectStyleSnippet('.video-notes__multipart-toolbar > button { min-height: 28px; padding: 4px 8px;')
+    expect(normalizedStyles).not.toContain('.video-notes__transcription-mode select')
+  })
+
+  it('matches only the review title to the notes title hierarchy', () => {
+    expectStyleSnippet('.memorial-panel__meta-eyebrow { color: var(--porcelain-text); font-size: 14px; font-weight: 700; line-height: 1.45;')
+    expectStyleSnippet('.memorial-panel__meta-title { color: var(--porcelain-text); font-size: 16px; font-weight: 700; line-height: 1.3;')
+    expectStyleSnippet('.memorial-panel__meta-detail { color: var(--porcelain-text); font-size: 12px; font-weight: inherit; line-height: 1.45;')
   })
 
   it('keeps assistant panel rows from stretching into tall empty blocks', () => {
@@ -632,7 +877,7 @@ describe('renderer porcelain theme styles', () => {
       '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  align-content: start;\n  gap: 8px;'
     )
     expectStyleSnippet(
-      '.video-notes__panel-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; margin-left: auto;'
+      '.video-notes__panel-actions { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto;'
     )
     expectStyleSnippet('.video-notes__summary-generate { font-weight: 700;')
   })
@@ -653,9 +898,17 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-action-button:hover:not(:disabled), .assistant-action-button:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, 0.5);')
     expectStyleSnippet('.favorite-ledger-panel__safety-note { flex: 1 0 100%; color: var(--porcelain-muted); font-size: 12px;')
     expectStyleSnippet('.favorite-ledger-panel__status { margin: 6px 0 0;')
-    expectStyleSnippet('.favorite-ledger-panel__sync-hint { color: var(--porcelain-muted); font-size: 12px;')
-    expectStyleSnippet('.favorite-ledger-panel__help-toggle { appearance: none; width: 14px; height: 18px;')
-    expectStyleSnippet('.favorite-ledger-panel__help-toggle { appearance: none; width: 14px; height: 18px; min-width: 14px; min-height: 18px; padding: 0; border: 0; background: transparent; box-shadow: none;')
+    expectStyleSnippet('.favorite-ledger-panel__sync-hint { color: #365b83; font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif; font-size: 13px; font-weight: 500; line-height: 1.62;')
+    expectStyleSnippet('.favorite-ledger-panel__section-title { display: inline-flex; align-items: center; gap: 5px; min-width: 0;')
+    expectStyleSnippet('.favorite-ledger-panel__chevron { width: 16px; height: 16px; flex: 0 0 16px; transition: transform 180ms ease-out;')
+    expectStyleSnippet('.favorite-ledger-panel__help-toggle[aria-expanded="true"] .favorite-ledger-panel__chevron { transform: rotate(90deg);')
+    expectStyleSnippet('.disclosure-arrow { display: inline-block; transition: transform 180ms ease-out;')
+    expectStyleSnippet('.video-notes__copy-main[aria-expanded="true"] .disclosure-arrow, .video-note-archive__version-picker > button[aria-expanded="true"] .disclosure-arrow, .favorite-ledger-panel__deepseek-archive-scope > button[aria-expanded="true"] .disclosure-arrow, .favorite-ledger-panel__target-toggle[aria-expanded="true"] .disclosure-arrow { transform: rotate(180deg);')
+    expectStyleSnippet('.video-notes__queue-selector[aria-expanded="true"] .video-notes__queue-arrow { transform: rotate(225deg);')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-trigger[aria-expanded="true"] .favorite-ledger-panel__archive-history-arrow { transform: translateY(-2px) rotate(225deg);')
+    expectStyleSnippet('.memorial-panel__log > summary::before, .favorite-ledger-panel__deepseek-result-details > summary::before, .favorite-ledger-panel__scan-risk-summary > summary::before, .favorite-ledger-panel__scan-failure-details > summary::before { content: "";')
+    expectStyleSnippet('.favorite-ledger-panel__sync-hint, .favorite-ledger-panel__guide-hint { overflow: hidden; transition: max-height 180ms ease-out, opacity 150ms ease-out, transform 180ms ease-out;')
+    expectStyleSnippet('.favorite-ledger-panel__help-toggle { appearance: none; width: auto; min-width: 0; min-height: 28px; padding: 4px 2px; border: 0; background: transparent; box-shadow: none;')
     expectStyleSnippet('.favorite-ledger-panel__help-toggle:hover:not(:disabled), .favorite-ledger-panel__help-toggle:focus-visible:not(:disabled) { border-color: transparent; background: transparent;')
     expect(normalizedStyles).toContain(
       '.favorite-ledger-panel .favorite-ledger-panel__help-toggle {\n  border: 0;'
@@ -677,8 +930,9 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__editor-actions { display: flex; gap: 8px;')
     expectStyleSnippet('.favorite-ledger-panel__chip-item { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 28px;')
     expectStyleSnippet('.favorite-ledger-panel__chip-item[data-dragging="true"] { opacity: 0.58; filter: drop-shadow(0 5px 7px rgba(31, 99, 181, 0.18));')
-    expectStyleSnippet('.favorite-ledger-panel__chip-item[data-drop-target="true"]::before { position: absolute; top: -4px;')
-    expectStyleSnippet('.favorite-ledger-panel__chip-item[data-drop-target="true"] > button:first-child, .favorite-ledger-panel__chip-item[data-drop-target="true"] > .favorite-ledger-panel__chip-action { background: rgba(220, 238, 255, 0.72);')
+    expectStyleSnippet('.favorite-ledger-panel__chip-item[data-drop-position="before"]::before { position: absolute; right: 3px; left: 3px; height: 2px; border-radius: 999px; background: #1f63b5; box-shadow: 0 0 0 1px rgba(220, 238, 255, 0.92); content: ""; top: -4px;')
+    expect(normalizedStyles).not.toContain('[data-drop-position="after"]::after')
+    expectStyleSnippet('.favorite-ledger-panel__chip-item[data-drop-position] > button:first-child, .favorite-ledger-panel__chip-item[data-drop-position] > .favorite-ledger-panel__chip-action { background: rgba(220, 238, 255, 0.72);')
     expectStyleSnippet('.favorite-ledger-panel__chip-action { min-width: 28px; width: 28px;')
     expectStyleSnippet('.favorite-ledger-panel__chip-item > button:first-child[aria-pressed="true"] { border-color: rgba(31, 99, 181, 0.42); background: rgba(220, 238, 255, 0.78);')
     expectStyleSnippet('.favorite-ledger-panel__chip-action[data-enabled="true"] { border-color: rgba(31, 99, 181, 0.42); background: rgba(220, 238, 255, 0.78);')
@@ -692,6 +946,11 @@ describe('renderer porcelain theme styles', () => {
 
   it('styles the old favorites guide as a step-based review flow', () => {
     expectStyleSnippet('.favorite-ledger-panel__old-favorites-guide { display: grid; gap: 10px;')
+    expectStyleSnippet('.favorite-ledger-panel__guide-title-row { display: grid; grid-template-columns: minmax(0, 1fr);')
+    expectStyleSnippet('.favorite-ledger-panel__scan-metrics strong { min-width: 0; text-align: right; white-space: nowrap;')
+    expectStyleSnippet('.favorite-ledger-panel__source-count { min-width: 0; text-align: right; white-space: nowrap;')
+    expectStyleSnippet('.favorite-ledger-panel__source-header, .favorite-ledger-panel__source-row-content, .favorite-ledger-panel__source-row--bilimi { display: grid; grid-template-columns: 18px minmax(0, 1fr) 72px 110px;')
+    expect(compactStyles).not.toContain('.favorite-ledger-panel__source-header--bilimi, .favorite-ledger-panel__source-row--bilimi { display: grid; grid-template-columns: minmax(0, 1fr) 52px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__guide-steps button { width: 100%; min-width: 0;')
     expectStyleSnippet('.favorite-ledger-panel__guide-steps button { width: 100%; min-width: 0; height: 36px; min-height: 36px; padding: 0 6px;')
@@ -702,7 +961,7 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__guide-steps button { min-width: 0; height: 36px; min-height: 36px; padding: 0 8px; font-size: 12px; line-height: 1.2; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'
     )
     expectStyleSnippet('.favorite-ledger-panel__guide-steps button[aria-current="step"] { border-color: rgba(31, 99, 181, 0.5);')
-    expectStyleSnippet('.favorite-ledger-panel__guide-hint { margin: 0; color: var(--porcelain-muted);')
+    expectStyleSnippet('.favorite-ledger-panel__guide-hint { margin: 0; color: #365b83; font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif; font-size: 13px; font-weight: 500; line-height: 1.62;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__guide-hint {\n  margin: 0;\n  border:')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics article { display: grid; grid-template-rows: 36px 26px;')
@@ -711,12 +970,19 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics[aria-label="原归档状态"] article { grid-template-rows: 60px 28px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics[aria-label="原归档状态"] span { min-height: 60px;')
     expectStyleSnippet('.favorite-ledger-panel__protected-summary { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center;')
+    expectStyleSnippet('.favorite-ledger-panel__whole-run-overview { display: grid; gap: 7px; min-width: 0; overflow: hidden;')
+    expectStyleSnippet('.favorite-ledger-panel__whole-run-targets { display: grid; gap: 0; width: calc(100% + 16px); margin-inline: -8px; margin-bottom: -8px; max-height: 280px; overflow-x: hidden; overflow-y: auto;')
+    expectStyleSnippet('border-top: 1px dashed rgba(31, 99, 181, 0.28);')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__whole-run-targets {\n  border-bottom: 1px solid rgba(31, 99, 181, 0.18);')
+    expectStyleSnippet('.favorite-ledger-panel__whole-run-targets article { display: grid; gap: 5px; min-width: 0; border: 0; border-radius: 0; background: transparent; padding: 7px 8px;')
+    expectStyleSnippet('.favorite-ledger-panel__whole-run-target-title { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap;')
+    expectStyleSnippet('.favorite-ledger-panel__whole-run-targets article:last-child { padding-bottom: 0; }')
     expectStyleSnippet('.favorite-ledger-panel__scan-warning { margin: 0; color: var(--porcelain-warn);')
     expectStyleSnippet('.favorite-ledger-panel__step-note { margin: 0; font-size: 12px; line-height: 1.45;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__step-note {\n  margin: 0;\n  color: var(--porcelain-muted);')
     expectStyleSnippet('.favorite-ledger-panel__step-divider { border: 0; border-top: 1px dashed rgba(31, 99, 181, 0.28);')
     expect(normalizedStyles).not.toContain('favorite-ledger-panel__scan-candidates')
-    expectStyleSnippet('.favorite-ledger-panel__candidate-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
+    expectStyleSnippet('.favorite-ledger-panel__candidate-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px;')
     expectStyleSnippet('.favorite-ledger-panel__candidates article, .favorite-ledger-panel__confirm { border: 1px solid rgba(31, 99, 181, 0.18);')
     expectStyleSnippet('.favorite-ledger-panel__candidates article { min-width: 0; min-height: 42px; padding: 6px 7px;')
     expectStyleSnippet('.favorite-ledger-panel__candidates label, .favorite-ledger-panel__preview label { display: grid; grid-template-columns: auto minmax(0, 1fr);')
@@ -725,37 +991,57 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('favorite-ledger-panel__candidate-list--compact')
     expectStyleSnippet('.favorite-ledger-panel__preview-groups { display: grid; gap: 10px; max-height: min(62vh, 720px); overflow-y: auto;')
     expectStyleSnippet('.favorite-ledger-panel__preview-groups { display: grid; gap: 10px; max-height: min(62vh, 720px); overflow-y: auto; min-width: 0; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-surface);')
+    expectStyleSnippet('.favorite-ledger-panel__archive-preview { --old-favorite-preview-card-height: 160px; display: grid; gap: 8px;')
+    expectStyleSnippet('.favorite-ledger-panel__step-title-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__archive-preview [role="group"] {')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__archive-preview .favorite-ledger-panel__view-scope {\n  display: flex;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__archive-preview .favorite-ledger-panel__view-scope button[aria-pressed="true"] {')
     expectStyleSnippet('.favorite-ledger-panel__preview-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: start; min-width: 0; border: 1px solid rgba(31, 99, 181, 0.18); border-radius: var(--porcelain-radius-surface);')
-    expectStyleSnippet('.favorite-ledger-panel__preview-row header { grid-column: 1 / -1; min-width: 0;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-row header { grid-column: 1 / -1; display: grid; gap: 7px; min-width: 0;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-header-actions { display: flex; align-items: center; justify-content: flex-start; gap: 6px; min-width: 0;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__preview-header-actions > button:last-child {')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__preview-row header {\n  grid-column: 1 / -1;\n  position: sticky;')
     expectStyleSnippet('.favorite-ledger-panel__preview-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 8px;')
     expectStyleSnippet('.favorite-ledger-panel__preview-heading strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
+    expectStyleSnippet('.favorite-ledger-panel__target-toggle { display: inline-flex; align-items: center; flex: 0 0 auto; white-space: nowrap;')
     expectStyleSnippet('.favorite-ledger-panel__preview-tools { display: grid; gap: 8px;')
     expectStyleSnippet('.favorite-ledger-panel__archive-tool-card { display: grid; gap: 8px;')
-    expectStyleSnippet('.favorite-ledger-panel__archive-tool-divider { height: 1px; border-top: 1px dashed rgba(31, 99, 181, 0.3);')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-section--full { width: 100%; grid-column: 1 / -1;')
+    expectStyleSnippet('.favorite-ledger-panel__archive-tool-divider { width: 100%; height: 0; margin: 2px 0 0; border-top: 1px dashed rgba(31, 99, 181, 0.48);')
+    expectStyleSnippet('.favorite-ledger-panel__archive-tool-divider--full-width { grid-column: 1 / -1;')
     expectStyleSnippet('.favorite-ledger-panel__archive-history-actions { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__archive-history-select { grid-column: 1 / -1; display: flex; align-items: center;')
     expectStyleSnippet('.favorite-ledger-panel__archive-history-select-control { position: relative; flex: 0 0 32px; width: 32px;')
     expectStyleSnippet('.favorite-ledger-panel__archive-history-button { width: 100%; min-width: 0; min-height: 32px;')
-    expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-actions { flex: 1 1 176px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-menu { position: fixed; z-index: 130; top: calc(100% + 4px); right: auto; left: auto;')
+    expectStyleSnippet('width: min(360px, calc(100vw - 16px)); max-height: min(52vh, 360px); box-sizing: border-box; display: grid; gap: 2px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #7ea8d8 rgb(226 238 255 / .58); scrollbar-gutter: stable;')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-menu::-webkit-scrollbar { width: 8px; }')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-menu::-webkit-scrollbar-track { background: rgb(226 238 255 / .58); }')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-menu::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: #7ea8d8; background-clip: padding-box; }')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-menu .favorite-ledger-panel__archive-history-entry:hover:not(:disabled), .favorite-ledger-panel__archive-history-menu .favorite-ledger-panel__archive-history-entry:focus-visible:not(:disabled), .favorite-ledger-panel__archive-history-menu .favorite-ledger-panel__archive-history-restore:hover:not(:disabled), .favorite-ledger-panel__archive-history-menu .favorite-ledger-panel__archive-history-restore:focus-visible:not(:disabled) { cursor: pointer; border-color: rgba(31, 99, 181, 0.58); background: rgba(220, 238, 255, 0.92); color: var(--porcelain-deep); outline: none; }')
+    expectStyleSnippet('.favorite-ledger-panel__candidate-list > article:has(input:not(:disabled)):hover, .favorite-ledger-panel__candidate-list > article:has(input:focus-visible:not(:disabled)) { border-color: rgba(31, 99, 181, 0.5); background: rgba(220, 238, 255, 0.72); box-shadow: 0 3px 8px rgba(31, 99, 181, 0.1); }')
+    expectStyleSnippet('.favorite-ledger-panel__candidate-list > article label:has(input:not(:disabled)) { cursor: pointer; }')
+    expectStyleSnippet('border: 1px solid #c9dcf5; border-radius: 8px; background: #ffffff;')
+    expectStyleSnippet('.favorite-ledger-panel__target-menu { position: static; z-index: auto; display: grid; width: min(220px, calc(100vw - 40px)); max-height: 240px; box-sizing: border-box; overflow: auto; border: 1px solid #c9dcf5;')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-actions { flex: 0 1 auto; margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope > button { min-width: 84px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope-arrow { font-size: 10px; line-height: 1;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope-menu { position: absolute; z-index: 10;')
     expectStyleSnippet('.favorite-ledger-panel__preview-videos { grid-column: 1 / -1; display: flex; align-items: stretch; gap: 18px; min-width: 0; overflow-x: auto;')
     expectStyleSnippet('padding: 0 12px 8px; scroll-padding-inline: 12px;')
-    expectStyleSnippet('.favorite-ledger-panel__preview-videos article { flex: 0 0 calc(100% - 56px); min-width: 0; display: grid; grid-template-rows: minmax(116px, 1fr) auto; scroll-snap-align: start;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-videos article { flex: 0 0 calc(100% - 56px); min-width: 0; height: var(--old-favorite-preview-card-height); display: grid; grid-template-rows: minmax(0, 1fr) auto; content-visibility: auto; contain-intrinsic-size: auto var(--old-favorite-preview-card-height); scroll-snap-align: start;')
     expectStyleSnippet('.favorite-ledger-panel__preview-videos article + article { padding-left: 0;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__preview-videos article + article {\n  border-left: 1px dashed')
-    expectStyleSnippet('.favorite-ledger-panel__preview-video { width: 100%; min-height: 116px; display: grid; align-content: start;')
-    expectStyleSnippet('border: 1px solid rgba(31, 99, 181, 0.16); border-left: 1px solid rgba(31, 99, 181, 0.16); background: rgba(255, 255, 255, 0.72);')
-    expectStyleSnippet('.favorite-ledger-panel__preview-video[data-selected="true"] { border-color: rgba(31, 99, 181, 0.24); border-left-color: rgba(31, 99, 181, 0.58); background: rgba(220, 238, 255, 0.5);')
+    expectStyleSnippet('.favorite-ledger-panel__preview-video { box-sizing: border-box; width: 100%; min-height: 0; display: grid; align-content: start;')
+    expectStyleSnippet('border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-surface); background: rgba(255, 255, 255, 0.74);')
+    expectStyleSnippet('.favorite-ledger-panel__preview-videos article[data-selected="true"] .favorite-ledger-panel__preview-information { border-color: rgba(31, 99, 181, 0.44); background: rgba(220, 238, 255, 0.5);')
     expect(normalizedStyles).not.toContain('border-right-color: rgba(31, 99, 181, 0.58);')
     expectStyleSnippet('.favorite-ledger-panel__preview-row--pending .favorite-ledger-panel__preview-videos article { background: transparent;')
-    expectStyleSnippet('.favorite-ledger-panel__preview-row--pending .favorite-ledger-panel__preview-video { border-color: rgba(31, 99, 181, 0.14); border-left-color: rgba(31, 99, 181, 0.14); background: rgba(255, 255, 255, 0.74);')
+    expectStyleSnippet('.favorite-ledger-panel__preview-row--pending .favorite-ledger-panel__preview-video { border-color: rgba(31, 99, 181, 0.22); background: rgba(255, 255, 255, 0.74);')
     expectStyleSnippet('.favorite-ledger-panel__preview-video-meta { display: grid; gap: 3px; min-width: 0;')
     expectStyleSnippet('.favorite-ledger-panel__preview-video-meta small { min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
-    expectStyleSnippet('.favorite-ledger-panel__preview-controls { display: grid; grid-template-columns: 60px minmax(0, 1fr);')
-    expectStyleSnippet('.favorite-ledger-panel__target-select { width: 60px; min-width: 0; min-height: 24px;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-controls { position: relative; display: flex; align-items: center;')
+    expectStyleSnippet('.favorite-ledger-panel__target-menu { position: static; z-index: auto;')
     expect(normalizedStyles).not.toContain(".favorite-ledger-panel__preview-videos article[data-latest-change='true'] {\n  outline:")
     expectStyleSnippet('.favorite-ledger-panel__preview-delta-row { min-width: 0; min-height: 28px; display: flex; align-items: center; justify-content: flex-start; border-radius: var(--porcelain-radius-control);')
     expectStyleSnippet('border-left: 2px solid rgba(155, 54, 66, 0.68); background: rgba(255, 232, 235, 0.82); color: var(--porcelain-error);')
@@ -768,6 +1054,11 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('text-decoration: underline; text-underline-offset: 2px; cursor: pointer;')
     expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress { display: grid; gap: 6px;')
     expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress progress { width: 100%;')
+    expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress p { margin: 0;')
+    expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress > button, .favorite-ledger-panel__old-favorite-progress .favorite-ledger-panel__confirm-actions button { min-height: 44px;')
+    expectStyleSnippet('.favorite-ledger-panel__scan-risk-summary { display: grid; gap: 6px;')
+    expectStyleSnippet('.favorite-ledger-panel__scan-risk-summary p, .favorite-ledger-panel__scan-risk-summary ul { margin: 0;')
+    expectStyleSnippet('.favorite-ledger-panel__scan-risk-summary summary, .favorite-ledger-panel__scan-failure-details summary { cursor: pointer;')
   })
 
   it('styles the DeepSeek assistant settings group and actions', () => {
@@ -780,7 +1071,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings__jump { display: grid; grid-template-columns: auto minmax(140px, 1fr); align-items: center;')
     expectStyleSnippet('.assistant-settings__jump select { box-sizing: border-box; min-width: 0; min-height: 30px;')
     expectStyleSnippet(
-      '.assistant-settings__body { min-height: 0; overflow: auto; display: grid; align-content: start; gap: 32px;'
+      '.assistant-settings__body { min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; display: grid; align-content: start; gap: 32px;'
     )
     expectStyleSnippet('border-top: 1px dashed rgba(31, 99, 181, 0.2); padding-top: 14px;')
     expectStyleSnippet('margin-right: -12px; padding-right: 10px;')
@@ -793,7 +1084,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.assistant-settings__body::-webkit-scrollbar-thumb { border: 3px solid rgba(220, 238, 255, 0.72); background: rgba(31, 99, 181, 0.48);'
     )
-    expectStyleSnippet('.assistant-settings__group { display: grid; gap: 12px;')
+    expectStyleSnippet('.assistant-settings__group { display: grid; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; gap: 12px;')
+    expectStyleSnippet('.assistant-settings__group { display: grid; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; gap: 12px; margin: 0; border: 1px solid rgba(31, 99, 181, 0.18); background: rgba(255, 255, 255, 0.62); padding: 10px;')
     expectStyleSnippet('.assistant-settings__group legend { color: var(--porcelain-text); font-size: 14px;')
     expectStyleSnippet('.assistant-settings > header button { min-height: 30px;')
     expectStyleSnippet('.assistant-settings__diagnostics-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto;')
@@ -802,9 +1094,10 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings__deepseek-switches label { display: inline-grid; grid-template-columns: auto minmax(0, 1fr);')
     expectStyleSnippet('.assistant-settings__deepseek-switches--nested { grid-template-columns: repeat(2, minmax(0, max-content));')
     expectStyleSnippet('.assistant-settings__deepseek-review-control { display: flex; align-items: center; flex-wrap: wrap;')
+    expectStyleSnippet('.assistant-settings__deepseek-review-control { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-left: 0;')
+    expect(normalizedStyles).not.toContain('.assistant-settings__deepseek-review-control { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; border-left:')
     expectStyleSnippet('.assistant-settings__deepseek-review-control select:disabled { opacity: 0.5; cursor: not-allowed;')
     expectStyleSnippet('.assistant-settings__group--deepseek > label:first-of-type { display: flex; padding-bottom: 8px; border-bottom: 1px dashed rgba(31, 99, 181, 0.22);')
-    expectStyleSnippet('.assistant-settings__group--deepseek > label:nth-of-type(2) { border-top: 1px dashed rgba(31, 99, 181, 0.22); padding-top: 10px;')
     expect(normalizedStyles).not.toContain('.assistant-settings__deepseek-divider')
     expect(normalizedStyles).toContain('.assistant-settings__actions')
     expect(normalizedStyles).toContain(
@@ -818,14 +1111,24 @@ describe('renderer porcelain theme styles', () => {
     )
     expect(normalizedStyles).toContain('.assistant-settings__actions button:active')
     expect(normalizedStyles).toContain('.assistant-settings__actions button:focus-visible')
+    expectStyleSnippet('.assistant-settings button:hover:not(:disabled) { border-color: rgba(31, 99, 181, 0.5); background: rgba(220, 238, 255, 0.88); box-shadow: 0 5px 12px rgba(31, 99, 181, 0.12);')
     expect(normalizedStyles).toContain('.assistant-settings__deepseek-recommendation')
-    expectStyleSnippet(
-      '.assistant-settings__recommendation-divider { border-top: 1px dashed rgba(31, 99, 181, 0.28); padding-top: 4px;'
-    )
+    expectStyleSnippet('.assistant-settings__deepseek-official-link { margin: 0; border-top: 1px dashed rgba(31, 99, 181, 0.22); padding-top: 10px; color: var(--porcelain-text); font: inherit;')
+    expectStyleSnippet('.assistant-settings__deepseek-official-link a { color: var(--porcelain-primary); text-decoration: underline; text-underline-offset: 2px;')
+    expect(normalizedStyles).not.toContain('.assistant-settings__group--deepseek > label:nth-of-type(2)')
+    expectStyleSnippet('.assistant-settings__recommendation-divider { box-sizing: border-box; width: 100%; margin-inline: 0; border-top: 1px dashed rgba(31, 99, 181, 0.28); padding-inline: 0; padding-top: 4px;')
+    expect(normalizedStyles).not.toContain('.assistant-settings__review-action-title')
+    expectStyleSnippet('.assistant-settings .local-data-settings__heading { margin: 0; color: var(--porcelain-text); font-size: 12px; font-weight: 700; line-height: 1.45;')
+    expectStyleSnippet('.local-data-settings__section p, .local-data-settings__section ul { margin: 0; color: var(--porcelain-text); font-size: 12px; line-height: 1.45;')
+    expectStyleSnippet('.local-data-settings button { min-height: 28px; padding: 4px 8px;')
+    expectStyleSnippet('color: var(--porcelain-text); cursor: pointer; font: inherit;')
+    expectStyleSnippet('.local-data-settings button.local-data-settings__section-toggle { display: inline-flex; align-items: center; gap: 5px;')
+    expectStyleSnippet('.local-data-settings__section-chevron { width: 12px; height: 12px; transition: transform 160ms ease; }')
+    expectStyleSnippet('.local-data-settings__section-toggle[aria-expanded="false"] .local-data-settings__section-chevron { transform: rotate(-90deg); }')
     expectStyleSnippet(
       '.assistant-settings__copy-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;'
     )
-    expectStyleSnippet('.assistant-settings__copy-row--inline { display: inline-flex; vertical-align: middle;')
+    expectStyleSnippet('.assistant-settings__copy-row--inline { display: inline-flex; max-width: 100%; min-width: 0; flex-wrap: wrap; vertical-align: middle;')
     expectStyleSnippet(
       '.assistant-settings__copy-button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;'
     )
@@ -836,9 +1139,28 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('background: var(--porcelain-surface);')
   })
 
+  it('uses the amber alert treatment for unclassified archive guidance', () => {
+    expectStyleSnippet('.favorite-ledger-panel__confirm-warning { margin: 0; padding: 8px 10px; border: 1px solid rgba(188, 126, 0, 0.42); border-radius: 8px; background: #fff7d6; color: #8a5700;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__confirm-warning { color: var(--porcelain-danger')
+  })
+
+  it('contains narrow settings content without a horizontal workspace scrollbar', () => {
+    expectStyleSnippet('.assistant-settings__body { min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;')
+    expectStyleSnippet('.assistant-settings__group { display: grid; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%;')
+    expectStyleSnippet('.assistant-settings__deepseek-recommendation { display: grid; min-width: 0; max-width: 100%; box-sizing: border-box;')
+    expectStyleSnippet('.assistant-settings__copy-row--inline { display: inline-flex; max-width: 100%; min-width: 0; flex-wrap: wrap;')
+    expectStyleSnippet('.assistant-settings__copy-row--inline > span { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere;')
+  })
+
   it('keeps archive strategy help text compact', () => {
     expectStyleSnippet('.assistant-settings__group--archive { gap: 6px;')
     expectStyleSnippet('.assistant-settings__group--archive p { margin: 0;')
+  })
+
+  it('themes the custom old-favorite batch size without crowding its radio control', () => {
+    expectStyleSnippet('.assistant-settings__batch-size-field { display: grid; grid-template-columns: auto minmax(0, 1fr) auto;')
+    expectStyleSnippet('.assistant-settings__batch-size-input { box-sizing: border-box; width: 88px; min-height: 32px; border: 1px solid rgba(31, 99, 181, 0.32);')
+    expectStyleSnippet('.assistant-settings__batch-size-input:focus-visible { outline: 2px solid rgba(45, 134, 199, 0.32);')
   })
 
   it('keeps correction learning and keyword suggestion settings compact', () => {
@@ -886,6 +1208,53 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('cursor: wait')
     expectStyleSnippet('.video-notes button:disabled { cursor: not-allowed;')
     expectStyleSnippet('.assistant-settings__diagnostics-head button:disabled, .assistant-settings > header button:disabled { cursor: not-allowed;')
+  })
+
+  it('shows a progress cursor only on the active backup button', () => {
+    expectStyleSnippet(".favorite-ledger-panel .assistant-action-button[aria-busy='true'] { cursor: progress; opacity: 0.72;")
+    expect(normalizedStyles).not.toContain(".favorite-ledger-panel[aria-busy='true']")
+  })
+
+  it('does not put a progress cursor over the whole整理收藏 guide', () => {
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__old-favorites-guide[data-busy="true"] {\n  cursor: progress;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__old-favorites-guide[data-preview-preparing="true"] {\n  cursor: progress;')
+  })
+
+  it('keeps sidebar help and status tooltips above content without using the sidebar body', () => {
+    expectStyleSnippet('.favorite-ledger-panel__help-tooltip {\n  position: fixed;\n  z-index: 10001;')
+    expectStyleSnippet('.floating-assistant-global-status__light-tooltip {\n  position: fixed;\n  z-index: 10001;')
+    expectStyleSnippet('.floating-assistant-global-status__light-tooltip {\n  position: fixed;\n  z-index: 10001;\n  box-sizing: border-box;\n  width: min(360px, calc(100vw - 32px));')
+    expectStyleSnippet('.favorite-ledger-panel__scan-enrichment-summary,\n.favorite-ledger-panel__scan-discovery {')
+    expectStyleSnippet('.video-summary-menu__options { position: absolute; z-index: 110; top: calc(100% + 4px); left: 0; display: grid; min-width: 132px;')
+  })
+
+  it('renders feedback continuation only for an explicitly expanded prompt', () => {
+    expect(normalizedStyles).not.toContain('.floating-assistant-global-status__feedback-continuation')
+    expect(normalizedStyles).not.toContain('[data-continuation-visible="true"]')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-full-continuation { display: inline; white-space: pre-wrap; font: inherit; color: inherit;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback[data-expanded="true"] .floating-assistant-global-status__feedback-message { display: block; overflow: visible; -webkit-line-clamp: unset; line-clamp: unset;')
+  })
+
+  it('uses distinct compact colors for saved, draft, unbacked, and unbound folder states', () => {
+    expectStyleSnippet('.favorite-ledger-panel__binding-status[data-binding-state="bound"] { color: #2d6a4f; }')
+    expectStyleSnippet('.favorite-ledger-panel__binding-status[data-binding-state="local-draft"] { color: #b56f1d; }')
+    expectStyleSnippet('.favorite-ledger-panel__binding-status[data-binding-state="unbacked"] { color: #c45454; }')
+    expectStyleSnippet('.favorite-ledger-panel__binding-status[data-binding-state="unbound"] { color: #9f3d3d; }')
+  })
+
+  it('reserves two lines for the global feedback and keeps its chevron out of the text column', () => {
+    expectStyleSnippet('.floating-assistant-global-status { min-height: 76px; display: grid; grid-template-rows: minmax(42px, auto) 34px;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-message { min-width: 0; flex: 1 1 auto; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback[data-expanded="true"] .floating-assistant-global-status__feedback-message { display: block; overflow: visible; -webkit-line-clamp: unset; line-clamp: unset;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-toggle { appearance: none; border: 0; background: transparent; width: 100%; min-width: 0; min-height: 42px; box-sizing: border-box;')
+    expectStyleSnippet('.floating-assistant-global-status__feedback-chevron { display: block; flex: 0 0 16px; width: 16px; height: 16px; margin: 0;')
+  })
+
+  it('keeps each Bilibili connection option radio beside one readable text column', () => {
+    expectStyleSnippet('.assistant-settings__group .assistant-settings__bilibili-connection-choice { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: start; min-height: 0;')
+    expectStyleSnippet('.assistant-settings__bilibili-connection-choice-copy { display: grid; min-width: 0; gap: 2px;')
+    expectStyleSnippet('.assistant-settings__bilibili-connection-choice small { color: var(--porcelain-muted); font-size: 12px; line-height: 1.5; display: block; padding-left: 0;')
+    expectStyleSnippet('.assistant-settings__group--bilibili-connection > p { margin: 0;')
   })
 })
 

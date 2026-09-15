@@ -3,7 +3,193 @@ import type { FavoriteLedger } from './types'
 
 export { BILIMI_LEDGER_PREFIX, BILIMI_LEGACY_LEDGER_PREFIX } from './constants'
 
-const BILIMI_LEDGER_PREFIX_PATTERN = /^bilimi[·\s\-路]*/i
+export const BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH = 20
+
+/** Stable logical IDs may contain Unicode, percent-encoding and other slug
+ * punctuation; only trim/controls are unsafe for account-scoped persistence. */
+export function isPersistableFavoriteLedgerId(value: string) {
+  const normalized = value.trim()
+  return normalized.length > 0 && /^[\p{L}\p{N}._~%:-]+$/u.test(normalized)
+}
+
+export function createRemoteObservationFavoriteLedgerId(remoteFolderId: string) {
+  return `custom-remote-${encodeURIComponent(String(remoteFolderId || '').trim())}`
+}
+
+export function favoriteLedgerNameLength(value: string) {
+  return Array.from(value).length
+}
+
+export function favoriteLedgerNameValidation(value: string) {
+  const length = favoriteLedgerNameLength(value)
+  return {
+    length,
+    maxLength: BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH,
+    valid: length <= BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH
+  }
+}
+
+function truncateUnicode(value: string, maxLength: number) {
+  return Array.from(value).slice(0, Math.max(0, maxLength)).join('')
+}
+
+function stableNameSuffix(value: string) {
+  let hash = 2166136261
+  for (const character of value) {
+    hash ^= character.codePointAt(0) ?? 0
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(36).slice(0, 4).padStart(4, '0')
+}
+
+/** Only scan-derived recommendation kinds. User-created rules use FavoriteLedgerRuleType. */
+export type RecommendedFavoriteLedgerKind = 'author' | 'tag'
+
+export function createUserFavoriteLedgerId(title: string, now = Date.now()) {
+  const slug = title.toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/gi, '-')
+    .replace(/^-|-$/g, '') || 'ledger'
+  return `custom-${slug}-${now}`
+}
+
+function recommendationSourceIdentity(sourceName: string) {
+  const normalizedSource = sourceName.trim().toLocaleLowerCase()
+  const slug = normalizedSource
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-|-$/g, '')
+  const canonicalWhitespaceSource = normalizedSource.replace(/\s+/gu, ' ')
+  if (
+    /^[\p{L}\p{N}]+(?: [\p{L}\p{N}]+)*$/u.test(canonicalWhitespaceSource) &&
+    canonicalWhitespaceSource.replace(/ /g, '-') === slug
+  ) return slug
+
+  const encodedSeparators = Array.from(normalizedSource)
+    .flatMap((character, index) => /[\p{L}\p{N}]/u.test(character)
+      ? []
+      : [`${index.toString(36)}.${(character.codePointAt(0) ?? 0).toString(16)}`])
+    .join('.') || 'empty'
+  return `${slug || 'source'}~${encodedSeparators}`
+}
+
+export function createRecommendedFavoriteLedgerId(
+  kind: RecommendedFavoriteLedgerKind,
+  sourceName: string
+) {
+  return `custom-${kind}-${recommendationSourceIdentity(sourceName)}`
+}
+
+function createRecommendedNameFromBase(
+  kind: RecommendedFavoriteLedgerKind,
+  baseName: string,
+  sourceName: string,
+  existingDisplayNames: Iterable<string>
+) {
+  const availableLength = BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH - favoriteLedgerNameLength(BILIMI_LEDGER_PREFIX)
+  const normalizedBaseName = baseName.trim() || '收藏夹'
+  const baseDisplayName = `${BILIMI_LEDGER_PREFIX}${truncateUnicode(normalizedBaseName, availableLength)}`
+  const existingNames = new Set(
+    Array.from(existingDisplayNames, (name) => name.trim().toLocaleLowerCase())
+  )
+  for (let attempt = 0; ; attempt += 1) {
+    const suffix = attempt === 0
+      ? ''
+      : attempt === 1
+        ? kind === 'author' ? '（UP）' : '（标签）'
+        : `·${stableNameSuffix(sourceName)}${attempt.toString(36)}`
+    const shortenedBaseName = truncateUnicode(
+      normalizedBaseName,
+      availableLength - favoriteLedgerNameLength(suffix)
+    )
+    const displayName = `${BILIMI_LEDGER_PREFIX}${shortenedBaseName}${suffix}`
+    if (!existingNames.has(displayName.toLocaleLowerCase())) return displayName
+  }
+}
+
+export function createRecommendedFavoriteLedgerNameForKind(
+  kind: RecommendedFavoriteLedgerKind,
+  sourceName: string,
+  existingDisplayNames: Iterable<string>
+) {
+  const normalizedSourceName = sourceName.trim()
+  const baseName = kind === 'author'
+    ? (!normalizedSourceName.startsWith('-')
+        ? normalizedSourceName.split('-', 1)[0]?.trim()
+        : normalizedSourceName) || normalizedSourceName || '收藏夹'
+    : normalizedSourceName || '收藏夹'
+  return createRecommendedNameFromBase(kind, baseName, sourceName, existingDisplayNames)
+}
+
+export function createRecommendedFavoriteLedgerName(
+  sourceName: string,
+  existingDisplayNames: Iterable<string>
+) {
+  return createRecommendedFavoriteLedgerNameForKind('author', sourceName, existingDisplayNames)
+}
+
+export function createRecommendedFavoriteLedgerNames(
+  sourceNames: Iterable<string>,
+  existingDisplayNames: Iterable<string>
+) {
+  const allocatedNames = Array.from(existingDisplayNames)
+  const namesBySource = new Map<string, string>()
+  const stableSourceNames = Array.from(new Set(sourceNames)).sort((left, right) =>
+    left < right ? -1 : left > right ? 1 : 0
+  )
+
+  for (const sourceName of stableSourceNames) {
+    const displayName = createRecommendedFavoriteLedgerName(sourceName, allocatedNames)
+    namesBySource.set(sourceName, displayName)
+    allocatedNames.push(displayName)
+  }
+
+  return namesBySource
+}
+
+export function createRecommendedFavoriteLedgerNamesForKind(
+  kind: RecommendedFavoriteLedgerKind,
+  sourceNames: Iterable<string>,
+  existingDisplayNames: Iterable<string>
+) {
+  const allocatedNames = Array.from(existingDisplayNames)
+  const namesBySource = new Map<string, string>()
+  const stableSourceNames = Array.from(new Set(sourceNames)).sort((left, right) =>
+    left < right ? -1 : left > right ? 1 : 0
+  )
+
+  for (const sourceName of stableSourceNames) {
+    const displayName = createRecommendedFavoriteLedgerNameForKind(kind, sourceName, allocatedNames)
+    namesBySource.set(sourceName, displayName)
+    allocatedNames.push(displayName)
+  }
+
+  return namesBySource
+}
+
+export function disambiguateRecommendedFavoriteLedgerNames<
+  T extends { kind: RecommendedFavoriteLedgerKind; sourceName: string; displayName: string }
+>(candidates: ReadonlyArray<T>): T[] {
+  const byName = new Map<string, T[]>()
+  for (const candidate of candidates) {
+    const key = candidate.displayName.toLocaleLowerCase()
+    const group = byName.get(key) ?? []
+    group.push(candidate)
+    byName.set(key, group)
+  }
+  return candidates.map((candidate): T => {
+    const group = byName.get(candidate.displayName.toLocaleLowerCase()) ?? []
+    if (group.length < 2) return candidate
+    const label = candidate.kind === 'author' ? '（UP）' : '（标签）'
+    const displayName = `${truncateUnicode(
+      candidate.displayName,
+      BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH - favoriteLedgerNameLength(label)
+    )}${label}`
+    return { ...candidate, displayName }
+  })
+}
+
+export const BILIMI_LEDGER_PREFIX_PATTERN_SOURCE = '^bilimi(?=$|[\\s·.:：_\\-]|路|[\\u3400-\\u9fff])\\s*(?:[·.:：_\\-]|路)?\\s*'
+
+const BILIMI_LEDGER_PREFIX_PATTERN = new RegExp(BILIMI_LEDGER_PREFIX_PATTERN_SOURCE, 'iu')
 
 const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
   [
@@ -343,23 +529,87 @@ function normalizedManagedDisplayName(displayName: string): string {
 }
 
 function cloneLedger(ledger: FavoriteLedger): FavoriteLedger {
-  return {
+  const cloned = {
     ...ledger,
     displayName: normalizedManagedDisplayName(ledger.displayName),
     keywords: [...ledger.keywords]
   }
+  // Recommendation candidates are scan projections.  Earlier releases wrote
+  // an adopted candidate as a second rule origin; retain its ordinary local
+  // rule, but normalize it on load so no runtime path can give it a special
+  // deletion, binding, or remote-folder lifecycle.
+  if (cloned.ruleOrigin === 'recommendation-draft') {
+    // A legacy recommendation that still has a local-draft marker was never
+    // explicitly saved and bound under the ordinary-rule flow. Its retained
+    // remote ID is discovery evidence only, so require the user to save and
+    // confirm the binding instead of rendering it as already backed up.
+    const hasRemoteFolder = Boolean(
+      cloned.bilibiliFolderId?.trim() ||
+      cloned.bilibiliFolderIds?.some((folderId) => folderId.trim())
+    )
+    if (cloned.syncState === 'local-draft' && hasRemoteFolder) {
+      return { ...cloned, ruleOrigin: 'saved-rule', bindingState: 'unbound' }
+    }
+    return { ...cloned, ruleOrigin: 'saved-rule' }
+  }
+  // Old records did not persist how a local draft was created. When that
+  // source is unknowable, protect the user's rule rather than treating a
+  // checkbox click as permission to delete it.
+  if (cloned.syncState === 'local-draft' && !cloned.ruleOrigin &&
+    !cloned.bilibiliFolderId?.trim() && !(cloned.bilibiliFolderIds ?? []).some((folderId) => folderId.trim()) &&
+    cloned.bindingState === undefined) {
+    const { syncState: _syncState, ...savedLedger } = cloned
+    return { ...savedLedger, ruleOrigin: 'saved-rule' }
+  }
+  return cloned
+}
+
+function hasLocalLedgerRule(ledger: FavoriteLedger) {
+  return ledger.enabled || ledger.keywords.some((keyword) => keyword.trim()) ||
+    (!ledger.bilibiliFolderId && ledger.syncState !== 'local-draft')
+}
+
+function isOrphanedRemoteDraft(ledger: FavoriteLedger) {
+  return ledger.id.startsWith('custom-remote-') &&
+    ledger.syncState === 'local-draft' &&
+    !ledger.bilibiliFolderId?.trim()
+}
+
+function deduplicateLedgerIds(ledgers: FavoriteLedger[]): FavoriteLedger[] {
+  const grouped = new Map<string, FavoriteLedger[]>()
+  for (const ledger of ledgers) {
+    grouped.set(ledger.id, [...(grouped.get(ledger.id) ?? []), ledger])
+  }
+
+  return [...grouped.values()].map((duplicates) => {
+    if (duplicates.length === 1) return duplicates[0]!
+
+    const localRule = duplicates.find(hasLocalLedgerRule)
+    const remoteCopy = duplicates.find((ledger) => ledger.bilibiliFolderId)
+    const primary = localRule ?? remoteCopy ?? duplicates[0]!
+    if (!remoteCopy || primary.bilibiliFolderId) return primary
+
+    return {
+      ...primary,
+      bilibiliFolderId: remoteCopy.bilibiliFolderId,
+      ...(remoteCopy.bilibiliFolderTitle ? { bilibiliFolderTitle: remoteCopy.bilibiliFolderTitle } : {}),
+      ...(remoteCopy.bindingState ? { bindingState: remoteCopy.bindingState } : {})
+    }
+  })
 }
 
 export function createDefaultFavoriteLedgers(): FavoriteLedger[] {
   return DEFAULT_FAVORITE_LEDGERS.map(cloneLedger)
 }
 
-export function normalizeFavoriteLedgers(ledgers: FavoriteLedger[]): FavoriteLedger[] {
-  const normalized = ledgers
+export function normalizeFavoriteLedgers(ledgers: FavoriteLedger[] | unknown): FavoriteLedger[] {
+  const normalized = deduplicateLedgerIds((Array.isArray(ledgers) ? ledgers : [])
     .filter(
-      (ledger) => !ledger.isDefault || !RETIRED_DEFAULT_FAVORITE_LEDGER_NAMES.has(ledger.displayName)
+      (ledger) =>
+        (!ledger.isDefault || !RETIRED_DEFAULT_FAVORITE_LEDGER_NAMES.has(ledger.displayName)) &&
+        !isOrphanedRemoteDraft(ledger)
     )
-    .map(cloneLedger)
+    .map(cloneLedger))
   const existingLedgerIds = new Set(normalized.map((ledger) => ledger.id))
 
   for (const defaultLedger of DEFAULT_FAVORITE_LEDGERS) {
@@ -385,6 +635,93 @@ export function isBilimiManagedLedgerName(name: string): boolean {
 
 export function stripBilimiLedgerPrefix(name: string): string {
   return name.replace(BILIMI_LEDGER_PREFIX_PATTERN, '').trim()
+}
+
+/**
+ * Returns the display-name identity used for Bilibili discovery and physical
+ * shard grouping. It deliberately does not add or remove a bilimi prefix:
+ * that prefix is user-authored local display data, not remote identity.
+ */
+export function normalizeFavoriteLedgerBindingName(name: string) {
+  return String(name ?? '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/gu, ' ')
+    .toLocaleLowerCase()
+}
+
+const CIRCLED_SHARD_NUMBERS = [
+  '',
+  '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩',
+  '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳',
+  '㉑', '㉒', '㉓', '㉔', '㉕', '㉖', '㉗', '㉘', '㉙', '㉚',
+  '㉛', '㉜', '㉝', '㉞', '㉟', '㊱', '㊲', '㊳', '㊴', '㊵',
+  '㊶', '㊷', '㊸', '㊹', '㊺', '㊻', '㊼', '㊽', '㊾', '㊿'
+] as const
+
+const CIRCLED_SHARD_NUMBER_BY_SUFFIX = new Map(
+  CIRCLED_SHARD_NUMBERS.map((suffix, shardNumber) => [suffix, shardNumber])
+)
+
+const CIRCLED_DIGIT_VALUES = new Map([
+  ['⓪', 0], ['①', 1], ['②', 2], ['③', 3], ['④', 4],
+  ['⑤', 5], ['⑥', 6], ['⑦', 7], ['⑧', 8], ['⑨', 9]
+])
+
+function circledShardSuffixAndNumber(value: string) {
+  const characters = Array.from(value)
+  const directSuffix = characters.at(-1) ?? ''
+  const tensCharacter = characters.at(-2) ?? ''
+  const tens = CIRCLED_DIGIT_VALUES.get(tensCharacter)
+  const units = CIRCLED_DIGIT_VALUES.get(directSuffix)
+  if (tens !== undefined && units !== undefined && tens >= 5) {
+    return { suffix: `${tensCharacter}${directSuffix}`, shardNumber: tens * 10 + units }
+  }
+  const directNumber = CIRCLED_SHARD_NUMBER_BY_SUFFIX.get(directSuffix)
+  if (directNumber) return { suffix: directSuffix, shardNumber: directNumber }
+  return undefined
+}
+
+function favoriteLedgerCapacityShardSuffix(shardNumber: number) {
+  if (shardNumber <= 1) return ''
+  if (Number.isSafeInteger(shardNumber) && CIRCLED_SHARD_NUMBERS[shardNumber]) {
+    return CIRCLED_SHARD_NUMBERS[shardNumber]
+  }
+  return String(shardNumber)
+    .split('')
+    .map((digit) => CIRCLED_SHARD_NUMBERS[Number(digit)] ?? digit)
+    .join('')
+}
+
+function favoriteLedgerDisplayBaseName(name: string) {
+  const source = String(name ?? '').trim()
+  const circledSuffix = circledShardSuffixAndNumber(source)
+  if (circledSuffix) return source.slice(0, -circledSuffix.suffix.length).trim()
+  return source
+}
+
+/**
+ * A remote folder named `名称`, `名称①`, `名称②` … belongs to the same
+ * logical favorite ledger. The base folder is shard 1; bilimi-created
+ * capacity shards intentionally begin at `②`, while a user's `①` is still
+ * recognized as the first shard.
+ */
+export function favoriteLedgerBindingNameAndShard(name: string) {
+  // NFKC intentionally runs after the circled-number suffix is separated:
+  // NFKC converts `①` to `1`, which would otherwise erase the user's shard.
+  const source = String(name ?? '').trim()
+  const circledSuffix = circledShardSuffixAndNumber(source)
+  const normalized = normalizeFavoriteLedgerBindingName(circledSuffix ? source.slice(0, -circledSuffix.suffix.length) : source)
+  if (circledSuffix && normalized) {
+    return { baseName: normalized, shardNumber: circledSuffix.shardNumber }
+  }
+  return { baseName: normalized, shardNumber: 1 }
+}
+
+export function favoriteLedgerCapacityShardName(name: string, shardNumber: number) {
+  const suffix = favoriteLedgerCapacityShardSuffix(shardNumber)
+  const availableBaseLength = Math.max(0, BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH - Array.from(suffix).length)
+  return `${Array.from(favoriteLedgerDisplayBaseName(name)).slice(0, availableBaseLength).join('')}${suffix}`
 }
 
 export function suggestFavoriteLedgerNames(topic: string): string[] {

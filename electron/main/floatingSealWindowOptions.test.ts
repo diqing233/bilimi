@@ -40,7 +40,7 @@ describe('createFloatingSealWindowOptions', () => {
         preload: 'C:/bilimi/out/preload/index.mjs',
         contextIsolation: true,
         sandbox: false,
-        backgroundThrottling: false
+        backgroundThrottling: true
       }
     })
   })

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createPreferenceSaveScheduler } from './preferenceSaveScheduler'
+import { createPreferencePatchScheduler, createPreferenceSaveScheduler } from './preferenceSaveScheduler'
 
 type TestPreferences = {
   defaultCoinCount: 1 | 2
@@ -133,6 +133,53 @@ describe('createPreferenceSaveScheduler', () => {
       await vi.runOnlyPendingTimersAsync()
       await first.promise
       expect(scheduler.hasActiveSave()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('createPreferencePatchScheduler', () => {
+  it('merges rapid changes to different fields into one narrow write', async () => {
+    vi.useFakeTimers()
+    try {
+      const save = vi.fn(async (patch: Partial<TestPreferences>) => patch)
+      const scheduler = createPreferencePatchScheduler<TestPreferences>({ delayMs: 250, save })
+
+      scheduler.schedule({ defaultCoinCount: 1 })
+      scheduler.schedule({ commentSubmitMode: 'random' })
+      scheduler.schedule({ sidebarWidth: 420 })
+      await vi.advanceTimersByTimeAsync(250)
+
+      expect(save).toHaveBeenCalledTimes(1)
+      expect(save).toHaveBeenCalledWith({
+        defaultCoinCount: 1,
+        commentSubmitMode: 'random',
+        sidebarWidth: 420
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('lets callers await the merged patch and shares a save failure', async () => {
+    vi.useFakeTimers()
+    try {
+      const failure = new Error('write failed')
+      const save = vi.fn(async () => { throw failure })
+      const scheduler = createPreferencePatchScheduler<TestPreferences>({ delayMs: 250, save })
+
+      const first = scheduler.scheduleAndWait({ defaultCoinCount: 1 })
+      const second = scheduler.scheduleAndWait({ commentSubmitMode: 'choose' })
+      const results = Promise.allSettled([first, second])
+      await vi.advanceTimersByTimeAsync(250)
+
+      await expect(results).resolves.toEqual([
+        { status: 'rejected', reason: failure },
+        { status: 'rejected', reason: failure }
+      ])
+      expect(save).toHaveBeenCalledTimes(1)
+      expect(save).toHaveBeenCalledWith({ defaultCoinCount: 1, commentSubmitMode: 'choose' })
     } finally {
       vi.useRealTimers()
     }

@@ -1,5 +1,6 @@
 import {
   createFavoriteLedgerInsights,
+  favoriteLedgerCandidateId,
   type FavoriteLedgerCandidate,
   type FavoriteLedgerInsights
 } from './favoriteLedgerInsights'
@@ -37,6 +38,12 @@ export type FavoriteSourceFolder = {
   id: string
   title: string
   videos: FavoriteSourceVideo[]
+  mediaCount?: number
+  scanFailed?: boolean
+  scanStatus?: 'complete' | 'failed' | 'partial'
+  scanFailureMessage?: string
+  failedPage?: number
+  readVideoCount?: number
 }
 
 export type FavoriteLedgerScanDiagnostics = {
@@ -44,6 +51,52 @@ export type FavoriteLedgerScanDiagnostics = {
   tagDetailFailures: number
   taggedVideos: number
   untaggedVideos: number
+  folderFailures?: Array<{
+    folderId?: string
+    folderTitle: string
+    failedPage: number
+    attempts: number
+    status: 'failed' | 'partial'
+    operation?: 'resource-list' | 'target-membership'
+    message: string
+    retainedVideoCount: number
+    errorKind?: string
+    durationMs?: number
+    httpStatus?: number
+    apiCode?: number
+    contentType?: string
+    finalUrl?: string
+    redirected?: boolean
+    loginSignal?: boolean
+    riskSignal?: boolean
+  }>
+}
+
+export type FavoriteLedgerScanProgress = {
+  basic: {
+    completed: number
+    total: number
+    status: 'running' | 'complete' | 'failed' | 'cancelled'
+    runId?: string
+    phase?: 'listing' | 'requesting' | 'retrying' | 'failed' | 'cancelled'
+    folderId?: string
+    folderTitle?: string
+    page?: number
+    attempt?: number
+  }
+  tags: {
+    completed: number
+    total: number
+    pending: number
+    cacheHits: number
+    succeeded: number
+    failed: number
+    status: 'idle' | 'running' | 'paused' | 'complete' | 'partial'
+    terminalReason?: 'cancelled'
+    errorKind?: 'login' | 'risk-control' | 'network' | 'unknown'
+    errorCode?: number
+    errorMessage?: string
+  }
 }
 
 export type FavoriteLedgerPreviewItem = {
@@ -58,6 +111,7 @@ export type FavoriteLedgerPreviewItem = {
   sourceFolderIds: string[]
   sourceFolderTitles: string[]
   currentBilimiFolderIds: string[]
+  stagingFolderIds?: string[]
   protectedForIncrementalScan?: boolean
   reorganizeProtected?: boolean
   targetLedgerId: string
@@ -103,10 +157,21 @@ export type FavoriteLedgerPreview = {
   items: FavoriteLedgerPreviewItem[]
   skippedSourceFolderTitles: string[]
   scanDiagnostics?: FavoriteLedgerScanDiagnostics
+  scanProgress?: FavoriteLedgerScanProgress
   insights?: FavoriteLedgerInsights
+  batch?: {
+    limit: number
+    hasMore: boolean
+    nextCursor?: {
+      accountMid: string
+      folderId: string
+      nextPage: number
+    }
+  }
   scanContext?: {
     accountMid: string
     totalUniqueVideos: number
+    sourceFolders?: FavoriteSourceFolder[]
     activeSourceFolders: FavoriteSourceFolder[]
     protectedVideos: FavoriteArchiveSourceVideo[]
     managedFolders: FavoriteArchiveManagedFolder[]
@@ -121,6 +186,7 @@ export function createFavoriteLedgerPreview(args: {
   targetMembership: Record<string, number[]>
   skippedSourceFolderTitles?: string[]
   scanDiagnostics?: FavoriteLedgerScanDiagnostics
+  scanProgress?: FavoriteLedgerScanProgress
   multiArchiveMode?: FavoriteArchiveMultiMode
   archiveStrategy?: FavoriteArchiveStrategy
 }): FavoriteLedgerPreview {
@@ -128,7 +194,7 @@ export function createFavoriteLedgerPreview(args: {
   const items: FavoriteLedgerPreviewItem[] = []
   const insights = createFavoriteLedgerInsights({
     sourceFolders: args.sourceFolders,
-    existingLedgerNames: args.ledgers.map((ledger) => ledger.displayName)
+    existingLedgers: args.ledgers
   })
 
   for (const folder of args.sourceFolders) {
@@ -215,6 +281,7 @@ export function createFavoriteLedgerPreview(args: {
     items,
     skippedSourceFolderTitles,
     scanDiagnostics: args.scanDiagnostics,
+    scanProgress: args.scanProgress,
     insights
   }
 }
@@ -342,9 +409,7 @@ function candidateKey(candidate: FavoriteLedgerCandidate) {
 }
 
 function candidateLedgerId(candidate: FavoriteLedgerCandidate) {
-  return `custom-${candidate.kind}-${candidate.sourceName
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-|-$/g, '')}`
+  return candidate.id ?? favoriteLedgerCandidateId(candidate.kind, candidate.sourceName)
 }
 
 function normalize(value = '') {

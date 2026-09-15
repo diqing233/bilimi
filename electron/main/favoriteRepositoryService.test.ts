@@ -1,0 +1,3007 @@
+import { createHash } from 'node:crypto'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  createFavoriteRepositoryArchiveExport,
+  createFavoriteRepositoryArchiveExportChecksum,
+  createAccountFavoriteRepositorySnapshot,
+  type FavoriteRepositoryArchiveExport
+} from '../../src/shared/favoriteRepository'
+import type { VideoAudioTranscriptionQueueItem, VideoNoteArchiveEntry } from '../../src/shared/types'
+import { FavoriteRepositoryService } from './favoriteRepositoryService'
+
+const roots: string[] = []
+
+async function createRoot() {
+  const root = await mkdtemp(join(tmpdir(), 'bilimi-favorite-repository-'))
+  roots.push(root)
+  return root
+}
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+})
+
+describe('FavoriteRepositoryService', () => {
+  it('reads only one latest classification adjustment with detail and pages older records on request', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-14T00:00:00.000Z' })
+    await service.commit('100', { id: 'video', accountMid: '100', issuedAt: '2026-08-14T00:00:00.000Z', type: 'upsert-video', payload: { aid: 1, title: 'Video', tags: [], updatedAt: '2026-08-14T00:00:00.000Z' } })
+    await service.commit('100', { id: 'first', accountMid: '100', issuedAt: '2026-08-14T01:00:00.000Z', expectedRevision: 1, type: 'set-favorite-placement', payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-14T01:00:00.000Z', adjustmentKind: 'manual' } })
+    await service.commit('100', { id: 'second', accountMid: '100', issuedAt: '2026-08-14T02:00:00.000Z', expectedRevision: 2, type: 'set-favorite-placement', payload: { aid: 1, localDesiredFolderIds: ['bilimi-logical:knowledge'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-14T02:00:00.000Z', adjustmentKind: 'manual' } })
+
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({ latestClassificationAdjustment: { id: 'second:1', beforeFolderIds: ['bilimi-logical:music'], afterFolderIds: ['bilimi-logical:knowledge'] } })
+    await expect(service.getClassificationAdjustmentPage('100', 1, { limit: 1 })).resolves.toMatchObject({ totalCount: 2, items: [{ id: 'second:1' }], nextCursor: 'second:1' })
+    await expect(service.getClassificationAdjustmentPage('100', 1, { limit: 1, cursor: 'second:1' })).resolves.toMatchObject({ items: [{ id: 'first:1' }] })
+  })
+  it('filters transcription states before pagination with strict account, video, and part identity', async () => {
+    const root = await createRoot()
+    const queueItems = [
+      { id: 'account:100:aid:1:cid:10', accountMid: '100', aid: 1, cid: 10, url: 'https://bilibili.com/1', title: 'Saved and running', status: 'running', createdAt: '', updatedAt: '' },
+      { id: 'account:100:aid:2:cid:20', accountMid: '100', aid: 2, cid: 20, url: 'https://bilibili.com/2', title: 'Pending', status: 'pending', createdAt: '', updatedAt: '' },
+      { id: 'account:100:aid:3:cid:30', accountMid: '100', aid: 3, cid: 30, url: 'https://bilibili.com/3', title: 'Failed', status: 'failed', createdAt: '', updatedAt: '' },
+      { id: 'account:100:aid:1:cid:99', accountMid: '100', aid: 1, cid: 99, url: 'https://bilibili.com/1', title: 'Other part', status: 'failed', createdAt: '', updatedAt: '' },
+      { id: 'account:999:aid:1:cid:10', accountMid: '999', aid: 1, cid: 10, url: 'https://bilibili.com/1', title: 'Other account', status: 'failed', createdAt: '', updatedAt: '' },
+      { id: 'account:100:aid:5:cid:50', accountMid: '100', aid: 5, cid: 50, url: 'https://bilibili.com/5', title: 'Canceled', status: 'canceled', createdAt: '', updatedAt: '' }
+    ]
+    const archives = [{
+      id: 'archive-1', createdAt: '', updatedAt: '', versions: [{
+        id: 'version-1', note: { source: { accountMid: '100', aid: 1, cid: 10 } }
+      }],
+      source: { accountMid: '100', aid: 1, cid: 10, title: 'Saved and running', url: 'https://bilibili.com/1', tags: [] }
+    }, {
+      id: 'archive-wrong-part', createdAt: '', updatedAt: '', versions: [],
+      source: { accountMid: '100', aid: 2, cid: 99, title: 'Other part', url: 'https://bilibili.com/2', tags: [] }
+    }]
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionItems: () => queueItems,
+      getTranscriptionArchives: () => archives as never
+    } as never)
+    for (const aid of [1, 2, 3, 4, 5]) {
+      await service.commit('100', {
+        id: `transcription-filter-${aid}`, accountMid: '100', issuedAt: '2026-07-27T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, cid: aid * 10, title: `Video ${aid}`, tags: [], updatedAt: `2026-07-27T00:00:0${aid}.000Z` }
+      })
+    }
+
+    const page = (transcriptionFilters: string[], limit = 10) => service.getLibraryPage('100', { kind: 'all' }, {
+      limit, sort: 'title-asc', transcriptionFilters
+    } as never)
+    await expect(page(['completed'])).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
+    await expect(page(['running'])).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
+    await expect(page(['pending'])).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 2 } }] })
+    await expect(page(['failed'])).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 3 } }] })
+    await expect(page(['none'])).resolves.toMatchObject({ totalCount: 2, items: [{ video: { aid: 4 } }, { video: { aid: 5 } }] })
+    await expect(page(['completed', 'running'])).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
+    await expect(page([])).resolves.toMatchObject({ totalCount: 5 })
+    await expect(page(['none'], 1)).resolves.toMatchObject({ totalCount: 2, items: [{ video: { aid: 4 } }], nextCursor: '1' })
+  })
+
+  it('filters source membership server-side without expanding the membership index to the renderer', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-27T00:00:00.000Z' })
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-27T00:00:00.000Z' })
+    snapshot.folders = [
+      { id: 'bilimi-logical:knowledge', title: 'bilimi·知识学习', kind: 'bilimi-logical', syncState: 'bound', logicalLedgerId: 'knowledge' },
+      { id: 'bilibili:other', title: '其它收藏夹', kind: 'bilibili', syncState: 'bound', remoteFolderId: 'other' },
+      { id: 'mystery:source', title: '未知来源', kind: 'local', syncState: 'local-only' }
+    ]
+    snapshot.memberships = {
+      'bilimi-logical:knowledge': [1, 2],
+      'bilibili:other': [2, 3],
+      'mystery:source': [4]
+    }
+    snapshot.videos = Object.fromEntries([1, 2, 3, 4].map((aid) => [String(aid), { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-27T00:00:00.000Z' }]))
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: { version: 1, accountMid: '100', snapshot, commandResults: {} }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sourceFilter: 'with-other' }))
+      .resolves.toMatchObject({ totalCount: 2, items: [{ video: { aid: 2 } }, { video: { aid: 3 } }] })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sourceFilter: 'bilimi-only' }))
+      .resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
+  })
+
+  it('reads a legacy snapshot without write receipt histories', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: {
+        version: 1,
+        accountMid: '100',
+        snapshot: {
+          version: 1,
+          accountMid: '100',
+          revision: 1,
+          updatedAt: '2026-08-18T00:00:00.000Z',
+          videos: { '1': { aid: 1, title: 'Legacy video', tags: [], updatedAt: '2026-08-18T00:00:00.000Z' } },
+          libraryMirrors: {},
+          folders: [],
+          memberships: {},
+          physicalShards: [],
+          syncRecords: [],
+          organizationRecords: [],
+          organizationMigrationInitialized: false,
+          positions: {},
+          tombstones: {}
+        },
+        commandResults: {}
+      }
+    })
+
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      libraryStates: { sync: 'unsynced' }
+    })
+  })
+
+  it('normalizes a persisted bound logical folder without formal physical shards on restart', async () => {
+    const root = await createRoot()
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-08-20T00:00:00.000Z' })
+    await first.commit('100', {
+      id: 'bind-knowledge', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'knowledge', logicalTitle: 'bilimi·知识学习', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·知识学习', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+    await first.commit('100', {
+      id: 'persist-stale-source', accountMid: '100', issuedAt: '2026-08-20T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: '旧快照', tags: [], updatedAt: '2026-08-20T00:00:01.000Z' }
+    })
+    const accountDirectory = join(root, 'accounts', '100')
+    const manifestPath = join(accountDirectory, 'repository.manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { generation: string }
+    const generationDirectory = join(accountDirectory, 'generations', manifest.generation)
+    const repositoryPath = join(generationDirectory, 'repository.json')
+    const persisted = JSON.parse(await readFile(repositoryPath, 'utf8')) as {
+      snapshot: {
+        physicalShards: unknown[]
+        folders: Array<{ id: string; kind: string; syncState: string; remoteFolderId?: string }>
+      }
+    }
+    persisted.snapshot.physicalShards = []
+    persisted.snapshot.folders = persisted.snapshot.folders.map((folder) => folder.id === 'bilimi-logical:knowledge'
+      ? { ...folder, syncState: 'bound', remoteFolderId: '9001' }
+      : folder)
+    const repositoryContent = JSON.stringify(persisted)
+    await writeFile(repositoryPath, repositoryContent, 'utf8')
+    const generationManifestPath = join(generationDirectory, 'manifest.json')
+    const generationManifest = JSON.parse(await readFile(generationManifestPath, 'utf8')) as { checksums: { repository: string } }
+    generationManifest.checksums.repository = createHash('sha256').update(repositoryContent).digest('hex')
+    await writeFile(generationManifestPath, JSON.stringify(generationManifest), 'utf8')
+    await writeFile(manifestPath, JSON.stringify(generationManifest), 'utf8')
+
+    const restarted = new FavoriteRepositoryService({ root, now: () => '2026-08-20T00:01:00.000Z' })
+    const snapshot = await restarted.getSnapshot('100')
+    const logicalFolder = snapshot.folders.find((folder) => folder.id === 'bilimi-logical:knowledge')
+
+    expect(logicalFolder).toMatchObject({ syncState: 'pending-reconcile' })
+    expect(logicalFolder).not.toHaveProperty('remoteFolderId')
+    expect(snapshot.physicalShards).toEqual([])
+  })
+
+  it('preserves the first observed source while recording later local adjustments and filtering by original source', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-13T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-13T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi·游戏', bindingState: 'bound', remoteFolderId: 'managed-game' }
+    })
+    await service.commit('100', {
+      id: 'first-source-scan', accountMid: '100', issuedAt: '2026-08-13T01:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'scan-1',
+        folders: [
+          { id: 'bilibili:ordinary', title: '普通收藏', remoteFolderId: 'ordinary' },
+          { id: 'bilibili:managed-game', title: 'bilimi·游戏', remoteFolderId: 'managed-game' }
+        ],
+        memberAidsByFolderId: { 'bilibili:ordinary': [1], 'bilibili:managed-game': [2] },
+        videos: [
+          { aid: 1, title: 'Ordinary origin', tags: [], updatedAt: '2026-08-13T01:00:00.000Z' },
+          { aid: 2, title: 'Managed origin', tags: [], updatedAt: '2026-08-13T01:00:00.000Z' }
+        ]
+      }
+    })
+    await service.commit('100', {
+      id: 'move-after-scan', accountMid: '100', issuedAt: '2026-08-13T02:00:00.000Z', type: 'set-favorite-placements',
+      payload: {
+        adjustmentKind: 'local-move',
+        placements: [{ aid: 1, localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: ['ordinary'], remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-13T02:00:00.000Z' }]
+      }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, sort: 'title-asc', initialSourceFilter: 'initial-ordinary'
+    })).resolves.toMatchObject({
+      totalCount: 1,
+      items: [{ video: {
+        aid: 1,
+        initialSource: { observedAt: '2026-08-13T01:00:00.000Z', folders: [{ folderId: 'bilibili:ordinary', title: '普通收藏', kind: 'ordinary' }] },
+        lastAdjustment: { kind: 'local-move', occurredAt: '2026-08-13T02:00:00.000Z' }
+      } }]
+    })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, sort: 'title-asc', initialSourceFilter: 'initial-bilimi'
+    })).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 2, initialSource: { folders: [{ kind: 'bilimi' }] } } }] })
+
+    await expect(new FavoriteRepositoryService({ root }).getLibraryDetail('100', 1)).resolves.toMatchObject({
+      video: {
+        initialSource: { folders: [{ folderId: 'bilibili:ordinary', kind: 'ordinary' }] },
+        lastAdjustment: { kind: 'local-move', occurredAt: '2026-08-13T02:00:00.000Z' }
+      }
+    })
+  })
+
+  it('uses a persisted local desired position instead of stale backed-folder memberships', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-09-07T00:00:00.000Z' })
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-09-07T00:00:00.000Z' })
+    snapshot.videos = { '1': { aid: 1, title: '历史残留视频', tags: [], updatedAt: '2026-09-07T00:00:00.000Z' } }
+    snapshot.folders = [
+      { id: 'bilimi-logical:game', title: 'bilimi·游戏', kind: 'bilimi-logical', logicalLedgerId: 'game', syncState: 'bound' },
+      { id: 'bilimi-logical:knowledge', title: 'bilimi·知识', kind: 'bilimi-logical', logicalLedgerId: 'knowledge', syncState: 'bound' }
+    ]
+    snapshot.physicalShards = [
+      { logicalLedgerId: 'game', folderId: 'bilimi:game:001', shardNumber: 1, remoteTitle: 'bilimi·游戏', bindingState: 'bound', remoteFolderId: 'game-001' },
+      { logicalLedgerId: 'knowledge', folderId: 'bilimi:knowledge:001', shardNumber: 1, remoteTitle: 'bilimi·知识', bindingState: 'bound', remoteFolderId: 'knowledge-001' }
+    ]
+    snapshot.memberships = {
+      'bilimi-logical:game': [1],
+      'bilimi:game:001': [1],
+      'bilimi-logical:knowledge': []
+    }
+    snapshot.positions = {
+      '100:1': {
+        accountMid: '100', aid: 1, localDesiredFolderIds: ['bilimi-logical:knowledge'], remoteObservedPhysicalFolderIds: [],
+        remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-09-07T00:00:00.000Z', revision: 1
+      }
+    }
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: { version: 1, accountMid: '100', snapshot, commandResults: {} }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:game' }, { limit: 10 }))
+      .resolves.toMatchObject({ totalCount: 0, items: [] })
+    await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:knowledge' }, { limit: 10 }))
+      .resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1 } }] })
+  })
+
+  it('projects persisted classification provenance to library rows and details and filters it before pagination', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-13T00:00:00.000Z' })
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-13T00:00:00.000Z' })
+    snapshot.videos = Object.fromEntries([1, 2, 3].map((aid) => [String(aid), {
+      aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-08-13T00:00:00.000Z'
+    }]))
+    snapshot.organizationRecords = [
+      { accountMid: '100', aid: 1, targetFolderIds: ['bilimi-logical:game'], completedAt: '2026-08-12T12:00:00.000Z', classificationSource: 'deepseek' },
+      { accountMid: '100', aid: 2, targetFolderIds: ['bilimi-logical:game'], completedAt: '2026-08-12T13:00:00.000Z', classificationSource: 'system-high' }
+    ]
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: { version: 1, accountMid: '100', snapshot, commandResults: {} }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, classificationSources: ['deepseek']
+    })).resolves.toMatchObject({
+      totalCount: 1,
+      items: [{ video: { aid: 1 }, organization: { classificationSource: 'deepseek', completedAt: '2026-08-12T12:00:00.000Z' } }]
+    })
+    await expect(service.getLibraryDetail('100', 2)).resolves.toMatchObject({
+      organization: { classificationSource: 'system-high', completedAt: '2026-08-12T13:00:00.000Z' }
+    })
+  })
+
+  it('derives completed transcriptions from each archive version source when a BV archive spans accounts and parts', async () => {
+    const root = await createRoot()
+    const sharedBvid = 'BV1shared'
+    const archives = [{
+      id: `bvid:${sharedBvid}`,
+      // This mutable projection follows the latest write, not every preserved version.
+      source: { accountMid: '200', aid: 2, cid: 20, bvid: sharedBvid, title: 'Account 200 part', url: '', tags: [] },
+      versions: [{
+        id: 'version-account-100-part-10', note: { source: { accountMid: '100', aid: 1, cid: 10, bvid: sharedBvid } }
+      }, {
+        id: 'version-account-200-part-20', note: { source: { accountMid: '200', aid: 2, cid: 20, bvid: sharedBvid } }
+      }],
+      createdAt: '', updatedAt: ''
+    }]
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionArchives: () => archives as never
+    } as never)
+    for (const [accountMid, aid, cid] of [['100', 1, 10], ['200', 2, 20]] as const) {
+      await service.commit(accountMid, {
+        id: `archive-version-${accountMid}`, accountMid, issuedAt: '2026-07-28T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, cid, bvid: sharedBvid, title: `Account ${accountMid} part`, tags: [], updatedAt: '2026-07-28T00:00:00.000Z' }
+      })
+    }
+
+    const completed = (accountMid: string) => service.getLibraryPage(accountMid, { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['completed']
+    })
+    await expect(completed('100')).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 1, cid: 10 } }] })
+    await expect(completed('200')).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 2, cid: 20 } }] })
+  })
+
+  it('resolves a filtered library selection in the main process without returning every row to the renderer', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-26T00:00:00.000Z' })
+    for (const [aid, title] of [[1, 'Needle one'], [2, 'Other'], [3, 'Needle three']] as const) {
+      await service.commit('100', {
+        id: `selection-video-${aid}`, accountMid: '100', issuedAt: '2026-07-26T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title, tags: [], updatedAt: '2026-07-26T00:00:00.000Z' }
+      })
+    }
+
+    await expect(service.resolveLibrarySelection('100', { kind: 'all' }, {
+      query: 'needle', sort: 'title-asc'
+    }, [3])).resolves.toEqual([1])
+  })
+
+  it('filters and sorts the scoped library before cursor pagination', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const [aid, title, updatedAt] of [
+      [1, 'Zebra', '2026-07-24T00:00:00.000Z'],
+      [2, 'Alpha', '2026-07-23T00:00:00.000Z'],
+      [3, 'Needle match', '2026-07-22T00:00:00.000Z']
+    ] as const) {
+      await service.commit('100', {
+        id: `library-row-${aid}`, accountMid: '100', issuedAt: updatedAt, type: 'upsert-video',
+        payload: { aid, title, tags: [], updatedAt }
+      })
+    }
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 1, query: 'needle', sort: 'title-asc'
+    })).resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 3, title: 'Needle match' } }] })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 1, sort: 'title-asc'
+    })).resolves.toMatchObject({ totalCount: 3, items: [{ video: { aid: 2, title: 'Alpha' } }], nextCursor: '1' })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 1, sort: 'title-asc', cursor: '1'
+    })).resolves.toMatchObject({ items: [{ video: { aid: 3, title: 'Needle match' } }], nextCursor: '2' })
+  })
+
+  it('reuses one full adjustment-time ordering across pages for the same 30k repository revision and query', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    const videos = Object.fromEntries(Array.from({ length: 30_000 }, (_, index) => {
+      const aid = index + 1
+      return [String(aid), {
+        aid, title: `Needle ${aid}`, tags: [], updatedAt: new Date(0).toISOString(),
+        lastAdjustment: { kind: 'manual' as const, occurredAt: new Date(aid * 1000).toISOString() }
+      }]
+    }))
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: {
+        version: 1,
+        accountMid: '100',
+        snapshot: {
+          version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-24T00:00:00.000Z',
+          videos, folders: [], memberships: {}, physicalShards: [], syncRecords: [],
+          organizationRecords: [], organizationMigrationInitialized: false
+        },
+        commandResults: {}
+      }
+    })
+    const parse = vi.spyOn(Date, 'parse')
+
+    const first = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 2, page: 1, query: 'needle', sort: 'updated-desc'
+    })
+    expect(parse.mock.calls.filter(([value]) => value !== '1970-01-01T00:00:00.000Z').length).toBeGreaterThan(100)
+    parse.mockClear()
+
+    const second = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 2, page: 2, query: 'needle', sort: 'updated-desc'
+    })
+
+    expect(parse.mock.calls.filter(([value]) => value !== '1970-01-01T00:00:00.000Z')).toEqual([])
+    expect(first.items.map((row) => row.video.aid)).toEqual([30_000, 29_999])
+    expect(second.items.map((row) => row.video.aid)).toEqual([29_998, 29_997])
+    parse.mockRestore()
+  })
+
+  it('keeps ordinary adjustment-time ordering cached across unrelated queue and archive revisions', async () => {
+    const root = await createRoot()
+    let queueRevision = 1
+    let archiveRevision = 1
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionRevision: () => queueRevision,
+      getTranscriptionArchiveRevision: () => archiveRevision,
+      getTranscriptionItems: () => [],
+      getTranscriptionArchives: () => []
+    })
+    for (const aid of [1, 2, 3, 4]) {
+      await service.commit('100', {
+        id: `unrelated-revision-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z', lastAdjustment: { kind: 'manual', occurredAt: `2026-07-24T00:00:0${aid}.000Z` } }
+      })
+    }
+    await service.getLibraryPage('100', { kind: 'all' }, { limit: 2, sort: 'updated-desc' })
+    const parse = vi.spyOn(Date, 'parse')
+    queueRevision += 1
+    archiveRevision += 1
+
+    const page = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 2, cursor: '2', sort: 'updated-desc'
+    })
+
+    expect(parse.mock.calls.filter(([value]) => value !== '1970-01-01T00:00:00.000Z')).toEqual([])
+    expect(page.items.map((row) => row.video.aid)).toEqual([2, 1])
+    parse.mockRestore()
+  })
+
+  it('invalidates a cached library ordering when the repository revision changes', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const aid of [1, 2]) {
+      await service.commit('100', {
+        id: `cached-revision-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z', lastAdjustment: { kind: 'manual', occurredAt: `2026-07-24T00:00:0${aid}.000Z` } }
+      })
+    }
+    await service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sort: 'updated-desc' })
+    const parse = vi.spyOn(Date, 'parse')
+
+    await service.commit('100', {
+      id: 'cached-revision-3', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 3, title: 'Video 3', tags: [], updatedAt: '2026-07-24T00:00:00.000Z', lastAdjustment: { kind: 'manual', occurredAt: '2026-07-24T00:00:03.000Z' } }
+    })
+    const page = await service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sort: 'updated-desc' })
+
+    expect(parse.mock.calls.some(([value]) => value !== '1970-01-01T00:00:00.000Z')).toBe(true)
+    expect(page.items.map((row) => row.video.aid)).toEqual([3, 2, 1])
+    parse.mockRestore()
+  })
+
+  it('keeps search and alternate sort cache entries semantically isolated', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const [aid, title, description] of [
+      [1, 'Zulu', 'needle'],
+      [2, 'Alpha', 'other'],
+      [3, 'Beta', 'needle']
+    ] as const) {
+      await service.commit('100', {
+        id: `cached-semantics-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title, description, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+      })
+    }
+
+    const titleAscending = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, query: 'needle', sort: 'title-asc'
+    })
+    const titleDescending = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, query: 'needle', sort: 'title-desc'
+    })
+    const allTitles = await service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, sort: 'title-asc'
+    })
+
+    expect(titleAscending.items.map((row) => row.video.aid)).toEqual([3, 1])
+    expect(titleDescending.items.map((row) => row.video.aid)).toEqual([1, 3])
+    expect(allTitles.items.map((row) => row.video.aid)).toEqual([2, 3, 1])
+  })
+
+  it('invalidates pending page and selection caches when a sync checkpoint changes without a repository revision', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'checkpoint-cache-video', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    await expect(service.getLibraryPage('100', { kind: 'unsynced' }, {
+      limit: 10, filter: 'unsynced', sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [] })
+    await expect(service.resolveLibrarySelection('100', { kind: 'unsynced' }, {
+      filter: 'unsynced', sort: 'updated-desc'
+    })).resolves.toEqual([])
+    const revision = (await service.getSnapshot('100')).revision
+
+    await service.recordSyncCheckpoint('100', 'checkpoint-cache-failed', {
+      id: 'checkpoint-cache-failed', commandId: 'checkpoint-cache-failed', status: 'failed',
+      affectedAids: [1], updatedAt: '2026-07-24T00:00:01.000Z'
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'unsynced' }, {
+      limit: 10, filter: 'unsynced', sort: 'updated-desc'
+    })).resolves.toMatchObject({ revision, items: [{ video: { aid: 1 }, pendingStates: ['failed'] }] })
+    await expect(service.resolveLibrarySelection('100', { kind: 'unsynced' }, {
+      filter: 'unsynced', sort: 'updated-desc'
+    })).resolves.toEqual([1])
+  })
+
+  it('does not cache completed or none filters when archives have no reliable revision', async () => {
+    const root = await createRoot()
+    let archiveReads = 0
+    const archives: Array<{ id: string; createdAt: string; updatedAt: string; versions: Array<{ id: string; note: { source: { accountMid: string; aid: number } } }>; source: { accountMid: string; aid: number; title: string; url: string; tags: string[] } }> = []
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionRevision: () => 1,
+      getTranscriptionArchives: () => {
+        archiveReads += 1
+        return archives as never
+      }
+    })
+    await service.commit('100', {
+      id: 'archive-cache-video', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['completed'], sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [] })
+    archiveReads = 0
+    archives.push({
+      id: 'archive-cache-1', createdAt: '', updatedAt: '',
+      versions: [{ id: 'archive-version-1', note: { source: { accountMid: '100', aid: 1 } } }],
+      source: { accountMid: '100', aid: 1, title: 'Video 1', url: '', tags: [] }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['completed'], sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [{ video: { aid: 1 } }] })
+    expect(archiveReads).toBeGreaterThan(0)
+  })
+
+  it('invalidates completed and none filter caches when the archive revision changes', async () => {
+    const root = await createRoot()
+    let archiveRevision = 1
+    const archives: Array<{ id: string; createdAt: string; updatedAt: string; versions: Array<{ id: string; note: { source: { accountMid: string; aid: number } } }>; source: { accountMid: string; aid: number; title: string; url: string; tags: string[] } }> = []
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionArchiveRevision: () => archiveRevision,
+      getTranscriptionArchives: () => archives as never
+    })
+    await service.commit('100', {
+      id: 'archive-revision-video', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['none'], sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [{ video: { aid: 1 } }] })
+    archives.push({
+      id: 'archive-revision-1', createdAt: '', updatedAt: '',
+      versions: [{ id: 'archive-version-1', note: { source: { accountMid: '100', aid: 1 } } }],
+      source: { accountMid: '100', aid: 1, title: 'Video 1', url: '', tags: [] }
+    })
+    archiveRevision += 1
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['none'], sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [] })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10, transcriptionFilters: ['completed'], sort: 'updated-desc'
+    })).resolves.toMatchObject({ items: [{ video: { aid: 1 } }] })
+  })
+
+  it('returns an exact local library page and page count without walking cursors', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const aid of [1, 2, 3, 4, 5]) {
+      await service.commit('100', {
+        id: `page-row-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 2, page: 3 }))
+      .resolves.toMatchObject({ totalCount: 5, page: 3, pageCount: 3, items: [{ video: { aid: 5 } }] })
+  })
+
+  it('treats a cursor as an exact result offset even when it is not aligned to the page limit', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const aid of [1, 2, 3, 4, 5, 6]) {
+      await service.commit('100', {
+        id: `cursor-offset-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z', lastAdjustment: { kind: 'manual', occurredAt: `2026-07-24T00:00:0${aid}.000Z` } }
+      })
+    }
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 2, cursor: '3', sort: 'updated-desc'
+    })).resolves.toMatchObject({
+      items: [{ video: { aid: 3 } }, { video: { aid: 2 } }],
+      nextCursor: '5'
+    })
+  })
+
+  it('searches video descriptions before globally paginating the library', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const [aid, description] of [[1, 'first page'], [2, 'needle in description']] as const) {
+      await service.commit('100', {
+        id: `description-row-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, description, tags: [], updatedAt: `2026-07-24T00:00:0${aid}.000Z` }
+      })
+    }
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 1, query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 2 } }] })
+  })
+
+  it('persists portable audit history, workspace recovery, and reconciliation records in the canonical archive', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      workspace: {
+        id: 'workspace-1', accountMid: '100', status: 'scanning', baselineRevision: 0, continuationAids: [],
+        workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'scanning', baselineRevision: 0, currentSegmentId: 'segment', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64), updatedAt: '2026-07-24T00:00:00.000Z' }
+      },
+      syncRecords: [{ id: 'sync-1', commandId: 'command-1', status: 'result-unknown', affectedAids: [1], updatedAt: '2026-07-24T00:00:00.000Z' }]
+    }, {
+      generatedAt: '2026-07-24T00:00:00.000Z',
+      events: [{ id: 'event-1', sequence: 1, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:00:00.000Z' }]
+    })
+
+    await service.applyArchiveImport('100', { validate: () => archive, mode: 'overwrite' })
+    await expect(service.getPortableAuditEvents('100')).resolves.toEqual([expect.objectContaining({ id: 'event-1' })])
+    await expect(service.getPortableWorkspaceRecovery('100')).resolves.toEqual([expect.objectContaining({ id: 'workspace-1' })])
+    await expect(service.getPortableRemoteRecoveries('100')).resolves.toEqual([expect.objectContaining({ id: 'sync-1' })])
+  })
+
+  it('keeps imported reconciliation-required remote operations pending and actionable after restart', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      videos: { '1': { aid: 1, title: 'Imported recovery', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' } },
+      syncRecords: [{
+        id: 'favorite-remote-unfavorite:imported-operation', commandId: 'imported-operation',
+        operationKey: 'favorite-library-unfavorite', status: 'reconciliation-required', autoRetry: false,
+        affectedAids: [1], updatedAt: '2026-07-24T00:00:00.000Z'
+      }, {
+        id: 'managed-folder-delete:imported-folder-delete', commandId: 'imported-folder-delete',
+        operationKey: 'managed-folder-delete', status: 'reconciliation-required', autoRetry: false,
+        affectedAids: [], targetFolderIds: ['bilimi-logical:work'], updatedAt: '2026-07-24T00:00:00.000Z'
+      }]
+    }, { generatedAt: '2026-07-24T00:00:00.000Z' })
+
+    await service.applyArchiveImport('100', { validate: () => archive, mode: 'overwrite' })
+    const restarted = new FavoriteRepositoryService({ root })
+
+    await expect(restarted.getLibrarySummary('100')).resolves.toMatchObject({
+      pendingAidCount: 1,
+      syncCounts: { 'result-unknown': 2 },
+      remoteReconciliations: [
+        { kind: 'unfavorite', operationId: 'imported-operation' },
+        { kind: 'managed-folder', operationId: 'imported-folder-delete' }
+      ]
+    })
+    await expect(restarted.getLibraryPage('100', { kind: 'pending' }, { limit: 10 }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 1 }, pendingStates: ['result-unknown'] }] })
+    await expect(restarted.getPortableRemoteRecoveries('100'))
+      .resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'favorite-remote-unfavorite:imported-operation', status: 'reconciliation-required' }),
+        expect.objectContaining({ id: 'managed-folder-delete:imported-folder-delete', status: 'reconciliation-required' })
+      ]))
+  })
+
+  it('keeps an unknown managed-placement removal actionable after service restart', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-05T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'managed-placement-result', accountMid: '100', issuedAt: '2026-08-05T00:00:00.000Z', type: 'record-sync-result',
+      payload: {
+        id: 'favorite-managed-placement-removal:restart-placement', commandId: 'restart-placement', status: 'result-unknown',
+        affectedAids: [1], targetFolderIds: ['bilimi-logical:source'], updatedAt: '2026-08-05T00:00:00.000Z',
+        operationKey: 'favorite-library-managed-placement-removal'
+      }
+    })
+
+    const restarted = new FavoriteRepositoryService({ root })
+    await expect(restarted.getLibrarySummary('100')).resolves.toMatchObject({
+      remoteReconciliations: [{ kind: 'managed-placement', operationId: 'restart-placement' }]
+    })
+  })
+
+  it('deletes only the confirmed account local repository projection', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const accountMid of ['100', '200']) {
+      await service.commit(accountMid, {
+        id: `video-${accountMid}`, accountMid, issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid: Number(accountMid), title: `Video ${accountMid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+
+    await service.deleteAccountLocalData('100')
+
+    await expect(readFile(join(root, 'accounts', '100', 'repository.manifest.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(service.getSnapshot('200')).resolves.toMatchObject({ accountMid: '200', videos: { '200': expect.any(Object) } })
+  })
+
+  it('keeps earlier immutable events when an audited local mutation publishes its generation', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'earlier-event-command', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'record-favorite-event',
+      payload: { id: 'earlier-event', sequence: 1, aid: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:00:00.000Z' }
+    })
+    const snapshot = await service.getSnapshot('100')
+
+    await service.commitWithAudit('100', {
+      id: 'audited-placement', accountMid: '100', issuedAt: '2026-07-24T00:01:00.000Z', expectedRevision: snapshot.revision,
+      type: 'set-favorite-placements', payload: { placements: [{ aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-24T00:01:00.000Z' }] }
+    }, [{ id: 'audited-event', sequence: 2, aid: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:01:00.000Z' }])
+
+    await expect(service.getEventPage('100', 1, { limit: 10 })).resolves.toMatchObject({
+      items: expect.arrayContaining([expect.objectContaining({ id: 'earlier-event' }), expect.objectContaining({ id: 'audited-event' })])
+    })
+  })
+
+  it('publishes a large managed-folder mutation with every immutable audit event atomically', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const selected = Array.from({ length: 101 }, (_value, index) => index + 1)
+    for (const aid of selected) {
+      await service.commit('100', {
+        id: `large-video-${aid}`, accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+    await service.commitWithAudit('100', {
+      id: 'large-audited-delete', accountMid: '100', issuedAt: '2026-07-24T00:01:00.000Z',
+      type: 'record-sync-result', payload: {
+        id: 'large-audited-delete-result', commandId: 'large-audited-delete', status: 'succeeded', affectedAids: selected,
+        updatedAt: '2026-07-24T00:01:00.000Z', operationKey: 'managed-folder-delete'
+      }
+    }, selected.map((aid) => ({
+      id: `large-audit-${aid}`, sequence: aid, aid, kind: 'manual-move' as const, occurredAt: '2026-07-24T00:01:00.000Z'
+    })))
+
+    await expect(service.getEventPage('100', 101, { limit: 5 })).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: 'large-audit-101' })]
+    })
+  })
+
+  it('recovers every selected account before exposing a partially published portable import after restart', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    for (const accountMid of ['100', '200']) {
+      await service.commit(accountMid, {
+        id: `existing-${accountMid}`, accountMid, issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid: Number(accountMid), title: `Existing ${accountMid}`, tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+      })
+    }
+    const before100 = await service.getSnapshot('100')
+    const before200 = await service.getSnapshot('200')
+    const imported = createFavoriteRepositoryArchiveExport({
+      ...before100,
+      videos: { ...before100.videos, '1': { aid: 1, title: 'Imported only', tags: [], updatedAt: '2026-07-24T00:01:00.000Z' } }
+    }, { generatedAt: '2026-07-24T00:01:00.000Z' })
+
+    await service.beginPortableImportTransaction(['100', '200'])
+    await service.applyArchiveImport('100', { validate: () => imported, mode: 'overwrite' })
+
+    const restarted = new FavoriteRepositoryService({ root })
+    // A reader must trigger recovery before it can observe either selected UID.
+    await expect(restarted.getSnapshot('100')).resolves.toEqual(before100)
+    await expect(restarted.getSnapshot('200')).resolves.toEqual(before200)
+  })
+
+  it('does not mutate the repository when archive import validation rejects', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'existing-video', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Existing', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    })
+    const before = await service.getSnapshot('100')
+
+    await expect(service.applyArchiveImport('100', {
+      validate: () => { throw new Error('archive checksum is invalid') }
+    })).rejects.toThrow('archive checksum is invalid')
+
+    await expect(service.getSnapshot('100')).resolves.toEqual(before)
+  })
+
+  it('atomically imports local intent while preserving remote observations and recovering events after restart', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'existing-video', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 2, title: 'Remote video', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'existing-position', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 2, localDesiredFolderIds: ['bilimi-logical:old'], remoteObservedPhysicalFolderIds: ['bilibili:900'], remoteObservedLogicalFolderIds: ['bilimi-logical:remote'], positionState: 'failed', updatedAt: '2026-07-23T00:00:00.000Z', reason: 'timeout' }
+    })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      videos: { '2': { aid: 2, title: 'Imported title', tags: ['saved'], updatedAt: '2026-07-22T00:00:00.000Z' } },
+      positions: {
+        '100:2': {
+          accountMid: '100', aid: 2, localDesiredFolderIds: ['bilimi-logical:new'],
+          remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change',
+          updatedAt: '2026-07-22T00:00:00.000Z', revision: 1
+        }
+      },
+      organizationRecords: [{ accountMid: '100', aid: 2, targetFolderIds: [], completedAt: '2026-07-22T00:00:00.000Z' }]
+    }, {
+      generatedAt: '2026-07-23T00:00:00.000Z',
+      events: [{ id: 'import-event', sequence: 1, accountMid: '100', aid: 2, kind: 'manual-move', occurredAt: '2026-07-22T00:00:00.000Z' }],
+      archives: []
+    })
+
+    await service.applyArchiveImport('100', { validate: () => archive })
+    await service.applyArchiveImport('100', { validate: () => archive })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '2': { title: 'Imported title', tags: ['saved'] } },
+      positions: { '100:2': {
+        localDesiredFolderIds: ['bilimi-logical:new'], remoteObservedPhysicalFolderIds: ['bilibili:900'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:remote'], positionState: 'failed', reason: 'timeout'
+      } },
+      memberships: { 'bilimi-logical:new': [2], 'bilimi-logical:old': [], 'local:inbox': [] }
+    })
+    const restarted = new FavoriteRepositoryService({ root })
+    await expect(restarted.getEventPage('100', 2, { limit: 10 })).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: 'import-event' })]
+    })
+    await expect(readFile(join(root, 'accounts', '100', 'events', '2.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('round-trips scan lifecycle authority without exporting device-bound remote observations', async () => {
+    const source = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-08-05T00:00:00.000Z' })
+    source.videos['1'] = { aid: 1, title: 'Observed video', tags: [], updatedAt: '2026-08-05T00:00:00.000Z' }
+    source.positions['100:1'] = {
+      accountMid: '100',
+      aid: 1,
+      localDesiredFolderIds: ['bilimi-logical:knowledge'],
+      remoteObservedPhysicalFolderIds: ['remote-folder-1'],
+      remoteObservedLogicalFolderIds: ['bilimi-logical:knowledge'],
+      positionState: 'aligned',
+      lifecycleState: 'active',
+      sourceAuthority: 'complete',
+      observationEpoch: 'scan-2026-08-05',
+      observedAt: '2026-08-05T00:00:00.000Z',
+      updatedAt: '2026-08-05T00:00:00.000Z',
+      revision: 1
+    }
+    const archive = createFavoriteRepositoryArchiveExport(source, {
+      generatedAt: '2026-08-05T00:01:00.000Z'
+    })
+    expect(JSON.stringify(archive)).not.toContain('remote-folder-1')
+
+    const service = new FavoriteRepositoryService({
+      root: await createRoot(),
+      now: () => '2026-08-05T00:02:00.000Z'
+    })
+    await service.applyArchiveImport('100', { validate: () => archive, mode: 'overwrite' })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      positions: {
+        '100:1': {
+          localDesiredFolderIds: ['bilimi-logical:knowledge'],
+          remoteObservedPhysicalFolderIds: [],
+          remoteObservedLogicalFolderIds: [],
+          lifecycleState: 'active',
+          sourceAuthority: 'complete',
+          observationEpoch: 'scan-2026-08-05'
+        }
+      }
+    })
+  })
+
+  it('imports validated recovery records while retaining local remote observations', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'remote-position', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 7, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['bilibili:900'], remoteObservedLogicalFolderIds: ['bilimi-logical:remote'], positionState: 'aligned', updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      folders: [
+        ...base.folders,
+        { id: 'bilimi-logical:restored', title: 'Restored', kind: 'bilimi-logical', logicalLedgerId: 'restored', syncState: 'local-only' }
+      ],
+      memberships: { ...base.memberships, 'bilimi-logical:restored': [7] },
+      physicalShards: [{ logicalLedgerId: 'restored', folderId: 'bilimi-logical:restored', shardNumber: 1, remoteTitle: 'Restored', bindingState: 'pending-reconcile' }],
+      workspace: undefined,
+      syncRecords: [{ id: 'sync-1', commandId: 'command-1', status: 'result-unknown', affectedAids: [7], updatedAt: '2026-07-24T00:00:00.000Z' }],
+      organizationRecords: [{ accountMid: '100', aid: 7, targetFolderIds: ['bilimi-logical:restored'], completedAt: '2026-07-24T00:00:00.000Z' }],
+      organizationBatches: [],
+      organizationMigrationInitialized: true,
+      tombstones: { '100:8': { accountMid: '100', aid: 8, deletedAt: '2026-07-24T00:00:00.000Z', allowRediscovery: false } }
+    }, { generatedAt: '2026-07-24T00:00:00.000Z' })
+
+    await service.applyArchiveImport('100', { validate: () => archive })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'bilimi-logical:restored': [7] },
+      physicalShards: [expect.objectContaining({ logicalLedgerId: 'restored' })],
+      syncRecords: [expect.objectContaining({ id: 'sync-1' })],
+      organizationRecords: [expect.objectContaining({ aid: 7 })],
+      tombstones: { '100:8': expect.objectContaining({ aid: 8 }) },
+      positions: { '100:7': expect.objectContaining({ remoteObservedPhysicalFolderIds: ['bilibili:900'] }) }
+    })
+  })
+
+  it('validates the archive independently when a caller validator lies', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    const archive = createFavoriteRepositoryArchiveExport(await service.getSnapshot('100'), { generatedAt: '2026-07-24T00:00:00.000Z' })
+    archive.checksum = '0'.repeat(64)
+
+    await expect(service.applyArchiveImport('100', { validate: () => archive })).rejects.toThrow('checksum')
+  })
+
+  it('overwrites imported repository data without importing remote observations', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'local-video', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Local only', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'local-remote-observation', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'set-favorite-placement',
+      payload: { aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['bilibili:900'], remoteObservedLogicalFolderIds: [], positionState: 'aligned', updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'paused-library-run', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'record-library-placement-run',
+      payload: { id: 'favorite-library-placement:paused', accountMid: '100', status: 'paused', aids: [1], nextIndex: 0,
+        completedAids: [], failedAids: [], queuedAids: [], unknownAids: [], updatedAt: '2026-07-24T00:00:00.000Z' }
+    })
+    const source = await service.getSnapshot('200')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...source,
+      videos: { '2': { aid: 2, title: 'Imported only', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' } }
+    }, { generatedAt: '2026-07-24T00:00:00.000Z' })
+    archive.accountMid = '100'
+    archive.checksum = createFavoriteRepositoryArchiveExportChecksum(archive)
+
+    await service.applyArchiveImport('100', { validate: () => archive, mode: 'overwrite' })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '2': expect.objectContaining({ title: 'Imported only' }) }, positions: {}
+    })
+    expect((await service.getSnapshot('100')).libraryPlacementRuns).toEqual({})
+    await expect(service.getSnapshot('100')).resolves.not.toMatchObject({ videos: { '1': expect.anything() } })
+  })
+
+  it('overwrite replaces old portable audit history instead of retaining it', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await service.getSnapshot('100')
+    const oldArchive = createFavoriteRepositoryArchiveExport(base, {
+      generatedAt: '2026-07-24T00:00:00.000Z',
+      events: [{ id: 'old-event', sequence: 1, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-24T00:00:00.000Z' }]
+    })
+    await service.applyArchiveImport('100', { validate: () => oldArchive, mode: 'overwrite' })
+    const replacement = createFavoriteRepositoryArchiveExport(await service.getSnapshot('100'), {
+      generatedAt: '2026-07-24T00:01:00.000Z',
+      events: [{ id: 'new-event', sequence: 1, accountMid: '100', aid: 2, kind: 'manual-move', occurredAt: '2026-07-24T00:01:00.000Z' }]
+    })
+
+    await service.applyArchiveImport('100', { validate: () => replacement, mode: 'overwrite' })
+    await expect(service.getPortableAuditEvents('100')).resolves.toEqual([expect.objectContaining({ id: 'new-event' })])
+  })
+
+  it('applies imported tombstones as authoritative local deletions instead of leaving library rows visible', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      videos: { '7': { aid: 7, title: 'Deleted import', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' } },
+      positions: { '100:7': { accountMid: '100', aid: 7, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', updatedAt: '2026-07-24T00:00:00.000Z', revision: 1 } },
+      folders: [...base.folders, { id: 'bilimi-logical:music', title: 'Music', kind: 'bilimi-logical', logicalLedgerId: 'music', syncState: 'pending-reconcile' }],
+      memberships: { ...base.memberships, 'bilimi-logical:music': [7] },
+      tombstones: { '100:7': { accountMid: '100', aid: 7, deletedAt: '2026-07-24T01:00:00.000Z', allowRediscovery: false } }
+    }, { generatedAt: '2026-07-24T01:00:00.000Z' })
+
+    await service.applyArchiveImport('100', { validate: () => archive })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      videos: {}, positions: {}, memberships: { 'bilimi-logical:music': [] }, tombstones: { '100:7': expect.any(Object) }
+    })
+  })
+
+  it('keeps a rediscoverable tombstone visible after archive import', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    const base = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...base,
+      videos: { '8': { aid: 8, title: 'Can rediscover', tags: [], updatedAt: '2026-07-24T00:00:00.000Z' } },
+      tombstones: { '100:8': { accountMid: '100', aid: 8, deletedAt: '2026-07-24T01:00:00.000Z', allowRediscovery: true } }
+    }, { generatedAt: '2026-07-24T01:00:00.000Z' })
+
+    await service.applyArchiveImport('100', { validate: () => archive })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '8': expect.objectContaining({ title: 'Can rediscover' }) },
+      tombstones: { '100:8': expect.not.objectContaining({ kind: 'recycled' }) }
+    })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 1, items: [{ video: { aid: 8 } }]
+    })
+    await expect(service.getLibraryPage('100', { kind: 'recycle' }, { limit: 10 })).resolves.toMatchObject({ totalCount: 0 })
+  })
+
+  it('keeps recycled metadata and local organization out of ordinary scopes while exposing a recycle scope', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-04T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'recycle-source', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1',
+        folders: [{ id: 'local:music', title: 'Music', kind: 'local', syncState: 'local-only' }],
+        memberAidsByFolderId: { 'local:music': [1] },
+        videos: [{ aid: 1, title: 'Recycle me', tags: ['music'], tagEvidence: 'confirmed', updatedAt: '2026-08-04T00:00:00.000Z' }]
+      }
+    })
+    await service.commit('100', {
+      id: 'recycle-prior-source', accountMid: '100', issuedAt: '2026-08-04T00:00:30.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['local:music'], remoteObservedPhysicalFolderIds: ['source'],
+        remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-04T00:00:30.000Z'
+      }
+    })
+    await service.commit('100', {
+      id: 'recycle-lifecycle', accountMid: '100', issuedAt: '2026-08-04T00:01:00.000Z',
+      type: 'reconcile-scan-lifecycle', payload: {
+        observationEpoch: 'scan-2', authority: 'complete', observations: [{ aid: 1, remoteObserved: false }]
+      }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10 })).resolves.toMatchObject({ totalCount: 0, items: [] })
+    await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'local:music' }, { limit: 10 })).resolves.toMatchObject({ totalCount: 0, items: [] })
+    await expect(service.getLibraryPage('100', { kind: 'recycle' }, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 1,
+      items: [{ video: { aid: 1, title: 'Recycle me', tags: ['music'] }, folderIds: ['local:music'] }]
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      video: { aid: 1, title: 'Recycle me', tags: ['music'] }, folderIds: ['local:music']
+    })
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      videoCount: 0, folderCounts: { 'local:music': 0 }, scopeCounts: { all: 0, recycle: 1 }
+    })
+  })
+
+  it('clears a recycled favorite-library record without touching external note or archive owners', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-04T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'recycle-video', accountMid: '100', issuedAt: '2026-08-04T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Recycle me', tags: ['saved'], updatedAt: '2026-08-04T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'recycle-prior-source', accountMid: '100', issuedAt: '2026-08-04T00:00:30.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: ['source'],
+        remoteObservedLogicalFolderIds: [], updatedAt: '2026-08-04T00:00:30.000Z'
+      }
+    })
+    await service.commit('100', {
+      id: 'recycle-lifecycle', accountMid: '100', issuedAt: '2026-08-04T00:01:00.000Z',
+      type: 'reconcile-scan-lifecycle', payload: {
+        observationEpoch: 'scan-2', authority: 'complete', observations: [{ aid: 1, remoteObserved: false }]
+      }
+    })
+
+    await service.commit('100', {
+      id: 'clear-recycled', accountMid: '100', issuedAt: '2026-08-04T00:02:00.000Z',
+      type: 'clear-recycled-favorite', payload: { aid: 1 }
+    })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({ videos: {}, tombstones: {} })
+    await expect(service.getLibraryPage('100', { kind: 'recycle' }, { limit: 10 })).resolves.toMatchObject({ totalCount: 0 })
+  })
+
+  it('keeps external note versions, transcripts, memos, and stars across local and managed-folder deletion commands', async () => {
+    const root = await createRoot()
+    const updatedAt = '2026-08-05T00:00:00.000Z'
+    const note = {
+      id: 'account:100:aid:1:cid:11',
+      source: { accountMid: '100', aid: 1, cid: 11, title: 'Protected note', url: 'https://www.bilibili.com/video/av1?p=1', tags: ['saved'] },
+      transcriptSource: 'audio' as const,
+      transcript: [{ start: 0, end: 1, text: 'keep transcript' }],
+      chapters: [],
+      overview: { shortSummary: ['keep summary'], keywords: ['saved'], timeline: [], highlights: [] },
+      annotations: [],
+      userMemo: 'keep memo',
+      starred: true,
+      createdAt: updatedAt,
+      updatedAt
+    }
+    const externalArchives: VideoNoteArchiveEntry[] = [{
+      id: 'archive-1', source: note.source, versions: [{ id: 'version-1', note, plainTranscript: 'keep transcript', summaryText: 'keep summary', createdAt: updatedAt }],
+      createdAt: updatedAt, updatedAt
+    }]
+    const externalTranscriptions: VideoAudioTranscriptionQueueItem[] = [{
+      id: 'transcription-1', accountMid: '100', aid: 1, cid: 11, url: note.source.url, title: note.source.title,
+      status: 'completed', createdAt: updatedAt, updatedAt, draftNote: note, archiveNoteId: note.id, archiveVersionId: 'version-1'
+    }]
+    const archivesBefore = structuredClone(externalArchives)
+    const transcriptionsBefore = structuredClone(externalTranscriptions)
+    const service = new FavoriteRepositoryService({
+      root,
+      now: () => updatedAt,
+      getTranscriptionArchives: () => externalArchives,
+      getTranscriptionItems: () => externalTranscriptions
+    })
+    for (const aid of [1, 2, 3]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: updatedAt, type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt }
+      })
+    }
+    await service.commit('100', {
+      id: 'managed-folder', accountMid: '100', issuedAt: updatedAt, type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'knowledge', logicalTitle: 'bilimi·知识学习', shardNumber: 1, memberAids: [3],
+        remoteTitle: 'bilimi·知识学习', bindingState: 'bound', remoteFolderId: '91000001'
+      }
+    })
+
+    await service.commit('100', {
+      id: 'delete-one', accountMid: '100', issuedAt: updatedAt, type: 'delete-favorite-from-library',
+      payload: { aid: 1, deletedAt: updatedAt }
+    })
+    await service.commit('100', {
+      id: 'delete-many', accountMid: '100', issuedAt: updatedAt, type: 'delete-favorites-from-library',
+      payload: { aids: [2], deletedAt: updatedAt }
+    })
+    await service.commit('100', {
+      id: 'delete-folder', accountMid: '100', issuedAt: updatedAt, type: 'delete-local-managed-folder',
+      payload: { logicalFolderId: 'bilimi-logical:knowledge' }
+    })
+
+    expect(externalArchives).toEqual(archivesBefore)
+    expect(externalTranscriptions).toEqual(transcriptionsBefore)
+  })
+
+  it('rejects a cross-account archive event before any local snapshot, receipt, or event projection is published', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    const before = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport(before, { generatedAt: '2026-07-23T01:00:00.000Z' })
+    archive.events = [{ id: 'foreign-event', sequence: 1, accountMid: '200', aid: 1, kind: 'manual-move', occurredAt: '2026-07-23T00:30:00.000Z' }]
+
+    await expect(service.applyArchiveImport('100', { validate: () => archive })).rejects.toThrow('event account mismatch')
+    await expect(service.getSnapshot('100')).resolves.toEqual(before)
+    await expect(service.getEventPage('100', 1, { limit: 10 })).resolves.toMatchObject({ items: [] })
+  })
+
+  it('keeps archive snapshot, receipt, and staged user events invisible when generation publication fails', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    const before = await service.getSnapshot('100')
+    const archive = createFavoriteRepositoryArchiveExport({
+      ...before,
+      videos: { '1': { aid: 1, title: 'Imported', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' } }
+    }, {
+      generatedAt: '2026-07-23T01:00:00.000Z',
+      events: [{ id: 'staged-event', sequence: 1, accountMid: '100', aid: 1, kind: 'manual-move', occurredAt: '2026-07-23T00:30:00.000Z' }]
+    })
+    vi.spyOn(service as never as { persist: () => Promise<never> }, 'persist').mockRejectedValueOnce(new Error('event append failed'))
+
+    await expect(service.applyArchiveImport('100', { validate: () => archive })).rejects.toThrow('event append failed')
+    await expect(service.getSnapshot('100')).resolves.toEqual(before)
+    await expect(service.getEventPage('100', 1, { limit: 10 })).resolves.toMatchObject({ items: [] })
+  })
+
+  it('counts only actionable placement and remote-operation work as pending', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const aid of [1, 2, 3, 4]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+    await service.commit('100', {
+      id: 'metadata-only', accountMid: '100', issuedAt: '2026-07-23T00:00:01.000Z', type: 'record-library-mirror',
+      payload: { aid: 1, status: 'failed', metadataRevision: 1 }
+    })
+    for (const [aid, positionState] of [[2, 'local-only-change'], [3, 'failed'], [4, 'result-unknown']] as const) {
+      await service.commit('100', {
+        id: `position-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:02.000Z', type: 'set-favorite-placement',
+        payload: { aid, localDesiredFolderIds: [], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [], positionState, updatedAt: '2026-07-23T00:00:02.000Z' }
+      })
+    }
+    await service.recordSyncCheckpoint('100', 'same-aid-pending', {
+      id: 'same-aid-pending', commandId: 'same-aid-pending', status: 'pending', affectedAids: [2], updatedAt: '2026-07-23T00:00:03.000Z'
+    })
+    const cached = (service as unknown as { cache: Map<string, { repository: { snapshot: { workspace?: unknown } } }> }).cache.get('100')!
+    cached.repository.snapshot.workspace = {
+      id: 'legacy-continuation', accountMid: '100', status: 'completed', baselineRevision: 0, continuationAids: [2],
+      workspaceRef: { workspaceId: 'legacy-continuation', accountMid: '100', status: 'completed', baselineRevision: 0, currentSegmentId: '', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64) }
+    }
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ pendingAidCount: 2 })
+    await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({
+      items: [{ video: { aid: 3 } }, { video: { aid: 4 } }]
+    })
+  })
+
+  it('recovers an event receipt after restart so a command retry does not append another event', async () => {
+    const root = await createRoot()
+    const command = {
+      id: 'event-command-1', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-favorite-event' as const,
+      payload: { id: 'event-1', sequence: 1, aid: 1, kind: 'manual-move' as const, occurredAt: '2026-07-23T00:00:00.000Z' }
+    }
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await first.commit('100', command)
+
+    const restarted = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:01:00.000Z' })
+    await restarted.commit('100', { ...command, issuedAt: '2026-07-23T00:01:00.000Z' })
+
+    const eventLines = (await readFile(join(root, 'accounts', '100', 'events', '1.jsonl'), 'utf8')).trim().split('\n')
+    expect(eventLines).toHaveLength(1)
+    await expect(restarted.getEventPage('100', 1, { limit: 10 })).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: 'event-1' })]
+    })
+  })
+
+  it('recovers a batch event receipt after restart without duplicating any selected-row audit', async () => {
+    const root = await createRoot()
+    const command = {
+      id: 'batch-event-command-1', accountMid: '100', issuedAt: '2026-07-24T00:00:00.000Z', type: 'record-favorite-events' as const,
+      payload: { events: [
+        { id: 'batch-event-1', sequence: 1, aid: 1, kind: 'manual-move' as const, occurredAt: '2026-07-24T00:00:00.000Z' },
+        { id: 'batch-event-2', sequence: 2, aid: 2, kind: 'manual-move' as const, occurredAt: '2026-07-24T00:00:00.000Z' }
+      ] }
+    }
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:00:00.000Z' })
+    await first.commit('100', command)
+
+    const restarted = new FavoriteRepositoryService({ root, now: () => '2026-07-24T00:01:00.000Z' })
+    await restarted.commit('100', { ...command, issuedAt: '2026-07-24T00:01:00.000Z' })
+
+    for (const [aid, eventId] of [[1, 'batch-event-1'], [2, 'batch-event-2']] as const) {
+      const lines = (await readFile(join(root, 'accounts', '100', 'events', `${aid}.jsonl`), 'utf8')).trim().split('\n')
+      expect(lines).toHaveLength(1)
+      expect(JSON.parse(lines[0])).toMatchObject({ id: eventId, aid })
+    }
+  })
+
+  it('keeps protected organization separate from a failed placement in the library detail', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+
+    await service.commit('100', {
+      id: 'video', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'protected', accountMid: '100', issuedAt: '2026-07-23T00:00:01.000Z', type: 'record-organization-protections',
+      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: ['legacy-folder'], completedAt: '2026-07-23T00:00:01.000Z' }] }
+    })
+    await service.commit('100', {
+      id: 'placement', accountMid: '100', issuedAt: '2026-07-23T00:00:02.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [],
+        remoteObservedLogicalFolderIds: [], positionState: 'failed', updatedAt: '2026-07-23T00:00:02.000Z'
+      }
+    })
+
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      protected: true,
+      position: { state: 'failed', localDesiredFolderIds: ['bilimi-logical:music'] }
+    })
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ pendingAidCount: 1 })
+  })
+
+  it('derives sync, protection, and organization from independent repository facts', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-02T00:00:00.000Z' })
+    for (const aid of [1, 2, 3, 4]) {
+      await service.commit('100', {
+        id: `state-video-${aid}`, accountMid: '100', issuedAt: '2026-08-02T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `State video ${aid}`, tags: [], updatedAt: '2026-08-02T00:00:00.000Z' }
+      })
+    }
+    await service.commit('100', {
+      id: 'state-protection', accountMid: '100', issuedAt: '2026-08-02T00:00:01.000Z', type: 'record-organization-protections',
+      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: [], completedAt: '2026-08-02T00:00:01.000Z' }] }
+    })
+    await service.commit('100', {
+      id: 'state-work-folder', accountMid: '100', issuedAt: '2026-08-02T00:00:02.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1, memberAids: [2],
+        remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: '900'
+      }
+    })
+    await service.commit('100', {
+      id: 'state-work-members', accountMid: '100', issuedAt: '2026-08-02T00:00:03.000Z', type: 'set-folder-members',
+      payload: { folderId: 'bilimi-logical:music', aids: [2] }
+    })
+    await service.commit('100', {
+      id: 'state-aligned-position', accountMid: '100', issuedAt: '2026-08-02T00:00:04.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 2,
+        localDesiredFolderIds: ['bilimi-logical:music'],
+        remoteObservedPhysicalFolderIds: ['bilibili:900'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:music'],
+        positionState: 'aligned',
+        updatedAt: '2026-08-02T00:00:04.000Z'
+      }
+    })
+    await service.commit('100', {
+      id: 'state-ordinary-source', accountMid: '100', issuedAt: '2026-08-02T00:00:05.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'state-workspace',
+        memberAidsByFolderId: { 'bilibili:901': [3] },
+        folders: [{ id: 'bilibili:901', title: '普通用户收藏夹', remoteFolderId: '901' }],
+        videos: [1, 2, 3, 4].map((aid) => ({ aid, title: `State video ${aid}`, tags: [], updatedAt: '2026-08-02T00:00:05.000Z' }))
+      }
+    })
+    await service.commit('100', {
+      id: 'state-inbox-members', accountMid: '100', issuedAt: '2026-08-02T00:00:06.000Z', type: 'set-folder-members',
+      payload: { folderId: 'local:inbox', aids: [1, 4] }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sort: 'title-asc' })).resolves.toMatchObject({
+      items: [
+        { video: { aid: 1 }, libraryStates: { sync: 'unsynced', protection: 'protected', organization: 'unorganized' } },
+        { video: { aid: 2 }, libraryStates: { sync: 'synced', protection: 'unprotected', organization: 'organized' } },
+        { video: { aid: 3 }, libraryStates: { sync: 'unsynced', protection: 'unprotected', organization: 'unorganized' } },
+        { video: { aid: 4 }, libraryStates: { sync: 'unsynced', protection: 'unprotected', organization: 'unorganized' } }
+      ]
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      libraryStates: { sync: 'unsynced', protection: 'protected', organization: 'unorganized' }
+    })
+    await expect(service.getLibraryDetail('100', 4)).resolves.toMatchObject({
+      libraryStates: { sync: 'unsynced', protection: 'unprotected', organization: 'unorganized' }
+    })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, {
+      limit: 10,
+      sort: 'title-asc',
+      stateFilters: { sync: 'unsynced', protection: 'unprotected', organization: 'unorganized' }
+    } as never)).resolves.toMatchObject({
+      totalCount: 2,
+      items: [{ video: { aid: 3 } }, { video: { aid: 4 } }]
+    })
+    await expect(service.resolveLibrarySelection('100', { kind: 'all' }, {
+      sort: 'title-asc', stateFilters: { protection: 'protected' }
+    } as never)).resolves.toEqual([1])
+  })
+
+  it('sorts the library by the latest explicit adjustment, with stable aid and unknown-time placement', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    const videos = {
+      '1': { aid: 1, title: 'Unknown', tags: [], updatedAt: '2026-08-20T00:00:00.000Z' },
+      '2': { aid: 2, title: 'Same time, higher aid', tags: [], updatedAt: '2026-08-10T00:00:00.000Z', lastAdjustment: { kind: 'manual' as const, occurredAt: '2026-08-18T00:00:00.000Z' } },
+      '3': { aid: 3, title: 'Newest', tags: [], updatedAt: '2026-08-01T00:00:00.000Z', lastAdjustment: { kind: 'manual' as const, occurredAt: '2026-08-20T00:00:00.000Z' } },
+      '4': { aid: 4, title: 'Same time, lower aid', tags: [], updatedAt: '2026-08-30T00:00:00.000Z', lastAdjustment: { kind: 'manual' as const, occurredAt: '2026-08-18T00:00:00.000Z' } },
+      '5': { aid: 5, title: 'Oldest', tags: [], updatedAt: '2026-08-31T00:00:00.000Z', lastAdjustment: { kind: 'manual' as const, occurredAt: '2026-08-01T00:00:00.000Z' } },
+      '6': { aid: 6, title: 'Invalid time', tags: [], updatedAt: '2026-08-02T00:00:00.000Z', lastAdjustment: { kind: 'manual' as const, occurredAt: 'not-a-date' } }
+    }
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: {
+        version: 1,
+        accountMid: '100',
+        snapshot: {
+          version: 1, accountMid: '100', revision: 1, updatedAt: '2026-08-20T00:00:00.000Z',
+          videos, folders: [], memberships: {}, physicalShards: [], positions: {}, syncRecords: [],
+          organizationRecords: [], organizationMigrationInitialized: false
+        },
+        commandResults: {}
+      }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10 }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 3 } }, { video: { aid: 2 } }, { video: { aid: 4 } }, { video: { aid: 5 } }, { video: { aid: 1 } }, { video: { aid: 6 } }] })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10, sort: 'updated-asc' }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 5 } }, { video: { aid: 2 } }, { video: { aid: 4 } }, { video: { aid: 3 } }, { video: { aid: 1 } }, { video: { aid: 6 } }] })
+  })
+
+  it('sorts the complete filtered result before paging by the adjustment time', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    for (const [aid, title, occurredAt] of [
+      [1, 'Needle old', '2026-08-01T00:00:00.000Z'],
+      [2, 'Other newest', '2026-08-20T00:00:00.000Z'],
+      [3, 'Needle newest', '2026-08-19T00:00:00.000Z']
+    ] as const) {
+      await service.commit('100', {
+        id: `adjustment-page-${aid}`, accountMid: '100', issuedAt: occurredAt, type: 'upsert-video',
+        payload: { aid, title, tags: [], updatedAt: '2026-08-01T00:00:00.000Z', lastAdjustment: { kind: 'manual', occurredAt } }
+      })
+    }
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 1, page: 1, query: 'needle', sort: 'updated-desc' }))
+      .resolves.toMatchObject({ totalCount: 2, items: [{ video: { aid: 3 } }], page: 1, pageCount: 2 })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 1, page: 2, query: 'needle', sort: 'updated-desc' }))
+      .resolves.toMatchObject({ items: [{ video: { aid: 1 } }] })
+  })
+
+  it('distinguishes successful write receipts from Bilibili readback', async () => {
+    const root = await createRoot()
+    const now = '2026-08-18T00:00:00.000Z'
+    const service = new FavoriteRepositoryService({ root, now: () => now })
+    await service.commit('100', {
+      id: 'receipt-video', accountMid: '100', issuedAt: now, type: 'upsert-video',
+      payload: {
+        aid: 1, title: '等待回读的视频', tags: [], updatedAt: now,
+        initialSource: {
+          observedAt: now,
+          folders: [{ folderId: 'bilibili:default', title: '默认收藏夹', kind: 'ordinary' }]
+        }
+      }
+    })
+    await service.commit('100', {
+      id: 'receipt-binding', accountMid: '100', issuedAt: now, type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1,
+        memberAids: [], remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: '900'
+      }
+    })
+    await service.commit('100', {
+      id: 'receipt-success', accountMid: '100', issuedAt: now, type: 'record-sync-result',
+      payload: {
+        id: 'receipt-success', commandId: 'receipt-success', status: 'succeeded', affectedAids: [1],
+        targetFolderIds: ['900'], updatedAt: now
+      }
+    })
+    await service.commit('100', {
+      id: 'receipt-change', accountMid: '100', issuedAt: now, type: 'record-organization-change',
+      payload: { change: {
+        id: 'receipt-change', runId: 'run-1', workspaceId: 'workspace-1', accountMid: '100', aid: 1,
+        beforeFolderIds: [], afterFolderIds: ['900'], addedFolderIds: ['900'], removedFolderIds: [],
+        status: 'succeeded', recordedAt: now
+      } }
+    })
+    await service.commit('100', {
+      id: 'receipt-incomplete-readback', accountMid: '100', issuedAt: now, type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['901'],
+        remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', sourceAuthority: 'incomplete', updatedAt: now
+      }
+    })
+
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      libraryStates: { sync: 'synced' },
+      syncReceipt: {
+        targetLogicalFolderIds: ['bilimi-logical:music'],
+        targetTitles: ['bilimi·音乐'],
+        confirmedAt: now
+      },
+      remotePositionFacts: [
+        { folderId: 'bilimi-logical:music', title: 'bilimi·音乐', kind: 'synced', confirmedAt: now },
+        { folderId: 'bilibili:default', title: '默认收藏夹', kind: 'initial' }
+      ]
+    })
+
+    await service.commit('100', {
+      id: 'receipt-conflicting-readback', accountMid: '100', issuedAt: '2026-08-18T00:01:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['901'],
+        remoteObservedLogicalFolderIds: [], positionState: 'local-only-change', sourceAuthority: 'complete', updatedAt: '2026-08-18T00:01:00.000Z'
+      }
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      libraryStates: { sync: 'synced' },
+      syncReceipt: { targetLogicalFolderIds: ['bilimi-logical:music'] }
+    })
+
+    await service.commit('100', {
+      id: 'receipt-matching-readback', accountMid: '100', issuedAt: '2026-08-18T00:02:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: ['900'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:music'], positionState: 'aligned', sourceAuthority: 'complete', updatedAt: '2026-08-18T00:02:00.000Z'
+      }
+    })
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      positions: {
+        '100:1': {
+          sourceAuthority: 'complete', remoteObservedLogicalFolderIds: ['bilimi-logical:music']
+        }
+      }
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      remotePositionFacts: expect.arrayContaining([
+        { folderId: 'bilimi-logical:music', title: 'bilimi·音乐', kind: 'observed', confirmedAt: '2026-08-18T00:02:00.000Z' }
+      ])
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      libraryStates: { sync: 'synced' },
+      syncReceipt: {
+        targetLogicalFolderIds: ['bilimi-logical:music'],
+        targetTitles: ['bilimi·音乐']
+      }
+    })
+  })
+
+  it('lists only successful write receipts as synced positions without turning local history or removals into Bilibili locations', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-18T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'position-facts-video', accountMid: '100', issuedAt: '2026-08-18T00:00:00.000Z', type: 'upsert-video',
+      payload: {
+        aid: 1, title: '只同步到游戏的视频', tags: [], updatedAt: '2026-08-18T00:00:00.000Z',
+        initialSource: { observedAt: '2026-08-18T00:00:00.000Z', folders: [{ folderId: 'bilibili:default', title: '默认收藏夹', kind: 'ordinary' }] }
+      }
+    })
+    for (const [id, logicalLedgerId, logicalTitle, remoteFolderId] of [
+      ['position-facts-music', 'music', 'bilimi·音乐舞台', '900'],
+      ['position-facts-game', 'game', 'bilimi·游戏专区', '901']
+    ] as const) {
+      await service.commit('100', {
+        id, accountMid: '100', issuedAt: '2026-08-18T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId, logicalTitle, shardNumber: 1, memberAids: [], remoteTitle: logicalTitle, bindingState: 'bound', remoteFolderId }
+      })
+    }
+    await service.commit('100', {
+      id: 'position-facts-local-music', accountMid: '100', issuedAt: '2026-08-18T00:01:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:music'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+        positionState: 'local-only-change', updatedAt: '2026-08-18T00:01:00.000Z', adjustmentKind: 'system-low'
+      }
+    })
+    await service.commit('100', {
+      id: 'position-facts-local-game', accountMid: '100', issuedAt: '2026-08-18T00:02:00.000Z', type: 'set-favorite-placement',
+      payload: {
+        aid: 1, localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: [], remoteObservedLogicalFolderIds: [],
+        positionState: 'local-only-change', updatedAt: '2026-08-18T00:02:00.000Z', adjustmentKind: 'system-high'
+      }
+    })
+    await service.commit('100', {
+      id: 'position-facts-projected-batch', accountMid: '100', issuedAt: '2026-08-18T00:02:30.000Z', type: 'record-organization-change',
+      payload: { change: {
+        id: 'position-facts-projected-batch', runId: 'run-1', workspaceId: 'workspace-1', accountMid: '100', aid: 1,
+        // This is the local plan projection after the second classification. It
+        // must never be displayed as proof that music was written to Bilibili.
+        beforeFolderIds: ['900'], afterFolderIds: ['900', '901'], addedFolderIds: ['901'], removedFolderIds: [],
+        status: 'succeeded', recordedAt: '2026-08-18T00:02:30.000Z'
+      } }
+    })
+    await service.commit('100', {
+      id: 'position-facts-game-write', accountMid: '100', issuedAt: '2026-08-18T00:03:00.000Z', type: 'record-sync-result',
+      payload: {
+        id: 'position-facts-game-write', commandId: 'position-facts-game-write', status: 'succeeded', affectedAids: [1],
+        targetFolderIds: ['901'], updatedAt: '2026-08-18T00:03:00.000Z', operationKey: 'placement:1'
+      }
+    })
+    await service.commit('100', {
+      id: 'position-facts-game-removal', accountMid: '100', issuedAt: '2026-08-18T00:04:00.000Z', type: 'record-sync-result',
+      payload: {
+        id: 'position-facts-game-removal', commandId: 'position-facts-game-removal', status: 'succeeded', affectedAids: [1],
+        targetFolderIds: ['901'], updatedAt: '2026-08-18T00:04:00.000Z', operationKey: 'favorite-library-managed-placement-removal'
+      }
+    })
+    await service.commit('100', {
+      id: 'position-facts-music-frozen-remove', accountMid: '100', issuedAt: '2026-08-18T00:04:30.000Z', type: 'record-sync-result',
+      payload: {
+        id: 'position-facts-music-frozen-remove', commandId: 'position-facts-music-frozen-remove', status: 'succeeded', affectedAids: [1],
+        targetFolderIds: ['900'], updatedAt: '2026-08-18T00:04:30.000Z', operationKey: 'remove:1:900'
+      }
+    })
+
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      remotePositionFacts: [
+        { folderId: 'bilimi-logical:game', title: 'bilimi·游戏专区', kind: 'synced', confirmedAt: '2026-08-18T00:03:00.000Z' },
+        { folderId: 'bilibili:default', title: '默认收藏夹', kind: 'initial' }
+      ],
+      latestClassificationAdjustment: { afterFolderIds: ['bilimi-logical:game'] }
+    })
+    await expect(service.getClassificationAdjustmentPage('100', 1, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 2,
+      items: [
+        { afterFolderIds: ['bilimi-logical:game'] },
+        { afterFolderIds: ['bilimi-logical:music'] }
+      ]
+    })
+  })
+
+  it('reapplies an authoritative workspace transition when a retained command result no longer matches', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    const workspace = (status: 'reconciling' | 'frozen') => ({
+      id: 'workspace-1', accountMid: '100', status, baselineRevision: 1, continuationAids: [],
+      workspaceRef: {
+        workspaceId: 'workspace-1', accountMid: '100', status, baselineRevision: 1,
+        currentSegmentId: '', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64)
+      },
+      frozenSyncPlan: {
+        id: 'run-1', workspaceId: 'workspace-1', accountMid: '100', baselineRevision: 1,
+        createdAt: '2026-07-23T00:00:00.000Z',
+        operations: [{ operationKey: 'append:1', kind: 'append' as const, aid: 1, folderIds: ['remote-1'] }]
+      }
+    })
+    const command = {
+      id: 'favorite-sync-workspace:workspace-1:reconciled:run-1', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z',
+      type: 'set-workspace' as const, payload: workspace('reconciling')
+    }
+
+    await service.commit('100', command)
+    await service.commit('100', {
+      ...command,
+      payload: workspace('frozen')
+    })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'frozen' } })
+  })
+
+  it('loads only the requested account and stores folder membership as aid indexes', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+
+    await service.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'A', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'members-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-folder-members',
+      payload: { folderId: 'local:inbox', aids: [1] }
+    })
+
+    expect((await service.getFolderPage('100', 'local:inbox', { limit: 10 })).items.map((item) => item.aid)).toEqual([1])
+    await expect(service.getSnapshot('200')).resolves.toMatchObject({ accountMid: '200', videos: {} })
+    const manifest = JSON.parse(await readFile(join(root, 'accounts', '100', 'repository.manifest.json'), 'utf8')) as { generation: string }
+    expect(await readFile(join(root, 'accounts', '100', 'generations', manifest.generation, 'memberships.jsonl'), 'utf8'))
+      .toContain('{"folderId":"local:inbox","aids":[1]}')
+  })
+
+  it('recovers a valid atomic temporary snapshot after an interrupted commit', async () => {
+    const root = await createRoot()
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    await first.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Recovered', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    const manifestPath = join(root, 'accounts', '100', 'repository.manifest.json')
+    const persisted = await readFile(manifestPath, 'utf8')
+    await writeFile(`${manifestPath}.tmp`, persisted, 'utf8')
+    await writeFile(manifestPath, '{not-json', 'utf8')
+
+    await expect(new FavoriteRepositoryService({ root }).getSnapshot('100')).resolves.toMatchObject({
+      accountMid: '100', revision: 1, videos: { '1': { title: 'Recovered' } }
+    })
+  })
+
+  it('rejects a generation when its JSONL content no longer matches the committed manifest checksum', async () => {
+    const root = await createRoot()
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    await first.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Verified', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+
+    const accountDirectory = join(root, 'accounts', '100')
+    const manifest = JSON.parse(await readFile(join(accountDirectory, 'repository.manifest.json'), 'utf8')) as { generation: string }
+    await writeFile(join(accountDirectory, 'generations', manifest.generation, 'videos.jsonl'), '{"aid":999}\n', 'utf8')
+
+    await expect(new FavoriteRepositoryService({ root }).getSnapshot('100')).resolves.toMatchObject({
+      accountMid: '100', revision: 0, videos: {}
+    })
+  })
+
+  it('rolls back only to the previous complete generation when the active generation is corrupt', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'First', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'video-2', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 2, title: 'Second', tags: [], updatedAt: '2026-07-19T00:00:01.000Z' }
+    })
+
+    const accountDirectory = join(root, 'accounts', '100')
+    const manifest = JSON.parse(await readFile(join(accountDirectory, 'repository.manifest.json'), 'utf8')) as { generation: string }
+    await writeFile(join(accountDirectory, 'generations', manifest.generation, 'memberships.jsonl'), '{"folderId":"broken","aids":[2]}\n', 'utf8')
+
+    await expect(new FavoriteRepositoryService({ root }).getSnapshot('100')).resolves.toMatchObject({
+      accountMid: '100', revision: 1, videos: { '1': { title: 'First' } }
+    })
+  })
+
+  it('returns an equivalent result when the same command is replayed', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const command = {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }
+
+    const first = await service.commit('100', command)
+    const replay = await service.commit('100', command)
+
+    expect(replay).toEqual(first)
+    expect((await service.getSnapshot('100')).videos['1'].title).toBe('Original')
+  })
+
+  it('treats a retry timestamp as non-semantic command metadata', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const command = {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }
+    const first = await service.commit('100', command)
+
+    await expect(service.commit('100', { ...command, issuedAt: '2026-07-19T00:01:00.000Z' })).resolves.toEqual(first)
+  })
+
+  it('treats an updated optimistic revision as non-semantic retry metadata', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const command = {
+      id: 'source-pending', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', expectedRevision: 0,
+      type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }
+    const first = await service.commit('100', command)
+
+    await expect(service.commit('100', { ...command, expectedRevision: 1 })).resolves.toEqual(first)
+  })
+
+  it('accepts a pre-upgrade receipt when a paused scan retries with a newer revision', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const command = {
+      id: 'source-pending', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', expectedRevision: 0,
+      type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }
+    const first = await service.commit('100', command)
+    const cached = (service as unknown as {
+      cache: Map<string, { repository: { commandResults: Record<string, { commandFingerprint?: string }> } }>
+    }).cache.get('100')!
+    cached.repository.commandResults[command.id].commandFingerprint = createHash('sha256').update(
+      '{"accountMid":"100","expectedRevision":0,"id":"source-pending","payload":{"aid":1,"tags":[],"title":"Original","updatedAt":"2026-07-19T00:00:00.000Z"},"type":"upsert-video"}'
+    ).digest('hex')
+
+    await expect(service.commit('100', { ...command, expectedRevision: 1 })).resolves.toEqual(first)
+  })
+
+  it('treats reordered semantic command payload keys as the same retry', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const first = await service.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+
+    await expect(service.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:01:00.000Z', type: 'upsert-video',
+      payload: { updatedAt: '2026-07-19T00:00:00.000Z', tags: [], title: 'Original', aid: 1 }
+    })).resolves.toEqual(first)
+  })
+
+  it('rejects reuse of a command id with different command content', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const command = {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }
+
+    await service.commit('100', command)
+
+    await expect(service.commit('100', { ...command, payload: { ...command.payload, title: 'Different' } }))
+      .rejects.toThrow('command id conflict')
+    expect((await service.getSnapshot('100')).videos['1'].title).toBe('Original')
+  })
+
+  it('aggregates logical, physical, and bound remote folders in the Favorite Library read model', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const aid of [1, 2, 3]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+    await service.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐', shardNumber: 1, memberAids: [1, 2],
+        remoteTitle: 'bilimi·音乐', bindingState: 'bound', remoteFolderId: '3990843511'
+      }
+    })
+    await service.commit('100', {
+      id: 'music-logical-members', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'set-folder-members',
+      payload: { folderId: 'bilimi-logical:music', aids: [1] }
+    })
+    await service.commit('100', {
+      id: 'film-binding', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'film', logicalTitle: 'bilimi·影视', shardNumber: 1, memberAids: [2, 3],
+        remoteTitle: 'bilimi·影视', bindingState: 'bound', remoteFolderId: '3990843512'
+      }
+    })
+    await service.commit('100', {
+      id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'bilibili:3990843511': [2, 3] },
+        folders: [{ id: 'bilibili:3990843511', title: 'bilimi·音乐', remoteFolderId: '3990843511' }],
+        videos: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    const summary = await service.getLibrarySummary('100')
+    expect(summary.folderCount).toBe(2)
+    expect(summary.workspaceVideoCount).toBe(3)
+    expect(summary.folders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilimi-logical:music', kind: 'bilimi-logical', logicalLedgerId: 'music', remoteFolderId: '3990843511' }),
+      expect.objectContaining({ id: 'bilimi-logical:film', kind: 'bilimi-logical', logicalLedgerId: 'film', remoteFolderId: '3990843512' })
+    ]))
+    await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:music' }, { limit: 10 }))
+      .resolves.toMatchObject({
+        items: [
+          { video: { aid: 1 }, folderIds: ['bilimi-logical:music'] },
+          { video: { aid: 2 }, folderIds: expect.arrayContaining(['bilimi-logical:music']) },
+          { video: { aid: 3 }, folderIds: expect.arrayContaining(['bilimi-logical:music']) }
+        ]
+    })
+    await expect(service.getLibraryDetail('100', 3)).resolves.toMatchObject({ folderIds: expect.arrayContaining(['bilimi-logical:music']) })
+    await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'bilimi-logical:music')).resolves.toEqual([1, 2, 3])
+  })
+
+  it('projects persisted local draft ledger ids and keeps ordinary local folders separate', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-05T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'local-draft-folders', accountMid: '100', issuedAt: '2026-08-05T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'local:custom-author-honker233': [1], 'local:personal': [2] },
+        folders: [
+          { id: 'local:custom-author-honker233', title: 'bilimi\u00b7honker233', kind: 'local', syncState: 'local-only' },
+          { id: 'local:personal', title: 'Personal', kind: 'local', syncState: 'local-only' }
+        ],
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-08-05T00:00:00.000Z' }))
+      }
+    })
+
+    const summary = await service.getLibrarySummary('100', {
+      localDraftLedgerIds: ['custom-author-honker233', 'missing-ledger']
+    })
+    expect(summary).toMatchObject({
+      workspaceVideoCount: 1,
+      otherFavoriteVideoCount: 1,
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'local:custom-author-honker233', kind: 'local', logicalLedgerId: 'custom-author-honker233' })
+      ])
+    })
+    expect(summary.folders.find((folder) => folder.id === 'local:personal')).not.toHaveProperty('logicalLedgerId')
+  })
+
+  it('counts an ambiguous Bilimi-named remote draft with workspace folders without changing its folder record', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-09-10T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'ambiguous-remote-draft', accountMid: '100', issuedAt: '2026-09-10T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'bilibili:88': [1], 'bilibili:89': [2] },
+        folders: [
+          { id: 'bilibili:88', title: 'bilimi·哈哈', remoteFolderId: '88' },
+          { id: 'bilibili:89', title: '普通收藏夹', remoteFolderId: '89' }
+        ],
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-09-10T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      workspaceVideoCount: 1,
+      otherFavoriteVideoCount: 1,
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'bilibili:88', title: 'bilimi·哈哈', kind: 'bilibili', remoteFolderId: '88' }),
+        expect.objectContaining({ id: 'bilibili:89', title: '普通收藏夹', kind: 'bilibili', remoteFolderId: '89' })
+      ])
+    })
+  })
+
+  it('hides a locally deleted managed remote mirror from the library summary without deleting its source fact', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-09-12T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'retained-remote-mirror', accountMid: '100', issuedAt: '2026-09-12T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1',
+        folders: [
+          { id: 'bilibili:9001', title: 'bilimi·音乐', remoteFolderId: '9001' },
+          { id: 'bilibili:9002', title: '普通收藏夹', remoteFolderId: '9002' }
+        ],
+        memberAidsByFolderId: { 'bilibili:9001': [1], 'bilibili:9002': [2] },
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-09-12T00:00:00.000Z' }))
+      }
+    })
+
+    const summary = await service.getLibrarySummary('100', { suppressedRemoteFolderIds: ['9001'] })
+
+    expect(summary.folders).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'bilibili:9001' })
+    ]))
+    expect(summary.folderCounts).not.toHaveProperty('bilibili:9001')
+    expect(summary.folderCount).toBe(1)
+    expect(summary.workspaceVideoCount).toBe(0)
+    expect(summary.otherFavoriteVideoCount).toBe(1)
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      folders: expect.arrayContaining([expect.objectContaining({ id: 'bilibili:9001', remoteFolderId: '9001' })]),
+      memberships: { 'bilibili:9001': [1] }
+    })
+  })
+
+  it('projects orphaned custom local folders as drafts without projecting ordinary local folders', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-05T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'orphaned-custom-draft', accountMid: '100', issuedAt: '2026-08-05T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'local:custom-author-honker233': [1], 'local:custom-note': [2], 'local:personal': [3] },
+        folders: [
+          { id: 'local:custom-author-honker233', title: 'bilimi·honker233', kind: 'local', syncState: 'local-only' },
+          { id: 'local:custom-note', title: 'Personal custom folder', kind: 'local', syncState: 'local-only' },
+          { id: 'local:personal', title: 'Personal', kind: 'local', syncState: 'local-only' }
+        ],
+        videos: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-08-05T00:00:00.000Z' }))
+      }
+    })
+
+    const summary = await service.getLibrarySummary('100')
+    expect(summary.folders.find((folder) => folder.id === 'local:custom-author-honker233')).toMatchObject({
+      kind: 'local', logicalLedgerId: 'custom-author-honker233'
+    })
+    expect(summary.folders.find((folder) => folder.id === 'local:custom-note')).toMatchObject({
+      kind: 'local', logicalLedgerId: 'custom-note'
+    })
+    expect(summary.folders.find((folder) => folder.id === 'local:personal')).not.toHaveProperty('logicalLedgerId')
+    expect(summary.workspaceVideoCount).toBe(2)
+    expect(summary.otherFavoriteVideoCount).toBe(1)
+  })
+
+  it('aggregates pending Bilimi shard mirrors without listing them again as ordinary folders', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const aid of [1, 2]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+    for (const [shardNumber, remoteFolderId, memberAids] of [[1, 'game-1', [1]], [2, 'game-2', [2]]] as const) {
+      await service.commit('100', {
+        id: `game-shard-${shardNumber}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId: 'game', logicalTitle: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', shardNumber, memberAids: [...memberAids],
+          remoteTitle: shardNumber === 1 ? 'bilimi\u00b7\u6e38\u620f\u4e13\u533a' : 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u00b702',
+          bindingState: 'pending-reconcile', knownRemoteFolderIds: [remoteFolderId]
+        }
+      })
+    }
+    await service.commit('100', {
+      id: 'game-mirrors', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1',
+        folders: [
+          { id: 'bilibili:game-1', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a', remoteFolderId: 'game-1' },
+          { id: 'bilibili:game-2', title: 'bilimi\u00b7\u6e38\u620f\u4e13\u533a\u00b702', remoteFolderId: 'game-2' }
+        ],
+        memberAidsByFolderId: { 'bilibili:game-1': [1], 'bilibili:game-2': [2] },
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 1,
+      workspaceVideoCount: 2,
+      otherFavoriteVideoCount: 0,
+      folders: [expect.objectContaining({ id: 'bilimi-logical:game', kind: 'bilimi-logical', syncState: 'pending-reconcile' })]
+    })
+  })
+
+  it('rejects non-logical, unbound, and conflicted logical archive restore scopes with an actionable reason', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'local:inbox')).rejects.toThrow('Bilimi logical folder')
+    await service.commit('100', {
+      id: 'pending-music', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'Music', bindingState: 'pending-reconcile' }
+    })
+    await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'bilimi-logical:music')).rejects.toThrow('currently bound')
+    for (const logicalLedgerId of ['games', 'music']) {
+      await service.commit('100', {
+        id: `bound-${logicalLedgerId}`, accountMid: '100', issuedAt: '2026-07-23T00:01:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId, logicalTitle: logicalLedgerId === 'music' ? 'Music' : logicalLedgerId, shardNumber: 1, memberAids: [], remoteTitle: 'Shared', bindingState: 'bound', remoteFolderId: 'shared-remote' }
+      })
+    }
+    await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'bilimi-logical:music')).rejects.toThrow('conflicting')
+  })
+
+  it('resolves every deduplicated member across multiple bound logical shards and their canonical mirrors for archive restore', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const aid of [1, 2, 3, 4]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+    for (const [shardNumber, remoteFolderId, memberAids] of [[1, 'music-1', [1, 2]], [2, 'music-2', [2, 3]]] as const) {
+      await service.commit('100', {
+        id: `music-shard-${shardNumber}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber, memberAids: [...memberAids], remoteTitle: `Music ${shardNumber}`, bindingState: 'bound', remoteFolderId }
+      })
+    }
+    await service.commit('100', {
+      id: 'bound-mirror-members', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace',
+        folders: [{ id: 'bilibili:music-1', title: 'Music 1', remoteFolderId: 'music-1' }, { id: 'bilibili:music-2', title: 'Music 2', remoteFolderId: 'music-2' }],
+        memberAidsByFolderId: { 'bilibili:music-1': [3, 4], 'bilibili:music-2': [1, 4] },
+        videos: [1, 2, 3, 4].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.resolveArchiveRestoreLogicalFolderAids('100', 'bilimi-logical:music')).resolves.toEqual([1, 2, 3, 4])
+  })
+
+  it('publishes canonical folder ids when a raw bound folder changes', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'music-binding', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'Music',
+        bindingState: 'bound', remoteFolderId: '3990843511'
+      }
+    })
+    const changes: string[][] = []
+    service.onChanged((result) => changes.push(result.affectedFolderIds))
+
+    await service.commit('100', {
+      id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:3990843511': [1] },
+        folders: [{ id: 'bilibili:3990843511', title: 'Music', remoteFolderId: '3990843511' }],
+        videos: [{ aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }]
+      }
+    })
+
+    expect(changes.at(-1)).toContain('bilimi-logical:music')
+  })
+
+  it('publishes canonical invalidation for both sides when a mirror binding is replaced', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const [ledger, remote] of [['music', '1'], ['games', '2']] as const) {
+      await service.commit('100', {
+        id: `binding-${ledger}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId: ledger, logicalTitle: ledger, shardNumber: 1, memberAids: [], remoteTitle: ledger, bindingState: 'bound', remoteFolderId: remote }
+      })
+    }
+    const changes: string[][] = []
+    service.onChanged((result) => changes.push(result.affectedFolderIds))
+
+    await service.commit('100', {
+      id: 'mirror-one', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: { workspaceId: 'workspace-1', folders: [{ id: 'bilibili:1', title: 'Music', remoteFolderId: '1' }], memberAidsByFolderId: { 'bilibili:1': [1] }, videos: [{ aid: 1, title: 'One', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }] }
+    })
+    await service.commit('100', {
+      id: 'mirror-two', accountMid: '100', issuedAt: '2026-07-23T00:01:00.000Z', type: 'record-bilibili-mirror',
+      payload: { workspaceId: 'workspace-1', folders: [{ id: 'bilibili:2', title: 'Games', remoteFolderId: '2' }], memberAidsByFolderId: { 'bilibili:2': [1] }, videos: [{ aid: 1, title: 'One', tags: [], updatedAt: '2026-07-23T00:01:00.000Z' }] }
+    })
+
+    expect(changes.at(-1)).toEqual(expect.arrayContaining(['bilimi-logical:music', 'bilimi-logical:games']))
+  })
+
+  it('publishes the former canonical logical folder when clearing a mirror', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'binding', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'Music', bindingState: 'bound', remoteFolderId: '1' }
+    })
+    await service.commit('100', {
+      id: 'mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: { workspaceId: 'workspace-1', folders: [{ id: 'bilibili:1', title: 'Music', remoteFolderId: '1' }], memberAidsByFolderId: { 'bilibili:1': [1] }, videos: [{ aid: 1, title: 'One', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }] }
+    })
+    const changes: string[][] = []
+    service.onChanged((result) => changes.push(result.affectedFolderIds))
+
+    await service.commit('100', { id: 'clear', accountMid: '100', issuedAt: '2026-07-23T00:01:00.000Z', type: 'clear-bilibili-mirror', payload: {} })
+
+    expect(changes.at(-1)).toContain('bilimi-logical:music')
+  })
+
+  it('does not invent a canonical invalidation for an unbound mirror replacement', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    const changes: string[][] = []
+    service.onChanged((result) => changes.push(result.affectedFolderIds))
+
+    await service.commit('100', {
+      id: 'mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: { workspaceId: 'workspace-1', folders: [{ id: 'bilibili:9', title: 'Unbound', remoteFolderId: '9' }], memberAidsByFolderId: { 'bilibili:9': [1] }, videos: [{ aid: 1, title: 'One', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }] }
+    })
+
+    expect(changes.at(-1)).toEqual(['bilibili:9'])
+  })
+
+  it('lists the actual source shards for a logical folder detail', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const shardNumber of [1, 2]) {
+      await service.commit('100', {
+        id: `music-${shardNumber}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber, memberAids: [shardNumber], remoteTitle: `Music ${shardNumber}`,
+          bindingState: 'bound', remoteFolderId: String(shardNumber) }
+      })
+    }
+    await service.commit('100', {
+      id: 'video-2', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 2, title: 'Second shard', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    })
+
+    await expect(service.getLibraryDetail('100', 2)).resolves.toMatchObject({
+      sourceShards: [{ folderId: 'bilimi:music:002', shardNumber: 2, remoteFolderId: '2' }]
+    })
+  })
+
+  it('keeps unbound same-title Bilibili folders separate, reports the conflict, and deduplicates their summary video total', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:1': [1, 2], 'bilibili:2': [2, 3] },
+        folders: [
+          { id: 'bilibili:1', title: '同名收藏夹', remoteFolderId: '1' },
+          { id: 'bilibili:2', title: '同名收藏夹', remoteFolderId: '2' }
+        ],
+        videos: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 2,
+      otherFavoriteVideoCount: 3,
+      folderConflicts: [expect.objectContaining({
+        title: '同名收藏夹', folderIds: ['bilibili:1', 'bilibili:2'],
+        reason: expect.stringContaining('同名收藏夹'),
+        candidates: [{ id: 'bilibili:1', title: '同名收藏夹' }, { id: 'bilibili:2', title: '同名收藏夹' }]
+      })]
+    })
+  })
+
+  it('keeps an ordinary remote folder visible even when a legacy dismissal callback returns true', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({
+      root, now: () => '2026-07-23T00:00:00.000Z',
+      isRemoteFolderDismissed: (_accountMid, remoteFolderId) => remoteFolderId === '1'
+    })
+    await service.commit('100', {
+      id: 'source-mirror-dismissed', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:1': [1], 'bilibili:2': [2] },
+        folders: [
+          { id: 'bilibili:1', title: '隐藏收藏夹', remoteFolderId: '1' },
+          { id: 'bilibili:2', title: '保留收藏夹', remoteFolderId: '2' }
+        ],
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 2,
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'bilibili:1' }),
+        expect.objectContaining({ id: 'bilibili:2' })
+      ]),
+      otherFavoriteVideoCount: 2
+    })
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      folders: expect.arrayContaining([expect.objectContaining({ id: 'bilibili:1' })]),
+      memberships: { 'bilibili:1': [1] }
+    })
+  })
+
+  it('does not hide ordinary navigation after a legacy dismissal changes without a repository revision', async () => {
+    const root = await createRoot()
+    const dismissedRemoteFolderIds = new Set<string>()
+    const service = new FavoriteRepositoryService({
+      root, now: () => '2026-07-23T00:00:00.000Z',
+      isRemoteFolderDismissed: (_accountMid, remoteFolderId) => dismissedRemoteFolderIds.has(remoteFolderId)
+    })
+    await service.commit('100', {
+      id: 'source-mirror-dismiss-after-read', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:1': [1], 'bilibili:2': [2] },
+        folders: [
+          { id: 'bilibili:1', title: '待隐藏收藏夹', remoteFolderId: '1' },
+          { id: 'bilibili:2', title: '保留收藏夹', remoteFolderId: '2' }
+        ],
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ folderCount: 2 })
+    dismissedRemoteFolderIds.add('1')
+    service.invalidateLibraryReadCache('100')
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 2,
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'bilibili:1' }),
+        expect.objectContaining({ id: 'bilibili:2' })
+      ])
+    })
+  })
+
+  it('canonicalizes an identity-proven local default folder into its bound logical ledger', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'game-binding', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1,
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '4099454411', memberAids: [1]
+      }
+    })
+    await service.commit('100', {
+      id: 'legacy-local-game', accountMid: '100', issuedAt: '2026-07-23T00:00:01.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'legacy-local-save', memberAidsByFolderId: { 'local:game': [2] },
+        folders: [{ id: 'local:game', title: 'bilimi·游戏专区', kind: 'local', syncState: 'local-only' }],
+        videos: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 1,
+      folders: [expect.objectContaining({ id: 'bilimi-logical:game', kind: 'bilimi-logical' })],
+      folderCounts: { 'bilimi-logical:game': 2 }
+    })
+  })
+
+  it('projects local physical shard member counts independently from remote observations', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'local-music-save', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'local-music-save', memberAidsByFolderId: { 'local:music': [1, 2, 3] },
+        folders: [{ id: 'local:music', title: '音乐', kind: 'local', syncState: 'local-only' }],
+        videos: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }))
+      }
+    })
+    await service.commit('100', {
+      id: 'music-shard-1', accountMid: '100', issuedAt: '2026-07-23T00:00:01.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [1],
+        remoteTitle: 'bilimi·音乐', remoteFolderId: 'remote-music-1', remoteMemberCount: 0, bindingState: 'bound'
+      }
+    })
+    await service.commit('100', {
+      id: 'music-shard-2', accountMid: '100', issuedAt: '2026-07-23T00:00:02.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 2, memberAids: [2, 3],
+        remoteTitle: 'bilimi·音乐·2', remoteFolderId: 'remote-music-2', remoteMemberCount: 0, bindingState: 'bound'
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      physicalShards: expect.arrayContaining([
+        expect.objectContaining({ shardNumber: 1, remoteMemberCount: 0, localMemberCount: 1 }),
+        expect.objectContaining({ shardNumber: 2, remoteMemberCount: 0, localMemberCount: 2 })
+      ]),
+      folderCounts: { 'bilimi-logical:music': 3 }
+    })
+  })
+
+  it('does not merge a remote mirror bound to multiple logical ledgers', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const logicalLedgerId of ['music', 'games']) {
+      await service.commit('100', {
+        id: `binding-${logicalLedgerId}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+        payload: {
+          logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [], remoteTitle: 'Shared',
+          bindingState: 'bound', remoteFolderId: '99'
+        }
+      })
+    }
+    await service.commit('100', {
+      id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:99': [1] },
+        folders: [{ id: 'bilibili:99', title: 'Shared', remoteFolderId: '99' }],
+        videos: [{ aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }]
+      }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({
+      folderCount: 3,
+      folderConflicts: expect.arrayContaining([expect.objectContaining({
+        title: 'Shared', folderIds: ['bilimi-logical:games', 'bilimi-logical:music'], reason: expect.stringContaining('多个逻辑工作夹')
+      })])
+    })
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({ folderIds: ['bilibili:99'] })
+  })
+
+  it('persists user events independently and reads them by descending sequence page', async () => {
+    const root = await createRoot()
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const sequence of [1, 2, 3]) {
+      await first.commit('100', {
+        id: `event-${sequence}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'record-favorite-event',
+        payload: { id: `event-${sequence}`, sequence, aid: 1, kind: 'manual-move', occurredAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+
+    const restarted = new FavoriteRepositoryService({ root })
+    await expect(restarted.getEventPage('100', 1, { limit: 2 })).resolves.toMatchObject({
+      items: [expect.objectContaining({ sequence: 3 }), expect.objectContaining({ sequence: 2 })], nextCursor: '2:event-2'
+    })
+  })
+
+  it('keeps local scan staging out of the formal bilimi inbox read model', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const aid of [1, 2]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+    await service.commit('100', {
+      id: 'inbox-binding', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'inbox', logicalTitle: 'bilimi·暂存', shardNumber: 1, memberAids: [2],
+        remoteTitle: 'bilimi·暂存', bindingState: 'bound', remoteFolderId: '9008'
+      }
+    })
+    await service.commit('100', {
+      id: 'local-plan', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'local:inbox': [1] },
+        folders: [{ id: 'local:inbox', title: '暂存', kind: 'local', syncState: 'local-only' }]
+      }
+    })
+
+    const summary = await service.getLibrarySummary('100')
+    expect(summary.folderCount).toBe(2)
+    expect(summary.folders.map((folder) => folder.id).sort()).toEqual(['bilimi-logical:inbox', 'local:inbox'])
+    expect(summary.folderCounts['bilimi-logical:inbox']).toBe(1)
+    expect(summary.folderCounts['local:inbox']).toBe(1)
+    await expect(service.getLibraryPage('100', { kind: 'folder', folderId: 'bilimi-logical:inbox' }, { limit: 10 }))
+      .resolves.toMatchObject({ totalCount: 1, items: [{ video: { aid: 2 } }] })
+  })
+
+  it('does not count protected videos as pending work while retaining their organization status', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Protected', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'protect-1', accountMid: '100', issuedAt: '2026-07-23T00:01:00.000Z', type: 'record-organization-protections',
+      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-1'], completedAt: '2026-07-23T00:01:00.000Z' }] }
+    })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ pendingAidCount: 0 })
+    await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({ items: [] })
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10 })).resolves.toMatchObject({
+      items: [{ video: { aid: 1 }, pendingStates: ['protected'] }]
+    })
+  })
+
+  it('persists compact command receipts without embedded repository snapshots', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    })
+    const manifest = JSON.parse(await readFile(join(root, 'accounts', '100', 'repository.manifest.json'), 'utf8')) as { generation: string }
+    const persisted = JSON.parse(await readFile(join(root, 'accounts', '100', 'generations', manifest.generation, 'repository.json'), 'utf8')) as {
+      commandResults: Record<string, Record<string, unknown>>
+    }
+
+    expect(persisted.commandResults['video-1']).toMatchObject({
+      commandId: 'video-1', commandType: 'upsert-video', acceptedRevision: 1, affectedAids: [1]
+    })
+    expect(persisted.commandResults['video-1']).not.toHaveProperty('videos')
+    expect(JSON.stringify(persisted.commandResults['video-1']).length).toBeLessThan(1_000)
+  })
+
+  it('compacts legacy full command results on the next atomic persistence', async () => {
+    const root = await createRoot()
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    const command = {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Video 1', tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+    }
+    const result = await first.commit('100', command)
+    const accountDirectory = join(root, 'accounts', '100')
+    const manifestPath = join(accountDirectory, 'repository.manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { generation: string }
+    const generationDirectory = join(accountDirectory, 'generations', manifest.generation)
+    const repositoryPath = join(generationDirectory, 'repository.json')
+    const legacy = JSON.parse(await readFile(repositoryPath, 'utf8')) as { commandResults: Record<string, unknown> }
+    legacy.commandResults['video-1'] = result
+    const repositoryContent = JSON.stringify(legacy)
+    await writeFile(repositoryPath, repositoryContent, 'utf8')
+    const generationManifestPath = join(generationDirectory, 'manifest.json')
+    const generationManifest = JSON.parse(await readFile(generationManifestPath, 'utf8')) as { checksums: { repository: string } }
+    const { createHash } = await import('node:crypto')
+    generationManifest.checksums.repository = createHash('sha256').update(repositoryContent).digest('hex')
+    await writeFile(generationManifestPath, JSON.stringify(generationManifest), 'utf8')
+    await writeFile(manifestPath, JSON.stringify(generationManifest), 'utf8')
+
+    const restarted = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:01.000Z' })
+    await restarted.commit('100', {
+      id: 'video-2', accountMid: '100', issuedAt: '2026-07-23T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 2, title: 'Video 2', tags: [], updatedAt: '2026-07-23T00:00:01.000Z' }
+    })
+    const compactManifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { generation: string }
+    const compact = JSON.parse(await readFile(join(accountDirectory, 'generations', compactManifest.generation, 'repository.json'), 'utf8')) as {
+      commandResults: Record<string, Record<string, unknown>>
+    }
+    expect(compact.commandResults['video-1']).not.toHaveProperty('videos')
+    expect(compact.commandResults['video-1']).toMatchObject({ commandId: 'video-1', acceptedRevision: 1 })
+  })
+
+  it('retains only the active and rollback repository generations', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-23T00:00:00.000Z' })
+    for (const aid of [1, 2, 3]) {
+      await service.commit('100', {
+        id: `video-${aid}`, accountMid: '100', issuedAt: '2026-07-23T00:00:00.000Z', type: 'upsert-video',
+        payload: { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-23T00:00:00.000Z' }
+      })
+    }
+
+    const accountDirectory = join(root, 'accounts', '100')
+    const manifest = JSON.parse(await readFile(join(accountDirectory, 'repository.manifest.json'), 'utf8')) as {
+      generation: string
+      previousGeneration?: string
+    }
+    const generations = await readdir(join(accountDirectory, 'generations'))
+    expect(generations.sort()).toEqual([manifest.generation, manifest.previousGeneration].filter(Boolean).sort())
+  })
+
+  it('rejects a cross-account command even when its id was already committed', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const command = {
+      id: 'shared-command-id', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }
+
+    await service.commit('100', command)
+
+    await expect(service.commit('100', { ...command, accountMid: '200' }))
+      .rejects.toThrow('Favorite repository account mismatch.')
+    expect((await service.getSnapshot('100')).videos['1'].title).toBe('Original')
+  })
+
+  it('returns only the requested sorted library page without treating metadata refresh as organization work', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    const videos = {
+      '1': { aid: 1, title: 'First', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
+      '2': { aid: 2, title: 'Second', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    }
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: {
+        version: 1,
+        accountMid: '100',
+        snapshot: {
+          version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z',
+          videos, folders: [], memberships: {}, physicalShards: [], syncRecords: [],
+          organizationRecords: [], organizationMigrationInitialized: false
+        },
+        commandResults: {}
+      }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 1 })).resolves.toEqual({
+      version: 1, accountMid: '100', revision: 1, totalCount: 2,
+      items: [{
+        video: { aid: 1, title: 'First', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
+          folderIds: [], pendingStates: [],
+          libraryStates: { sync: 'unsynced', protection: 'unprotected', organization: 'unorganized' }
+      }],
+      nextCursor: '1'
+    })
+  })
+
+  it('does not treat a local metadata mirror as a remote position operation', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'video', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Local', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'members', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'commit-local-plan',
+      payload: { workspaceId: 'local-save', memberAidsByFolderId: { 'local:music': [1] },
+        folders: [{ id: 'local:music', title: 'Music', kind: 'local', syncState: 'local-only' }] }
+    })
+    await service.commit('100', {
+      id: 'binding', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({
+      items: []
+    })
+    await service.recordSyncCheckpoint('100', 'succeeded', {
+      id: 'run:append', commandId: 'run:append', runId: 'run', operationKey: 'append:1', status: 'succeeded',
+      affectedAids: [1], targetFolderIds: ['remote-music'], updatedAt: '2026-07-20T00:00:00.000Z', attempt: 1
+    })
+    await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({
+      items: []
+    })
+  })
+
+  it('reuses dynamic pending states for a 30k library while repository and transcription revisions are unchanged', async () => {
+    const root = await createRoot()
+    let transcriptionReads = 0
+    const organizationRecords = [{ aid: 1 }]
+    const videos = Object.fromEntries(Array.from({ length: 30_000 }, (_, index) => {
+      const aid = index + 1
+      return [String(aid), { aid, title: `Video ${aid}`, tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }]
+    }))
+    const service = new FavoriteRepositoryService({
+      root,
+      getTranscriptionRevision: () => 1,
+      getTranscriptionItems: () => {
+        transcriptionReads += 1
+        return []
+      }
+    })
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: {
+        version: 1,
+        accountMid: '100',
+        snapshot: {
+          version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z',
+          videos,
+          folders: [], memberships: {}, physicalShards: [], syncRecords: [],
+          organizationRecords, organizationMigrationInitialized: false
+        },
+        commandResults: {}
+      }
+    })
+
+    await service.getLibraryPage('100', { kind: 'all' }, { limit: 50 })
+    transcriptionReads = 0
+    const page = await service.getLibraryPage('100', { kind: 'all' }, { limit: 50 })
+
+    expect(transcriptionReads).toBe(0)
+    expect(page).toMatchObject({ totalCount: 30_000, items: { length: 50 } })
+  })
+
+  it('keeps metadata refresh separate from actionable remote-operation work after organization', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-21T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'source', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: { workspaceId: 'scan-1', folders: [{ id: 'bilibili:source', title: 'Source', remoteFolderId: 'source' }],
+        memberAidsByFolderId: { 'bilibili:source': Array.from({ length: 243 }, (_, index) => index + 1) },
+        videos: Array.from({ length: 243 }, (_, index) => ({ aid: index + 1, title: `Video ${index + 1}`, tags: [], updatedAt: '2026-07-21T00:00:00.000Z' })) }
+    })
+    for (const aid of Array.from({ length: 15 }, (_, index) => index + 221)) {
+      await service.commit('100', { id: `local-${aid}`, accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-library-mirror', payload: { aid, status: 'never', metadataRevision: 1 } })
+    }
+    await service.recordSyncCheckpoint('100', 'failed', { id: 'failed', commandId: 'failed', status: 'failed', affectedAids: [236, 237, 238, 239, 240], updatedAt: '2026-07-21T00:00:00.000Z' })
+    await service.recordSyncCheckpoint('100', 'unknown', { id: 'unknown', commandId: 'unknown', status: 'result-unknown', affectedAids: [241, 242, 243], updatedAt: '2026-07-21T00:00:00.000Z' })
+
+    await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ pendingAidCount: 8 })
+  })
+
+  it('marks formal organization separately from metadata refresh state', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-21T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'source', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: { workspaceId: 'scan-1', folders: [], memberAidsByFolderId: {}, videos: [
+        { aid: 1, title: 'Protected', tags: [], updatedAt: '2026-07-21T00:00:00.000Z' },
+        { aid: 2, title: 'Staged', tags: [], updatedAt: '2026-07-21T00:00:00.000Z' }
+      ] }
+    })
+    await service.commit('100', {
+      id: 'protection', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-organization-protections',
+      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-music'], completedAt: '2026-07-21T00:00:00.000Z' }] }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10 })).resolves.toMatchObject({
+      items: [
+        { video: { aid: 1 }, pendingStates: ['protected'] },
+        { video: { aid: 2 }, pendingStates: [] }
+      ]
+    })
+  })
+
+  it('persists account-isolated organization recovery records across a repository restart', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-21T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'change', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-organization-change',
+      payload: { change: {
+        id: 'run-1:append-1:succeeded', runId: 'run-1', workspaceId: 'workspace-1', accountMid: '100', aid: 1,
+        beforeFolderIds: ['source'], afterFolderIds: ['remote-music'], addedFolderIds: ['remote-music'], removedFolderIds: ['source'],
+        status: 'succeeded', recordedAt: '2026-07-21T00:00:00.000Z'
+      } }
+    })
+
+    await expect(new FavoriteRepositoryService({ root }).getOrganizationChanges('100')).resolves.toEqual([
+      expect.objectContaining({ runId: 'run-1', aid: 1, beforeFolderIds: ['source'], afterFolderIds: ['remote-music'] })
+    ])
+    await expect(new FavoriteRepositoryService({ root }).getOrganizationChanges('200')).resolves.toEqual([])
+  })
+
+  it('clears only Bilibili mirror folders and mirror-only videos while preserving local repository data', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-21T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1',
+        folders: [{ id: 'bilibili:source', title: 'Source', remoteFolderId: 'source' }],
+        memberAidsByFolderId: { 'bilibili:source': [1, 2] },
+        videos: [
+          { aid: 1, title: 'Mirror only', tags: [], updatedAt: '2026-07-21T00:00:00.000Z' },
+          { aid: 2, title: 'Also local', tags: [], updatedAt: '2026-07-21T00:00:00.000Z' }
+        ]
+      }
+    })
+    await service.commit('100', {
+      id: 'local-keep', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'commit-local-plan',
+      payload: { workspaceId: 'workspace-1', memberAidsByFolderId: { 'local:inbox': [2, 3] },
+        folders: [{ id: 'local:inbox', title: '暂存', kind: 'local', syncState: 'local-only' }],
+        videos: [{ aid: 3, title: 'Local only', tags: [], updatedAt: '2026-07-21T00:00:00.000Z' }] }
+    })
+    await service.commit('100', {
+      id: 'library-mirror', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 1, status: 'synced', metadataRevision: 1, lastSyncedAt: '2026-07-21T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'retained-library-mirror', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 2, status: 'synced', metadataRevision: 1, lastSyncedAt: '2026-07-21T00:00:00.000Z' }
+    })
+
+    await service.commit('100', {
+      id: 'clear-bilibili-mirror', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'clear-bilibili-mirror', payload: {}
+    })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      folders: [{ id: 'local:inbox', kind: 'local' }],
+      memberships: { 'local:inbox': [2, 3] },
+      videos: { '2': { aid: 2 }, '3': { aid: 3 } },
+      libraryMirrors: {}
+    })
+  })
+
+  it('keeps the last successful mirror timestamp when a later local refresh fails', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    await service.commit('100', {
+      id: 'video', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Mirror', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'mirror-ok', accountMid: '100', issuedAt: '2026-07-20T01:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 1, status: 'synced', metadataRevision: 1, lastSyncedAt: '2026-07-20T01:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'mirror-failed', accountMid: '100', issuedAt: '2026-07-20T02:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 1, status: 'failed', metadataRevision: 1, lastSyncedAt: '2026-07-20T01:00:00.000Z', errorCode: 'network' }
+    })
+
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      mirror: { status: '未同步', lastSyncedAt: '2026-07-20T01:00:00.000Z' }
+    })
+  })
+
+  it('projects an unavailable mirror with its remote code and latest detection time', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    await service.commit('100', {
+      id: 'video-unavailable', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 9, title: '保留的旧标题', tags: ['旧标签'], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'mirror-unavailable', accountMid: '100', issuedAt: '2026-07-20T02:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 9, status: 'failed', metadataRevision: 2, lastCheckedAt: '2026-07-20T02:00:00.000Z', errorCode: 'unavailable', remoteCode: 62012 }
+    })
+
+    await expect(service.getLibraryDetail('100', 9)).resolves.toMatchObject({
+      video: { title: '保留的旧标题', tags: ['旧标签'] },
+      mirror: { status: '未同步', errorCode: 'unavailable', remoteCode: 62012, lastCheckedAt: '2026-07-20T02:00:00.000Z' }
+    })
+  })
+
+  it('reports the local metadata mirror without reusing remote favorite sync records', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    await service.commit('100', {
+      id: 'video', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 7, title: '镜像视频', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'mirror', accountMid: '100', issuedAt: '2026-07-20T01:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 7, status: 'synced', metadataRevision: 1, lastSyncedAt: '2026-07-20T01:00:00.000Z' }
+    })
+
+    await expect(service.getLibraryDetail('100', 7)).resolves.toMatchObject({
+      mirror: { status: '已同步', lastSyncedAt: '2026-07-20T01:00:00.000Z' }
+    })
+  })
+
+  it('uses the local mirror record, rather than old remote checkpoints, for the pending library page', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    await service.commit('100', {
+      id: 'video', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 8, title: '已镜像', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'mirror', accountMid: '100', issuedAt: '2026-07-20T01:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 8, status: 'synced', metadataRevision: 1, lastSyncedAt: '2026-07-20T01:00:00.000Z' }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({ items: [] })
+  })
+
+  it('reports a pending durable commit so the quit barrier can wait even when old favorite state is clean', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const pending = service.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Pending', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+
+    expect((service as unknown as { hasPendingWrites(): boolean }).hasPendingWrites()).toBe(true)
+    await service.flush()
+    await pending
+    expect((service as unknown as { hasPendingWrites(): boolean }).hasPendingWrites()).toBe(false)
+  })
+
+  it('journals sync checkpoints and recovers them without rewriting every repository generation', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'executing', baselineRevision: 1, continuationAids: [],
+        workspaceRef: {
+          workspaceId: 'workspace-1', accountMid: '100', status: 'executing', baselineRevision: 1,
+          currentSegmentId: 'segment-1', overlayRevision: 1, journalCursor: 1, checksum: 'a'.repeat(64)
+        }
+      }
+    })
+    const generationDirectory = join(root, 'accounts', '100', 'generations')
+    const before = await readdir(generationDirectory)
+
+    await service.recordSyncCheckpoint('100', 'checkpoint-pending', {
+      id: 'run-1:append-1', commandId: 'append-1', status: 'pending', affectedAids: [1], updatedAt: '2026-07-19T00:00:00.000Z', runId: 'run-1', operationKey: 'append-1', attempt: 1
+    })
+    await service.recordSyncCheckpoint('100', 'checkpoint-result', {
+      id: 'run-1:append-1', commandId: 'append-1', status: 'succeeded', affectedAids: [1], updatedAt: '2026-07-19T00:00:00.000Z', runId: 'run-1', operationKey: 'append-1', attempt: 1
+    })
+
+    expect(await readdir(generationDirectory)).toEqual(before)
+    const restarted = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    expect(await restarted.getSyncCheckpoints('100', 'run-1')).toEqual([
+      expect.objectContaining({ id: 'run-1:append-1', status: 'succeeded' })
+    ])
+
+    await restarted.commit('100', {
+      id: 'compact-sync-journal', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'completed', baselineRevision: 1, continuationAids: [],
+        workspaceRef: {
+          workspaceId: 'workspace-1', accountMid: '100', status: 'completed', baselineRevision: 1,
+          currentSegmentId: 'segment-1', overlayRevision: 1, journalCursor: 1, checksum: 'a'.repeat(64)
+        }
+      }
+    })
+    const manifest = JSON.parse(await readFile(join(root, 'accounts', '100', 'repository.manifest.json'), 'utf8')) as { generation: string }
+    const persisted = JSON.parse(await readFile(join(root, 'accounts', '100', 'generations', manifest.generation, 'repository.json'), 'utf8')) as {
+      commandResults: Record<string, unknown>
+      snapshot: { syncRecords: Array<{ id: string; status: string }> }
+    }
+    expect(persisted.commandResults).not.toHaveProperty('checkpoint-pending')
+    expect(persisted.commandResults).not.toHaveProperty('checkpoint-result')
+    expect(persisted.snapshot.syncRecords).toEqual([
+      expect.objectContaining({ id: 'run-1:append-1', status: 'succeeded' })
+    ])
+  })
+
+  it('atomically records a confirmed review favorite and makes retries idempotent', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-20T01:00:00.000Z' })
+    await service.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+
+    const register = (service as unknown as { commitConfirmedReviewFavorite: (accountMid: string, input: unknown) => Promise<unknown> }).commitConfirmedReviewFavorite
+    const input = {
+      operationId: 'review-favorite:100:101:operation-1',
+      occurredAt: '2026-08-20T01:00:00.000Z',
+      aid: 101,
+      video: { aid: 101, title: '游戏攻略', author: 'UP', description: '简介', bvid: 'BV1test', tags: ['游戏'], tagEvidence: 'confirmed', updatedAt: '2026-08-20T01:00:00.000Z' },
+      targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: '9001', title: 'bilimi·游戏专区' }],
+      classificationSource: 'system-high',
+      event: { kind: 'entered', titleAtTime: '游戏攻略', folderTitlesAtTime: ['bilimi·游戏专区'], detail: '批阅收藏已由 B 站接口确认并写入收藏库。' }
+    }
+
+    await register.call(service, '100', input)
+    const first = await service.getLibraryDetail('100', 101)
+    expect(first).toMatchObject({
+      video: { aid: 101, title: '游戏攻略', bvid: 'BV1test' },
+      folderIds: ['bilimi-logical:game'],
+      protected: true,
+      position: { state: 'aligned', localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: ['9001'] }
+    })
+    await expect(service.getEventPage('100', 101, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 1,
+      items: [{ kind: 'entered', titleAtTime: '游戏攻略' }]
+    })
+    const revision = first?.revision
+
+    await register.call(service, '100', input)
+    const second = await service.getLibraryDetail('100', 101)
+    expect(second?.revision).toBe(revision)
+    await expect(service.getEventPage('100', 101, { limit: 10 })).resolves.toMatchObject({ totalCount: 1 })
+
+    await expect(register.call(service, '100', {
+      ...input,
+      event: { ...input.event, detail: '同一操作号不得重写审计事实。' }
+    })).rejects.toThrow(/operation id conflict/i)
+  })
+
+  it('rejects a confirmed review whose remote folder is not a bound target without mutating the repository', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-20T01:00:00.000Z' })
+    await service.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+    const register = (service as unknown as { commitConfirmedReviewFavorite: (accountMid: string, input: unknown) => Promise<unknown> }).commitConfirmedReviewFavorite
+    await expect(register.call(service, '100', {
+      operationId: 'review-favorite:100:102:operation-1', occurredAt: '2026-08-20T01:00:00.000Z', aid: 102,
+      video: { aid: 102, title: '不应写入', tags: [], updatedAt: '2026-08-20T01:00:00.000Z' },
+      targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: 'wrong-folder', title: 'bilimi·游戏专区' }],
+      classificationSource: 'system-high',
+      event: { kind: 'entered', titleAtTime: '不应写入', folderTitlesAtTime: ['bilimi·游戏专区'], detail: 'test' }
+    })).rejects.toThrow(/bound|remote folder/i)
+    await expect(service.getLibraryDetail('100', 102)).resolves.toBeNull()
+  })
+
+  it('repairs only an explicitly Bilibili-confirmed legacy review missing its local protection and history', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-20T01:00:00.000Z' })
+    await service.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+    await service.commit('100', {
+      id: 'legacy-video', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 103, title: '旧批阅收藏', tags: ['游戏'], updatedAt: '2026-08-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'legacy-position', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'set-favorite-position',
+      payload: {
+        aid: 103, localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: ['9001'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:game'], positionState: 'aligned',
+        observedAt: '2026-08-20T00:00:00.000Z', updatedAt: '2026-08-20T00:00:00.000Z', reason: '批阅收藏经 B 站接口确认'
+      }
+    })
+    await service.commit('100', {
+      id: 'unrelated-position', accountMid: '100', issuedAt: '2026-08-20T00:00:00.000Z', type: 'set-favorite-position',
+      payload: {
+        aid: 104, localDesiredFolderIds: ['bilimi-logical:game'], remoteObservedPhysicalFolderIds: ['9001'],
+        remoteObservedLogicalFolderIds: ['bilimi-logical:game'], positionState: 'aligned',
+        observedAt: '2026-08-20T00:00:00.000Z', updatedAt: '2026-08-20T00:00:00.000Z', reason: '其它本地操作'
+      }
+    })
+
+    const repair = (service as unknown as { repairLegacyConfirmedReviewFavorites: (accountMid: string) => Promise<unknown> }).repairLegacyConfirmedReviewFavorites
+    await repair.call(service, '100')
+
+    await expect(service.getLibraryDetail('100', 103)).resolves.toMatchObject({ protected: true })
+    await expect(service.getEventPage('100', 103, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 1, items: [expect.objectContaining({ kind: 'entered', detail: '批阅收藏已由 B 站接口确认并写入收藏库。' })]
+    })
+    await expect(service.getLibraryDetail('100', 104)).resolves.toBeNull()
+  })
+
+  it('recovers a Bilibili-confirmed review checkpoint after restart without duplicating its local history', async () => {
+    const root = await createRoot()
+    const first = new FavoriteRepositoryService({ root, now: () => '2026-08-20T02:00:00.000Z' })
+    await first.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-20T01:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+    const input = {
+      operationId: 'review-favorite:100:105:checkpoint-1', occurredAt: '2026-08-20T02:00:00.000Z', aid: 105,
+      video: { aid: 105, title: '重启后补写', tags: ['游戏'], updatedAt: '2026-08-20T02:00:00.000Z' },
+      targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: '9001', title: 'bilimi·游戏专区' }],
+      classificationSource: 'system-high',
+      event: { kind: 'entered', titleAtTime: '重启后补写', folderTitlesAtTime: ['bilimi·游戏专区'], detail: 'B 站收藏已确认。' }
+    }
+    const checkpoint = (first as unknown as {
+      checkpointConfirmedReviewFavorite: (accountMid: string, input: unknown) => Promise<void>
+    }).checkpointConfirmedReviewFavorite
+    await checkpoint.call(first, '100', input)
+
+    const restarted = new FavoriteRepositoryService({ root, now: () => '2026-08-20T02:01:00.000Z' })
+    const recover = (restarted as unknown as {
+      recoverConfirmedReviewFavorites: (accountMid: string) => Promise<number>
+    }).recoverConfirmedReviewFavorites
+    await expect(recover.call(restarted, '100')).resolves.toBe(1)
+    await expect(restarted.getLibraryDetail('100', 105)).resolves.toMatchObject({
+      folderIds: ['bilimi-logical:game'], protected: true,
+      position: { state: 'aligned', remoteObservedPhysicalFolderIds: ['9001'] }
+    })
+    await expect(restarted.getEventPage('100', 105, { limit: 10 })).resolves.toMatchObject({
+      totalCount: 1, items: [expect.objectContaining({ id: `${input.operationId}:event`, kind: 'entered' })]
+    })
+    await expect(recover.call(restarted, '100')).resolves.toBe(0)
+    await expect(restarted.getEventPage('100', 105, { limit: 10 })).resolves.toMatchObject({ totalCount: 1 })
+  })
+
+  it('retains a confirmed review checkpoint until its current binding can be safely validated', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-08-20T02:00:00.000Z' })
+    const input = {
+      operationId: 'review-favorite:100:106:checkpoint-1', occurredAt: '2026-08-20T02:00:00.000Z', aid: 106,
+      video: { aid: 106, title: '等待重新绑定', tags: [], updatedAt: '2026-08-20T02:00:00.000Z' },
+      targets: [{ logicalFolderId: 'bilimi-logical:game', remoteFolderId: '9001', title: 'bilimi·游戏专区' }],
+      classificationSource: 'system-high',
+      event: { kind: 'entered', titleAtTime: '等待重新绑定', folderTitlesAtTime: ['bilimi·游戏专区'], detail: 'B 站收藏已确认。' }
+    }
+    const checkpoint = (service as unknown as {
+      checkpointConfirmedReviewFavorite: (accountMid: string, input: unknown) => Promise<void>
+    }).checkpointConfirmedReviewFavorite
+    const recover = (service as unknown as {
+      recoverConfirmedReviewFavorites: (accountMid: string) => Promise<number>
+    }).recoverConfirmedReviewFavorites
+    await checkpoint.call(service, '100', input)
+    await expect(recover.call(service, '100')).resolves.toBe(0)
+    await expect(service.getLibraryDetail('100', 106)).resolves.toBeNull()
+
+    await service.commit('100', {
+      id: 'bind-game', accountMid: '100', issuedAt: '2026-08-20T02:01:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: {
+        logicalLedgerId: 'game', logicalTitle: 'bilimi·游戏专区', shardNumber: 1, memberAids: [],
+        remoteTitle: 'bilimi·游戏专区', bindingState: 'bound', remoteFolderId: '9001'
+      }
+    })
+    await expect(recover.call(service, '100')).resolves.toBe(1)
+    await expect(service.getLibraryDetail('100', 106)).resolves.toMatchObject({ protected: true })
+  })
+})

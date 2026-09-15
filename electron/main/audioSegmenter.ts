@@ -7,6 +7,8 @@ export type AudioSegment = {
   offsetSeconds: number
 }
 
+export type AudioPreparationProfile = 'mp3' | 'wav-pcm-16khz-mono'
+
 function normalizePath(path: string): string {
   return path.replace(/\\/g, '/')
 }
@@ -47,11 +49,13 @@ export function createSegmentOffsets({
 export function buildFfmpegSegmentArgs({
   inputPath,
   segmentSeconds,
-  outputPattern
+  outputPattern,
+  profile = 'mp3'
 }: {
   inputPath: string
   segmentSeconds: number
   outputPattern: string
+  profile?: AudioPreparationProfile
 }): string[] {
   return [
     '-y',
@@ -62,6 +66,7 @@ export function buildFfmpegSegmentArgs({
     '1',
     '-ar',
     '16000',
+    ...(profile === 'wav-pcm-16khz-mono' ? ['-c:a', 'pcm_s16le'] : []),
     '-f',
     'segment',
     '-segment_time',
@@ -76,6 +81,7 @@ export async function segmentAudioForTranscription({
   ffmpegPath,
   inputPath,
   outputDir,
+  profile = 'mp3',
   segmentSeconds = 600,
   durationSeconds,
   runProcess = defaultRunProcess,
@@ -86,6 +92,7 @@ export async function segmentAudioForTranscription({
   ffmpegPath: string
   inputPath: string
   outputDir: string
+  profile?: AudioPreparationProfile
   segmentSeconds?: number
   durationSeconds: number
   runProcess?: RunProcess
@@ -93,10 +100,11 @@ export async function segmentAudioForTranscription({
   statFile?: (path: string) => Promise<{ size: number }>
   signal?: AbortSignal
 }): Promise<AudioSegment[]> {
-  const outputPattern = normalizePath(join(outputDir, 'segment-%03d.mp3'))
+  const extension = profile === 'wav-pcm-16khz-mono' ? 'wav' : 'mp3'
+  const outputPattern = normalizePath(join(outputDir, `segment-%03d.${extension}`))
   const result = await runProcess(
     ffmpegPath,
-    buildFfmpegSegmentArgs({ inputPath, segmentSeconds, outputPattern }),
+    buildFfmpegSegmentArgs({ inputPath, segmentSeconds, outputPattern, profile }),
     { signal }
   )
 
@@ -110,7 +118,7 @@ export async function segmentAudioForTranscription({
   }
 
   const files = (await listFiles(outputDir))
-    .filter((file) => /^segment-\d+\.mp3$/.test(file))
+    .filter((file) => new RegExp(`^segment-\\d+\\.${extension}$`).test(file))
     .sort()
   const offsets = createSegmentOffsets({ durationSeconds, segmentSeconds })
 

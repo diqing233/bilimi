@@ -1,10 +1,124 @@
 !include FileFunc.nsh
 !include LogicLib.nsh
 !include nsDialogs.nsh
+!include WinMessages.nsh
 
 !ifndef BUILD_UNINSTALLER
 Var bilimiInstallDirectoryDialog
 Var bilimiInstallDirectoryText
+Var bilimiFinishWindowHandle
+Var bilimiFinishPageActive
+!ifndef UNINSTALLER_OUT_FILE
+Var bilimiFinishWindowTimer
+!endif
+
+!define BILIMI_GWL_STYLE -16
+!define BILIMI_WS_MINIMIZEBOX 0x00020000
+!define BILIMI_WS_SYSMENU 0x00080000
+!define BILIMI_WS_MAXIMIZEBOX 0x00010000
+!define BILIMI_WS_THICKFRAME 0x00040000
+!define BILIMI_SC_CLOSE 0xF060
+!define BILIMI_SC_MINIMIZE 0xF020
+!define BILIMI_SC_MAXIMIZE 0xF030
+!define BILIMI_SWP_FRAMECHANGED 0x0020
+!define BILIMI_SWP_NOZORDER 0x0004
+!define BILIMI_SWP_NOSIZE 0x0001
+!define BILIMI_SWP_NOMOVE 0x0002
+
+!macro customFinishPage
+  !ifndef HIDE_RUN_AFTER_FINISH
+    Function StartApp
+      ${if} ${isUpdated}
+        StrCpy $1 "--updated"
+      ${else}
+        StrCpy $1 ""
+      ${endif}
+      ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
+    FunctionEnd
+
+    !define MUI_FINISHPAGE_RUN
+    !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
+  !endif
+
+  ; Enable the finish-page abort channel so the requested title-bar close
+  ; button is wired to NSIS's normal dialog-close handling. The bottom
+  ; Cancel button is still hidden in bilimiFinishPageShow below.
+  !define MUI_FINISHPAGE_CANCEL_ENABLED
+  !define MUI_CUSTOMFUNCTION_ABORT bilimiFinishAbort
+  !define MUI_PAGE_CUSTOMFUNCTION_SHOW bilimiFinishPageShow
+  !insertmacro MUI_PAGE_FINISH
+!macroend
+
+Function bilimiFinishAbort
+  ; NSIS routes the title-bar × through .onUserAbort. Keep the override
+  ; scoped to the visible finish page so earlier pages retain their behavior.
+  ${If} $bilimiFinishPageActive == "1"
+    Quit
+  ${EndIf}
+FunctionEnd
+
+Function bilimiFinishPageShow
+  ; MUI applies its fixed-dialog style after the page callback returns. Store
+  ; the top-level handle and mark the finish page active for the abort hook.
+  StrCpy $bilimiFinishWindowHandle $HWNDPARENT
+  StrCpy $bilimiFinishPageActive "1"
+  Call bilimiApplyFinishWindowControls
+  ; MUI reapplies its fixed-dialog style after this callback returns. Schedule
+  ; one short-lived event so the final caption controls are restored after
+  ; that pass without blocking the installer's message loop.
+  !ifndef UNINSTALLER_OUT_FILE
+    ${StdUtils.TimerCreate} $bilimiFinishWindowTimer bilimiApplyFinishWindowControls 500
+  !endif
+
+  ; Back (3) and Cancel (2) are disabled on the finish page and have no
+  ; meaningful action after installation. Keep Finish (1) unchanged.
+  GetDlgItem $0 $HWNDPARENT 3
+  ShowWindow $0 ${SW_HIDE}
+  ; Re-enable the hidden Cancel/abort control through its real dialog handle;
+  ; this keeps the normal NSIS close path available for the title-bar ×.
+  GetDlgItem $0 $HWNDPARENT 2
+  System::Call 'user32::EnableWindow(i r0, i 1)'
+  ShowWindow $0 ${SW_HIDE}
+FunctionEnd
+
+Function bilimiApplyFinishWindowControls
+  ; The stock NSIS finish dialog is a fixed dialog, so its caption buttons
+  ; are disabled. Add only the requested minimize and close styles on this page.
+  ; This callback is invoked periodically while the finish page is visible:
+  ; MUI may rebuild the dialog style after SHOW returns, so one-shot setup is
+  ; not sufficient. Each pass is tiny and never blocks the message loop.
+  StrCpy $0 $bilimiFinishWindowHandle
+  ; Resolve the actual top-level owner in case MUI supplied the page child.
+  System::Call 'user32::GetAncestor(i r0, i 2) i .r3'
+  ${If} $r3 != 0
+    StrCpy $0 $r3
+  ${EndIf}
+  System::Call 'user32::GetWindowLong(i r0, i ${BILIMI_GWL_STYLE}) i .r1'
+  ; Remove maximize and resize affordances rather than merely disabling them.
+  ; NSIS IntOp has no complement operator, so clear each low-bit style only
+  ; when it is present before adding the requested system/minimize styles.
+  IntOp $r3 $r1 & ${BILIMI_WS_MAXIMIZEBOX}
+  ${If} $r3 != 0
+    IntOp $r1 $r1 - ${BILIMI_WS_MAXIMIZEBOX}
+  ${EndIf}
+  IntOp $r3 $r1 & ${BILIMI_WS_THICKFRAME}
+  ${If} $r3 != 0
+    IntOp $r1 $r1 - ${BILIMI_WS_THICKFRAME}
+  ${EndIf}
+  IntOp $r1 $r1 | ${BILIMI_WS_SYSMENU}
+  IntOp $r1 $r1 | ${BILIMI_WS_MINIMIZEBOX}
+  System::Call 'user32::SetWindowLong(i r0, i ${BILIMI_GWL_STYLE}, i r1)'
+  System::Call 'user32::SetWindowPos(i r0, i 0, i 0, i 0, i 0, i ${BILIMI_SWP_NOMOVE}|${BILIMI_SWP_NOSIZE}|${BILIMI_SWP_NOZORDER}|${BILIMI_SWP_FRAMECHANGED})'
+  ; The outer NSIS dialog can be left disabled while the finish page child
+  ; dialog is rebuilt. Re-enable it before touching the system menu so the
+  ; caption buttons receive WM_SYSCOMMAND, including SC_CLOSE.
+  System::Call 'user32::EnableWindow(i r0, i 1)'
+  System::Call 'user32::GetSystemMenu(i r0, i 0) i .r2'
+  System::Call 'user32::DeleteMenu(i r2, i ${BILIMI_SC_MAXIMIZE}, i 0)'
+  System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_CLOSE}, i 0)'
+  System::Call 'user32::EnableMenuItem(i r2, i ${BILIMI_SC_MINIMIZE}, i 0)'
+  System::Call 'user32::DrawMenuBar(i r0)'
+FunctionEnd
 
 !macro customInit
   Call bilimiEnsureInstallSubfolder
@@ -150,6 +264,8 @@ Var bilimiUserDataDialog
     ${EndIf}
     DetailPrint "Removing bilimi user data from $APPDATA\bilimi"
     RMDir /r "$APPDATA\bilimi"
+    DetailPrint "Removing downloaded transcription models from $LOCALAPPDATA\bilimi\transcription-models"
+    RMDir /r "$LOCALAPPDATA\bilimi\transcription-models"
     ${If} $installMode == "all"
       SetShellVarContext all
     ${EndIf}
@@ -172,7 +288,7 @@ Function un.bilimiUserDataPageCreate
   ${NSD_CreateCheckbox} 0 34u 100% 12u "同时删除 bilimi 用户数据"
   Pop $bilimiDeleteUserDataCheckbox
 
-  ${NSD_CreateLabel} 12u 54u 96% 58u "会删除：登录状态和浏览器会话、bilimi 设置、启动权限引导状态、B 站收藏夹/分类相关缓存、视频笔记、本地缓存、诊断缓存、已保存的 API Key 等本机配置。"
+  ${NSD_CreateLabel} 12u 54u 96% 58u "会删除：登录状态和浏览器会话、bilimi 设置、启动权限引导状态、B 站收藏夹/分类相关缓存、视频笔记、本地缓存、诊断缓存、已下载的转写模型和运行时、已保存的 API Key 等本机配置。"
   Pop $R0
 
   ${NSD_CreateLabel} 12u 116u 96% 24u "不勾选则只卸载程序本体，之后重装会继续沿用原来的登录状态、设置和缓存。"

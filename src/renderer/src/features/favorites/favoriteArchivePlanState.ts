@@ -31,6 +31,21 @@ export type FavoriteArchivePlanState = {
   originalItemsByKey: Record<string, FavoriteArchivePlanItemState>
 }
 
+export type FavoriteArchiveTransactionState = {
+  archivePlanState: FavoriteArchivePlanState
+  selectedCandidateKeys: string[]
+  draftLedgers: FavoriteLedger[]
+  candidateSourceLedgerIdsByItemKey: Record<string, Record<string, string[]>>
+}
+
+export type FavoriteArchiveCandidateTransaction = {
+  candidateKey: string
+  candidateLedgerId: string
+  candidateLedger: FavoriteLedger
+  affectedItemKeys: string[]
+  selected: boolean
+}
+
 export type FavoriteArchivePlanItemSelector =
   | number
   | { itemKey: string }
@@ -94,14 +109,14 @@ export function createArchivePlanState(items: ArchivePlanItemInput[]): FavoriteA
   const originalItemsByAid: Record<number, FavoriteArchivePlanItemState> = {}
 
   for (const item of normalizedItems) {
-    originalItemsByAid[item.aid] ??= cloneItem(item)
+    originalItemsByAid[item.aid] ??= item
   }
 
   return {
-    items: normalizedItems.map(cloneItem),
+    items: normalizedItems,
     originalItemsByAid,
     originalItemsByKey: Object.fromEntries(
-      normalizedItems.map((item) => [item.itemKey, cloneItem(item)])
+      normalizedItems.map((item) => [item.itemKey, item])
     )
   }
 }
@@ -218,9 +233,113 @@ export function revertArchivePlanArea(
   }, state)
 }
 
+function cloneLedger(ledger: FavoriteLedger): FavoriteLedger {
+  return {
+    ...ledger,
+    keywords: [...ledger.keywords]
+  }
+}
+
+export function applyArchiveCandidateTransaction(
+  state: FavoriteArchiveTransactionState,
+  transaction: FavoriteArchiveCandidateTransaction
+): FavoriteArchiveTransactionState {
+  const affectedItemKeys = new Set(transaction.affectedItemKeys)
+  const sourcePositions = Object.fromEntries(
+    Object.entries(state.candidateSourceLedgerIdsByItemKey).map(([itemKey, byCandidate]) => [
+      itemKey,
+      Object.fromEntries(
+        Object.entries(byCandidate).map(([candidateKey, ledgerIds]) => [candidateKey, [...ledgerIds]])
+      )
+    ])
+  )
+
+  const nextItems = state.archivePlanState.items.map((item) => {
+    if (!affectedItemKeys.has(item.itemKey)) {
+      return cloneItem(item)
+    }
+
+    if (transaction.selected) {
+      sourcePositions[item.itemKey] = {
+        ...(sourcePositions[item.itemKey] ?? {}),
+        [transaction.candidateKey]: item.currentTargetLedgerIds.filter((ledgerId) => ledgerId !== 'inbox')
+      }
+      const currentTargetLedgerIds = item.currentTargetLedgerIds.filter(
+        (ledgerId) => ledgerId !== 'inbox' && ledgerId !== transaction.candidateLedgerId
+      )
+      const selectedTargetLedgerIds = item.selectedTargetLedgerIds.filter(
+        (ledgerId) => ledgerId !== 'inbox' && ledgerId !== transaction.candidateLedgerId
+      )
+      return {
+        ...cloneItem(item),
+        currentTargetLedgerIds: [...currentTargetLedgerIds, transaction.candidateLedgerId],
+        selectedTargetLedgerIds: [...selectedTargetLedgerIds, transaction.candidateLedgerId],
+        userModified: true,
+        lastChangeSource: 'user' as const
+      }
+    }
+
+    const sourceLedgerIds = sourcePositions[item.itemKey]?.[transaction.candidateKey]
+    if (!sourceLedgerIds) {
+      return cloneItem(item)
+    }
+    delete sourcePositions[item.itemKey][transaction.candidateKey]
+    if (Object.keys(sourcePositions[item.itemKey]).length === 0) {
+      delete sourcePositions[item.itemKey]
+    }
+    const remainingCurrentTargetLedgerIds = item.currentTargetLedgerIds
+      .filter((ledgerId) => ledgerId !== transaction.candidateLedgerId)
+    const remainingSelectedTargetLedgerIds = item.selectedTargetLedgerIds
+      .filter((ledgerId) => ledgerId !== transaction.candidateLedgerId)
+    const originalItem = state.archivePlanState.originalItemsByKey[item.itemKey]
+    return {
+      ...cloneItem(item),
+      currentTargetLedgerIds: remainingCurrentTargetLedgerIds.length > 0
+        ? remainingCurrentTargetLedgerIds
+        : [...(originalItem?.currentTargetLedgerIds ?? sourceLedgerIds)],
+      selectedTargetLedgerIds: remainingSelectedTargetLedgerIds.length > 0
+        ? remainingSelectedTargetLedgerIds
+        : [...(originalItem?.selectedTargetLedgerIds ?? sourceLedgerIds)],
+      userModified: true,
+      lastChangeSource: 'user' as const
+    }
+  })
+
+  const selectedCandidateKeys = new Set(state.selectedCandidateKeys)
+  if (transaction.selected) {
+    selectedCandidateKeys.add(transaction.candidateKey)
+  } else {
+    selectedCandidateKeys.delete(transaction.candidateKey)
+  }
+
+  const draftLedgers = transaction.selected
+    ? state.draftLedgers.some((ledger) => ledger.id === transaction.candidateLedgerId)
+      ? state.draftLedgers.map((ledger) =>
+          ledger.id === transaction.candidateLedgerId
+            ? { ...cloneLedger(ledger), enabled: true }
+            : cloneLedger(ledger)
+        )
+      : [...state.draftLedgers.map(cloneLedger), cloneLedger(transaction.candidateLedger)]
+    : state.draftLedgers
+        .filter((ledger) => ledger.id !== transaction.candidateLedgerId)
+        .map(cloneLedger)
+
+  return {
+    archivePlanState: {
+      ...state.archivePlanState,
+      items: nextItems,
+      ...cloneOriginals(state.archivePlanState)
+    },
+    selectedCandidateKeys: [...selectedCandidateKeys],
+    draftLedgers,
+    candidateSourceLedgerIdsByItemKey: sourcePositions
+  }
+}
+
 export function buildExecutableArchivePlan(
   state: FavoriteArchivePlanState,
-  ledgers: FavoriteLedger[]
+  ledgers: FavoriteLedger[],
+  options: { requireFolderId?: boolean } = {}
 ): ExecutableArchivePlanItem[] {
   const ledgersById = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
   const planItems: ExecutableArchivePlanItem[] = []
@@ -233,7 +352,10 @@ export function buildExecutableArchivePlan(
 
       const ledger = ledgersById.get(ledgerId)
       if (!ledger) {
-        continue
+        throw new Error(`无法解析归档目标：${ledgerId}`)
+      }
+      if (options.requireFolderId !== false && !ledger.bilibiliFolderId) {
+        throw new Error(`归档目标尚未同步到 B 站：${ledger.displayName}`)
       }
 
       planItems.push({

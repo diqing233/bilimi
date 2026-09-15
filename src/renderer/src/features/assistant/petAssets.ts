@@ -36,6 +36,7 @@ export const blueWhiteMaidPetAssetsByStyle: Record<PetStyle, PetAssetManifest> =
       cheer: bigHeadWorkingCharacterUrl,
       sleepy: bigHeadIdleCharacterUrl,
       surprised: bigHeadHintCharacterUrl,
+      crying: bigHeadErrorCharacterUrl,
       done: bigHeadClickedCharacterUrl,
       clicked: bigHeadClickedCharacterUrl
     },
@@ -58,6 +59,7 @@ export const blueWhiteMaidPetAssetsByStyle: Record<PetStyle, PetAssetManifest> =
       cheer: classicWorkingCharacterUrl,
       sleepy: classicIdleCharacterUrl,
       surprised: classicHintCharacterUrl,
+      crying: classicErrorCharacterUrl,
       done: classicClickedCharacterUrl,
       clicked: classicClickedCharacterUrl
     },
@@ -88,6 +90,7 @@ export const legacyBlueWhiteMaidPetAssets: PetAssetManifest = {
     cheer: classicWorkingCharacterUrl,
     sleepy: classicIdleCharacterUrl,
     surprised: classicHintCharacterUrl,
+    crying: classicErrorCharacterUrl,
     done: classicClickedCharacterUrl,
     clicked: classicClickedCharacterUrl
   },

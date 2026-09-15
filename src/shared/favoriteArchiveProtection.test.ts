@@ -117,19 +117,13 @@ describe('favorite archive protection records', () => {
     expect(partition.totalUniqueVideos).toBe(3)
     expect(partition.protectedVideos).toEqual([
       expect.objectContaining({
-        aid: 7,
-        sourceFolderIds: ['source-1', 'source-2'],
-        sourceFolderTitles: ['默认收藏夹', '稍后观看'],
-        currentBilimiFolderIds: [],
-        protectedForIncrementalScan: true
-      }),
-      expect.objectContaining({
         aid: 8,
         currentBilimiFolderIds: ['9001'],
         protectedForIncrementalScan: true
       })
     ])
     expect(partition.activeSourceFolders.flatMap((folder) => folder.videos)).toEqual([
+      expect.objectContaining({ aid: 7, currentBilimiFolderIds: [], protectedForIncrementalScan: false, archiveHealth: 'invalid' }),
       expect.objectContaining({ aid: 9, currentBilimiFolderIds: ['9008'] })
     ])
     expect(partition.initializedProtectionRecords).toEqual([
@@ -143,7 +137,95 @@ describe('favorite archive protection records', () => {
     ])
   })
 
-  it('keeps unrecorded partial results active after the legacy migration has completed', () => {
+  it('reactivates a historically archived video after it leaves every formal folder', () => {
+    const partition = partitionFavoriteArchiveSources({
+      accountMid: '42',
+      sourceFolders: [{ id: 'source', title: 'Source', videos: [{ aid: 7, title: 'Reintroduced' }] }],
+      managedFolders: [{ id: 'formal', title: 'bilimi Archive', ledgerId: 'knowledge', isInbox: false }],
+      targetMembership: { formal: [] },
+      protectionRecords: [{
+        accountMid: '42', aid: 7, targetLedgerIds: ['knowledge'], targetFolderIds: ['formal'],
+        completedAt: '2026-07-10T00:00:00.000Z'
+      }]
+    })
+
+    expect(partition.protectedVideos).toEqual([])
+    expect(partition.activeSourceFolders.flatMap((folder) => folder.videos)).toEqual([
+      expect.objectContaining({ aid: 7, protectedForIncrementalScan: false, archiveHealth: 'invalid' })
+    ])
+  })
+
+  it('protects unique aids in formal Bilimi folders but keeps staging-only aids active', () => {
+    const formalAids = Array.from({ length: 10 }, (_, index) => index + 1)
+    const stagingOnlyAids = Array.from({ length: 30 }, (_, index) => index + 11)
+    const partition = partitionFavoriteArchiveSources({
+      accountMid: '42',
+      initializeExistingMembership: false,
+      sourceFolders: [
+        {
+          id: 'source-1',
+          title: '默认收藏夹',
+          videos: [...formalAids, ...stagingOnlyAids].map((aid) => ({ aid, title: `视频 ${aid}` }))
+        },
+        {
+          id: 'source-2',
+          title: '稍后观看',
+          videos: [
+            { aid: 1, title: '重复的正式归档视频' },
+            { aid: 11, title: '重复的暂存视频' }
+          ]
+        }
+      ],
+      managedFolders: [
+        { id: 'formal', title: 'bilimi·知识', ledgerId: 'knowledge', isInbox: false },
+        { id: 'staging', title: 'bilimi·暂存', ledgerId: 'inbox', isInbox: true }
+      ],
+      targetMembership: {
+        formal: formalAids,
+        staging: [...formalAids, ...stagingOnlyAids]
+      },
+      protectionRecords: stagingOnlyAids.map((aid) => ({
+        accountMid: '42',
+        aid,
+        targetLedgerIds: ['inbox'],
+        targetFolderIds: ['staging'],
+        completedAt: '2026-07-16T00:00:00.000Z'
+      }))
+    })
+
+    expect(partition.totalUniqueVideos).toBe(40)
+    expect(partition.protectedVideos.map((video) => video.aid)).toEqual(formalAids)
+    expect(partition.activeSourceFolders.flatMap((folder) => folder.videos).map((video) => video.aid))
+      .toEqual(stagingOnlyAids)
+  })
+
+  it('keeps an inbox record active when the staging folder id changed on another computer', () => {
+    const partition = partitionFavoriteArchiveSources({
+      accountMid: '42',
+      initializeExistingMembership: false,
+      sourceFolders: [
+        { id: 'source', title: '默认收藏夹', videos: [{ aid: 41, title: '换电脑后的暂存视频' }] }
+      ],
+      managedFolders: [
+        { id: 'new-staging-folder', title: 'bilimi·暂存', ledgerId: 'inbox', isInbox: true }
+      ],
+      targetMembership: { 'new-staging-folder': [41] },
+      protectionRecords: [{
+        accountMid: '42',
+        aid: 41,
+        targetLedgerIds: ['inbox'],
+        targetFolderIds: ['old-staging-folder'],
+        completedAt: '2026-07-15T00:00:00.000Z'
+      }]
+    })
+
+    expect(partition.protectedVideos).toEqual([])
+    expect(partition.activeSourceFolders.flatMap((folder) => folder.videos)).toEqual([
+      expect.objectContaining({ aid: 41, currentBilimiFolderIds: ['new-staging-folder'] })
+    ])
+  })
+
+  it('rebuilds formal protection from Bilibili membership after legacy migration', () => {
     const partition = partitionFavoriteArchiveSources({
       accountMid: '42',
       initializeExistingMembership: false,
@@ -161,15 +243,11 @@ describe('favorite archive protection records', () => {
       protectionRecords: []
     })
 
-    expect(partition.protectedVideos).toEqual([])
-    expect(partition.initializedProtectionRecords).toEqual([])
-    expect(partition.activeSourceFolders).toEqual([
-      expect.objectContaining({
-        id: 'source-1',
-        title: '默认收藏夹',
-        videos: [expect.objectContaining({ aid: 10, currentBilimiFolderIds: ['9001'] })]
-      })
+    expect(partition.protectedVideos).toEqual([
+      expect.objectContaining({ aid: 10, currentBilimiFolderIds: ['9001'] })
     ])
+    expect(partition.initializedProtectionRecords).toEqual([])
+    expect(partition.activeSourceFolders).toEqual([])
   })
 
   it('classifies protected archive health by stable ledger membership', () => {
@@ -239,9 +317,7 @@ describe('favorite archive protection records', () => {
     expect(partition.protectedVideos.map(({ aid, archiveHealth }) => [aid, archiveHealth])).toEqual([
       [11, 'complete'],
       [12, 'incomplete'],
-      [13, 'invalid'],
       [14, 'complete'],
-      [15, 'invalid']
     ])
   })
 

@@ -62,6 +62,30 @@ describe('media tool paths', () => {
     ).toThrow('npm run setup:media-tools')
   })
 
+  it('reports the actual development runtime root when its bundled tools are missing', () => {
+    let message = ''
+    try {
+      createMediaToolPaths({
+        appPath: 'C:/Users/diqing/.codex/worktrees/runtime-copy/bilimi',
+        isPackaged: false,
+        platform: 'win32',
+        resourcesPath: 'C:/unused',
+        exists: () => false
+      })
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+
+    expect(message).toContain(
+      'Development runtime root: C:/Users/diqing/.codex/worktrees/runtime-copy/bilimi'
+    )
+    expect(message).toContain('/tools/win32/yt-dlp.exe')
+    expect(message).toContain('/tools/win32/ffmpeg.exe')
+    expect(message).toContain('/tools/win32/ffprobe.exe')
+    expect(message).toContain('/tools/win32/whisper/whisper-cli.exe')
+    expect(message).not.toContain('/tools/win32/whisper/models/ggml-small.bin')
+  })
+
   it('requires ffprobe beside ffmpeg because duration probing uses it', () => {
     expect(() =>
       createMediaToolPaths({
@@ -74,7 +98,7 @@ describe('media tool paths', () => {
     ).toThrow('ffprobe.exe')
   })
 
-  it('requires bundled whisper.cpp runtime and model for offline transcription', () => {
+  it('does not require the optional whisper.cpp model at startup', () => {
     expect(() =>
       createMediaToolPaths({
         appPath: 'C:/Projects/bilimi',
@@ -83,7 +107,7 @@ describe('media tool paths', () => {
         resourcesPath: 'C:/Program Files/Bilimi/resources',
         exists: (path) => !path.endsWith('models/ggml-small.bin')
       })
-    ).toThrow('ggml-small.bin')
+    ).not.toThrow()
   })
 
   it('uses the current Electron app paths in the default resolver', () => {

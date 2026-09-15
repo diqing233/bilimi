@@ -3,6 +3,8 @@ import type { FavoriteLedger } from '@shared/types'
 type FavoriteApiAdjustmentOptions = {
   addLedgerIds: string[]
   removeLedgerIds: string[]
+  aid?: number
+  accountMid?: string
 }
 
 export function buildFavoriteApiFallbackScript(
@@ -198,7 +200,30 @@ export function buildFavoriteApiFallbackScript(
         steps.push('api:favorite:list');
 
         const folders = Array.isArray(listData?.list) ? listData.list : [];
+        const folderIdOf = (folder) => String(folder?.id || folder?.fid || '').trim();
+        const boundFolderIds = (ledger) => Array.from(new Set([
+          ...(Array.isArray(ledger?.bilibiliFolderIds) ? ledger.bilibiliFolderIds : []),
+          ...(ledger?.bilibiliFolderId ? [ledger.bilibiliFolderId] : [])
+        ].map((folderId) => String(folderId || '').trim()).filter(Boolean)));
         const ensureTargetFolder = async (ledger) => {
+          const formalFolderIds = boundFolderIds(ledger);
+          if (formalFolderIds.length) {
+            const formalFolders = formalFolderIds
+              .map((folderId) => folders.find((folder) => folderIdOf(folder) === folderId))
+              .filter(Boolean);
+            const targetFolder = [...formalFolders]
+              .reverse()
+              .find((folder) => Math.max(0, Number(folder?.media_count ?? folder?.count ?? 0) || 0) < 1000);
+
+            if (targetFolder) {
+              return folderIdOf(targetFolder);
+            }
+
+            const error = new Error('The bound Bilibili favorite shards are full.');
+            error.code = 'physical-shard-capacity-exceeded';
+            throw error;
+          }
+
           let targetFolder = folders.find((folder) => folder?.title === ledger.displayName);
 
           if (!targetFolder) {
@@ -222,13 +247,16 @@ export function buildFavoriteApiFallbackScript(
             steps.push('api:favorite:create-folder');
           }
 
-          return targetFolder?.id || targetFolder?.fid || '';
+          return folderIdOf(targetFolder);
         };
         const folderIds = [];
+        const favoriteFolderIdsByLedgerId = {};
         for (const ledger of targetLedgers) {
           const folderId = await ensureTargetFolder(ledger);
           if (folderId) {
-            folderIds.push(String(folderId));
+            const normalizedFolderId = String(folderId);
+            folderIds.push(normalizedFolderId);
+            favoriteFolderIdsByLedgerId[ledger.id] = normalizedFolderId;
           }
         }
 
@@ -265,6 +293,7 @@ export function buildFavoriteApiFallbackScript(
           ok: true,
           steps,
           missingTargets: [],
+          favoriteFolderIdsByLedgerId,
           message: '已用 B 站接口归入 bilimi 收藏夹：' +
             targetLedgers.map((ledger) => ledger.displayName).join('、') +
             '。'
@@ -274,9 +303,7 @@ export function buildFavoriteApiFallbackScript(
           ok: false,
           steps,
           missingTargets: missingTargets.length > 0 ? missingTargets : ['favorite-api'],
-          message:
-            'B 站收藏接口未能完成：' +
-            (error instanceof Error ? error.message : String(error || '未知错误'))
+          message: 'B 站收藏接口未能完成，请检查网络和登录状态后重试。'
         };
       }
     })();
@@ -290,7 +317,9 @@ export function buildFavoriteApiAdjustmentScript(
   const payload = JSON.stringify({
     favoriteLedgers,
     addLedgerIds: options.addLedgerIds,
-    removeLedgerIds: options.removeLedgerIds
+    removeLedgerIds: options.removeLedgerIds,
+    aid: options.aid,
+    accountMid: options.accountMid
   })
 
   return `
@@ -374,7 +403,14 @@ export function buildFavoriteApiAdjustmentScript(
           return fail('favorite-api-user', '未能读取 B 站用户 ID，无法调用收藏接口。');
         }
 
-        const aid = await resolveAid();
+        if (payload.accountMid && String(mid) !== String(payload.accountMid)) {
+          return fail('favorite-api-account-changed', 'B 站账号已切换，本次后台归类未执行。');
+        }
+
+        const frozenAid = Number(payload.aid);
+        const aid = Number.isSafeInteger(frozenAid) && frozenAid > 0
+          ? frozenAid
+          : await resolveAid();
 
         if (!aid) {
           return fail('favorite-api-aid', '未能读取当前视频 aid，无法调用收藏接口。');
@@ -397,52 +433,61 @@ export function buildFavoriteApiAdjustmentScript(
         steps.push('api:favorite:adjust-list');
 
         const folders = Array.isArray(listData?.list) ? listData.list : [];
-        const findFolderId = (folder) => folder?.id || folder?.fid || '';
-        const ensureTargetFolder = async (ledger) => {
-          let targetFolder = folders.find((folder) => folder?.title === ledger.displayName);
-
-          if (!targetFolder) {
-            const createBody = new URLSearchParams({
-              csrf,
-              privacy: '0',
-              title: ledger.displayName
-            });
-            const createData = await requestJson(
-              'https://api.bilibili.com/x/v3/fav/folder/add',
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: createBody
-              }
-            );
-            targetFolder = createData;
-            folders.push(targetFolder);
-            steps.push('api:favorite:adjust-create-folder');
+        const findFolderId = (folder) => String(folder?.id || folder?.fid || '').trim();
+        const boundFolderIds = (ledger) => ledger?.bindingState === 'bound'
+          ? Array.from(new Set([
+              ...(Array.isArray(ledger?.bilibiliFolderIds) ? ledger.bilibiliFolderIds : []),
+              ...(ledger?.bilibiliFolderId ? [ledger.bilibiliFolderId] : [])
+            ].map((folderId) => String(folderId || '').trim()).filter(Boolean)))
+          : [];
+        const findAvailableBoundFolderId = (ledger) => {
+          const formalFolderIds = boundFolderIds(ledger);
+          if (!formalFolderIds.length) {
+            const error = new Error('The target bilimi ledger has no formal remote binding.');
+            error.code = 'favorite-ledger-unbound';
+            throw error;
           }
-
+          const foldersById = new Map(folders.map((folder) => [findFolderId(folder), folder]));
+          const formalFolders = formalFolderIds.map((folderId) => foldersById.get(folderId)).filter(Boolean);
+          if (formalFolders.length !== formalFolderIds.length) {
+            const error = new Error('A formally bound Bilibili favorite shard is absent from the remote inventory.');
+            error.code = 'favorite-bound-shard-missing';
+            throw error;
+          }
+          const targetFolder = [...formalFolders]
+            .reverse()
+            .find((folder) => Math.max(0, Number(folder?.media_count ?? folder?.count ?? 0) || 0) < 1000);
+          if (!targetFolder) {
+            const error = new Error('The formally bound Bilibili favorite shards are full.');
+            error.code = 'physical-shard-capacity-exceeded';
+            throw error;
+          }
           return findFolderId(targetFolder);
         };
         const addFolderIds = [];
+        const favoriteFolderIdsByLedgerId = {};
         for (const ledgerId of addLedgerIds) {
           const ledger = payload.favoriteLedgers.find((candidate) => candidate.id === ledgerId);
           if (!ledger) {
-            continue;
+            return fail('favorite-api-adjust-target:' + ledgerId, 'DeepSeek 目标收藏夹暂不可用。');
           }
-          const folderId = await ensureTargetFolder(ledger);
+          const folderId = findAvailableBoundFolderId(ledger);
           if (folderId) {
-            addFolderIds.push(String(folderId));
+            const normalizedFolderId = String(folderId);
+            addFolderIds.push(normalizedFolderId);
+            favoriteFolderIdsByLedgerId[ledgerId] = normalizedFolderId;
           }
         }
         const removeFolderIds = [];
         for (const ledgerId of removeLedgerIds) {
           const ledger = payload.favoriteLedgers.find((candidate) => candidate.id === ledgerId);
-          const folder = ledger ? folders.find((candidate) => candidate?.title === ledger.displayName) : null;
-          const folderId = findFolderId(folder);
-          if (folderId) {
-            removeFolderIds.push(String(folderId));
+          if (!ledger) {
+            return fail('favorite-api-adjust-target:' + ledgerId, 'DeepSeek 目标收藏夹暂不可用。');
           }
+          const folderId = findAvailableBoundFolderId(ledger);
+          const normalizedFolderId = String(folderId);
+          removeFolderIds.push(normalizedFolderId);
+          favoriteFolderIdsByLedgerId[ledgerId] = normalizedFolderId;
         }
 
         if (addFolderIds.length === 0 && removeFolderIds.length === 0) {
@@ -474,6 +519,7 @@ export function buildFavoriteApiAdjustmentScript(
           ok: true,
           steps,
           missingTargets: [],
+          favoriteFolderIdsByLedgerId,
           message: 'DeepSeek 后台归类调整已完成。'
         };
       } catch (error) {
@@ -481,9 +527,7 @@ export function buildFavoriteApiAdjustmentScript(
           ok: false,
           steps,
           missingTargets: missingTargets.length > 0 ? missingTargets : ['favorite-api-adjust'],
-          message:
-            'DeepSeek 后台归类调整未能完成：' +
-            (error instanceof Error ? error.message : String(error || '未知错误'))
+          message: 'DeepSeek 后台归类调整未能完成，请检查服务设置后重试。'
         };
       }
     })();

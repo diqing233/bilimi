@@ -1,0 +1,17 @@
+.video-note-archive__timestamp-button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--porcelain-primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.75;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.video-note-archive__timestamp-button:focus-visible {
+  outline: 2px solid var(--porcelain-primary);
+  outline-offset: 2px;
+}

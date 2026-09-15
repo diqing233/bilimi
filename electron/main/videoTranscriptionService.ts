@@ -5,13 +5,16 @@ import type {
   VideoAudioTranscriptionThreadLimit,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionRequest,
-  VideoAudioTranscriptionResult
+  VideoAudioTranscriptionResult,
+  TranscriptionModelId
 } from '../../src/shared/types'
+import { DEFAULT_TRANSCRIPTION_MODEL_ID } from '../../src/shared/transcriptionModels'
 import { downloadVideoAudio } from './audioDownload'
-import { segmentAudioForTranscription, type AudioSegment } from './audioSegmenter'
+import { segmentAudioForTranscription, type AudioPreparationProfile, type AudioSegment } from './audioSegmenter'
 import { exportBilibiliCookiesToFile, type CookieSessionLike } from './bilibiliCookieExport'
 import { resolveMediaToolPaths } from './mediaToolPaths'
 import { transcribeAudioSegmentWithLocalWhisper } from './localWhisperTranscription'
+import type { SegmentTranscriber } from './transcriptionProviderResolver'
 import { runProcess } from './audioDownload'
 
 type ServiceDeps = {
@@ -29,6 +32,18 @@ type ServiceDeps = {
     threadLimit?: VideoAudioTranscriptionThreadLimit
     signal?: AbortSignal
   }) => Promise<TranscriptSegment[]>
+  transcribeSegmentForModel?: (
+    modelId: TranscriptionModelId,
+    input: {
+      path: string
+      offsetSeconds: number
+      threadLimit?: VideoAudioTranscriptionThreadLimit
+      signal?: AbortSignal
+    }
+  ) => Promise<TranscriptSegment[]>
+  resolveTranscriber?: (
+    modelId: TranscriptionModelId
+  ) => SegmentTranscriber
   getAudioDuration?: (path: string, ffmpegPath?: string, signal?: AbortSignal) => Promise<number>
   cleanup?: (path: string) => Promise<void>
   threadLimit?: VideoAudioTranscriptionThreadLimit
@@ -50,6 +65,10 @@ function createFfprobePath(ffmpegPath: string): string {
   const executable = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'
 
   return normalizePath(join(dirname(ffmpegPath), executable))
+}
+
+function preparationProfileForModel(modelId: TranscriptionModelId): AudioPreparationProfile | undefined {
+  return modelId === 'sensevoice-small' ? 'wav-pcm-16khz-mono' : undefined
 }
 
 export async function getAudioDurationSeconds(
@@ -93,6 +112,8 @@ export async function transcribeCurrentVideoAudio({
   downloadAudio = downloadVideoAudio,
   segmentAudio = segmentAudioForTranscription,
   transcribeSegment,
+  transcribeSegmentForModel,
+  resolveTranscriber,
   getAudioDuration = getAudioDurationSeconds,
   cleanup = defaultCleanup,
   threadLimit = 'unlimited',
@@ -101,7 +122,7 @@ export async function transcribeCurrentVideoAudio({
   try {
     emit(progress, { step: 'preparing-session', message: 'Preparing current login session.' })
     const tools = resolveTools()
-    const transcribeAudioSegment =
+    const transcribeAudioSegment: SegmentTranscriber = (
       transcribeSegment ??
       ((input: {
         path: string
@@ -114,7 +135,18 @@ export async function transcribeCurrentVideoAudio({
           cliPath: tools.whisperCliPath,
           modelPath: tools.whisperModelPath,
           signal
-        }))
+        }))) as SegmentTranscriber
+    const modelId = request.transcriptionModelId ?? DEFAULT_TRANSCRIPTION_MODEL_ID
+    const transcribeCapturedModelSegment: SegmentTranscriber = resolveTranscriber
+      ? resolveTranscriber(modelId)
+      : transcribeSegmentForModel
+      ? (input: {
+          path: string
+          offsetSeconds: number
+          threadLimit?: VideoAudioTranscriptionThreadLimit
+          signal?: AbortSignal
+        }) => transcribeSegmentForModel(modelId, input)
+      : transcribeAudioSegment
     const cookieExport = await exportCookies({ session, tempDir })
 
     emit(progress, { step: 'downloading-audio', message: 'Downloading audio.' })
@@ -129,25 +161,33 @@ export async function transcribeCurrentVideoAudio({
 
     emit(progress, { step: 'preparing-segments', message: 'Preparing audio segments.' })
     const durationSeconds = await getAudioDuration(audioPath, tools.ffmpegPath, signal)
+    const preparationProfile = preparationProfileForModel(modelId)
     const segments = await segmentAudio({
       ffmpegPath: tools.ffmpegPath,
       inputPath: audioPath,
       outputDir: tempDir,
       durationSeconds,
-      signal
+      signal,
+      ...(preparationProfile ? { profile: preparationProfile } : {})
     })
 
     const transcript: TranscriptSegment[] = []
+    const selectedRuntime = await transcribeCapturedModelSegment.runtime
 
     for (const [index, segment] of segments.entries()) {
       emit(progress, {
         step: 'transcribing-segment',
         message: `Transcribing segment ${index + 1}/${segments.length}.`,
         segmentIndex: index + 1,
-        segmentCount: segments.length
+        segmentCount: segments.length,
+        ...(selectedRuntime ? {
+          actualDevice: selectedRuntime.device,
+          actualComputeType: selectedRuntime.computeType,
+          runtimeFallbackMessage: selectedRuntime.fallbackMessage
+        } : {})
       })
       transcript.push(
-        ...(await transcribeAudioSegment({
+        ...(await transcribeCapturedModelSegment({
           path: segment.path,
           offsetSeconds: segment.offsetSeconds,
           threadLimit,
@@ -158,9 +198,11 @@ export async function transcribeCurrentVideoAudio({
 
     emit(progress, { step: 'merging-transcript', message: 'Merging transcript.' })
 
+    const runtime = await transcribeCapturedModelSegment.runtime
     return {
       transcriptSource: 'audio',
-      transcript
+      transcript,
+      ...(runtime ? { runtime } : {})
     }
   } finally {
     await cleanup(tempDir)

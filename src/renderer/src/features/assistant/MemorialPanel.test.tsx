@@ -1,5 +1,5 @@
 ﻿import type { RecommendationLabel } from '@shared/types'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MemorialPanel } from './MemorialPanel'
 
@@ -27,9 +27,34 @@ describe('MemorialPanel', () => {
       />
     )
 
+    expect(screen.getByText('当前视频', { selector: 'p.memorial-panel__meta-eyebrow' })).toBeInTheDocument()
     expect(screen.getByText('UP 主：电影观察员')).toBeInTheDocument()
     expect(screen.getByText('小咪准备归类到：影视动漫')).toBeInTheDocument()
     expect(screen.queryByText('小咪的批阅签语：可藏')).not.toBeInTheDocument()
+  })
+
+  it('adds only the unprovisioned favorite hint without changing the author or category lines', () => {
+    render(
+      <MemorialPanel
+        recommendation={{ badge: '可藏', summary: '适合归到影视动漫。' }}
+        commentDrafts={[]}
+        videoCategory="影视动漫"
+        favoriteProvisioningHint="最佳匹配：影视动漫（未备册）"
+        videoTitle="测试稿件"
+        videoAuthor="电影观察员"
+        hasCurrentVideo={true}
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+      />
+    )
+
+    expect(screen.getByText('UP 主：电影观察员')).toBeInTheDocument()
+    expect(screen.getByText('小咪准备归类到：影视动漫')).toBeInTheDocument()
+    expect(screen.getByText('最佳匹配：影视动漫（未备册）')).toHaveClass('memorial-panel__meta-detail')
   })
 
   it('shows 小咪 placeholder wording in the meta card when the current page is not a video', () => {
@@ -213,7 +238,7 @@ describe('MemorialPanel', () => {
       />
     )
 
-    expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
+    expect(screen.getByText('UP主').nextElementSibling).toHaveTextContent('李老师讲AI')
   })
 
   it('passes transcription queue cancel and retry actions into the notes panel', () => {
@@ -272,14 +297,60 @@ describe('MemorialPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '取消转写' }))
-    fireEvent.click(screen.getByRole('button', { name: '切换队列视频' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开转写队列' }))
     fireEvent.click(screen.getByRole('button', { name: '重试 Failed video' }))
 
     expect(onCancelQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV1note')
     expect(onRetryQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV2note')
   })
 
-  it('attaches narrow coin and comment menus to their action buttons without firing actions', () => {
+  it('passes a summary-only retry action into the notes panel', () => {
+    const onRetryQueuedVideoSummary = vi.fn()
+
+    render(
+      <MemorialPanel
+        recommendation={inboxRecommendation}
+        commentDrafts={['先留一评。']}
+        videoCategory="待分拣"
+        videoTitle="测试稿件"
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onTranscribeVideoAudio={vi.fn().mockResolvedValue(null)}
+        onRetryQueuedVideoSummary={onRetryQueuedVideoSummary}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+        initialTab="notes"
+        transcriptionQueue={{
+          sessionCompletedCount: 1,
+          items: [{
+            id: 'account:1:aid:2:cid:3',
+            accountMid: '1',
+            aid: 2,
+            cid: 3,
+            bvid: 'BV2note',
+            url: 'https://www.bilibili.com/video/BV2note',
+            title: 'Summary failed video',
+            status: 'completed',
+            archiveRegistrationStatus: 'registered',
+            archiveNoteId: 'bvid:BV2note',
+            archiveVersionId: 'version-1',
+            summaryStatus: 'failed',
+            createdAt: '2026-06-25T00:03:00.000Z',
+            updatedAt: '2026-06-25T00:04:00.000Z'
+          }]
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '展开转写队列' }))
+    fireEvent.click(screen.getByRole('button', { name: '仅重试总结 Summary failed video' }))
+
+    expect(onRetryQueuedVideoSummary).toHaveBeenCalledWith('account:1:aid:2:cid:3')
+  })
+
+  it('switches review action parameters with borderless toggles without firing actions', () => {
     const onPreferenceChange = vi.fn()
     const onAction = vi.fn()
 
@@ -303,33 +374,45 @@ describe('MemorialPanel', () => {
 
     expect(screen.queryByText('投币数量')).not.toBeInTheDocument()
     expect(screen.queryByText('评论发送方式')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('投币厚赏参数')).toHaveValue('1')
-    expect(screen.getByLabelText('拟奏短评参数')).toHaveValue('random')
-    expect(screen.getByLabelText('投币厚赏参数')).toHaveDisplayValue('一枚')
-    expect(screen.getByLabelText('拟奏短评参数')).toHaveDisplayValue('随机')
-    expect(screen.getByLabelText('投币厚赏参数')).toHaveAttribute(
+    expect(screen.queryByRole('combobox', { name: '投币厚赏参数' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: '拟奏短评参数' })).not.toBeInTheDocument()
+
+    const coinSettings = screen.getByRole('group', { name: '投币厚赏参数' })
+    const commentSettings = screen.getByRole('group', { name: '拟奏短评参数' })
+    const singleCoinButton = within(coinSettings).getByRole('button', { name: '一枚' })
+    const doubleCoinButton = within(coinSettings).getByRole('button', { name: '两枚' })
+    const randomCommentButton = within(commentSettings).getByRole('button', { name: '随机' })
+    const chooseCommentButton = within(commentSettings).getByRole('button', { name: '选择' })
+
+    expect(singleCoinButton).toHaveAttribute('aria-pressed', 'true')
+    expect(doubleCoinButton).toHaveAttribute('aria-pressed', 'false')
+    expect(randomCommentButton).toHaveAttribute('aria-pressed', 'true')
+    expect(chooseCommentButton).toHaveAttribute('aria-pressed', 'false')
+    expect(singleCoinButton).toHaveAttribute('title', '默认投 1 枚硬币（再次点击可补投 1 枚）')
+    expect(doubleCoinButton).toHaveAttribute('title', '默认投 2 枚硬币')
+    expect(randomCommentButton).toHaveAttribute('title', '随机生成一条弹幕并直接发送')
+    expect(chooseCommentButton).toHaveAttribute(
       'title',
-      '默认投 1 枚硬币（再点一次可补投 1 枚）'
+      '生成 3 条候选弹幕，选择后发送(也可以复制发评论）'
     )
-    expect(screen.getByLabelText('拟奏短评参数')).toHaveAttribute('title', '随机生成一条并直接发送')
     expect(screen.getByTestId('review-action-coin')).not.toContainElement(
-      screen.getByLabelText('投币厚赏参数')
+      coinSettings
     )
     expect(screen.getByTestId('review-action-comment')).not.toContainElement(
-      screen.getByLabelText('拟奏短评参数')
+      commentSettings
     )
     expect(screen.getByTestId('review-action-coin').parentElement).toBe(
-      screen.getByLabelText('投币厚赏参数').parentElement?.parentElement
+      coinSettings.parentElement
     )
     expect(screen.getByTestId('review-action-comment').parentElement).toBe(
-      screen.getByLabelText('拟奏短评参数').parentElement?.parentElement
+      commentSettings.parentElement
     )
     expect(screen.getByTestId('review-action-coin').parentElement).toHaveClass(
       'memorial-panel__action-card--with-setting'
     )
 
-    fireEvent.change(screen.getByLabelText('投币厚赏参数'), { target: { value: '2' } })
-    fireEvent.change(screen.getByLabelText('拟奏短评参数'), { target: { value: 'choose' } })
+    fireEvent.click(doubleCoinButton)
+    fireEvent.click(chooseCommentButton)
 
     expect(onPreferenceChange).toHaveBeenCalledWith({ defaultCoinCount: 2 })
     expect(onPreferenceChange).toHaveBeenCalledWith({ commentSubmitMode: 'choose' })
