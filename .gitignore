@@ -15,6 +15,16 @@ __pycache__/
 .codex-artifacts/
 /.codex-*
 
+# Local AI collaboration process records; do not publish them with the source.
+AGENTS.md
+docs/requirement-ledgers/
+docs/superpowers/
+docs/discussions/
+docs/task-packets/
+docs/项目功能项目书.md
+docs/项目书简化版.md
+docs/2026-07-07-notes-archive-ui-discussion-plan.md
+
 # Environment files
 .env
 .env.*
