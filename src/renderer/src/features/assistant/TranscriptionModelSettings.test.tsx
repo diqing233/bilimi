@@ -546,6 +546,24 @@ describe('TranscriptionModelSettings', () => {
     expect(onProbeGpu).toHaveBeenCalledTimes(1)
   })
 
+  it('waits until an installed faster-whisper candidate becomes current before claiming GPU detection', () => {
+    const onProbeGpu = vi.fn()
+    render(<TranscriptionModelSettings accountMid="100" selectedModelId="whisper-small"
+      models={[
+        { id: 'whisper-small', bundled: false, installed: true, available: true, version: 'fixed', runtimeFamily: 'whisper.cpp', license: 'MIT', attribution: 'whisper.cpp', downloadBytes: 1, installedBytes: 1 },
+        { id: 'faster-whisper-large-v3', bundled: false, installed: true, available: true, version: 'fixed', runtimeFamily: 'faster-whisper', license: 'MIT', attribution: 'faster-whisper', downloadBytes: 1, installedBytes: 1 }
+      ]}
+      onSelect={vi.fn()} onProbeGpu={onProbeGpu}
+      gpuProbe={{ modelId: 'faster-whisper-large-v3', status: 'cpu-only', reason: '正在检测 NVIDIA GPU…' }} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Whisper small/ }))
+    fireEvent.click(screen.getByRole('option', { name: /faster-whisper large-v3/ }))
+
+    expect(screen.getByText('设为当前模型后检测 GPU。')).toBeInTheDocument()
+    expect(screen.queryByText(/正在检测 NVIDIA GPU/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重新检测 GPU' })).not.toBeInTheDocument()
+  })
+
   it('shows the concrete CPU fallback reason instead of a capability claim', () => {
     render(<TranscriptionModelSettings accountMid="100" selectedModelId="faster-whisper-large-v3-turbo"
       models={[{ id: 'faster-whisper-large-v3-turbo', bundled: false, installed: true, available: true, version: 'fixed', runtimeFamily: 'faster-whisper', license: 'MIT', attribution: 'faster-whisper', downloadBytes: 1, installedBytes: 1 }]}

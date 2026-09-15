@@ -54,6 +54,29 @@ describe('resolveFavoriteOrganizationLamp', () => {
 
     expect(status).toMatchObject({ label: '部分已备册 · 仍待绑定', tone: 'error' })
   })
+
+  it('shows an incomplete cross-device directory as an explicit uncertain state', () => {
+    const status = resolveFavoriteOrganizationLamp({
+      snapshot: null,
+      defaultFavoriteSystemEnabled: true,
+      ledgers: [{ ...defaultLedger, bindingState: 'bound', bilibiliFolderId: 'game-1' }],
+      favoriteLedgerStatus: {
+        ok: false,
+        verified: false,
+        remoteDirectoryState: 'uncertain',
+        ledgers: [{ ...defaultLedger, bindingState: 'bound', bilibiliFolderId: 'game-1' }],
+        missingLedgerIds: [],
+        unboundLedgerIds: [],
+        message: 'B站收藏夹目录暂无法确认，请在收藏夹页刷新后重新核验。'
+      }
+    })
+
+    expect(status).toMatchObject({
+      label: 'B站收藏夹目录暂无法确认',
+      tone: 'error'
+    })
+    expect(status.detail).toContain('B站收藏夹目录暂无法确认，请在收藏夹页刷新后重新核验。')
+  })
   it('projects newly bound first and capacity shards without overwriting local rule edits', () => {
     const projected = reconcileFavoriteLedgerBindingProjection([
       {
@@ -371,21 +394,18 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(saveFunction).toContain('refreshFavoriteOrganizationRelationshipProjection')
   })
 
-  it('invalidates stale favorite status before broadcasting an ordinary backup result', () => {
+  it('publishes the ordinary backup receipt without a second directory refresh', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
     const saveFunction = source.slice(
       source.indexOf('async function saveFavoriteLedgers('),
       source.indexOf('async function openBilibiliFavorites()')
     )
-    const refreshHelper = saveFunction.slice(
-      saveFunction.indexOf('const refreshFavoriteLedgerStatusAfterBackup'),
-      saveFunction.indexOf('const observedRemoteOnlyDrafts')
-    )
     const ordinarySuccessPath = saveFunction.slice(saveFunction.lastIndexOf('await releaseObservedRemoteDraftRediscovery()'))
 
-    expect(refreshHelper).toContain('favoriteLedgerStatusCacheRef.current = null')
-    expect(refreshHelper).toContain('readRemoteFavoriteDiscovery(accountMid, { preserveBoundLedgerIds })')
-    expect(ordinarySuccessPath).toContain('await refreshFavoriteLedgerStatusAfterBackup(preserveBoundLedgerIds)')
+    expect(saveFunction).not.toContain('refreshFavoriteLedgerStatusAfterBackup')
+    expect(ordinarySuccessPath).toContain('const stableStatus: FavoriteLedgerStatus')
+    expect(ordinarySuccessPath).toContain('assistantSnapshotCacheRef.current.favoriteLedgerStatus = stableStatus')
+    expect(ordinarySuccessPath).not.toContain('readRemoteFavoriteDiscovery(accountMid)')
   })
 
   it('clears the rendered account-scoped favorite status before loading a replacement account', () => {
@@ -401,22 +421,17 @@ describe('resolveFavoriteOrganizationLamp', () => {
     expect(accountChangeEffect).toContain('loadSnapshot')
   })
 
-  it('does not await a duplicate status refresh in the backup save path', () => {
+  it('keeps the general directory discovery single-flight for explicit reads only', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
-    const saveFunction = source.slice(
-      source.indexOf('async function saveFavoriteLedgers('),
-      source.indexOf('async function openBilibiliFavorites()')
-    )
-    const refreshHelper = saveFunction.slice(
-      saveFunction.indexOf('const refreshFavoriteLedgerStatusAfterBackup'),
-      saveFunction.indexOf('const observedRemoteOnlyDrafts')
+    const discoveryReader = source.slice(
+      source.indexOf('async function readRemoteFavoriteDiscovery('),
+      source.indexOf('async function preflightFavoriteLedgerStatus(')
     )
 
-    expect(refreshHelper).toContain('favoriteLedgerStatusRefreshPromisesRef')
-    expect(refreshHelper).toContain('readRemoteFavoriteDiscovery(accountMid, { preserveBoundLedgerIds })')
-    expect(refreshHelper).toContain('verified')
-    expect(refreshHelper).not.toContain('return readFavoriteLedgerStatus(accountMid, { force: true })')
-    expect(refreshHelper).not.toContain('.catch(() => undefined)')
+    expect(discoveryReader).toContain('favoriteLedgerRemoteDiscoveryPromisesRef')
+    expect(discoveryReader).toContain('if (existing) return existing')
+    expect(discoveryReader).toContain('readFavoriteLedgerStatus(accountMid, {')
+    expect(discoveryReader).toContain('force: true')
   })
 
   it('rolls back a failed ledger-rule patch only while that mutation is still current', () => {

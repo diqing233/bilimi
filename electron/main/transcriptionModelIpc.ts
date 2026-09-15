@@ -25,6 +25,8 @@ type IpcMainLike = {
   handle: (channel: string, handler: (...args: any[]) => unknown) => void
 }
 
+const DOWNLOAD_ESTIMATE_WINDOW_MS = 750
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }
@@ -51,8 +53,8 @@ export function registerTranscriptionModelIpc({
     const controller = new AbortController()
     controllers.set(id, controller)
     let activeSource: TranscriptionModelInstallProgress['source']
-    let previousReceived = 0
-    let previousAt = Date.now()
+    let estimateSampleReceived = 0
+    let estimateSampleAt = Date.now()
     let smoothedBytesPerSecond: number | undefined
     const updateProgress = (value: TranscriptionModelInstallProgress) => {
       if (value.source) activeSource = value.source
@@ -63,21 +65,26 @@ export function registerTranscriptionModelIpc({
     try {
       await manager.install(id, (receivedBytes, totalBytes) => {
         const now = Date.now()
-        const elapsed = Math.max(1, now - previousAt)
-        const instantBytesPerSecond = Math.max(0, (receivedBytes - previousReceived) * 1000 / elapsed)
-        smoothedBytesPerSecond = smoothedBytesPerSecond === undefined
-          ? instantBytesPerSecond
-          : smoothedBytesPerSecond * 0.7 + instantBytesPerSecond * 0.3
-        previousReceived = receivedBytes
-        previousAt = now
-        const bytesPerSecond = Math.round(smoothedBytesPerSecond)
+        const elapsed = Math.max(0, now - estimateSampleAt)
+        let bytesPerSecond: number | undefined
+        if (elapsed >= DOWNLOAD_ESTIMATE_WINDOW_MS) {
+          const windowBytesPerSecond = Math.max(0, (receivedBytes - estimateSampleReceived) * 1000 / Math.max(1, elapsed))
+          smoothedBytesPerSecond = smoothedBytesPerSecond === undefined
+            ? windowBytesPerSecond
+            : smoothedBytesPerSecond * 0.7 + windowBytesPerSecond * 0.3
+          estimateSampleReceived = receivedBytes
+          estimateSampleAt = now
+          bytesPerSecond = Math.round(smoothedBytesPerSecond)
+        } else if (smoothedBytesPerSecond !== undefined) {
+          bytesPerSecond = Math.round(smoothedBytesPerSecond)
+        }
         updateProgress({
           id,
           stage: 'downloading',
           receivedBytes,
           totalBytes,
           percentage: totalBytes > 0 ? Math.min(100, Math.round(receivedBytes / totalBytes * 100)) : undefined,
-          ...(bytesPerSecond > 0 ? {
+          ...(bytesPerSecond && bytesPerSecond > 0 ? {
             bytesPerSecond,
             etaSeconds: totalBytes > receivedBytes ? Math.ceil((totalBytes - receivedBytes) / bytesPerSecond) : undefined
           } : {})

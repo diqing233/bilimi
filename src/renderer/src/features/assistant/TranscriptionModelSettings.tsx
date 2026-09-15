@@ -160,10 +160,12 @@ export function TranscriptionModelSettings({ accountMid, selectedModelId, models
     }}><span>{LABELS[candidate]}{currentSuffix(candidate)}</span><svg className="assistant-settings__transcription-model-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
     {menuOpen ? createPortal(<div {...menuScope} ref={menuRef} className="assistant-settings__transcription-model-menu" style={{ ...(menuPosition ?? { top: 8, left: 8, maxHeight: 360 }), boxSizing: 'border-box' }} role="listbox" aria-label="转写模型选项" tabIndex={-1}>{installedModels.length ? <div role="group" aria-label="已安装"><strong>已安装</strong>{installedModels.map(renderOption)}</div> : null}{downloadableModels.length ? <div role="group" aria-label="可下载"><strong>可下载</strong>{downloadableModels.map(renderOption)}</div> : null}</div>, document.body) : null}
     {selected?.runtimeFamily === 'faster-whisper' && selected.installed ? <div className="assistant-settings__transcription-gpu-status">
-      <p aria-live="polite">{gpuProbe?.status === 'available'
-        ? `GPU 加速已就绪 · ${gpuProbe.gpuName} · CUDA ${gpuProbe.computeType}`
-        : `当前使用 CPU · ${gpuProbe?.reason ?? '正在检测 NVIDIA GPU…'}`}</p>
-      {onProbeGpu ? <button type="button" className="assistant-settings__transcription-model-action" onClick={onProbeGpu}>重新检测 GPU</button> : null}
+      {candidate === selectedModelId ? <>
+        <p aria-live="polite">{gpuProbe?.status === 'available'
+          ? `GPU 加速已就绪 · ${gpuProbe.gpuName} · CUDA ${gpuProbe.computeType}`
+          : `当前使用 CPU · ${gpuProbe?.reason ?? '正在检测 NVIDIA GPU…'}`}</p>
+        {onProbeGpu ? <button type="button" className="assistant-settings__transcription-model-action" onClick={onProbeGpu}>重新检测 GPU</button> : null}
+      </> : <p>设为当前模型后检测 GPU。</p>}
     </div> : null}
     {downloadActive ? <div className="assistant-settings__transcription-model-download" aria-live="polite">
       <p role="status" className="assistant-settings__transcription-model-progress">{INSTALL_STAGE_LABELS[selectedProgress.stage]}{selectedProgress.stage === 'downloading-part' && selectedProgress.partIndex && selectedProgress.partCount ? `分片 ${selectedProgress.partIndex}/${selectedProgress.partCount}` : selectedProgress.percentage !== undefined ? ` · ${selectedProgress.percentage}%` : ''}</p>

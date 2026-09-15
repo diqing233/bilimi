@@ -470,6 +470,27 @@ describe('FavoriteLedgerOverview', () => {
       .querySelector('.favorite-ledger-panel__binding-status')).toHaveTextContent('已备册')
   })
 
+  it('shows an uncertain B站 directory as neither backed up nor unbound', () => {
+    render(<FavoriteLedgerOverview
+      ledgers={[{
+        id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10,
+        bindingState: 'bound', bilibiliFolderId: 'remote-music', isDefault: false
+      }]}
+      missingLedgerIds={[]}
+      remoteDirectoryState="uncertain"
+      onSaveLedgers={vi.fn()}
+    />)
+
+    const chip = screen.getByTestId('favorite-ledger-chip-music')
+    expect(chip).toHaveTextContent('B站收藏夹目录暂无法确认')
+    expect(chip).not.toHaveTextContent('已备册')
+    expect(chip).not.toHaveTextContent('未绑定')
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    expect(screen.getByRole('region', { name: '当前收藏夹' })
+      .querySelector('.favorite-ledger-panel__binding-status')).toHaveTextContent('B站收藏夹目录暂无法确认')
+  })
+
   it('shows the remote-only binding reminder beside the editor status with one dismissal action', () => {
     const onDismiss = vi.fn()
     render(<FavoriteLedgerOverview ledgers={[{

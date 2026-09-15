@@ -45,6 +45,8 @@ type FavoriteLedgerOverviewProps = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
   unboundLedgerIds?: string[]
+  /** The latest B站 directory observation was incomplete; do not imply a binding fact. */
+  remoteDirectoryState?: 'verified' | 'uncertain'
   remoteOnlyDraftLedgerIds?: string[]
   /** Read-only observations triggered by a manual B站收藏夹 mutation. */
   observedRemoteObservations?: readonly RemoteFavoriteLedgerObservation[]
@@ -348,7 +350,7 @@ export function preserveFavoriteLedgerOrder(
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ currentAccountMid, localFavoriteToggleAccountMid, ledgers, missingLedgerIds, unboundLedgerIds = [], remoteOnlyDraftLedgerIds = [], observedRemoteObservations = [], observedBoundRenameCandidates = [], remoteDiscoveryNoticeDismissed = false, onDismissRemoteDiscoveryNotice, onDismissRemoteDraftReminder, backupPreparationLedgerIds = [], organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onRemoteDraftDeleted, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
+export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ currentAccountMid, localFavoriteToggleAccountMid, ledgers, missingLedgerIds, unboundLedgerIds = [], remoteDirectoryState, remoteOnlyDraftLedgerIds = [], observedRemoteObservations = [], observedBoundRenameCandidates = [], remoteDiscoveryNoticeDismissed = false, onDismissRemoteDiscoveryNotice, onDismissRemoteDraftReminder, backupPreparationLedgerIds = [], organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onRemoteDraftDeleted, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
@@ -361,6 +363,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   const [confirmedUnbackedLedgerIds, setConfirmedUnbackedLedgerIds] = useState<ReadonlySet<string>>(() => new Set())
   const shouldHideUnboundNotice = (ledgerId: string) => backupPreparationLedgerIds.includes(ledgerId) || backupInFlightLedgerIds.has(ledgerId)
   const bindingLabelForLedger = (ledger: FavoriteLedger) => {
+    if (remoteDirectoryState === 'uncertain' && ledger.bindingState === 'bound') {
+      return 'B站收藏夹目录暂无法确认'
+    }
     const label = ledger.pendingRemoteBindingCreatedByBackup
       ? '已创建 · 待正式确认'
       : confirmedUnbackedLedgerIds.has(ledger.id)
@@ -368,7 +373,9 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
         : favoriteLedgerBackupStateLabel(ledger, { missingLedgerIds, unboundLedgerIds })
     return label === '未绑定' && shouldHideUnboundNotice(ledger.id) ? '' : label
   }
-  const bindingStateForLedger = (ledger: FavoriteLedger, label: string) => label.includes('未保存')
+  const bindingStateForLedger = (ledger: FavoriteLedger, label: string) => label.includes('暂无法确认')
+    ? 'uncertain'
+    : label.includes('未保存')
     ? 'local-draft'
     : label.includes('未备册')
       ? 'unbacked'

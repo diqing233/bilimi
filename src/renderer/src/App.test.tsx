@@ -4421,7 +4421,7 @@ describe('App runtime integration', () => {
     expect(adoptFavoriteRepositoryLedgerBinding).toHaveBeenNthCalledWith(2, accountMid, expect.objectContaining({
       remoteFolderId: '88', shardNumber: 1
     }))
-    expect(executeJavaScript.mock.calls.filter(([script]) => isLedgerStatusScript(String(script)))).toHaveLength(1)
+    expect(executeJavaScript.mock.calls.filter(([script]) => isLedgerStatusScript(String(script)))).toHaveLength(0)
   })
 
   it('registers manual circled rebind shards with their shared physical numbers', async () => {
@@ -4806,7 +4806,7 @@ describe('App runtime integration', () => {
     expect(executeJavaScript.mock.calls.filter(([script]) =>
       typeof script === 'string' && script.includes('已绑定收藏夹改名预检')
     )).toHaveLength(1)
-    expect(openFavoriteRepositoryAccount).toHaveBeenCalledTimes(2)
+    expect(openFavoriteRepositoryAccount).toHaveBeenCalledTimes(1)
   })
 
   it('returns a no-write confirmation preflight before renaming a title-different formal bound shard', async () => {
@@ -5964,7 +5964,7 @@ describe('App runtime integration', () => {
     ]))
   })
 
-  it('releases remote-draft rediscovery only after an explicit successful backup and then forces a status check', async () => {
+  it('releases remote-draft rediscovery after an explicit successful backup without a second status scan', async () => {
     const accountMid = '100'
     const game = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')!
     const consumeFavoriteLedgerRemoteDraftRediscoveryPending = vi.fn().mockResolvedValue(['88'])
@@ -6005,7 +6005,7 @@ describe('App runtime integration', () => {
     })).resolves.toMatchObject({ ok: true })
 
     expect(consumeFavoriteLedgerRemoteDraftRediscoveryPending).toHaveBeenCalledWith(accountMid)
-    expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && isLedgerStatusScript(script))).toHaveLength(1)
+    expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && isLedgerStatusScript(script))).toHaveLength(0)
   })
 
   it('does not release remote-draft rediscovery when the backup fails before observing any remote-only draft', async () => {
@@ -6067,7 +6067,7 @@ describe('App runtime integration', () => {
     })).resolves.toMatchObject({ ok: false, remoteOnlyDraftLedgerIds: [] })
 
     expect(consumeFavoriteLedgerRemoteDraftRediscoveryPending).toHaveBeenCalledWith(accountMid)
-    expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && isLedgerStatusScript(script))).toHaveLength(1)
+    expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && isLedgerStatusScript(script))).toHaveLength(0)
   })
 
   it('releases remote-draft rediscovery after an observed draft survives a binding-registration failure', async () => {
@@ -6106,7 +6106,7 @@ describe('App runtime integration', () => {
     })).resolves.toMatchObject({ ok: false, unboundLedgerIds: [game.id] })
 
     expect(consumeFavoriteLedgerRemoteDraftRediscoveryPending).toHaveBeenCalledWith(accountMid)
-    expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && isLedgerStatusScript(script))).toHaveLength(1)
+    expect(executeJavaScript.mock.calls.filter(([script]) => typeof script === 'string' && isLedgerStatusScript(script))).toHaveLength(0)
   })
 
   it('keeps locally deleted remote drafts out of ordinary status reads until an explicit backup releases them', async () => {
@@ -7316,7 +7316,7 @@ describe('App runtime integration', () => {
         ledgers: expect.not.arrayContaining([expect.objectContaining({ id: remoteDraft.id })])
       }
     })
-    expect(statusReadCount).toBe(2)
+    expect(statusReadCount).toBe(1)
   })
 
   it('reuses a recent read-only ledger status instead of rerunning the page script for repeated snapshots', async () => {
@@ -7359,7 +7359,7 @@ describe('App runtime integration', () => {
     expect(executeJavaScript.mock.calls.filter(([script]) => isLedgerStatusScript(String(script)))).toHaveLength(0)
   })
 
-  it('invalidates the recent status cache when the local repository revision changes', async () => {
+  it('does not re-read the Bilibili directory from an ordinary snapshot when only the local repository revision changes', async () => {
     const accountMid = '100'
     const ledgers = createDefaultFavoriteLedgers().slice(0, 1)
     let revision = 1
@@ -7386,11 +7386,12 @@ describe('App runtime integration', () => {
     Object.assign(webview, { executeJavaScript })
 
     await requestRuntime({ id: 'revision-status-1', type: 'snapshot' })
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalled())
     executeJavaScript.mockClear()
     revision = 2
     await requestRuntime({ id: 'revision-status-2', type: 'snapshot' })
 
-    expect(executeJavaScript.mock.calls.filter(([script]) => isLedgerStatusScript(String(script)))).toHaveLength(1)
+    expect(executeJavaScript.mock.calls.filter(([script]) => isLedgerStatusScript(String(script)))).toHaveLength(0)
   })
 
   it('shares an in-flight backup for concurrent requests from the same account', async () => {

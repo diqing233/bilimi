@@ -26,6 +26,7 @@ type ControlledFavoriteLedgerPanelProps = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
   unboundLedgerIds?: string[]
+  remoteDirectoryState?: 'verified' | 'uncertain'
   remoteOnlyDraftLedgerIds?: string[]
   observedRemoteObservations?: readonly RemoteFavoriteLedgerObservation[]
   observedBoundRenameCandidates?: readonly FavoriteLedgerBoundRenameCandidate[]
@@ -216,6 +217,7 @@ export function ControlledFavoriteLedgerPanel({
   ledgers,
   missingLedgerIds,
   unboundLedgerIds,
+  remoteDirectoryState,
   remoteOnlyDraftLedgerIds = [],
   observedRemoteObservations,
   observedBoundRenameCandidates,
@@ -1490,6 +1492,7 @@ export function ControlledFavoriteLedgerPanel({
         ledgers={displayedLedgers}
         missingLedgerIds={missingLedgerIds}
         unboundLedgerIds={unboundLedgerIds}
+        remoteDirectoryState={remoteDirectoryState}
         remoteOnlyDraftLedgerIds={remoteOnlyDraftLedgerIds}
         observedRemoteObservations={observedRemoteObservations}
         observedBoundRenameCandidates={observedBoundRenameCandidates}

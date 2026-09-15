@@ -5314,6 +5314,7 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__binding-status[data-binding-state="unbacked"] { color: #c45454; }
 .favorite-ledger-panel__binding-status[data-binding-state="unbound"] { color: #9f3d3d; }
 .favorite-ledger-panel__binding-status[data-binding-state="partial"] { color: #9f3d3d; }
+.favorite-ledger-panel__binding-status[data-binding-state="uncertain"] { color: #9b6a17; }
 .favorite-ledger-panel__chip-item .favorite-ledger-panel__binding-status { margin-left: 0; }
 .favorite-ledger-panel__chip-action {
   min-width: 28px;

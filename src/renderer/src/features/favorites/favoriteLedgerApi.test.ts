@@ -1294,6 +1294,75 @@ describe('favorite ledger API scripts', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it('keeps formal bindings unchanged when a directory suddenly omits every bound folder', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 99, title: '普通收藏夹', media_count: 1 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const ledgers: FavoriteLedger[] = [
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 1, isDefault: false, bindingState: 'bound', bilibiliFolderId: '11', bilibiliFolderIds: ['11'] },
+      { id: 'game', displayName: 'bilimi·游戏', keywords: [], enabled: true, priority: 2, isDefault: false, bindingState: 'bound', bilibiliFolderId: '12', bilibiliFolderIds: ['12'] }
+    ]
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript(ledgers)) as {
+      ok: boolean
+      verified: boolean
+      remoteDirectoryState?: string
+      ledgers: FavoriteLedger[]
+      missingLedgerIds: string[]
+      unboundLedgerIds: string[]
+    }
+
+    expect(result).toMatchObject({
+      ok: false,
+      verified: false,
+      remoteDirectoryState: 'uncertain',
+      missingLedgerIds: [],
+      unboundLedgerIds: []
+    })
+    expect(result.ledgers).toEqual(ledgers)
+  })
+
+  it('marks every missing formal binding unbound after the user explicitly confirms the refreshed directory', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 99, title: '普通收藏夹', media_count: 1 }] } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const ledgers: FavoriteLedger[] = [
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 1, isDefault: false, bindingState: 'bound', bilibiliFolderId: '11', bilibiliFolderIds: ['11'] },
+      { id: 'game', displayName: 'bilimi·游戏', keywords: [], enabled: true, priority: 2, isDefault: false, bindingState: 'bound', bilibiliFolderId: '12', bilibiliFolderIds: ['12'] }
+    ]
+
+    const result = await window.eval(buildFavoriteLedgerStatusScript(ledgers, [], [], [], true, true)) as {
+      ok: boolean
+      verified: boolean
+      remoteDirectoryState?: string
+      ledgers: FavoriteLedger[]
+      missingLedgerIds: string[]
+      unboundLedgerIds: string[]
+    }
+
+    expect(result).toMatchObject({
+      ok: false,
+      verified: true,
+      remoteDirectoryState: 'verified',
+      missingLedgerIds: ['music', 'game'],
+      unboundLedgerIds: ['music', 'game']
+    })
+    expect(result.ledgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'music', bindingState: 'unbound' }),
+      expect.objectContaining({ id: 'game', bindingState: 'unbound' })
+    ]))
+  })
+
   it('does not mark an enabled unbacked ledger as a successful status', async () => {
     installCookies()
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

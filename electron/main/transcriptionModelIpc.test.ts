@@ -59,7 +59,7 @@ describe('transcription model IPC', () => {
       .rejects.toThrow('Another transcription model download is already running.')
   })
 
-  it('publishes a conservative smoothed speed and ETA only after receiving download bytes', async () => {
+  it('keeps byte progress live but updates the speed and ETA only after a stable sampling window', async () => {
     const ipcMain = createIpcMain()
     const send = vi.fn()
     let reportProgress: ((received: number, total: number) => void) | undefined
@@ -70,16 +70,35 @@ describe('transcription model IPC', () => {
     }
     registerTranscriptionModelIpc({ ipcMain, manager, send })
 
-    void ipcMain.handlers.get('video-audio:transcription-model-install')?.({ sender: { id: 7 } }, model.id)
-    await vi.waitFor(() => expect(reportProgress).toBeTypeOf('function'))
-    reportProgress?.(50, 100)
+    let now = 0
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      void ipcMain.handlers.get('video-audio:transcription-model-install')?.({ sender: { id: 7 } }, model.id)
+      await vi.waitFor(() => expect(reportProgress).toBeTypeOf('function'))
 
-    expect(send).toHaveBeenLastCalledWith(7, 'video-audio:transcription-model-progress', expect.objectContaining({
-      receivedBytes: 50,
-      totalBytes: 100,
-      bytesPerSecond: expect.any(Number),
-      etaSeconds: expect.any(Number)
-    }))
+      now = 100
+      reportProgress?.(10, 100)
+      now = 200
+      reportProgress?.(25, 100)
+      const earlyProgress = send.mock.calls.filter(([, channel, value]) =>
+        channel === 'video-audio:transcription-model-progress' && value.stage === 'downloading'
+      )
+      expect(earlyProgress.at(-1)?.[2]).toMatchObject({ receivedBytes: 25, totalBytes: 100 })
+      expect(earlyProgress.at(-1)?.[2]).not.toHaveProperty('bytesPerSecond')
+
+      now = 800
+      reportProgress?.(80, 100)
+      now = 850
+      reportProgress?.(90, 100)
+      const progress = send.mock.calls
+        .filter(([, channel, value]) => channel === 'video-audio:transcription-model-progress' && value.stage === 'downloading')
+        .map(([, , value]) => value)
+
+      expect(progress.at(-2)).toMatchObject({ receivedBytes: 80, totalBytes: 100, bytesPerSecond: 100, etaSeconds: 1 })
+      expect(progress.at(-1)).toMatchObject({ receivedBytes: 90, totalBytes: 100, bytesPerSecond: 100, etaSeconds: 1 })
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   it('passes an explicit restart request to the manager without changing normal installs', async () => {

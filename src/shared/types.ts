@@ -304,6 +304,8 @@ export type FavoriteLedgerStatus = {
   ok: boolean
   /** Whether the current status was read successfully; `ok` may still be false for unrelated ledger gaps. */
   verified?: boolean
+  /** A structurally valid Bilibili directory can still be incomplete during cross-device propagation. */
+  remoteDirectoryState?: 'verified' | 'uncertain'
   ledgers: FavoriteLedger[]
   missingLedgerIds: FavoriteLedgerId[]
   unboundLedgerIds?: FavoriteLedgerId[]

@@ -478,14 +478,16 @@ export function buildFavoriteLedgerStatusScript(
   dismissedRemoteFolderIds: string[] = [],
   remoteDraftKnownFolderIds: string[] = [],
   remoteDraftBoundFolderIds: string[] = [],
-  includeRemoteOnlyDrafts = true
+  includeRemoteOnlyDrafts = true,
+  acceptCompleteBoundDirectoryLoss = false
 ): string {
   const payload = scriptPayload({
     ledgers: normalizeLedgerPayload(ledgers),
     dismissedRemoteFolderIds,
     remoteDraftKnownFolderIds,
     remoteDraftBoundFolderIds,
-    includeRemoteOnlyDrafts
+    includeRemoteOnlyDrafts,
+    acceptCompleteBoundDirectoryLoss
   })
 
   return `
@@ -500,6 +502,36 @@ export function buildFavoriteLedgerStatusScript(
       const response = await fetchFreshFavoriteFolderList(mid);
       const json = await ensureApiOk(response, 'favorite folder list');
       const folders = readFavoriteFolderList(json);
+      const formalBoundFolderIds = new Set(payload.ledgers
+        .filter((ledger) => ledger?.bindingState === 'bound' && !ledger?.managedFolderDeletedByUser)
+        .flatMap((ledger) => ledgerRemoteFolderIds(ledger)));
+      const observedFolderIds = new Set(folders
+        .map((folder) => String(findFolderId(folder) || '').trim())
+        .filter(Boolean));
+      const missingFormalBoundFolderIds = [...formalBoundFolderIds]
+        .filter((folderId) => !observedFolderIds.has(folderId));
+      // The current device can temporarily receive an empty/incomplete
+      // directory while another signed-in device still sees the folders. A
+      // structurally valid response is not sufficient evidence to erase every
+      // formal binding at once; keep the durable binding untouched and wait for
+      // an explicitly initiated later verification.
+      if (formalBoundFolderIds.size > 0 &&
+        missingFormalBoundFolderIds.length === formalBoundFolderIds.size &&
+        payload.acceptCompleteBoundDirectoryLoss !== true) {
+        return {
+          ok: false,
+          verified: false,
+          remoteDirectoryState: 'uncertain',
+          ledgers: payload.ledgers,
+          missingLedgerIds: [],
+          backupConflictLedgerIds: [],
+          unboundLedgerIds: [],
+          unboundCandidates: [],
+          remoteOnlyDraftLedgerIds: [],
+          remoteObservations: [],
+          message: 'B站收藏夹目录暂无法确认，请在收藏夹页刷新后重新核验。'
+        };
+      }
       const synchronizedLedgers = syncLedgerFolderIds(payload.ledgers, folders);
       const discoveredRemoteDraftProjection = projectRemoteOnlyDrafts(
         synchronizedLedgers,
@@ -514,7 +546,19 @@ export function buildFavoriteLedgerStatusScript(
           ? discoveredRemoteDraftProjection.remoteObservations
           : []
       };
-      const nextLedgers = remoteDraftProjection.ledgers;
+      let nextLedgers = remoteDraftProjection.ledgers;
+      if (payload.acceptCompleteBoundDirectoryLoss === true &&
+        formalBoundFolderIds.size > 0 &&
+        missingFormalBoundFolderIds.length === formalBoundFolderIds.size) {
+        const missingFormalBoundFolderIdSet = new Set(missingFormalBoundFolderIds);
+        nextLedgers = nextLedgers.map((ledger) => {
+          const sourceLedger = payload.ledgers.find((candidate) => candidate?.id === ledger?.id);
+          if (sourceLedger?.bindingState !== 'bound') return ledger;
+          const sourceFolderIds = ledgerRemoteFolderIds(sourceLedger);
+          if (!sourceFolderIds.length || !sourceFolderIds.every((folderId) => missingFormalBoundFolderIdSet.has(folderId))) return ledger;
+          return { ...ledger, bindingState: 'unbound' };
+        });
+      }
       const remoteOnlyDraftLedgerIds = remoteDraftProjection.remoteOnlyDraftLedgerIds;
       const unboundLedgerIds = nextLedgers
         .filter((ledger) => ledger.enabled && !isPureRemoteObservationDraft(ledger) && ledger.bindingState === 'unbound' && !ledger.pendingRemoteBindingCreatedByBackup)
@@ -527,6 +571,7 @@ export function buildFavoriteLedgerStatusScript(
       return {
         ok: unboundLedgerIds.length === 0 && missingLedgerIds.length === 0,
         verified: true,
+        remoteDirectoryState: 'verified',
         ledgers: nextLedgers,
         missingLedgerIds,
         backupConflictLedgerIds: [],

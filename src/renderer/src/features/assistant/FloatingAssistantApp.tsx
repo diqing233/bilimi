@@ -921,6 +921,13 @@ export function resolveFavoriteOrganizationLamp(args: {
     args.defaultFavoriteSystemEnabled
   )
   const organizationStatus = favoriteOrganizationStatus(args.snapshot, args.defaultFavoriteSystemEnabled, summary)
+  if (args.favoriteLedgerStatus?.remoteDirectoryState === 'uncertain') {
+    return {
+      label: 'B站收藏夹目录暂无法确认',
+      detail: detail('B站收藏夹目录暂无法确认，请在收藏夹页刷新后重新核验。'),
+      tone: 'error'
+    }
+  }
   if (args.snapshot?.status === 'completed' && args.snapshot.workspaceId === args.acknowledgedWorkspaceId) {
     if (organizationStatus?.label === '整理完成，待备册') return organizationStatus
     return {
@@ -5648,6 +5655,7 @@ export function FloatingAssistantApp({
             ledgers={activeFavoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
             unboundLedgerIds={favoriteLedgerStatus?.unboundLedgerIds ?? EMPTY_MISSING_LEDGER_IDS}
+            remoteDirectoryState={favoriteLedgerStatus?.remoteDirectoryState}
             remoteOnlyDraftLedgerIds={editorRemoteOnlyDraftLedgerIds}
             observedRemoteObservations={favoriteLedgerStatus?.remoteObservations}
             observedBoundRenameCandidates={favoriteLedgerStatus?.boundRenameCandidates}
