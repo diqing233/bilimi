@@ -3915,6 +3915,15 @@ body[data-floating-window="true"],
   font-size: 15px;
   line-height: 1.35;
 }
+.video-notes__summary-document-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--porcelain-deep);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
 .video-notes__summary-result pre {
   max-width: 100%;
   overflow-x: hidden;
@@ -3924,25 +3933,57 @@ body[data-floating-window="true"],
   margin: 0;
 }
 .video-notes__summary-subtitle {
+  margin: 0;
   color: var(--porcelain-muted);
   line-height: 1.55;
 }
+.video-notes__summary-paragraph {
+  margin: 0;
+  color: var(--porcelain-text);
+  line-height: 1.55;
+}
+.video-notes__summary-points,
+.video-notes__summary-outline {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .video-notes__summary-points {
   display: grid;
-  gap: 5px;
+  gap: 9px;
   padding-left: 18px;
-  line-height: 1.55;
+  margin: 0;
+  line-height: 1.62;
+}
+.video-notes__summary-outline {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.65;
 }
 .video-notes__summary-section {
   display: grid;
-  gap: 5px;
+  gap: 8px;
   min-width: 0;
   border-top: 1px dashed rgba(31, 99, 181, 0.18);
-  padding-top: 8px;
+  padding-top: 10px;
 }
-.video-notes__summary-section pre {
+.video-notes__summary-section--precise {
+  border-top: 0;
+  padding-top: 0;
+}
+.video-notes__summary-result h4,
+.video-notes__summary-points li,
+.video-notes__summary-outline li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.video-notes__summary-section pre,
+.video-notes__summary-raw-text {
   max-height: 220px;
-  overflow: auto;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 0;
@@ -3960,7 +4001,9 @@ body[data-floating-window="true"],
 }
 .video-notes__result-body {
   max-height: min(52vh, 520px);
-  overflow: auto;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   border-top: 1px dashed rgba(31, 99, 181, 0.18);
   background: transparent;
   padding: 8px 0 0;
@@ -4632,7 +4675,8 @@ body[data-floating-window="true"],
 .video-note-archive__result-panel .video-notes__result-body {
   min-height: 240px;
   max-height: none;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   border-top: 0;
   padding-top: 0;
 }

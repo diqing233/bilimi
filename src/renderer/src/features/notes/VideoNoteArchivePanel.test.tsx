@@ -169,6 +169,27 @@ describe('VideoNoteArchivePanel', () => {
     expect(screen.queryByLabelText('批注正文')).not.toBeInTheDocument()
   })
 
+  it('keeps archived DeepSeek outline entries in a separately spaced reading list', () => {
+    const archivedSummaryText = [
+      '## 精准总结', '', '### 机器学习入门', '数据质量决定模型上限。', '',
+      '- 训练数据需要覆盖典型样本。', '- 结论需要结合实际场景。', '',
+      '## 详细内容提要', '',
+      '- 先说明训练数据的作用。', '- 再对比不同样本的结果。', '',
+      '## 精修文稿', '', '第一段。', '', '第二段。'
+    ].join('\n')
+    const archives = appendVideoNoteArchiveVersion([], createNote(), '2026-06-17T00:00:00.000Z', archivedSummaryText)
+    renderArchivePanel({ archives })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+
+    expect(screen.getByRole('list', { name: '精准总结要点' })).toHaveClass('video-notes__summary-points')
+    expect(screen.getByRole('list', { name: '详细内容提要' })).toHaveClass('video-notes__summary-outline')
+    expect(screen.getByText((_, element) =>
+      element?.tagName === 'PRE' && element.textContent === '第一段。\n\n第二段。'
+    )).toHaveClass('video-notes__summary-polished-text')
+  })
+
   it('shows archive detail below the list only after a video is selected', () => {
     renderArchivePanel()
 

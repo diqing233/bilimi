@@ -16,6 +16,7 @@ import { CopySplitButton, ExportButton, type DownloadFormat } from './CopySplitB
 import { formatDeepSeekErrorMessage } from '../assistant/deepSeekErrorMessage'
 import { formatUserVisibleErrorMessage } from '../assistant/userVisibleErrorMessage'
 import { VideoNoteBatchExportDialog } from './VideoNoteBatchExportDialog'
+import { DeepSeekSummaryDocument } from './DeepSeekSummaryDocument'
 import { LocalMemoEditor } from './LocalMemoEditor'
 import { useExclusiveMenu } from '../../components/useExclusiveMenu'
 import { BilimiModal } from '../../components/BilimiModal'
@@ -102,15 +103,6 @@ function createTimedTranscriptText(note: VideoNote): string {
     .map((segment) => `[${formatTimestamp(segment.start)}] ${segment.text.trim()}`)
     .filter((line) => line.trim().length > 0)
     .join('\n\n')
-}
-
-function extractMarkdownHeading(text: string): string {
-  const lines = text.split('\n').map((line) => line.trim())
-  return (
-    lines.find((line) => /^###\s+/.test(line))?.replace(/^###\s+/, '').trim() ??
-    lines.find((line) => /^##\s+/.test(line))?.replace(/^##\s+/, '').trim() ??
-    ''
-  )
 }
 
 function archivesForPanelAccount(archives: VideoNoteArchiveEntry[], accountMid: string | undefined) {
@@ -620,12 +612,7 @@ export function VideoNoteArchivePanel({
             </div>
           ) : activeResultTab === 'summary' ? (
             version.summaryText ? (
-              <>
-                {extractMarkdownHeading(version.summaryText) ? (
-                  <h4>{extractMarkdownHeading(version.summaryText)}</h4>
-                ) : null}
-                <pre>{copyTextValue}</pre>
-              </>
+              <DeepSeekSummaryDocument summaryText={copyTextValue} />
             ) : deepSeekEnabled ? (
               <p>
                 <span>暂无 DeepSeek 总结。</span>

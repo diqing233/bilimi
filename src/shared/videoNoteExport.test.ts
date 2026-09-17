@@ -50,6 +50,13 @@ function createArchive(): VideoNoteArchiveEntry {
   }
 }
 
+function wordParagraphContaining(xml: string, text: string): string {
+  const textIndex = xml.indexOf(text)
+  const paragraphStart = xml.lastIndexOf('<w:p>', textIndex)
+  const paragraphEnd = xml.indexOf('</w:p>', textIndex)
+  return textIndex < 0 || paragraphStart < 0 || paragraphEnd < 0 ? '' : xml.slice(paragraphStart, paragraphEnd + '</w:p>'.length)
+}
+
 describe('video note Markdown export', () => {
   it('exports current saved content with a floored Bilibili timestamp link', () => {
     const archive = createArchive()
@@ -106,7 +113,7 @@ describe('video note Markdown export', () => {
   it('exports each DeepSeek section as an independent current item and can append notes', () => {
     const archive = createArchive()
     archive.versions[0].summaryText = [
-      '## 精准总结', '', '一句精准总结。', '',
+      '## 精准总结', '', '一句精准总结。', '- 第一项精准要点。', '- 第二项精准要点。', '',
       '## 详细内容提要', '', '- 第一项细节。', '',
       '## 精修文稿', '', '自然分段的精修文稿。'
     ].join('\n')
@@ -121,6 +128,41 @@ describe('video note Markdown export', () => {
     expect(outline).not.toContain('自然分段的精修文稿。')
     expect(polished).toContain('自然分段的精修文稿。')
     expect(polished).toContain('Private memo')
+  })
+
+  it('keeps precise and detailed-summary items visually separated in Markdown exports without changing the saved summary', () => {
+    const archive = createArchive()
+    archive.versions[0].summaryText = [
+      '## 精准总结', '', '一句精准总结。', '- 第一项精准要点。', '- 第二项精准要点。', '',
+      '## 详细内容提要', '', '- 第一项细节。', '- 第二项细节。', '',
+      '## 精修文稿', '', '第一段精修。', '', '第二段精修。'
+    ].join('\n')
+
+    const markdown = createVideoNoteMarkdown({
+      archive,
+      version: archive.versions[0],
+      scope: 'current',
+      currentContent: 'summary'
+    })
+    const outline = createVideoNoteMarkdown({
+      archive,
+      version: archive.versions[0],
+      scope: 'current',
+      currentContent: 'summary-outline'
+    })
+    const precise = createVideoNoteMarkdown({
+      archive,
+      version: archive.versions[0],
+      scope: 'current',
+      currentContent: 'summary-precise'
+    })
+
+    expect(markdown).toContain('- 第一项精准要点。\n\n- 第二项精准要点。')
+    expect(precise).toContain('- 第一项精准要点。\n\n- 第二项精准要点。')
+    expect(markdown).toContain('- 第一项细节。\n\n- 第二项细节。')
+    expect(outline).toContain('- 第一项细节。\n\n- 第二项细节。')
+    expect(markdown).toContain('第一段精修。\n\n第二段精修。')
+    expect(archive.versions[0].summaryText).toContain('- 第一项细节。\n- 第二项细节。')
   })
 })
 
@@ -138,5 +180,119 @@ describe('video note Word export', () => {
     expect(xml).toContain('\u6682\u65e0\u751f\u6210')
     expect(xml).not.toContain('Private memo')
     expect(xml).not.toContain('Private note')
+  })
+
+  it('uses compact left-aligned metadata and dark summary headings instead of WPS theme defaults', async () => {
+    const archive = createArchive()
+    archive.source.author = ' Author '
+    archive.versions[0].summaryText = [
+      '## 精准总结', '', '一句精准总结。', '',
+      '## 详细内容提要', '', '- 第一项细节。'
+    ].join('\n')
+
+    const document = createVideoNoteWord({
+      archive,
+      version: archive.versions[0],
+      scope: 'current',
+      currentContent: 'summary'
+    })
+    const buffer = await Packer.toBuffer(document)
+    const zip = await JSZip.loadAsync(buffer)
+    const xml = await zip.file('word/document.xml')?.async('string') ?? ''
+    const sourceMetadata = wordParagraphContaining(xml, 'UP:Author')
+    const preciseHeading = wordParagraphContaining(xml, '精准总结')
+
+    expect(sourceMetadata).not.toContain('UP: Author')
+    expect(sourceMetadata).toContain('UP:Author')
+    expect(sourceMetadata).toContain('<w:autoSpaceDE w:val="false"/>')
+    expect(sourceMetadata).toContain('<w:jc w:val="left"/>')
+    expect(sourceMetadata).toMatch(/<w:spacing\b[^>]*w:before="0"[^>]*w:after="0"[^>]*w:line="276"[^>]*\/>/)
+    expect(preciseHeading).toContain('<w:pStyle w:val="Heading2"/>')
+    expect(preciseHeading).toContain('<w:jc w:val="left"/>')
+    expect(preciseHeading).toContain('<w:color w:val="263446"/>')
+    expect(preciseHeading).toMatch(/<w:spacing\b[^>]*w:before="360"[^>]*\/>/)
+    const titleParagraph = wordParagraphContaining(xml, archive.source.title)
+    expect(titleParagraph).toMatch(/<w:r><w:rPr>[\s\S]*?<w:sz w:val="32"\/>[\s\S]*?<\/w:rPr><w:t[^>]*>Export title<\/w:t><\/w:r>/)
+  })
+
+  it('uses headings and relaxed list spacing for structured DeepSeek summaries', async () => {
+    const archive = createArchive()
+    archive.versions[0].summaryText = [
+      '## 精准总结', '', '一句精准总结。', '- 第一项精准要点。', '- 第二项精准要点。', '',
+      '## 详细内容提要', '', '- 第一项细节。', '- 第二项细节。', '',
+      '## 精修文稿', '', '第一段精修。', '', '第二段精修。'
+    ].join('\n')
+
+    const document = createVideoNoteWord({
+      archive,
+      version: archive.versions[0],
+      scope: 'current',
+      currentContent: 'summary'
+    })
+    const buffer = await Packer.toBuffer(document)
+    const zip = await JSZip.loadAsync(buffer)
+    const xml = await zip.file('word/document.xml')?.async('string') ?? ''
+    const firstPreciseItemIndex = xml.indexOf('第一项精准要点。')
+    const closestPreciseSpacingIndex = xml.lastIndexOf('w:after="160"', firstPreciseItemIndex)
+    const firstOutlineItemIndex = xml.indexOf('第一项细节。')
+    const closestSpacingIndex = xml.lastIndexOf('w:after="160"', firstOutlineItemIndex)
+    const polishedHeadingIndex = xml.indexOf('精修文稿')
+    const firstPolishedParagraphIndex = xml.indexOf('第一段精修。')
+
+    expect(xml).toContain('<w:pStyle w:val="Heading2"/>')
+    expect(firstPreciseItemIndex).toBeGreaterThan(0)
+    expect(closestPreciseSpacingIndex).toBeGreaterThan(0)
+    expect(firstPreciseItemIndex - closestPreciseSpacingIndex).toBeLessThan(300)
+    expect(firstOutlineItemIndex).toBeGreaterThan(0)
+    expect(closestSpacingIndex).toBeGreaterThan(0)
+    expect(firstOutlineItemIndex - closestSpacingIndex).toBeLessThan(300)
+    expect(xml.slice(polishedHeadingIndex, firstPolishedParagraphIndex)).not.toContain('<w:t xml:space="preserve"> </w:t>')
+  })
+
+  it('keeps a single detailed-outline Word export as a relaxed bullet list', async () => {
+    const archive = createArchive()
+    archive.versions[0].summaryText = [
+      '## 精准总结', '', '一句精准总结。', '',
+      '## 详细内容提要', '', '- 第一项细节。', '- 第二项细节。'
+    ].join('\n')
+
+    const document = createVideoNoteWord({
+      archive,
+      version: archive.versions[0],
+      scope: 'current',
+      currentContent: 'summary-outline'
+    })
+    const buffer = await Packer.toBuffer(document)
+    const zip = await JSZip.loadAsync(buffer)
+    const xml = await zip.file('word/document.xml')?.async('string') ?? ''
+    const firstOutlineItemIndex = xml.indexOf('第一项细节。')
+    const closestSpacingIndex = xml.lastIndexOf('w:after="160"', firstOutlineItemIndex)
+
+    expect(xml).toContain('<w:numPr>')
+    expect(closestSpacingIndex).toBeGreaterThan(0)
+    expect(firstOutlineItemIndex - closestSpacingIndex).toBeLessThan(300)
+  })
+
+  it('keeps a single precise-summary Word export as a relaxed bullet list', async () => {
+    const archive = createArchive()
+    archive.versions[0].summaryText = [
+      '## 精准总结', '', '一句精准总结。', '- 第一项精准要点。', '- 第二项精准要点。'
+    ].join('\n')
+
+    const document = createVideoNoteWord({
+      archive,
+      version: archive.versions[0],
+      scope: 'current',
+      currentContent: 'summary-precise'
+    })
+    const buffer = await Packer.toBuffer(document)
+    const zip = await JSZip.loadAsync(buffer)
+    const xml = await zip.file('word/document.xml')?.async('string') ?? ''
+    const firstPreciseItemIndex = xml.indexOf('第一项精准要点。')
+    const closestSpacingIndex = xml.lastIndexOf('w:after="160"', firstPreciseItemIndex)
+
+    expect(xml).toContain('<w:numPr>')
+    expect(closestSpacingIndex).toBeGreaterThan(0)
+    expect(firstPreciseItemIndex - closestSpacingIndex).toBeLessThan(300)
   })
 })

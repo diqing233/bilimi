@@ -110,7 +110,7 @@ describe('VideoNoteArchivePanel layout styles', () => {
   it('gives archive documents a stable readable viewport instead of the legacy 160px cap', () => {
     expect(styles).not.toContain('.video-notes__result-body {\n  max-height: 160px;')
     expect(styles).toContain(
-      '.video-note-archive__result-panel .video-notes__result-body {\n  min-height: 240px;\n  max-height: none;\n  overflow: auto;'
+      '.video-note-archive__result-panel .video-notes__result-body {\n  min-height: 240px;\n  max-height: none;\n  overflow-x: hidden;\n  overflow-y: auto;'
     )
     expect(styles).toContain(
       '.video-notes__result-body ol,\n.video-notes__result-body pre,\n.video-notes__result-body .video-notes__plain-text {\n  max-height: none;\n  overflow: visible;'
