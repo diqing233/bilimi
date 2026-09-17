@@ -1317,6 +1317,9 @@ body[data-floating-window="true"],
   font-size: 11px;
   line-height: 1.35;
   text-align: left;
+  max-height: calc(var(--floating-pet-host-height) - var(--floating-pet-size) - 22px);
+  overflow: hidden;
+  overflow-y: auto;
   box-shadow: 0 8px 18px rgba(7, 26, 51, 0.18);
   transform: translateX(var(--pet-bubble-offset-x, -50%));
 }

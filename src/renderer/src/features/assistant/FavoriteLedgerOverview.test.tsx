@@ -258,6 +258,58 @@ describe('FavoriteLedgerOverview', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
   })
 
+  it('closes the expanded favorite help when the ledger workspace becomes inactive', () => {
+    const view = render(<FavoriteLedgerOverview
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+      {...({ active: true } as Record<string, boolean>)}
+    />)
+
+    const toggle = screen.getByRole('button', { name: '固定显示收藏夹说明' })
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('tooltip')).toBeVisible()
+
+    view.rerender(<FavoriteLedgerOverview
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+      {...({ active: false } as Record<string, boolean>)}
+    />)
+
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('does not open favorite help on hover or focus', () => {
+    render(<FavoriteLedgerOverview
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    const toggle = screen.getByRole('button', { name: '固定显示收藏夹说明' })
+    fireEvent.mouseEnter(toggle)
+    fireEvent.focus(toggle)
+    expect(screen.getByRole('tooltip')).not.toHaveAttribute('data-visible')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('closes favorite help on the shared sidebar help close event', () => {
+    render(<FavoriteLedgerOverview
+      ledgers={[{ id: 'music', displayName: 'bilimi·音乐', keywords: [], enabled: true, priority: 10, isDefault: false }]}
+      missingLedgerIds={[]}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    const toggle = screen.getByRole('button', { name: '固定显示收藏夹说明' })
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    act(() => window.dispatchEvent(new Event('bilimi:favorite-ledger-help-close')))
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('tooltip')).not.toHaveAttribute('data-visible')
+  })
+
   it('starts with the favorite card list expanded and folds it to three rows', () => {
     render(<FavoriteLedgerOverview ledgers={Array.from({ length: 16 }, (_, index) => ({
       id: `ledger-${index}`, displayName: `bilimi·收藏夹${index}`, keywords: [], enabled: true, priority: index, isDefault: false

@@ -39,6 +39,8 @@ import {
 } from './favoriteLedgerEnableStore'
 
 type FavoriteLedgerOverviewProps = {
+  /** Whether the owning workspace is currently visible. */
+  active?: boolean
   /** Account identity already resolved by the owning panel. */
   currentAccountMid?: string
   /** Signed-out device-local identity for the narrow saved-unbacked toggle only. */
@@ -204,6 +206,9 @@ const COLLAPSED_LEDGER_COUNT = 9
 const LEDGER_EAGER_RENDER_LIMIT = 500
 const LEDGER_TOGGLE_SAVE_DELAY_MS = 250
 const FIXED_ASSISTANT_HELP_EVENT = 'bilimi:fixed-assistant-help'
+const FAVORITE_LEDGER_WORKSPACE_ACTIVE_EVENT = 'bilimi:favorite-ledger-workspace-active'
+const FAVORITE_LEDGER_WORKSPACE_INACTIVE_EVENT = 'bilimi:favorite-ledger-workspace-inactive'
+const FAVORITE_LEDGER_HELP_CLOSE_EVENT = 'bilimi:favorite-ledger-help-close'
 
 function ruleLabel(type: FavoriteLedgerRuleType | undefined) {
   return type === 'author' ? 'UP 名字' : type === 'tag' ? '标签' : type === 'deepseek' ? 'DeepSeek约束' : '关键词'
@@ -351,7 +356,7 @@ export function preserveFavoriteLedgerOrder(
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ currentAccountMid, localFavoriteToggleAccountMid, ledgers, missingLedgerIds, unboundLedgerIds = [], remoteDirectoryState, remoteOnlyDraftLedgerIds = [], observedRemoteObservations = [], observedBoundRenameCandidates = [], remoteDiscoveryNoticeDismissed = false, onDismissRemoteDiscoveryNotice, onDismissRemoteDraftReminder, backupPreparationLedgerIds = [], organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onRemoteDraftDeleted, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
+export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, FavoriteLedgerOverviewProps>(function FavoriteLedgerOverview({ active: workspaceActive = true, currentAccountMid, localFavoriteToggleAccountMid, ledgers, missingLedgerIds, unboundLedgerIds = [], remoteDirectoryState, remoteOnlyDraftLedgerIds = [], observedRemoteObservations = [], observedBoundRenameCandidates = [], remoteDiscoveryNoticeDismissed = false, onDismissRemoteDiscoveryNotice, onDismissRemoteDraftReminder, backupPreparationLedgerIds = [], organizationActive = false, hasExpandedOrganizationGuide = false, defaultFavoriteSystemEnabled: defaultFavoriteSystemEnabledProp, openLedgerId, openLedgerRequestVersion = 0, createLedger = false, createLedgerRequestVersion = 0, onSaveLedgers, onSaveLedgerEnabled, onEnabledStateChange, onOrganizationRecommendationToggle, organizationRecommendationEnabledById, onOrganizationSavedLedgerToggle, onOrganizationSavedLedgerSelectionChange, organizationSavedLedgerEnabledById, onDeleteLedger, onRemoteDraftDeleted, onBeforeDeleteLedger, onSyncLedgers = onSaveLedgers, onBackupConfirmationFinished, draftRuleAnalysis = null, draftRuleAnalysisError = null, onAnalyzeLedgerRule, onCancelDraftRuleAnalysis }, ref) {
   const defaultFavoriteSystemEnabled = defaultFavoriteSystemEnabledProp ?? true
   const defaultSystemPreferenceExplicit = defaultFavoriteSystemEnabledProp !== undefined
   const externalLedgerSignature = JSON.stringify(ledgers)
@@ -404,6 +409,37 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
     !isRemoteOnlyDraft(ledger)
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
   const [ledgerHintVisible, setLedgerHintVisible] = useState(false)
+  const [workspaceVisible, setWorkspaceVisible] = useState(workspaceActive)
+
+  useEffect(() => {
+    setWorkspaceVisible(workspaceActive)
+    if (!workspaceActive) {
+      setLedgerHintExpanded(false)
+      setLedgerHintVisible(false)
+    }
+  }, [workspaceActive])
+  useEffect(() => {
+    const closeHintForInactiveWorkspace = () => {
+      setWorkspaceVisible(false)
+      setLedgerHintExpanded(false)
+      setLedgerHintVisible(false)
+    }
+    const restoreHintForActiveWorkspace = () => setWorkspaceVisible(true)
+    window.addEventListener(FAVORITE_LEDGER_WORKSPACE_ACTIVE_EVENT, restoreHintForActiveWorkspace)
+    window.addEventListener(FAVORITE_LEDGER_WORKSPACE_INACTIVE_EVENT, closeHintForInactiveWorkspace)
+    return () => {
+      window.removeEventListener(FAVORITE_LEDGER_WORKSPACE_ACTIVE_EVENT, restoreHintForActiveWorkspace)
+      window.removeEventListener(FAVORITE_LEDGER_WORKSPACE_INACTIVE_EVENT, closeHintForInactiveWorkspace)
+    }
+  }, [])
+  useEffect(() => {
+    const closeHelp = () => {
+      setLedgerHintExpanded(false)
+      setLedgerHintVisible(false)
+    }
+    window.addEventListener(FAVORITE_LEDGER_HELP_CLOSE_EVENT, closeHelp)
+    return () => window.removeEventListener(FAVORITE_LEDGER_HELP_CLOSE_EVENT, closeHelp)
+  }, [])
   const [ledgerHintPosition, setLedgerHintPosition] = useState({ top: 0, left: 0 })
   const ledgerHintPanelRef = useRef<HTMLElement>(null)
   const ledgerHintTriggerRef = useRef<HTMLButtonElement>(null)
@@ -1924,8 +1960,8 @@ export const FavoriteLedgerOverview = forwardRef<FavoriteLedgerOverviewHandle, F
   return <section ref={ledgerHintPanelRef} className="favorite-ledger-panel__ledger-list" aria-label="收藏夹">
     <div className="favorite-ledger-panel__workspace">
       <section className="favorite-ledger-panel__checklist" aria-label="收藏夹规则">
-        <div className="favorite-ledger-panel__category-header"><button ref={ledgerHintTriggerRef} type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title" aria-label={`${ledgerHintExpanded ? '收起' : '固定显示'}收藏夹说明`} aria-expanded={ledgerHintExpanded} aria-describedby="favorite-ledger-help-tooltip" onMouseEnter={() => setLedgerHintVisible(true)} onMouseLeave={() => { if (!ledgerHintExpanded) setLedgerHintVisible(false) }} onFocus={() => setLedgerHintVisible(true)} onBlur={() => { if (!ledgerHintExpanded) setLedgerHintVisible(false) }} onClick={() => setLedgerHintExpanded((open) => { const next = !open; setLedgerHintVisible(next); if (next) window.dispatchEvent(new CustomEvent(FIXED_ASSISTANT_HELP_EVENT, { detail: 'ledger' })); return next })}><h3>收藏夹</h3><Chevron /></button><div className="favorite-ledger-panel__category-actions" data-deletion-mode={deletionModeActive || undefined}><button type="button" disabled={isLocalToggleOnly || destructiveActionLocked} onClick={() => setResetConfirmOpen(true)}>重置</button><FavoriteLedgerEnableSummary store={deletionModeActive ? deletionStore : enableStore}>{({ allOperableEnabled }) => <button type="button" data-testid="favorite-ledger-cancel-all" disabled={isLocalToggleOnly} onClick={toggleAll}>{allOperableEnabled ? '取消全选' : '全选'}</button>}</FavoriteLedgerEnableSummary><button type="button" aria-label="备册收藏夹" disabled={isLocalToggleOnly || (!deletionModeActive && (destructiveActionLocked || !hasSelectedBackupLedger))} title={!deletionModeActive && !hasSelectedBackupLedger ? '请先勾选至少一个 bilimi 收藏夹，再备册到 B 站。' : undefined} onClick={() => void requestSync()}>{deletionModeActive ? '删除' : '备册'}</button><button type="button" className="favorite-ledger-panel__mode-toggle" aria-label={deletionModeActive ? '取消删除模式' : '展开删除模式'} title={deletionModeActive ? '取消删除 bilimi 工作夹模式' : '打开删除 bilimi 收藏夹模式'} disabled={isLocalToggleOnly} onClick={deletionModeActive ? cancelDeletionMode : enterDeletionMode}>×</button></div></div>
-        {createPortal(<div ref={ledgerHintTooltipRef} id="favorite-ledger-help-tooltip" className="favorite-ledger-panel__help-tooltip" role="tooltip" data-visible={ledgerHintVisible || undefined} style={ledgerHintPosition}>{LEDGER_SYNC_HINTS.map((hint) => <p key={hint.title}><strong className="favorite-ledger-panel__help-tooltip-title">{hint.title}</strong>{hint.detail}</p>)}</div>, document.body)}
+        <div className="favorite-ledger-panel__category-header"><button ref={ledgerHintTriggerRef} type="button" className="favorite-ledger-panel__help-toggle favorite-ledger-panel__section-title" aria-label={`${ledgerHintExpanded ? '收起' : '固定显示'}收藏夹说明`} aria-expanded={ledgerHintExpanded} aria-describedby="favorite-ledger-help-tooltip" onClick={() => setLedgerHintExpanded((open) => { const next = !open; setLedgerHintVisible(next); if (next) window.dispatchEvent(new CustomEvent(FIXED_ASSISTANT_HELP_EVENT, { detail: 'ledger' })); return next })}><h3>收藏夹</h3><Chevron /></button><div className="favorite-ledger-panel__category-actions" data-deletion-mode={deletionModeActive || undefined}><button type="button" disabled={isLocalToggleOnly || destructiveActionLocked} onClick={() => setResetConfirmOpen(true)}>重置</button><FavoriteLedgerEnableSummary store={deletionModeActive ? deletionStore : enableStore}>{({ allOperableEnabled }) => <button type="button" data-testid="favorite-ledger-cancel-all" disabled={isLocalToggleOnly} onClick={toggleAll}>{allOperableEnabled ? '取消全选' : '全选'}</button>}</FavoriteLedgerEnableSummary><button type="button" aria-label="备册收藏夹" disabled={isLocalToggleOnly || (!deletionModeActive && (destructiveActionLocked || !hasSelectedBackupLedger))} title={!deletionModeActive && !hasSelectedBackupLedger ? '请先勾选至少一个 bilimi 收藏夹，再备册到 B 站。' : undefined} onClick={() => void requestSync()}>{deletionModeActive ? '删除' : '备册'}</button><button type="button" className="favorite-ledger-panel__mode-toggle" aria-label={deletionModeActive ? '取消删除模式' : '展开删除模式'} title={deletionModeActive ? '取消删除 bilimi 工作夹模式' : '打开删除 bilimi 收藏夹模式'} disabled={isLocalToggleOnly} onClick={deletionModeActive ? cancelDeletionMode : enterDeletionMode}>×</button></div></div>
+        {workspaceActive && workspaceVisible ? createPortal(<div ref={ledgerHintTooltipRef} id="favorite-ledger-help-tooltip" className="favorite-ledger-panel__help-tooltip" role="tooltip" data-visible={ledgerHintVisible || undefined} style={ledgerHintPosition}>{LEDGER_SYNC_HINTS.map((hint) => <p key={hint.title}><strong className="favorite-ledger-panel__help-tooltip-title">{hint.title}</strong>{hint.detail}</p>)}</div>, document.body) : null}
         <div className="favorite-ledger-panel__chips">{ledgersToDisplay.map((ledger) => {
           const disabledBySystem = isSystemDisabled(ledger)
           const bindingLabel = statusLabelForLedger(ledger)

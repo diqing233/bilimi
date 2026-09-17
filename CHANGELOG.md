@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1 - 2026-09-17
+
+- Restored the fixed Xiaomiao transparent host so opening or closing the chat bubble no longer changes the native window bounds or shifts the pet position.
+- Kept transparent host pixels click-through after opening the main window, while preserving the existing drag threshold, click feedback, quick actions, and window restore behavior.
+- Improved favorite-library batch action feedback, Chinese user-facing messages, and modal interaction details included in this release.
+
 ## 1.1.0 - 2026-07-24
 
 - Added the three-column Favorite Library workspace with virtualized video rows, folder navigation, video details, selection, filtering, sorting, pagination, and operation history.

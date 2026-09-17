@@ -188,6 +188,56 @@ describe('buildAutomationScript', () => {
     expect(result.missingTargets).toEqual([])
   })
 
+  it('reports an already-full coin allocation without waiting for a dialog that Bilibili will not open', async () => {
+    document.body.innerHTML = `
+      <button aria-label="点赞">点赞</button>
+      <button aria-label="投币">投币</button>
+    `
+
+    document.querySelector('[aria-label="投币"]')?.addEventListener('click', () => {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        '<div role="status">该视频已经投过硬币了，最多投 2 枚</div>'
+      )
+    })
+
+    const result = await window.eval(
+      buildAutomationScript('赐', 'bilimi 内库', 2, undefined, favoriteLedgers, '', { skipFavorite: true })
+    )
+
+    expect(result).toMatchObject({
+      ok: true,
+      message: '未完成，投币可能已达到上限哦'
+    })
+    expect(result.steps).toContain('coin:already-full')
+    expect(result.missingTargets).toEqual([])
+  }, 10_000)
+
+  it('recognizes Bilibili\'s current coin-limit toast text', async () => {
+    document.body.innerHTML = `
+      <button aria-label="点赞">点赞</button>
+      <button aria-label="投币">投币</button>
+    `
+
+    document.querySelector('[aria-label="投币"]')?.addEventListener('click', () => {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        '<div class="bili-toast" role="status">对本稿件的投币枚数已用完</div>'
+      )
+    })
+
+    const result = await window.eval(
+      buildAutomationScript('赐', 'bilimi 内库', 2, undefined, favoriteLedgers, '', { skipFavorite: true })
+    )
+
+    expect(result).toMatchObject({
+      ok: true,
+      message: '未完成，投币可能已达到上限哦'
+    })
+    expect(result.steps).toContain('coin:already-full')
+    expect(result.missingTargets).toEqual([])
+  }, 10_000)
+
   it('selects and confirms the bilibili coin dialog when controls are not buttons', async () => {
     document.body.innerHTML = `
       <button aria-label="点赞">点赞</button>

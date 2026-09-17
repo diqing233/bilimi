@@ -48,7 +48,29 @@ function favoriteTargetLabel(args: ExecuteAssistantActionArgs): string {
     : args.favoritesFolderName.trim() || 'bilimi 收藏夹'
 }
 
-function favoriteSuccessMessage(args: ExecuteAssistantActionArgs): string {
+function coinAlreadyFull(result: AssistantAutomationResult) {
+  return result.steps.includes('coin:already-full')
+}
+
+function coinMayBeAtLimit(args: ExecuteAssistantActionArgs, result: AssistantAutomationResult) {
+  return (
+    args.action === '赐' &&
+    (result.missingTargets.includes('coin-dialog') ||
+      (args.favoriteProvisioned !== false && coinAlreadyFull(result)))
+  )
+}
+
+function coinLimitMessage(args: ExecuteAssistantActionArgs, result: AssistantAutomationResult): string | undefined {
+  if (!coinMayBeAtLimit(args, result)) {
+    return undefined
+  }
+
+  return result.ok && coinAlreadyFull(result)
+    ? '未完成，投币可能已达到上限哦；点赞与归类已按当前状态完成。'
+    : '未完成，投币可能已达到上限哦'
+}
+
+function favoriteSuccessMessage(args: ExecuteAssistantActionArgs, result: AssistantAutomationResult): string {
   const targetLabel = favoriteTargetLabel(args)
 
   if (args.favoriteProvisioned === false) {
@@ -66,13 +88,20 @@ function favoriteSuccessMessage(args: ExecuteAssistantActionArgs): string {
   }
 
   if (args.action === '赐') {
+    if (coinAlreadyFull(result)) {
+      return '未完成，投币可能已达到上限哦；点赞与归类已按当前状态完成。'
+    }
     return `已一键三连，归类存入 ${targetLabel}。`
   }
 
   return `已归类存入 ${targetLabel}。`
 }
 
-function favoritePetHint(args: ExecuteAssistantActionArgs): string | undefined {
+function favoritePetHint(args: ExecuteAssistantActionArgs, result: AssistantAutomationResult): string | undefined {
+  if (args.favoriteProvisioned !== false && args.action === '赐' && coinAlreadyFull(result)) {
+    return '未完成，投币可能已达到上限哦；点赞与归类已按当前状态完成。'
+  }
+
   if (args.favoriteProvisioned !== false || !usesFavorite(args.action)) {
     return undefined
   }
@@ -92,9 +121,10 @@ function formatActionResultMessage(
   args: ExecuteAssistantActionArgs,
   result: AssistantAutomationResult
 ): AssistantAutomationResult {
-  const message = result.ok && usesFavorite(args.action) ? favoriteSuccessMessage(args) : result.message
+  const coinMessage = coinLimitMessage(args, result)
+  const message = coinMessage ?? (result.ok && usesFavorite(args.action) ? favoriteSuccessMessage(args, result) : result.message)
   const prefix = args.resultMessagePrefix?.trim()
-  const petHint = result.ok ? favoritePetHint(args) : result.petHint
+  const petHint = coinMessage ?? (result.ok ? favoritePetHint(args, result) : result.petHint)
 
   if (!prefix) {
     return { ...result, message, petHint }

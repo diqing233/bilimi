@@ -22,3 +22,13 @@
 ## 什么时候才排查 Codex 浏览器
 
 只有在明确目标是修复或诊断 Codex 浏览器闪退时，才重新触发相关能力。排查前先收集 Windows 事件查看器、Codex 日志、崩溃转储和最小复现步骤，避免在正常功能验收中反复触发闪退。
+
+## 2026-09-17 Bilimi 宣传片验收记录
+
+- 项目：`C:\Users\diqing\Documents\Codex\2026-07-09\hyperframes\work\bilimi-bilibili-launch`
+- 输出：`C:\Users\diqing\Documents\Codex\2026-07-09\hyperframes\outputs\bilimi-bilibili-launch-v1.mp4`
+- 未使用 Codex in-app browser/browser 插件。
+- 使用 HyperFrames CLI `npm run check` 做 runtime/layout/contrast 检查。
+- 使用 HyperFrames CLI `npm run render` 导出 MP4；浏览器运行时为 HyperFrames 缓存的 `chrome-headless-shell`。
+- 使用 `C:\Users\diqing\bilimi\tools\win32\ffprobe.exe` 验证 MP4 元数据：1920x1080、30fps、42.000000s、H.264 视频流、AAC 音频流。
+- 使用 `C:\Users\diqing\bilimi\tools\win32\ffmpeg.exe` 抽取 39s 封面帧和镜头中点 9 宫格，人工核验字幕、品牌露出、角色图和 reconstructed demo UI。

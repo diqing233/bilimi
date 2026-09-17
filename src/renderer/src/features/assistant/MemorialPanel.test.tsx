@@ -219,6 +219,33 @@ describe('MemorialPanel', () => {
     expect(screen.getByText('执行日志').closest('details')).not.toHaveAttribute('open')
   })
 
+  it('localizes a missing coin dialog in feedback', () => {
+    render(
+      <MemorialPanel
+        recommendation={inboxRecommendation}
+        commentDrafts={['先留一评。']}
+        videoCategory="待分拣"
+        videoTitle="测试稿件"
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+        feedback={{
+          tone: 'error',
+          message: '未完成，投币可能已达到上限哦',
+          steps: ['like', 'coin:open'],
+          missingTargets: ['coin-dialog']
+        }}
+      />
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('未完成，投币可能已达到上限哦')
+    expect(screen.getByRole('alert')).toHaveTextContent('未得：投币弹窗')
+    expect(screen.queryByText('未得：coin-dialog')).not.toBeInTheDocument()
+  })
+
   it('passes the current video author into the notes panel', () => {
     render(
       <MemorialPanel

@@ -372,6 +372,85 @@ describe('executeAssistantAction', () => {
     expect(result.message).toBe('已一键三连，归类存入 bilimi·影视动漫。')
   })
 
+  it('keeps the completed review and explains that an already-full video was not given duplicate coins', async () => {
+    const runScript = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['like:already-liked', 'coin:open', 'coin:already-full'],
+        missingTargets: [],
+        message: '该视频投币已满，本次未重复投币。'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:favorite:list', 'api:favorite:add'],
+        missingTargets: [],
+        message: '已用 B 站接口归入 bilimi 收藏夹。'
+      })
+
+    const result = await executeAssistantAction({
+      action: '赐',
+      runScript,
+      favoritesFolderName: 'bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'movie-tv',
+      coinCount: 2
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      message: '未完成，投币可能已达到上限哦；点赞与归类已按当前状态完成。',
+      petHint: '未完成，投币可能已达到上限哦；点赞与归类已按当前状态完成。'
+    })
+  })
+
+  it('uses the coin-limit wording when Bilibili does not open a coin dialog', async () => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: false,
+      steps: ['like', 'coin:open'],
+      missingTargets: ['coin-dialog'],
+      message: '尚有 coin-dialog 未能寻见。'
+    })
+
+    const result = await executeAssistantAction({
+      action: '赐',
+      runScript,
+      favoritesFolderName: 'bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'movie-tv',
+      coinCount: 2
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: '未完成，投币可能已达到上限哦'
+    })
+  })
+
+  it('keeps the coin-limit wording when the favorite target is not provisioned', async () => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: false,
+      steps: ['like', 'coin:open'],
+      missingTargets: ['coin-dialog'],
+      message: '尚有 coin-dialog 未能寻见。'
+    })
+
+    const result = await executeAssistantAction({
+      action: '赐',
+      runScript,
+      favoritesFolderName: 'bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'movie-tv',
+      favoriteProvisioned: false,
+      coinCount: 2
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: '未完成，投币可能已达到上限哦'
+    })
+  })
+
   it('uses shortcut-driven visual favorite automation instead of the API when page clicks only are requested', async () => {
     const runScript = vi
       .fn()

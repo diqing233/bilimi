@@ -163,6 +163,7 @@ const MISSING_TARGET_LABELS: Record<string, string> = {
   coin: '投币按钮',
   'coin-open': '投币入口',
   'coin:open': '投币入口',
+  'coin-dialog': '投币弹窗',
   'coin-confirm': '投币确认按钮',
   'coin:confirm': '投币确认按钮',
   comment: '评论框',

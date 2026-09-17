@@ -2,7 +2,7 @@
 
 bilimi 是一款面向 Bilibili 浏览、收藏整理与视频资料沉淀的 Windows 桌面应用。它将内置 B 站浏览器、右侧助手、小咪桌面伴随窗口、批阅动作、视频札记、档案库、收藏夹掌库、本地音频转写和可选的 DeepSeek 能力整合在同一个应用中。
 
-当前正式版本：`1.2.0`。
+当前正式版本：`1.2.1`。
 
 > bilimi 不是 Bilibili 官方客户端，也不替代 B 站网页。登录、播放、点赞、投币、收藏等账号行为仍由 B 站页面和接口完成；bilimi 提供桌面容器、辅助入口、信息整理与本地资料能力。
 
@@ -42,19 +42,19 @@ bilimi 是一款面向 Bilibili 浏览、收藏整理与视频资料沉淀的 Wi
 
 从 GitHub Release 下载正式安装包：
 
-[下载 bilimi 1.2.0](https://github.com/diqing233/bilimi/releases/download/v1.2.0/bilimi.Setup.1.2.0.exe)
+[下载 bilimi 1.2.1](https://github.com/diqing233/bilimi/releases/download/v1.2.1/bilimi.Setup.1.2.1.exe)
 
 安装包文件名：
 
 ```text
-bilimi.Setup.1.2.0.exe
+bilimi.Setup.1.2.1.exe
 ```
 
 只建议从本仓库的 GitHub Releases 页面下载安装包，不要运行来源不明的二次打包文件。
 
 ### 安装步骤
 
-1. 下载 `bilimi.Setup.1.2.0.exe`。
+1. 下载 `bilimi.Setup.1.2.1.exe`。
 2. 双击运行安装器。
 3. 安装器会把 bilimi 安装到当前 Windows 用户环境，并创建桌面快捷方式和开始菜单快捷方式。
 4. 安装完成后，从桌面、开始菜单或安装器完成页启动 bilimi。
@@ -788,7 +788,7 @@ npm run dist:win
 `dist:win` 会重新安装锁定依赖、构建应用、准备 Electron 和媒体工具，并通过 electron-builder 生成 NSIS 安装器：
 
 ```text
-dist/bilimi.Setup.1.2.0.exe
+dist/bilimi.Setup.1.2.1.exe
 ```
 
 ### 发布前验收

@@ -7,13 +7,20 @@ type RestorableMainWindow = {
   show: () => void
 }
 
+type RestorableFloatingPet = {
+  isDestroyed: () => boolean
+  moveTop: () => void
+}
+
 type RestoreMainWindowFromPetArgs<TWindow extends RestorableMainWindow> = {
   createMainWindow: () => TWindow
+  floatingPet?: RestorableFloatingPet | null
   mainWindow: TWindow | null
 }
 
 export function restoreMainWindowFromPet<TWindow extends RestorableMainWindow>({
   createMainWindow,
+  floatingPet,
   mainWindow
 }: RestoreMainWindowFromPetArgs<TWindow>) {
   const activeWindow = !mainWindow || mainWindow.isDestroyed() ? createMainWindow() : mainWindow
@@ -27,6 +34,9 @@ export function restoreMainWindowFromPet<TWindow extends RestorableMainWindow>({
   }
 
   activeWindow.focus()
+  if (floatingPet && !floatingPet.isDestroyed()) {
+    floatingPet.moveTop()
+  }
 
   return activeWindow
 }

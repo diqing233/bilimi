@@ -51,4 +51,20 @@ describe('restoreMainWindowFromPet', () => {
     expect(existingWindow.show).toHaveBeenCalledOnce()
     expect(existingWindow.focus).toHaveBeenCalledOnce()
   })
+
+  it('raises the pet above the restored main window without changing either window position', () => {
+    const existingWindow = createWindowState()
+    const floatingPet = {
+      isDestroyed: vi.fn(() => false),
+      moveTop: vi.fn()
+    }
+
+    restoreMainWindowFromPet({
+      createMainWindow: vi.fn(),
+      mainWindow: existingWindow,
+      ...({ floatingPet } as Record<string, unknown>)
+    })
+
+    expect(floatingPet.moveTop).toHaveBeenCalledOnce()
+  })
 })

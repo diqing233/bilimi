@@ -128,6 +128,7 @@ export function AssistantSidebar({ onOpenInTab, onResizeActiveChange }: Assistan
       tone: 'sleepy',
       message: pickPetLine(PET_COLLAPSE_FAREWELL_LINES)
     })
+    window.dispatchEvent(new Event('bilimi:favorite-ledger-help-close'))
     setCollapsed(true)
     setClosing(true)
     if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)

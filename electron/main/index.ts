@@ -1239,6 +1239,7 @@ function finishFloatingSealDrag() {
 function restoreMainWindowOnly() {
   mainWindow = restoreMainWindowFromPet({
     createMainWindow,
+    floatingPet: floatingSealWindow,
     mainWindow
   })
   return mainWindow

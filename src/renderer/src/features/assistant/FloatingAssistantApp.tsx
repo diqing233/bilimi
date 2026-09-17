@@ -3030,6 +3030,17 @@ export function FloatingAssistantApp({
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
   const [ledgerWorkspaceOpened, setLedgerWorkspaceOpened] = useState(activeTab === 'ledger')
   const [settingsWorkspaceOpened, setSettingsWorkspaceOpened] = useState(activeTab === 'settings')
+
+  useEffect(() => {
+    if (activeView !== 'ledger') {
+      window.dispatchEvent(new Event('bilimi:favorite-ledger-help-close'))
+    }
+    window.dispatchEvent(new Event(
+      activeView === 'ledger'
+        ? 'bilimi:favorite-ledger-workspace-active'
+        : 'bilimi:favorite-ledger-workspace-inactive'
+    ))
+  }, [activeView])
   const [requestedLedgerId, setRequestedLedgerId] = useState<string>()
   const [requestedLedgerTitle, setRequestedLedgerTitle] = useState<string>()
   const [requestedLedgerRequestVersion, setRequestedLedgerRequestVersion] = useState(0)

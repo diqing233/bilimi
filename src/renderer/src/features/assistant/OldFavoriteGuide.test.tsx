@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -50,6 +50,49 @@ describe('OldFavoriteGuide DeepSeek browsing', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('does not open organizing help on hover or focus', () => {
+    render(<OldFavoriteGuide
+      snapshot={null} loading={false} reconciling={false} scanStarting={false} scanStartFailure={null}
+      step="scan" onStepChange={vi.fn()} onRetryScan={vi.fn()} onRetryScanDirect={vi.fn()} onRebuildWorkspace={vi.fn()}
+      onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()} onResumeTagEnrichment={vi.fn()}
+      onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onSetRecommendedCandidates={vi.fn()}
+      ledgers={[]} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
+      onRetryFailedDeepSeekChunks={vi.fn()} onCancelDeepSeek={vi.fn()} deepSeekCancelRequested={false}
+      onUndoClassification={vi.fn()} onRedoClassification={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    const toggle = screen.getByRole('button', { name: '固定显示整理收藏说明' })
+    fireEvent.mouseEnter(toggle)
+    fireEvent.focus(toggle)
+    expect(screen.getByRole('tooltip')).not.toHaveAttribute('data-visible')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('closes organizing help when the ledger workspace becomes inactive', () => {
+    render(<OldFavoriteGuide
+      snapshot={null} loading={false} reconciling={false} scanStarting={false} scanStartFailure={null}
+      step="scan" onStepChange={vi.fn()} onRetryScan={vi.fn()} onRetryScanDirect={vi.fn()} onRebuildWorkspace={vi.fn()}
+      onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()} onResumeTagEnrichment={vi.fn()}
+      onRetryFailedTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()} onSetRecommendedCandidates={vi.fn()}
+      ledgers={[]} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
+      onRetryFailedDeepSeekChunks={vi.fn()} onCancelDeepSeek={vi.fn()} deepSeekCancelRequested={false}
+      onUndoClassification={vi.fn()} onRedoClassification={vi.fn()} onMoveHistoryCursor={vi.fn()}
+      onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    const toggle = screen.getByRole('button', { name: '固定显示整理收藏说明' })
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    act(() => window.dispatchEvent(new Event('bilimi:favorite-ledger-workspace-inactive')))
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('tooltip')).not.toHaveAttribute('data-visible')
   })
 
   it('uses round-level metrics while scanning basic video information', () => {

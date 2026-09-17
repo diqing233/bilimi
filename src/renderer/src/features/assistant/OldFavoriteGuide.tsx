@@ -96,6 +96,8 @@ const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
 
 const wholeRunSelectValue = '__whole-run__'
 const FIXED_ASSISTANT_HELP_EVENT = 'bilimi:fixed-assistant-help'
+const FAVORITE_LEDGER_WORKSPACE_INACTIVE_EVENT = 'bilimi:favorite-ledger-workspace-inactive'
+const FAVORITE_LEDGER_HELP_CLOSE_EVENT = 'bilimi:favorite-ledger-help-close'
 
 const ORGANIZING_GUIDE_HINTS: OrganizingGuideHint[] = [
   { label: '小咪提醒：', detail: [{ text: '同一个视频可以保存在多个收藏夹里。整理收藏会把视频复制添加到 bilimi 收藏夹，不会移出原有的普通 B 站收藏夹，主人放心使用吧～（bilimi 收藏夹和分类视频支持删除，但需谨慎操作呦）' }] },
@@ -197,6 +199,18 @@ export function OldFavoriteGuide({
     window.addEventListener(FIXED_ASSISTANT_HELP_EVENT, closeWhenAnotherHelpIsFixed)
     return () => window.removeEventListener(FIXED_ASSISTANT_HELP_EVENT, closeWhenAnotherHelpIsFixed)
   }, [])
+  useEffect(() => {
+    const closeHelp = () => {
+      setGuideHintExpanded(false)
+      setGuideHintVisible(false)
+    }
+    window.addEventListener(FAVORITE_LEDGER_WORKSPACE_INACTIVE_EVENT, closeHelp)
+    window.addEventListener(FAVORITE_LEDGER_HELP_CLOSE_EVENT, closeHelp)
+    return () => {
+      window.removeEventListener(FAVORITE_LEDGER_WORKSPACE_INACTIVE_EVENT, closeHelp)
+      window.removeEventListener(FAVORITE_LEDGER_HELP_CLOSE_EVENT, closeHelp)
+    }
+  }, [])
   const guideHintTooltipRef = useRef<HTMLDivElement>(null)
   const [viewScope, setViewScope] = useState<OldFavoriteViewScope>('current')
   const initializedMultiBatchWorkspaceIdRef = useRef<string | null>(null)
@@ -289,8 +303,6 @@ export function OldFavoriteGuide({
             aria-label={`${guideHintExpanded ? '收起' : '固定显示'}整理收藏说明`}
             aria-expanded={guideHintExpanded}
             aria-describedby="favorite-organization-help-tooltip"
-            onMouseEnter={() => setGuideHintVisible(true)} onMouseLeave={() => { if (!guideHintExpanded) setGuideHintVisible(false) }}
-            onFocus={() => setGuideHintVisible(true)} onBlur={() => { if (!guideHintExpanded) setGuideHintVisible(false) }}
             onClick={() => setGuideHintExpanded((expanded) => { const next = !expanded; setGuideHintVisible(next); if (next) window.dispatchEvent(new CustomEvent(FIXED_ASSISTANT_HELP_EVENT, { detail: 'organization' })); return next })}><h3>整理收藏</h3><Chevron /></button>
       </div>
       {!recovery && snapshot && snapshot.segments.length > 1 ? <label className="favorite-ledger-panel__guide-segment-select">

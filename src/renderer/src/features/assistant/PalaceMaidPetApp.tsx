@@ -316,6 +316,8 @@ export function PalaceMaidPetApp() {
       stopCloseHoverCrying()
       setClosePromptVisible(false)
       setChatOpen(false)
+      interactiveHoverCount.current = 0
+      window.bilimiDesktop?.setFloatingSealMouseTransparent?.(true)
       clearPetHoverPreview()
     }
 

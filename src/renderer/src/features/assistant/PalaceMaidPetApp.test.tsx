@@ -1854,6 +1854,41 @@ describe('PalaceMaidPetApp', () => {
     expect(api.setFloatingSealMouseTransparent).toHaveBeenLastCalledWith(false)
   })
 
+  it('restores click-through when opening Bilimi makes the pet window lose focus', () => {
+    const api = installDesktopApi({
+      setFloatingSealMouseTransparent: vi.fn()
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    const pet = screen.getByRole('button', { name: '打开 bilimi，小咪在这里' })
+    fireEvent.pointerEnter(pet)
+    expect(api.setFloatingSealMouseTransparent).toHaveBeenLastCalledWith(false)
+
+    fireEvent.click(pet)
+    fireEvent(window, new Event('blur'))
+
+    expect(api.setFloatingSealMouseTransparent).toHaveBeenLastCalledWith(true)
+  })
+
+  it('keeps the native pet host geometry stable while the pet chat opens and closes', async () => {
+    const api = installDesktopApi()
+    const setFloatingSealHostExpanded = vi.fn()
+    Object.assign(api, { setFloatingSealHostExpanded })
+
+    const { container } = render(<PalaceMaidPetApp />)
+    const shell = container.querySelector('.palace-maid-pet-shell') as HTMLElement
+
+    expect(shell.style.getPropertyValue('--floating-pet-host-height')).toBe('')
+
+    fireEvent.click(await screen.findByRole('button', { name: '打开小咪对话' }))
+    expect(shell.style.getPropertyValue('--floating-pet-host-height')).toBe('')
+
+    fireEvent(window, new Event('blur'))
+    expect(shell.style.getPropertyValue('--floating-pet-host-height')).toBe('')
+    expect(setFloatingSealHostExpanded).not.toHaveBeenCalled()
+  })
+
   it('reports native hit-test regions so a transparent pet window can recover before pointerenter', async () => {
     vi.useFakeTimers()
     const updateFloatingSealInteractiveRegions = vi.fn()

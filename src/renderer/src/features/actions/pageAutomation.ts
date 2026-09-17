@@ -260,6 +260,45 @@ export function buildAutomationScript(
           ['确定', '确认', '投币']
         );
 
+      const coinLimitNoticeSelectors = [
+        '[role="status"]',
+        '[role="alert"]',
+        '.bili-toast',
+        '[class*="toast"]',
+        '[class*="Toast"]',
+        '[class*="notice"]',
+        '[class*="Notice"]',
+        '[class*="tip"]',
+        '[class*="Tip"]'
+      ].join(',');
+
+      const captureCoinLimitNotices = () => new Map(
+        Array.from(document.querySelectorAll(coinLimitNoticeSelectors))
+          .filter((node) => isVisibleCandidate(node))
+          .map((node) => [node, nodeSearchText(node)])
+      );
+
+      const isCoinLimitNotice = (text) =>
+        /(已投过硬币|已经投过硬币|投币已满|投币上限|硬币已满|投币枚数已用完|投币数已用完|投币额度已用完|最多投.{0,4}(硬币|币|枚))/.test(normalize(text));
+
+      const queryNewCoinLimitNotice = (beforeClickNotices) =>
+        Array.from(document.querySelectorAll(coinLimitNoticeSelectors))
+          .filter((node) => isVisibleCandidate(node))
+          .find((node) => {
+            const currentText = nodeSearchText(node);
+            return isCoinLimitNotice(currentText) && beforeClickNotices.get(node) !== currentText;
+          }) || null;
+
+      const waitForCoinDialogOrLimit = async (beforeClickNotices, attempts = 20) => {
+        for (let index = 0; index < attempts; index += 1) {
+          const coinDialog = queryCoinDialog();
+          if (coinDialog) return { coinDialog, alreadyFull: false };
+          if (queryNewCoinLimitNotice(beforeClickNotices)) return { coinDialog: null, alreadyFull: true };
+          await wait(100);
+        }
+        return { coinDialog: null, alreadyFull: false };
+      };
+
       const commentSubmitSelectors = [
         'button',
         '[role="button"]',
@@ -1140,22 +1179,29 @@ export function buildAutomationScript(
       }
 
       if (payload.action === '赐' && likeCompleted) {
+        const coinLimitNoticesBeforeClick = captureCoinLimitNotices();
         const coinOpened = click(await waitForElement(queryCoinButton, 'coin'), 'coin:open');
         if (coinOpened) {
           const desiredCoinCount = String(payload.coinCount ?? 1);
-          const coinDialog = await waitForElement(queryCoinDialog, 'coin-dialog');
-          const coinChoice = await waitForElement(
-            () => queryCoinOption(coinDialog, desiredCoinCount),
-            'coin-option'
-          );
-          click(coinChoice, 'coin:' + desiredCoinCount);
-          click(
-            await waitForElement(
-              () => queryCoinConfirm(coinDialog),
-              'coin-confirm'
-            ),
-            'coin:confirm'
-          );
+          const coinFlow = await waitForCoinDialogOrLimit(coinLimitNoticesBeforeClick);
+          if (coinFlow.alreadyFull) {
+            steps.push('coin:already-full');
+          } else if (coinFlow.coinDialog) {
+            const coinChoice = await waitForElement(
+              () => queryCoinOption(coinFlow.coinDialog, desiredCoinCount),
+              'coin-option'
+            );
+            click(coinChoice, 'coin:' + desiredCoinCount);
+            click(
+              await waitForElement(
+                () => queryCoinConfirm(coinFlow.coinDialog),
+                'coin-confirm'
+              ),
+              'coin:confirm'
+            );
+          } else {
+            missingTargets.push('coin-dialog');
+          }
         }
       }
 
@@ -1173,7 +1219,9 @@ export function buildAutomationScript(
         ok: success,
         steps,
         missingTargets,
-        message: success && payload.action === '表' && !payload.submitComment
+        message: success && steps.includes('coin:already-full')
+          ? '未完成，投币可能已达到上限哦'
+          : success && payload.action === '表' && !payload.submitComment
           ? '弹幕已填好，请主人确认后按 Enter 发送。'
           : success ? '奏折批阅已成。' : '尚有 ' + missingTargets.join('、') + ' 未能寻见。'
       };
